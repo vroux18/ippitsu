@@ -162,6 +162,7 @@ func _ready() -> void:
 	menu.atelier_pressed.connect(_on_atelier)
 	menu.worlds_pressed.connect(_open_worlds)
 	menu.resume_pressed.connect(_on_resume)
+	menu.restart_pressed.connect(_on_restart)
 	hud.pause_pressed.connect(_on_pause)
 	music = Music.new()
 	add_child(music)
@@ -337,8 +338,17 @@ func _on_pause() -> void:
 	var w: Dictionary = Worlds.world(current_world)
 	menu.world_kanji = String(w.kanji)
 	menu.world_color = w.color
+	menu.stat_room = maxi(room, 1)
+	menu.stat_combo = chain
+	menu.stat_time = run_time
 	state = "paused"
 	menu.show_mode("pause")
+
+
+func _on_restart() -> void:
+	sfx.play("slash", 0.8, -4.0)
+	_start()
+	_set_state("play")
 
 
 func _on_resume() -> void:

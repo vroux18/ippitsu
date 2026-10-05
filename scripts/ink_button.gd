@@ -1,18 +1,21 @@
 extends Control
-## Bouton dessiné : pilule d'encre (principal), contour (secondaire) ou rond à icône.
+## Bouton dessiné : principal (encre, liseré vermillon), secondaire clair (ghost), secondaire sur fond sombre (ghost_dark)
+## ou rond à icône. Une icône peut accompagner le texte (lead_icon).
 
 const Toon = preload("res://scripts/toon.gd")
 
 signal pressed
 
 var text := ""
-var style := "primary"  # primary | ghost | round
+var style := "primary"  # primary | ghost | ghost_dark | round
+var lead_icon := ""  # icône dessinée à gauche du texte (play, replay, home…)
 var icon := ""  # sound_on | sound_off | home | replay
 var font: Font
 var font_size := 34
 var _down := false
 var _press := 0.0
 var _box := StyleBoxFlat.new()
+var _icon_col := Toon.SUMI
 
 
 func _ready() -> void:
@@ -40,34 +43,41 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	var k := 1.0 - 0.05 * _press
+	var k := 1.0 - 0.04 * _press
 	var r := Rect2(size * (1.0 - k) / 2.0, size * k)
+	var rad := int(minf(r.size.y * 0.34, 22.0 * r.size.y / 60.0))
+	_box.set_corner_radius_all(rad)
+	_box.set_border_width_all(0)
+	_box.shadow_size = 0
 	match style:
 		"primary":
-			_box.bg_color = Color(Toon.SUMI, 0.22)
-			_box.border_width_left = 0
-			_box.border_width_right = 0
-			_box.border_width_top = 0
-			_box.border_width_bottom = 0
-			draw_style_box(_box, Rect2(r.position + Vector2(0, 7 * (1.0 - _press)), r.size))
-			_box.bg_color = Toon.SUMI
+			# ombre portée, corps d'encre, reflet haut, liseré vermillon à gauche
+			_box.bg_color = Color(0, 0, 0, 0.28)
+			draw_style_box(_box, Rect2(r.position + Vector2(0, 5 * (1.0 - _press)), r.size))
+			_box.bg_color = Toon.SUMI.lightened(0.06 * (1.0 - _press))
 			draw_style_box(_box, r)
-			# petit coup de vermillon sur le bord gauche
-			draw_circle(r.position + Vector2(r.size.y * 0.5, r.size.y * 0.5), r.size.y * 0.13, Toon.VERMILION)
+			draw_rect(Rect2(r.position + Vector2(rad, 2), Vector2(r.size.x - rad * 2, 2)), Color(1, 1, 1, 0.08))
+			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.22), Vector2(4, r.size.y * 0.56)), Toon.VERMILION)
 			_label(r, Toon.WASHI)
 		"ghost":
-			_box.bg_color = Color(Toon.WASHI, 0.65)
-			_box.border_color = Toon.SUMI
-			_box.set_border_width_all(3)
+			_box.bg_color = Color(Toon.WASHI, 0.92)
+			_box.border_color = Color(Toon.SUMI, 0.85)
+			_box.set_border_width_all(2)
 			draw_style_box(_box, r)
 			_label(r, Toon.SUMI)
+		"ghost_dark":
+			_box.bg_color = Color(1, 1, 1, 0.06 + 0.08 * _press)
+			_box.border_color = Color(Toon.WASHI, 0.55)
+			_box.set_border_width_all(2)
+			draw_style_box(_box, r)
+			_label(r, Toon.WASHI)
 		"round":
 			var c := r.get_center()
-			var rad := minf(r.size.x, r.size.y) / 2.0
-			draw_circle(c, rad, Color(Toon.WASHI, 0.85))
-			draw_arc(c, rad - 1.5, 0, TAU, 40, Color(Toon.SUMI, 0.85), 3.0, true)
-			_icon(c, rad * 0.5)
-
+			var rr := minf(r.size.x, r.size.y) / 2.0
+			draw_circle(c + Vector2(0, 2), rr, Color(0, 0, 0, 0.2))
+			draw_circle(c, rr, Color(Toon.WASHI, 0.95))
+			draw_arc(c, rr - 1.0, 0, TAU, 40, Color(Toon.SUMI, 0.75), 2.0, true)
+			_icon(c, rr * 0.5)
 
 func _label(r: Rect2, c: Color) -> void:
 	if text == "" or font == null or font_size <= 0:
@@ -75,12 +85,22 @@ func _label(r: Rect2, c: Color) -> void:
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var asc := font.get_ascent(font_size)
 	var desc := font.get_descent(font_size)
-	var pos := Vector2(r.get_center().x - w / 2.0, r.get_center().y + (asc - desc) / 2.0)
+	var isz := font_size * 0.42
+	var lead := isz * 2.6 if lead_icon != "" else 0.0
+	var x := r.get_center().x - (w + lead) / 2.0
+	if lead_icon != "":
+		var keep := icon
+		icon = lead_icon
+		_icon_col = c
+		_icon(Vector2(x + isz, r.get_center().y), isz)
+		_icon_col = Toon.SUMI
+		icon = keep
+	var pos := Vector2(x + lead, r.get_center().y + (asc - desc) / 2.0)
 	draw_string(font, pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, c)
 
 
 func _icon(c: Vector2, s: float) -> void:
-	var ink := Toon.SUMI
+	var ink := _icon_col
 	match icon:
 		"sound_on", "sound_off":
 			var body := PackedVector2Array([c + Vector2(-s, -s * 0.4), c + Vector2(-s * 0.45, -s * 0.4),
@@ -102,6 +122,10 @@ func _icon(c: Vector2, s: float) -> void:
 			draw_rect(Rect2(c + Vector2(-s * 0.8, -s * 0.55), Vector2(s * 1.6, s * 1.1)), Color(ink, 0.25))
 			draw_rect(Rect2(c + Vector2(-s * 0.95, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
 			draw_rect(Rect2(c + Vector2(s * 0.7, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
+		"replay":
+			draw_arc(c, s * 0.8, -0.3, PI * 1.55, 20, ink, s * 0.24, true)
+			var tip := c + Vector2.from_angle(-0.3) * s * 0.8
+			draw_colored_polygon(PackedVector2Array([tip + Vector2(-s * 0.45, -s * 0.15), tip + Vector2(s * 0.35, -s * 0.35), tip + Vector2(0, s * 0.4)]), ink)
 		"home":
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-s, -s * 0.05), c + Vector2(0, -s), c + Vector2(s, -s * 0.05)]), ink)
 			draw_rect(Rect2(c + Vector2(-s * 0.7, -s * 0.1), Vector2(s * 1.4, s * 0.95)), ink)

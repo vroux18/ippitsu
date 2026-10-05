@@ -12,6 +12,7 @@ signal sound_toggled(muted: bool)
 signal atelier_pressed
 signal worlds_pressed
 signal resume_pressed
+signal restart_pressed
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -42,6 +43,7 @@ var _atelier: Control
 var _worlds: Control
 var _resume: Control
 var _quit: Control
+var _restart: Control
 
 
 func _ready() -> void:
@@ -67,8 +69,15 @@ func _ready() -> void:
 	_worlds.pressed.connect(func(): worlds_pressed.emit())
 	_resume = _button("REPRENDRE", "primary")
 	_resume.pressed.connect(func(): resume_pressed.emit())
-	_quit = _button("ABANDONNER", "ghost")
+	_resume.lead_icon = "play"
+	_restart = _button("RECOMMENCER", "ghost")
+	_restart.lead_icon = "replay"
+	_restart.pressed.connect(func(): restart_pressed.emit())
+	_quit = _button("QUITTER", "ghost")
+	_quit.lead_icon = "home"
 	_quit.pressed.connect(func(): home_pressed.emit())
+	_play.lead_icon = "play"
+	_replay.lead_icon = "replay"
 	show_mode("home")
 
 
@@ -105,6 +114,7 @@ func _process(delta: float) -> void:
 	_worlds.visible = mode == "over" and _t > 0.9
 	_resume.visible = mode == "pause"
 	_quit.visible = mode == "pause"
+	_restart.visible = mode == "pause"
 	_sound.visible = mode == "home" or mode == "pause"
 	_atelier.visible = mode == "home"
 	_sound.icon = "sound_off" if muted else "sound_on"
@@ -135,15 +145,22 @@ func _process(delta: float) -> void:
 	_home.position = Vector2(w / 2.0 + 6 * u, by + bh + 14 * u)
 	_home.modulate.a = over_in
 	# pause
-	_resume.size = Vector2(bw, bh)
-	_resume.position = Vector2((w - bw) / 2.0, h * 0.5)
-	_resume.font_size = int(24 * u)
-	_quit.size = Vector2(w * 0.5, 46 * u)
-	_quit.position = Vector2((w - w * 0.5) / 2.0, h * 0.5 + bh + 16 * u)
+	# pause : boutons empilés dans la carte
+	var pc := _pause_card()
+	var pw := pc.size.x - 48 * u
+	var px := pc.position.x + 24 * u
+	_resume.size = Vector2(pw, 58 * u)
+	_resume.position = Vector2(px, pc.position.y + 206 * u)
+	_resume.font_size = int(20 * u)
+	_restart.size = Vector2(pw, 48 * u)
+	_restart.position = Vector2(px, pc.position.y + 278 * u)
+	_restart.font_size = int(15 * u)
+	_quit.size = Vector2(pw, 48 * u)
+	_quit.position = Vector2(px, pc.position.y + 338 * u)
 	_quit.font_size = int(15 * u)
 
 	_sound.size = Vector2(44, 44) * u
-	_sound.position = Vector2(w - 60 * u, 22 * u) if mode == "home" else Vector2((w - 44 * u) / 2.0, h * 0.5 + bh + 80 * u)
+	_sound.position = Vector2(w - 60 * u, 22 * u) if mode == "home" else Vector2(pc.end.x - 56 * u, pc.position.y + 14 * u)
 	queue_redraw()
 
 
@@ -292,14 +309,54 @@ func _draw_results() -> void:
 		_text(_ui, "NOUVEAU RECORD", Vector2(cx, ly + 62 * u), int(12 * u), Color(Toon.GOLD, gk * a))
 
 
-## Pause : le jeu figé sous un voile d'encre.
+## Carte de la pause (au centre de l'écran).
+func _pause_card() -> Rect2:
+	var w := size.x
+	var h := size.y
+	var u := w / 400.0
+	var cw := minf(w * 0.86, 360.0 * u)
+	return Rect2(Vector2((w - cw) / 2.0, h * 0.5 - 205 * u), Vector2(cw, 410 * u))
+
+
+## Pause : voile d'encre, carte de papier avec le sceau du monde, la partie en cours et les boutons.
 func _draw_pause() -> void:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
-	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.SUMI, 0.55))
-	_text(_title, "PAUSE", Vector2(w / 2.0, h * 0.36), int(44 * u), Toon.WASHI)
-	_text(TITLE_FONT, world_kanji, Vector2(w / 2.0, h * 0.27), int(30 * u), world_color.lightened(0.3))
+	var a := _ease_out(clampf(_t / 0.25, 0.0, 1.0))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Color("#100D10"), 0.8 * a))
+	var card := _pause_card()
+	card.position.y += 16 * u * (1.0 - a)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Color("#F4EDDC"), a)
+	sb.set_corner_radius_all(int(18 * u))
+	sb.shadow_color = Color(0, 0, 0, 0.5 * a)
+	sb.shadow_size = int(24 * u)
+	sb.shadow_offset = Vector2(0, 8 * u)
+	draw_style_box(sb, card)
+	# bande de couleur du monde en haut de la carte
+	var band := StyleBoxFlat.new()
+	band.bg_color = Color(world_color, a)
+	band.corner_radius_top_left = int(18 * u)
+	band.corner_radius_top_right = int(18 * u)
+	draw_style_box(band, Rect2(card.position, Vector2(card.size.x, 8 * u)))
+	# sceau et titre
+	var seal := Rect2(Vector2(card.get_center().x - 26 * u, card.position.y + 30 * u), Vector2(52, 52) * u)
+	var ss := StyleBoxFlat.new()
+	ss.bg_color = Color(world_color, a)
+	ss.set_corner_radius_all(int(10 * u))
+	draw_style_box(ss, seal)
+	_text(TITLE_FONT, world_kanji, Vector2(seal.get_center().x, seal.get_center().y + 13 * u), int(34 * u), Color(Toon.WASHI, a))
+	_text(_title, "PAUSE", Vector2(card.get_center().x, card.position.y + 124 * u), int(32 * u), Color(Toon.SUMI, a))
+	# la partie en cours
+	var cols := [["SALLE", "%d / 9" % stat_room], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	for i in cols.size():
+		var cx := card.position.x + card.size.x * (0.2 + 0.3 * i)
+		_text(_ui, String(cols[i][0]), Vector2(cx, card.position.y + 156 * u), int(10 * u), Color(Toon.SUMI, 0.5 * a))
+		_text(TITLE_FONT, String(cols[i][1]), Vector2(cx, card.position.y + 182 * u), int(19 * u), Color(Toon.SUMI, a))
+		if i > 0:
+			var lx := card.position.x + card.size.x * (0.05 + 0.3 * i)
+			draw_line(Vector2(lx, card.position.y + 146 * u), Vector2(lx, card.position.y + 186 * u), Color(Toon.SUMI, 0.12 * a), 1.5 * u)
 
 func _brush(p0: Vector2, p1: Vector2, wdt: float, c: Color) -> void:
 	var d := p1 - p0
