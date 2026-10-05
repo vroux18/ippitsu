@@ -12,6 +12,10 @@ const Decor = preload("res://scripts/decor.gd")
 const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
+const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashadokuro": preload("res://scripts/boss_gasha.gd"),
+	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
+const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
+const Music = preload("res://scripts/music.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
 const Arena = preload("res://scripts/arena.gd")
@@ -110,6 +114,8 @@ var _room_done := false
 var _rebuilt := false
 var worldmap: Control
 var _ending_victory := false
+var _final_boss: Node3D
+var music: Node
 var max_combo := 0
 var run_time := 0.0
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
@@ -145,6 +151,8 @@ func _ready() -> void:
 	menu.worlds_pressed.connect(_open_worlds)
 	menu.resume_pressed.connect(_on_resume)
 	hud.pause_pressed.connect(_on_pause)
+	music = Music.new()
+	add_child(music)
 	hazards = Hazards.new()
 	hazards.main = self
 	add_child(hazards)
@@ -225,14 +233,17 @@ func _set_state(s: String) -> void:
 	match s:
 		"menu":
 			menu.show_mode("home")
+			music.play_menu()
 			hero.face(Vector3(0, 0, 1))
 			hero.snap_facing()
 		"intro":
 			menu.show_mode("hidden")
+			music.play_world(current_world)
 			hero.face(Vector3(0, 0, -1))
 		"play":
 			menu.show_mode("hidden")
 			if room == 0:
+				music.play_world(current_world)
 				var wd: Dictionary = Worlds.world(current_world)
 				hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":
@@ -255,6 +266,10 @@ func _open_worlds() -> void:
 		state = "worlds"
 		var unlocked: int = 5 if UNLOCK_ALL else int(meta.unlocked)
 		worldmap.open(Worlds.WORLDS, unlocked, meta.world_best, current_world)
+
+
+func _on_world_chosen_music(id: int) -> void:
+	music.prepare(id)
 
 
 func _on_world_chosen(id: int) -> void:
@@ -516,7 +531,7 @@ func _begin_room() -> void:
 		_spawn_boss("okappa")
 	elif room == ROOMS:
 		list = []
-		_spawn_boss("uwabami")
+		_final_boss = _spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
 	# découpe en vagues : 40 % / 35 % / 25 %
 	_waves_left = []
 	var n := list.size()
@@ -531,8 +546,8 @@ func _begin_room() -> void:
 	wave_index = 1
 	if room == 5:
 		hud.banner("Ō-KAPPA", "GARDIEN DE LA SALLE 5", Toon.VERMILION, 2.2)
-	elif room == ROOMS:
-		hud.banner("UWABAMI", "LE SERPENT DE MER", Toon.VERMILION, 2.4)
+	elif room == ROOMS and _final_boss != null:
+		hud.banner(String(_final_boss.title).to_upper(), "GARDIEN DU MONDE", Toon.VERMILION, 2.4)
 	elif room > 1:
 		hud.banner("SALLE %d" % room, "", Toon.SUMI, 1.3)
 	_spawn_list(first)
@@ -550,8 +565,8 @@ func _weighted_kind(weights: Dictionary) -> String:
 			return String(k)
 	return "oni"
 
-func _spawn_boss(k: String) -> void:
-	var b := Boss.new()
+func _spawn_boss(k: String) -> Node3D:
+	var b: Node3D = BOSS_SCRIPTS[k].new() if BOSS_SCRIPTS.has(k) else Boss.new()
 	b.setup(k, self)
 	if k == "okappa":
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
@@ -560,6 +575,7 @@ func _spawn_boss(k: String) -> void:
 	bosses.append(b)
 	sfx.play("strike", 0.5)
 	shake = 0.4
+	return b
 
 
 func spawn_minions(list: Array) -> void:
