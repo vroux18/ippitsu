@@ -121,7 +121,7 @@ func _ready() -> void:
 	var rm := search.find("room=")
 	if rm >= 0:
 		_set_state("play")
-		room = clampi(int(search.substr(rm + 5)), 1, ROOMS) - 1
+		room = clampi(int(search.substr(rm + 5).get_slice("&", 0)), 1, ROOMS) - 1
 		_begin_room()
 	if OS.has_feature("web") and "pick" in str(JavaScriptBridge.eval("location.search", true)):
 		_set_state("play")
