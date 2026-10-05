@@ -1329,9 +1329,9 @@ func pad_rect() -> Rect2:
 	return Rect2(Vector2(vs.x * 0.05, vs.y * 0.71), Vector2(vs.x * 0.9, vs.y * 0.2))
 
 
-## Geste dans le pad -> déplacement au sol : la largeur du pad couvre ~11 m (haut de l'écran = vers le fond).
+## Geste dans le pad -> déplacement au sol : la largeur du pad couvre ~15 m (haut de l'écran = vers le fond).
 func _pad_to_world(d: Vector2) -> Vector3:
-	var k := 11.0 / maxf(pad_rect().size.x, 1.0)
+	var k := 15.0 / maxf(pad_rect().size.x, 1.0)
 	return Vector3(d.x, 0, d.y) * k
 
 
