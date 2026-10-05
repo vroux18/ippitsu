@@ -157,25 +157,20 @@ func _build_world() -> void:
 	e.background_color = Toon.WASHI
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.86, 0.9, 1.0)
-	e.ambient_light_energy = 0.42
+	e.ambient_light_energy = 0.36
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	# brume d'estampe : le lointain (Fuji, îlots) se fond dans le papier
 	e.fog_enabled = true
 	e.fog_light_color = Toon.WASHI
-	e.fog_density = 0.006
+	e.fog_density = 0.0028
 	e.fog_sky_affect = 0.0
-	# halo doux sur ce qui brille (soleil, lanternes, éclairs de coup)
-	e.glow_enabled = true
-	e.glow_intensity = 0.6
-	e.glow_bloom = 0.05
-	e.glow_hdr_threshold = 1.1
 	env.environment = e
 	add_child(env)
 
 	# soleil chaud et rasant qui projette de vraies ombres
 	var sun := DirectionalLight3D.new()
 	sun.rotation = Vector3(deg_to_rad(-52), deg_to_rad(-38), 0)
-	sun.light_energy = 1.25
+	sun.light_energy = 0.95
 	sun.light_color = Color(1.0, 0.9, 0.78)
 	sun.shadow_enabled = true
 	sun.shadow_blur = 1.5
@@ -250,6 +245,7 @@ func _build_world() -> void:
 	for wc in woods:
 		var wm := Toon.mat(wc, false)
 		wm.rim_enabled = false
+		wm.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
 		wood_mats.append(wm)
 	var pw := 0.62
 	var count := int(deck.x * 2 / pw)
