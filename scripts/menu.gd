@@ -247,6 +247,9 @@ func _draw_home() -> void:
 	draw_style_box(halo, r)
 	# compteur d'encre (par-dessus le voile du haut)
 	_draw_ink_counter(Vector2(20, 30) * u, u)
+	# numéro de version : pour vérifier que l'appli est bien à jour
+	var ver := "v" + str(ProjectSettings.get_setting("application/config/version", "dev"))
+	_text(_ui, ver, Vector2(w - 34 * u, h - 12 * u), int(10 * u), Color(Toon.SUMI, 0.45))
 
 
 ## Compteur d'encre : un bâton d'encre et le nombre.

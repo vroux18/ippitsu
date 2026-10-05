@@ -71,6 +71,8 @@ jobs:
           cp ~/.config/godot/editor_settings-$minor.tres ~/.config/godot/editor_settings-4.tres
           # numéro de version croissant : l'APK s'installe par-dessus le précédent
           sed -i -E "s/^version\/code=.*/version\/code=${{ github.run_number }}/; s/^version\/name=.*/version\/name=\"0.1.${{ github.run_number }}\"/" export_presets.cfg
+          # même numéro dans le jeu (affiché en bas de l'accueil)
+          sed -i -E 's/^config\/name="Ippitsu"/config\/name="Ippitsu"\nconfig\/version="0.1.${{ github.run_number }}"/' project.godot
 
       - name: Musique (fabriquée une fois, en OGG)
         run: |

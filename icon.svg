@@ -1,6 +1,42 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <rect width="256" height="256" rx="48" fill="#EFE6D2"/>
-  <circle cx="128" cy="128" r="74" fill="#D7372B"/>
-  <path d="M40 196 C 90 150, 150 110, 222 50 L 228 60 C 160 124, 100 166, 48 206 Z" fill="#1B1A1E"/>
-  <path d="M30 214 Q 64 196 96 204 Q 70 208 40 222 Z" fill="#1B1A1E" opacity="0.6"/>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0E1A2E"/>
+      <stop offset="0.65" stop-color="#1F3A5F"/>
+      <stop offset="1" stop-color="#2C4D74"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0.55" stop-color="#EFE6D2" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#EFE6D2" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="frame"><rect width="256" height="256" rx="56"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="256" height="256" fill="url(#sky)"/>
+    <!-- lune pleine, halo et bandes de nuages façon estampe -->
+    <circle cx="164" cy="92" r="78" fill="url(#glow)"/>
+    <circle cx="164" cy="92" r="54" fill="#EFE6D2"/>
+    <circle cx="150" cy="80" r="9" fill="#E2D6BD"/>
+    <circle cx="180" cy="104" r="6" fill="#E2D6BD"/>
+    <path d="M96 104 C 128 96, 152 110, 190 102 S 236 98, 256 104 L 256 113 C 230 108, 210 114, 186 112 S 128 106, 96 113 Z" fill="#1F3A5F" opacity="0.85"/>
+    <path d="M120 70 C 150 64, 176 74, 214 66 L 214 72 C 186 78, 156 70, 124 76 Z" fill="#1F3A5F" opacity="0.6"/>
+    <!-- mont Fuji : flancs bleu de Prusse, sommet enneigé -->
+    <path d="M-10 256 L 78 150 Q 92 136 104 132 L 128 132 Q 142 136 156 150 L 266 256 Z" fill="#33577F"/>
+    <path d="M78 150 Q 92 136 104 132 L 128 132 Q 142 136 156 150 L 146 154 L 136 146 L 126 158 L 116 146 L 106 157 L 96 146 L 88 155 Z" fill="#E9EEF0"/>
+    <path d="M-10 256 L 78 150 L 60 256 Z" fill="#284766" opacity="0.6"/>
+    <!-- branche de pin à l'encre devant la lune -->
+    <path d="M256 128 C 230 126, 205 130, 176 140 C 168 143, 160 147, 150 152 L 152 156 C 166 150, 182 146, 200 142 C 220 138, 240 138, 256 140 Z" fill="#1B1A1E"/>
+    <path d="M214 136 c 6 -10 18 -14 30 -12 c -8 4 -14 8 -16 14 Z" fill="#1B1A1E"/>
+    <path d="M186 143 c 2 -9 10 -16 22 -18 c -6 5 -10 10 -11 17 Z" fill="#1B1A1E"/>
+    <!-- tout petit ninja accroupi sur la branche, foulard vermillon -->
+    <g transform="translate(170 132)">
+      <path d="M-7 8 L -4 -4 L 5 -4 L 8 8 Z" fill="#1B1A1E"/>
+      <circle cx="0" cy="-8" r="5.2" fill="#1B1A1E"/>
+      <rect x="-4.6" y="-9.2" width="9.2" height="2.2" rx="1" fill="#EFE6D2"/>
+      <path d="M4 -9 C 12 -12, 18 -8, 24 -12 C 20 -6, 13 -6, 4 -6 Z" fill="#D7372B"/>
+      <path d="M-3 -2 L -16 -14" stroke="#E9EEF0" stroke-width="1.6" stroke-linecap="round"/>
+    </g>
+    <!-- trait de pinceau vermillon -->
+    <path d="M26 214 C 70 196, 118 190, 170 194 C 128 200, 82 210, 34 226 Z" fill="#D7372B" opacity="0.9"/>
+  </g>
 </svg>
