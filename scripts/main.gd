@@ -182,6 +182,9 @@ func _ready() -> void:
 	if rm >= 0:
 		_set_state("play")
 		room = clampi(int(search.substr(rm + 5).get_slice("&", 0)), 1, ROOMS) - 1
+		arena.build_room(room + 1, ROOMS, randi())
+		hero.position = arena.start
+		_prev_hero = hero.position
 		_begin_room()
 	if OS.has_feature("web") and "pick" in str(JavaScriptBridge.eval("location.search", true)):
 		_set_state("play")
