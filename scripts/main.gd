@@ -8,6 +8,7 @@ const InkStroke = preload("res://scripts/ink_stroke.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Menu = preload("res://scripts/menu.gd")
+const Decor = preload("res://scripts/decor.gd")
 const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
@@ -270,24 +271,45 @@ func _build_world() -> void:
 			var z := lerpf(-deck.y, deck.y, k / 4.0)
 			Toon.part(world, Toon.cyl(0.14, 0.14, 0.9), post, Vector3(sx * (deck.x + 0.05), -0.3, z))
 
-	# torii vermillon au fond de l'arène
-	var red := Toon.mat(Toon.VERMILION)
-	var black := Toon.mat(Toon.SUMI)
-	var tz := -deck.y - 0.2
-	Toon.part(world, Toon.cyl(0.16, 0.19, 3.2), red, Vector3(-2.2, 1.6, tz))
-	Toon.part(world, Toon.cyl(0.16, 0.19, 3.2), red, Vector3(2.2, 1.6, tz))
-	Toon.part(world, Toon.box(Vector3(5.2, 0.22, 0.28)), red, Vector3(0, 2.6, tz))
-	Toon.part(world, Toon.box(Vector3(6.2, 0.26, 0.42)), black, Vector3(0, 3.25, tz))
-	Toon.part(world, Toon.box(Vector3(0.3, 0.6, 0.2)), red, Vector3(0, 2.95, tz))
+	# torii vermillon et corde sacrée au fond de l'arène
+	Decor.torii(world, Vector3(0, 0, -deck.y - 0.2))
+	Decor.rope_shimenawa(world, Vector3(-2.05, 2.3, -9.08), Vector3(2.05, 2.3, -9.08))
 
-	# lanternes de pierre aux coins proches
-	var stone := Toon.mat(Color("#9C978C"))
+	# lanternes de pierre aux quatre coins, lanternes de papier sur les bords
 	for sx in [-1.0, 1.0]:
-		var base := Vector3(sx * (deck.x - 0.45), 0, deck.y - 0.45)
-		Toon.part(world, Toon.cyl(0.18, 0.24, 0.5), stone, base + Vector3(0, 0.25, 0))
-		Toon.part(world, Toon.box(Vector3(0.42, 0.32, 0.42)), stone, base + Vector3(0, 0.66, 0))
-		Toon.part(world, Toon.box(Vector3(0.22, 0.16, 0.44)), Toon.mat(Toon.GOLD, false), base + Vector3(0, 0.66, 0))
-		Toon.part(world, Toon.cyl(0.0, 0.38, 0.28, 4), stone, base + Vector3(0, 0.96, 0))
+		Decor.stone_lantern(world, Vector3(sx * 4.65, 0, 8.65))
+		Decor.stone_lantern(world, Vector3(sx * 4.7, 0, -8.7))
+		for z in [-3.0, 3.0]:
+			var pl := Decor.paper_lantern(world, Vector3(sx * 5.0, 0, z), 1.0, Toon.VERMILION if z < 0 else Toon.WASHI)
+			pl.rotation.y = 0.0 if sx > 0 else PI
+
+	# rochers, cerisiers, pin et bambous dans l'eau autour du ponton
+	Decor.rock(world, Vector3(-6.0, -0.55, -6.5), 1.6, 1)
+	Decor.rock(world, Vector3(6.3, -0.55, -2.0), 1.2, 2)
+	Decor.rock(world, Vector3(-6.4, -0.55, 3.5), 0.9, 3)
+	Decor.rock(world, Vector3(6.0, -0.55, 6.5), 1.3, 4)
+	Decor.rock(world, Vector3(5.6, -0.55, 1.0), 0.55, 5)
+	Decor.rock(world, Vector3(-5.6, -0.55, -2.2), 0.6, 6)
+	Decor.rock(world, Vector3(-7.0, -0.55, -10.5), 2.2, 7)
+	Decor.sakura(world, Vector3(-7.0, 0.1, -10.5), 1.3, 1)
+	Decor.rock(world, Vector3(7.2, -0.55, -11.0), 2.0, 8)
+	Decor.pine(world, Vector3(7.2, 0.05, -11.0), 1.2, 2)
+	Decor.rock(world, Vector3(6.8, -0.55, -5.5), 1.8, 9)
+	Decor.sakura(world, Vector3(6.8, 0.1, -5.5), 1.0, 4)
+	Decor.rock(world, Vector3(-6.6, -0.55, -1.5), 1.6, 10)
+	Decor.bamboo(world, Vector3(-6.6, -0.05, -1.5), 1.0, 3)
+
+	# au large : la Grande Vague de Kanagawa et des îlots à pins
+	var w1 := Decor.great_wave(world, Vector3(-24, -0.55, -48), 2.6, 1)
+	w1.rotation.y = 0.6
+	var w2 := Decor.great_wave(world, Vector3(32, -0.55, -75), 3.5, 2)
+	w2.rotation.y = -0.5
+	Decor.island(world, Vector3(14, -0.55, -30), 1.4, 1)
+	Decor.island(world, Vector3(-34, -0.55, -70), 2.4, 2)
+	Decor.island(world, Vector3(45, -0.55, -110), 3.0, 3)
+
+	# pétales de cerisier qui dérivent sur l'arène
+	Decor.petals(world, AABB(Vector3(-5.5, 0.0, -10.0), Vector3(11.0, 4.5, 20.0)))
 
 
 func _fit_camera() -> void:
