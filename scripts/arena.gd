@@ -33,6 +33,7 @@ var _gate: Node3D
 var _gate_ring: MeshInstance3D
 var _void_mat: StandardMaterial3D
 var _t := 0.0
+var _batches := {}  # matériau -> transformations des tuiles du sol
 
 
 func _ready() -> void:
@@ -95,6 +96,7 @@ func build_room(room: int, rooms: int, rng_seed: int) -> void:
 	var w: Dictionary = Worlds.world(world_id)
 	for r in rects:
 		_build_ground(r, w, rng)
+	_flush_tiles()
 	Worlds.build_props(world_id, _room_root, rects, rng_seed)
 	# départ au sud de la plateforme la plus basse, sortie au nord de la plus haute
 	var low: Rect2 = rects[0]
@@ -159,8 +161,7 @@ func _build_ground(r: Rect2, w: Dictionary, rng: RandomNumberGenerator) -> void:
 				# veines d'or dans la roche noire
 				var gold := Toon.mat(Toon.GOLD, false)
 				for i in int(r.size.x * r.size.y / 6.0):
-					var vein := _tile(Vector3(rng.randf_range(0.4, 1.2), 0.012, 0.05), Vector3(rng.randf_range(r.position.x + 0.3, r.end.x - 0.3), 0.003, rng.randf_range(r.position.y + 0.3, r.end.y - 0.3)), gold)
-					vein.rotation.y = rng.randf() * PI
+					_tile(Vector3(rng.randf_range(0.4, 1.2), 0.012, 0.05), Vector3(rng.randf_range(r.position.x + 0.3, r.end.x - 0.3), 0.003, rng.randf_range(r.position.y + 0.3, r.end.y - 0.3)), gold, rng.randf() * PI)
 		"snow":
 			_tile(Vector3(r.size.x, 0.1, r.size.y), Vector3(c.x, -0.05, c.y), mats[0])
 			for i in int(r.size.x * r.size.y / 5.0):
@@ -178,10 +179,30 @@ func _build_ground(r: Rect2, w: Dictionary, rng: RandomNumberGenerator) -> void:
 				st.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
-func _tile(size: Vector3, pos: Vector3, m: Material) -> MeshInstance3D:
-	var t := Toon.part(_room_root, Toon.box(size), m, pos)
-	t.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return t
+## Une tuile du sol (planche, dalle…) : on les regroupe par matériau, dessinées d'un seul coup.
+func _tile(size: Vector3, pos: Vector3, m: Material, rot_y := 0.0) -> void:
+	if not _batches.has(m):
+		_batches[m] = []
+	var b := Basis(Vector3.UP, rot_y).scaled(size)
+	_batches[m].append(Transform3D(b, pos))
+
+
+func _flush_tiles() -> void:
+	var unit := BoxMesh.new()
+	for m in _batches.keys():
+		var list: Array = _batches[m]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = unit
+		mm.instance_count = list.size()
+		for i in list.size():
+			mm.set_instance_transform(i, list[i])
+		var mi := MultiMeshInstance3D.new()
+		mi.multimesh = mm
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_room_root.add_child(mi)
+	_batches.clear()
 
 
 func _build_gate(_w: Dictionary) -> void:

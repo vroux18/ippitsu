@@ -15,7 +15,7 @@ const Boss = preload("res://scripts/boss.gd")
 const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashadokuro": preload("res://scripts/boss_gasha.gd"),
 	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
-const Music = preload("res://scripts/music.gd")
+const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
 const Arena = preload("res://scripts/arena.gd")
@@ -178,6 +178,7 @@ func _ready() -> void:
 	# `?world=N` (web) : ouvre directement le monde N
 	var wsearch := str(JavaScriptBridge.eval("location.search", true)) if OS.has_feature("web") else ""
 	var wpos := wsearch.find("world=")
+	hud.show_fps = "fps" in wsearch
 	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, 5) if wpos >= 0 else 1)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)

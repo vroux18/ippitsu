@@ -41,4 +41,13 @@ textures/vram_compression/import_etc2_astc=true
 anti_aliasing/quality/msaa_3d=2
 lights_and_shadows/directional_shadow/size=2048
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
+; web et téléphones : ombres plus légères, anticrénelage FXAA au lieu du MSAA
+anti_aliasing/quality/msaa_3d.web=0
+anti_aliasing/quality/msaa_3d.mobile=0
+anti_aliasing/quality/screen_space_aa.web=1
+anti_aliasing/quality/screen_space_aa.mobile=1
+lights_and_shadows/directional_shadow/size.web=1024
+lights_and_shadows/directional_shadow/size.mobile=1024
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.web=0
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=0
 environment/defaults/default_clear_color=Color(0.937, 0.902, 0.824, 1)

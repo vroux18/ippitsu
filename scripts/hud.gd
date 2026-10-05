@@ -33,6 +33,7 @@ var world_color := Toon.PRUSSIAN
 var combo := 0
 var enemy_bars: Array = []  # [position écran, ratio de vie]
 var in_play := false
+var show_fps := false  # `?fps` dans l'adresse web
 # compatibilité (anciens noms encore écrits par main)
 var slow := 0.0
 var game_over := false
@@ -163,6 +164,9 @@ func _draw() -> void:
 		drip.append(Vector2(sz.x, 0))
 		drip.append(Vector2(0, 0))
 		draw_colored_polygon(drip, Color(Toon.SUMI, 0.85 * dying))
+
+	if show_fps:
+		draw_string(UI_FONT, Vector2(10 * u, sz.y - 12 * u), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Toon.VERMILION)
 
 	# rideau d'encre : un grand coup de pinceau qui balaie l'écran
 	if wipe > 0.001:

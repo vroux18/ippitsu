@@ -72,6 +72,13 @@ jobs:
           # numéro de version croissant : l'APK s'installe par-dessus le précédent
           sed -i -E "s/^version\/code=.*/version\/code=${{ github.run_number }}/; s/^version\/name=.*/version\/name=\"0.1.${{ github.run_number }}\"/" export_presets.cfg
 
+      - name: Musique (fabriquée une fois, en OGG)
+        run: |
+          godot --headless --path . --script tools/bake_music.gd
+          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -c:a libvorbis -q:a 3 "${f%.wav}.ogg"; rm "$f"; done
+          ls -la assets/music
+
       - name: Import du projet
         run: godot --headless --path . --import || true
 
