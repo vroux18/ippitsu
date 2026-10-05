@@ -132,6 +132,7 @@ func _draw() -> void:
 	_draw_sign(w, u)
 	_draw_counters(w, u)
 	_draw_scrolls(w, h, u)
+	_draw_suzuri(w, h, u)
 	_draw_back(u)
 
 
@@ -169,7 +170,7 @@ func _draw_room(w: float, h: float, u: float) -> void:
 ## Enseigne de bois gravée, suspendue à la poutre.
 func _draw_sign(w: float, u: float) -> void:
 	var a := _ease(_t / 0.5)
-	var sw := 210.0 * u
+	var sw := 236.0 * u
 	var sh := 62.0 * u
 	var sy := 34.0 * u - 20.0 * u * (1.0 - a)
 	var sx := (w - sw) / 2.0
@@ -191,11 +192,11 @@ func _draw_sign(w: float, u: float) -> void:
 	var fs := int(30 * u)
 	var txt := "ATELIER"
 	var tw := _title.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var tp := Vector2(plank.get_center().x - tw / 2.0, plank.get_center().y + fs * 0.36)
+	var tp := Vector2(plank.get_center().x - tw / 2.0 - 10 * u, plank.get_center().y + fs * 0.36)
 	draw_string(_title, tp + Vector2(0, 1.5 * u), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0, 0, 0, 0.45 * a))
 	draw_string(_title, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Color("#EBD9B0"), a))
 	# petit sceau vermillon cloué sur l'enseigne
-	var seal := Rect2(plank.end - Vector2(30, 26) * u, Vector2(22, 22) * u)
+	var seal := Rect2(Vector2(plank.end.x - 34 * u, plank.get_center().y - 11 * u), Vector2(22, 22) * u)
 	draw_rect(seal, Color(Toon.VERMILION, a))
 	var kfs := int(15 * u)
 	var kw := TITLE_FONT.get_string_size("墨", HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
@@ -370,6 +371,29 @@ func _stick(c: Vector2, s: float, a: float, light := false) -> void:
 	var r := Rect2(c - Vector2(s * 0.35, s), Vector2(s * 0.7, s * 2.0))
 	draw_rect(r, Color(Toon.WASHI if light else Toon.SUMI, a))
 	draw_rect(r, Color(Toon.GOLD, a), false, maxf(1.0, s * 0.12))
+
+
+## Sur le tatami : la pierre à encre (suzuri), son bâton et un pinceau posé.
+func _draw_suzuri(w: float, h: float, u: float) -> void:
+	var a := _ease((_t - 0.4) / 0.5)
+	var c := Vector2(w * 0.5, h * 0.9)
+	var stone := Rect2(c - Vector2(46, 22) * u, Vector2(92, 44) * u)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Color("#1A1A1F"), a)
+	sb.set_corner_radius_all(int(10 * u))
+	sb.shadow_color = Color(0, 0, 0, 0.3 * a)
+	sb.shadow_size = int(6 * u)
+	draw_style_box(sb, stone)
+	# l'encre liquide au fond de la pierre, avec un reflet
+	draw_circle(stone.position + Vector2(24, 22) * u, 14 * u, Color(Color("#05050A"), a))
+	draw_arc(stone.position + Vector2(24, 22) * u, 10 * u, -2.4, -1.4, 8, Color(1, 1, 1, 0.25 * a), 1.5 * u)
+	_stick(stone.position + Vector2(64, 22) * u, 12.0 * u, a)
+	# pinceau posé en biais
+	var b0 := c + Vector2(70, 18) * u
+	var b1 := c + Vector2(150, -6) * u
+	draw_line(b0, b1, Color(Color("#8A6A3E"), a), 6 * u, true)
+	draw_line(b0, b0 + (b0 - b1).normalized() * 18 * u, Color(Toon.SUMI, a), 8 * u, true)
+	draw_circle(b1, 3.5 * u, Color(Toon.VERMILION, a))
 
 
 ## Retour : un ensō d'encre avec une flèche tracée au pinceau.
