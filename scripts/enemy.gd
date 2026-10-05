@@ -132,6 +132,27 @@ func danger_zone() -> Array:
 	return []
 
 
+## Dégâts « indirects » (brûlure, foudre, feu) : pas de recul ni d'animation de coup.
+func hurt_dot(dmg: float) -> bool:
+	if dead or _spawn > 0.0:
+		return false
+	hp -= dmg
+	_flash = maxf(_flash, 0.05)
+	if hp <= 0.0:
+		dead = true
+		_cancel_attack()
+		_timer = 0.0
+		ch.hold()
+		ch.play_once("Death_C_Skeletons", 1.6, 0.05)
+		return true
+	return false
+
+
+func push(v: Vector3) -> void:
+	if kind != "brute":
+		_knock += v
+
+
 func _cancel_attack() -> void:
 	_state = "recover"
 	_timer = 0.6

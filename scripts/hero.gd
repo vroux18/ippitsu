@@ -12,6 +12,7 @@ const RADIUS := 0.35
 const INK := Color("#34333D")
 
 var max_hp := 5
+var speed_mult := 1.0  # bonus de vitesse de ruée (pouvoirs)
 var hp := 5
 var dashing := false
 var dead := false
@@ -100,7 +101,7 @@ func reset_pose() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	if dashing:
-		var move := DASH_SPEED * delta
+		var move := DASH_SPEED * speed_mult * delta
 		while move > 0.0 and path_i < path.size():
 			var target := path[path_i]
 			var to := target - position

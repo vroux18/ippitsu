@@ -1,5 +1,5 @@
 extends Node3D
-## Boucle du prototype : un doigt posé = ralenti, on trace, on lâche = ruée qui tranche.
+## Boucle de jeu : on trace, on lâche = ruée qui tranche. 9 salles, un rouleau à choisir entre chaque.
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -9,6 +9,9 @@ const Sfx = preload("res://scripts/sfx.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Menu = preload("res://scripts/menu.gd")
 const Decor = preload("res://scripts/decor.gd")
+const Powers = preload("res://scripts/powers.gd")
+const Picker = preload("res://scripts/picker.gd")
+const ROOMS := 9
 const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
@@ -32,7 +35,7 @@ var enemies: Array = []
 var bullets: Array = []
 var effects: Array = []
 
-var elan := ELAN_MAX
+var elan := 14.0
 var touching := false
 var touch_start := Vector3.ZERO
 var stroke: MeshInstance3D
@@ -61,6 +64,12 @@ var _state_t := 0.0
 var _menu_slash := 3.0
 var _water_mat: StandardMaterial3D
 
+var powers: Node
+var picker: Control
+var room := 0
+var _room_queue: Array = []
+var _stroke_kills := 0
+
 
 func _ready() -> void:
 	randomize()
@@ -79,6 +88,15 @@ func _ready() -> void:
 	menu.play_pressed.connect(_on_play)
 	menu.home_pressed.connect(_on_home)
 	menu.sound_toggled.connect(_on_sound)
+	powers = Powers.new()
+	powers.main = self
+	add_child(powers)
+	var pick_layer := CanvasLayer.new()
+	pick_layer.layer = 3
+	add_child(pick_layer)
+	picker = Picker.new()
+	pick_layer.add_child(picker)
+	picker.picked.connect(_on_picked)
 	_load()
 	get_viewport().size_changed.connect(_fit_camera)
 	_start()
@@ -381,9 +399,12 @@ func _start() -> void:
 	hero.position = Vector3(0, 0, HALF.y - 2.5)
 	hero.dash_finished.connect(_on_dash_finished)
 	_prev_hero = hero.position
-	elan = ELAN_MAX
+	elan = elan_max()
 	wave = 0
 	wave_wait = 0.8
+	room = 0
+	_room_queue = []
+	powers.reset()
 	game_over = false
 	touching = false
 	hud.game_over = false
@@ -394,22 +415,45 @@ func _start() -> void:
 	_fit_camera()
 
 
-func _spawn_wave() -> void:
-	wave += 1
+func elan_max() -> float:
+	return ELAN_MAX + powers.elan_bonus()
+
+
+## Salle suivante : budget d'ennemis croissant, en deux vagues (60 % puis 40 %).
+func _begin_room() -> void:
+	room += 1
+	wave = room
 	safety = true
-	var oni := 1 + wave
-	var kappa := 0 if wave < 2 else (wave) / 2
-	var brute := 0 if wave < 3 else (wave - 1) / 2
-	var list := []
-	for i in oni:
-		list.append("oni")
-	for i in kappa:
-		list.append("kappa")
-	for i in brute:
+	var budget := 4 + 2 * room
+	var list: Array = []
+	if room >= 3:
 		list.append("brute")
+		budget -= 3
+	if room == 5 or room == ROOMS:
+		list.append("brute")
+		budget -= 3
+	while budget > 0:
+		var r := randf()
+		if room >= 2 and r < 0.3 and budget >= 2:
+			list.append("kappa")
+			budget -= 2
+		elif room >= 4 and r < 0.4 and budget >= 3:
+			list.append("brute")
+			budget -= 3
+		else:
+			list.append("oni")
+			budget -= 1
+	list.shuffle()
+	var first := int(ceil(list.size() * 0.6))
+	_room_queue = list.slice(first)
+	_spawn_list(list.slice(0, first))
+	sfx.play("strike", 0.7, -2.0)
+
+
+func _spawn_list(list: Array) -> void:
 	for k in list:
 		var e := Enemy.new()
-		e.setup(k, hero, self)
+		e.setup(String(k), hero, self)
 		var p := Vector3.ZERO
 		for attempt in 30:
 			p = Vector3(randf_range(-HALF.x + 0.8, HALF.x - 0.8), 0, randf_range(-HALF.y + 0.8, HALF.y - 3.0))
@@ -419,6 +463,130 @@ func _spawn_wave() -> void:
 		add_child(e)
 		enemies.append(e)
 
+
+func _room_cleared() -> void:
+	if touching and stroke:
+		stroke.queue_free()
+		stroke = null
+	touching = false
+	for b in bullets:
+		b.node.queue_free()
+	bullets.clear()
+	if room >= ROOMS:
+		_victory()
+		return
+	var ids: Array = powers.offer()
+	var infos: Array = []
+	for id in ids:
+		infos.append(powers.describe(id))
+	_set_state("pick")
+	picker.open(ids, infos)
+	sfx.play("shot", 0.6)
+
+
+func _on_picked(id: String) -> void:
+	powers.add(id)
+	sfx.play("slash", 1.2, -4.0)
+	elan = elan_max()
+	_set_state("play")
+	_begin_room()
+
+
+func _victory() -> void:
+	game_over = true
+	hud.best_wave = room
+	menu.victory = true
+	menu.new_record = room > record
+	if room > record:
+		record = room
+		_save()
+	menu.best = record
+	hero.invuln = 999.0
+	_set_state("over")
+
+
+# ------------------------------------------------------------------ aides pour les pouvoirs
+
+func damage_enemy(e: Node3D, dmg: float, fx := true) -> void:
+	if not is_instance_valid(e) or e.dead:
+		return
+	var killed: bool = e.hurt_dot(dmg)
+	if fx:
+		_splash(e.position, Toon.GOLD, 5)
+	if killed:
+		powers.on_kill(e)
+		sfx.play("kill", randf_range(1.1, 1.3), -6.0)
+		_splash(e.position, Toon.VERMILION, 14)
+		_blot(e.position, Toon.VERMILION, 0.45, 2.5)
+
+
+func nearest_enemies(pos: Vector3, r: float, n: int, exclude: Node3D) -> Array:
+	var found: Array = []
+	for e in enemies:
+		if not is_instance_valid(e) or e.dead or e == exclude or e.is_harmless():
+			continue
+		var d := Vector2(e.position.x - pos.x, e.position.z - pos.z).length()
+		if d <= r:
+			found.append([d, e])
+	found.sort_custom(func(a, b): return a[0] < b[0])
+	var out: Array = []
+	for i in mini(n, found.size()):
+		out.append(found[i][1])
+	return out
+
+
+func heal(n: int) -> void:
+	hero.hp = mini(hero.max_hp, hero.hp + n)
+	float_text(hero.position, "+%d" % n, Toon.VERMILION)
+
+
+func zap(a: Vector3, b: Vector3) -> void:
+	var n := Node3D.new()
+	add_child(n)
+	var mid := (a + b) / 2.0 + Vector3(0, 0.9, 0)
+	n.position = mid
+	var d := b - a
+	d.y = 0
+	n.rotation.y = atan2(-d.x, -d.z)
+	var m := Toon.flat(Color(Toon.GOLD, 1.0))
+	Toon.part(n, Toon.box(Vector3(0.08, 0.08, d.length())), m, Vector3.ZERO)
+	effects.append({"node": n, "t": 0.0, "life": 0.22, "kind": "fade", "mats": [m], "alpha": 1.0})
+
+
+func fire_ring(pos: Vector3, r: float) -> void:
+	_blot(pos, Color(Toon.GOLD, 0.55), r, 0.8)
+	_splash(pos, Toon.GOLD, 16)
+
+
+func fire_trail_fx(points: PackedVector3Array, dur: float) -> void:
+	var n := Node3D.new()
+	add_child(n)
+	var mats: Array = []
+	var acc := 0.0
+	for i in range(1, points.size()):
+		acc += points[i].distance_to(points[i - 1])
+		if acc < 0.45:
+			continue
+		acc = 0.0
+		var d := Toon.disc(n, randf_range(0.28, 0.4), Color(Toon.GOLD, 0.5), 0.05)
+		d.position = Vector3(points[i].x, 0.05, points[i].z)
+		mats.append(d.material_override)
+	effects.append({"node": n, "t": 0.0, "life": dur, "kind": "fade", "mats": mats, "alpha": 0.5})
+
+
+func float_text(pos: Vector3, text: String, color: Color) -> void:
+	var l := Label3D.new()
+	l.text = text
+	l.font_size = 110
+	l.pixel_size = 0.006
+	l.modulate = color
+	l.outline_modulate = Toon.SUMI
+	l.outline_size = 20
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.position = pos + Vector3(0, 2.2, 0)
+	add_child(l)
+	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
 func clamp_to_arena(n: Node3D, r: float) -> void:
 	n.position.x = clampf(n.position.x, -HALF.x + r, HALF.x - r)
@@ -503,14 +671,15 @@ func _touch_up(sp: Vector2) -> void:
 		# petit coup de doigt : bond d'esquive
 		var flick := (_ground(sp) - touch_start) * REL
 		flick.y = 0
-		if flick.length() > 0.12 and elan >= DODGE_COST:
+		if flick.length() > 0.12 and elan >= powers.dodge_cost(DODGE_COST):
 			var s: MeshInstance3D = stroke
-			var end := _clamp_point(origin + flick.normalized() * DODGE_DIST)
-			s.extend_to(end, DODGE_DIST)
-			elan -= DODGE_COST
+			var dd: float = powers.dodge_dist(DODGE_DIST)
+			var end := _clamp_point(origin + flick.normalized() * dd)
+			s.extend_to(end, dd)
+			elan -= powers.dodge_cost(DODGE_COST)
 			_launch(s)
 		else:
-			elan = minf(ELAN_MAX, elan + stroke.length)
+			elan = minf(elan_max(), elan + stroke.length)
 			stroke.queue_free()
 	stroke = null
 
@@ -531,7 +700,10 @@ func _launch(s: MeshInstance3D) -> void:
 		hero.start_dash(s.points)
 	stroke_id += 1
 	combo = 0
+	_stroke_kills = 0
 	_prev_hero = hero.position
+	hero.speed_mult = powers.dash_mult()
+	powers.on_stroke_release(s.points)
 	sfx.play("whoosh", randf_range(0.9, 1.1))
 
 
@@ -539,8 +711,9 @@ func _on_dash_finished() -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = null
+	powers.on_dash_end(hero.position, _stroke_kills)
 	if combo >= 3:
-		elan = ELAN_MAX
+		elan = elan_max()
 
 
 # ------------------------------------------------------------------ combat
@@ -612,10 +785,11 @@ func _hurt_hero() -> void:
 	_splash(hero.position, Toon.SUMI, 14)
 	if hero.hp <= 0:
 		game_over = true
-		hud.best_wave = wave
-		menu.new_record = wave > record
-		if wave > record:
-			record = wave
+		hud.best_wave = room
+		menu.victory = false
+		menu.new_record = room > record
+		if room > record:
+			record = room
 			_save()
 		menu.best = record
 		_set_state("over")
@@ -645,8 +819,12 @@ func _check_slashes() -> void:
 			combo += 1
 			var dmg := 1.0 * (1.0 + 0.5 * (combo - 1))
 			var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
+			dmg = powers.on_hit(e, dmg, dir)
 			var killed: bool = e.take_hit(dmg, dir)
-			elan = minf(ELAN_MAX, elan + ELAN_PER_HIT)
+			if killed:
+				_stroke_kills += 1
+				powers.on_kill(e)
+			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			hitstop = maxf(hitstop, 0.085 if killed else 0.06)
 			shake = maxf(shake, 0.28 if killed else 0.18)
 			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
@@ -802,7 +980,7 @@ func _process(_delta: float) -> void:
 	var dt := real * Engine.time_scale
 
 	if not touching and not hero.dashing:
-		elan = minf(ELAN_MAX, elan + ELAN_REGEN * real)
+		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * real)
 
 	_check_slashes()
 	_update_bullets(dt)
@@ -814,11 +992,23 @@ func _process(_delta: float) -> void:
 			enemies.remove_at(i)
 	_state_t += real
 	_water_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * real
-	if state == "play" and enemies.is_empty():
-		wave_wait -= real
-		if wave_wait <= 0.0:
-			_spawn_wave()
-			wave_wait = 1.2
+	if state == "play":
+		powers.update(dt)
+		var alive := 0
+		for e in enemies:
+			if is_instance_valid(e) and not e.dead:
+				alive += 1
+		if not _room_queue.is_empty() and alive <= 1:
+			_spawn_list(_room_queue)
+			_room_queue = []
+		elif enemies.is_empty() and _room_queue.is_empty():
+			wave_wait -= real
+			if wave_wait <= 0.0:
+				wave_wait = 0.8
+				if room == 0:
+					_begin_room()
+				else:
+					_room_cleared()
 
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
@@ -843,7 +1033,7 @@ func _process(_delta: float) -> void:
 
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp
-	hud.elan = elan / ELAN_MAX
+	hud.elan = elan / elan_max()
 	if touching and stroke != null:
 		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted

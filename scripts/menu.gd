@@ -14,6 +14,7 @@ var mode := "home"  # home | over | hidden
 var best := 0
 var last := 0
 var new_record := false
+var victory := false
 var muted := false
 
 var _t := 0.0  # temps réel depuis l'affichage
@@ -160,7 +161,7 @@ func _draw_home() -> void:
 	# record
 	if best > 0:
 		var ra := _ease_out(clampf((_t - 0.8) / 0.5, 0.0, 1.0))
-		_text(_ui, "RECORD  ·  VAGUE %d" % best, Vector2(w / 2.0, h * 0.8 + 64 * u + 34 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
+		_text(_ui, "RECORD  ·  SALLE %d / 9" % best, Vector2(w / 2.0, h * 0.8 + 64 * u + 34 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
 
 	# halo qui respire autour du bouton
 	var pulse := 0.5 + 0.5 * sin(_t * 3.0)
@@ -178,8 +179,10 @@ func _draw_over() -> void:
 	var h := size.y
 	var u := w / 400.0
 	var a := _ease_out(clampf((_t - 1.1) / 0.4, 0.0, 1.0))
-	var txt := "NOUVEAU RECORD" if new_record else "RECORD  ·  VAGUE %d" % best
-	var c := Toon.GOLD if new_record else Color(Toon.SUMI, 0.6)
+	var txt := "NOUVEAU RECORD" if new_record else "RECORD  ·  SALLE %d / 9" % best
+	if victory:
+		txt = "VICTOIRE"
+	var c := Toon.GOLD if new_record or victory else Color(Toon.SUMI, 0.6)
 	_text(_ui, txt, Vector2(w / 2.0, h * 0.7 - 26 * u), int(13 * u), Color(c, c.a * a))
 
 
