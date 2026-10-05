@@ -136,7 +136,6 @@ func _draw_home() -> void:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
-	_draw_ink_counter(Vector2(20, 30) * u, u)
 
 	# voile washi en haut (lisibilité du titre) et en bas (bouton)
 	var top := PackedColorArray([Color(Toon.WASHI, 0.95), Color(Toon.WASHI, 0.95), Color(Toon.WASHI, 0.0), Color(Toon.WASHI, 0.0)])
@@ -185,6 +184,8 @@ func _draw_home() -> void:
 	halo.set_border_width_all(int(2 * u))
 	halo.set_corner_radius_all(999)
 	draw_style_box(halo, r)
+	# compteur d'encre (par-dessus le voile du haut)
+	_draw_ink_counter(Vector2(20, 30) * u, u)
 
 
 ## Compteur d'encre : un bâton d'encre et le nombre.
