@@ -13,6 +13,8 @@ var hurt_flash := 0.0
 var game_over := false
 var over_t := 0.0
 var best_wave := 0
+var boss_name := ""
+var boss_ratio := 1.0
 
 
 func _ready() -> void:
@@ -59,6 +61,17 @@ func _draw() -> void:
 	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	draw_circle(Vector2(sz.x - 30 * u, 32 * u), 17 * u, Toon.SUMI)
 	draw_string(font, Vector2(sz.x - 30 * u - tw / 2.0, 32 * u + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.WASHI)
+
+	# barre du boss : son nom et un trait vermillon qui s'amenuise
+	if boss_name != "" and not game_over:
+		var bw := sz.x * 0.6
+		var bx := (sz.x - bw) / 2.0
+		var by := 70.0 * u
+		var bfs := int(15 * u)
+		var bnw := font.get_string_size(boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+		draw_string(font, Vector2(sz.x / 2.0 - bnw / 2.0, by - 8 * u), boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
+		_brush_bar(Vector2(bx, by), bw, 10.0 * u, 1.0, Color(Toon.SUMI, 0.15))
+		_brush_bar(Vector2(bx, by), bw, 10.0 * u, boss_ratio, Toon.VERMILION)
 
 	# jauge d'élan : un trait de pinceau qui se remplit
 	var gw := sz.x * 0.62

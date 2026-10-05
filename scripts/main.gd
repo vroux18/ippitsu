@@ -11,6 +11,7 @@ const Menu = preload("res://scripts/menu.gd")
 const Decor = preload("res://scripts/decor.gd")
 const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
+const Boss = preload("res://scripts/boss.gd")
 const ROOMS := 9
 const SAVE_PATH := "user://ippitsu.cfg"
 
@@ -69,6 +70,7 @@ var picker: Control
 var room := 0
 var _room_queue: Array = []
 var _stroke_kills := 0
+var bosses: Array = []
 
 
 func _ready() -> void:
@@ -106,6 +108,13 @@ func _ready() -> void:
 		autoplay = autoplay or "autoplay" in str(JavaScriptBridge.eval("location.search", true))
 	_set_state("play" if autoplay else "menu")
 	# `?pick` (web) : ouvre directement le choix de rouleau, pour vérifier l'écran
+	# `?room=N` (web) : commence directement à la salle N (tests des boss : 5 et 9)
+	var search := str(JavaScriptBridge.eval("location.search", true)) if OS.has_feature("web") else ""
+	var rm := search.find("room=")
+	if rm >= 0:
+		_set_state("play")
+		room = clampi(int(search.substr(rm + 5)), 1, ROOMS) - 1
+		_begin_room()
 	if OS.has_feature("web") and "pick" in str(JavaScriptBridge.eval("location.search", true)):
 		_set_state("play")
 		room = 1
@@ -394,6 +403,10 @@ func _start() -> void:
 			e.queue_free()
 	enemies.clear()
 	_attackers.clear()
+	for bo in bosses:
+		if is_instance_valid(bo):
+			bo.queue_free()
+	bosses.clear()
 	for b in bullets:
 		b.node.queue_free()
 	bullets.clear()
@@ -448,11 +461,63 @@ func _begin_room() -> void:
 		else:
 			list.append("oni")
 			budget -= 1
+	if room == 5:
+		list = ["oni", "oni"]
+		_spawn_boss("okappa")
+	elif room == ROOMS:
+		list = []
+		_spawn_boss("uwabami")
 	list.shuffle()
 	var first := int(ceil(list.size() * 0.6))
 	_room_queue = list.slice(first)
 	_spawn_list(list.slice(0, first))
 	sfx.play("strike", 0.7, -2.0)
+
+
+func _spawn_boss(k: String) -> void:
+	var b := Boss.new()
+	b.setup(k, self)
+	if k == "okappa":
+		b.position = Vector3(0, 0, -HALF.y + 3.0)
+	add_child(b)
+	bosses.append(b)
+	sfx.play("strike", 0.5)
+	shake = 0.4
+
+
+func spawn_minions(list: Array) -> void:
+	_spawn_list(list)
+
+
+func boss_killed(_b: Node3D) -> void:
+	hitstop = 0.3
+	shake = 0.7
+	sfx.play("kill", 0.6)
+	_splash(_b.position, Toon.VERMILION, 30)
+	_splash(_b.position, Toon.GOLD, 20)
+
+
+func small_hit(pos: Vector3) -> void:
+	_splash(pos, Toon.VERMILION, 4)
+	sfx.play("slash", randf_range(1.2, 1.5), -8.0)
+
+
+func big_hit(pos: Vector3) -> void:
+	hitstop = maxf(hitstop, 0.12)
+	shake = maxf(shake, 0.35)
+	sfx.play("kill", 0.9)
+	_splash(pos, Toon.VERMILION, 24)
+	_blot(pos, Toon.VERMILION, 0.9, 2.5)
+
+
+func clang(pos: Vector3) -> void:
+	shake = maxf(shake, 0.15)
+	sfx.play("empty", 0.5)
+	_splash(pos, Toon.FOAM, 10)
+
+
+func splash(pos: Vector3, color: Color, amount: int) -> void:
+	_splash(pos, color, amount)
 
 
 func _spawn_list(list: Array) -> void:
@@ -716,6 +781,9 @@ func _on_dash_finished() -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = null
+	for bo in bosses:
+		if is_instance_valid(bo):
+			bo.end_stroke(stroke_id)
 	powers.on_dash_end(hero.position, _stroke_kills)
 	if combo >= 3:
 		elan = elan_max()
@@ -760,6 +828,14 @@ func is_danger(p: Vector3, eta: float) -> bool:
 		if z.size() == 3:
 			var c: Vector3 = z[0]
 			if Vector2(p.x - c.x, p.z - c.z).length() < float(z[1]) + 0.35 and float(z[2]) < eta + 0.35:
+				return true
+	for bo in bosses:
+		if not is_instance_valid(bo):
+			continue
+		var bz: Array = bo.danger_zone()
+		if bz.size() == 3:
+			var bc: Vector3 = bz[0]
+			if Vector2(p.x - bc.x, p.z - bc.z).length() < float(bz[1]) + 0.35 and float(bz[2]) < eta + 0.35:
 				return true
 	for b in bullets:
 		var n: Node3D = b.node
@@ -838,6 +914,20 @@ func _check_slashes() -> void:
 			_slash_mark(p, dir)
 			if combo >= 2:
 				_combo_label(p, combo)
+	for bo in bosses:
+		if not is_instance_valid(bo):
+			continue
+		if bo.check_dash(a, b, stroke_id):
+			combo += 1
+			var bd := 1.0 * (1.0 + 0.5 * (combo - 1))
+			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
+			bo.take_hit(bd, bdir)
+			elan = minf(elan_max(), elan + ELAN_PER_HIT)
+			hitstop = maxf(hitstop, 0.07)
+			shake = maxf(shake, 0.22)
+			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
+			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 12)
+			_slash_mark(bo.position, bdir)
 
 
 func _update_bullets(dt: float) -> void:
@@ -995,10 +1085,16 @@ func _process(_delta: float) -> void:
 	for i in range(enemies.size() - 1, -1, -1):
 		if not is_instance_valid(enemies[i]):
 			enemies.remove_at(i)
+	for i in range(bosses.size() - 1, -1, -1):
+		if not is_instance_valid(bosses[i]):
+			bosses.remove_at(i)
 	_state_t += real
 	_water_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * real
 	if state == "play":
 		powers.update(dt)
+		for bo in bosses:
+			if is_instance_valid(bo) and bo.touching_hero(hero.position):
+				_hurt_hero()
 		var alive := 0
 		for e in enemies:
 			if is_instance_valid(e) and not e.dead:
@@ -1006,7 +1102,7 @@ func _process(_delta: float) -> void:
 		if not _room_queue.is_empty() and alive <= 1:
 			_spawn_list(_room_queue)
 			_room_queue = []
-		elif enemies.is_empty() and _room_queue.is_empty():
+		elif enemies.is_empty() and _room_queue.is_empty() and bosses.is_empty():
 			wave_wait -= real
 			if wave_wait <= 0.0:
 				wave_wait = 0.8
@@ -1045,3 +1141,8 @@ func _process(_delta: float) -> void:
 	hud.wave = maxi(wave, 1)
 	hud.slow = 0.0
 	hud.game_over = game_over
+	hud.boss_name = ""
+	for bo in bosses:
+		if is_instance_valid(bo) and not bo.dead:
+			hud.boss_name = bo.title
+			hud.boss_ratio = clampf(bo.hp / bo.max_hp, 0.0, 1.0)
