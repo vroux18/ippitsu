@@ -101,8 +101,10 @@ func _next() -> void:
 			_ring = Node3D.new()
 			main.add_child(_ring)
 			_ring.position = Vector3(hp.x, 0, hp.z - 6.0)
-			Toon.disc(_ring, 1.0, Color(Toon.GOLD, 0.35), 0.03)
-			Toon.disc(_ring, 0.35, Color(Toon.GOLD, 0.9), 0.04)
+			Toon.disc(_ring, 1.15, Color(Toon.SUMI, 0.8), 0.03)
+			Toon.disc(_ring, 1.0, Color(Toon.GOLD, 0.95), 0.035)
+			Toon.disc(_ring, 0.7, Color(Toon.WASHI, 0.9), 0.04)
+			Toon.disc(_ring, 0.35, Color(Toon.VERMILION, 0.95), 0.045)
 		"kill1", "kill2":
 			_respawn_dummies()
 		_:

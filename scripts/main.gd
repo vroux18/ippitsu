@@ -451,7 +451,7 @@ func _build_world() -> void:
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	# couleurs plus franches : un peu plus de saturation et de contraste
 	e.adjustment_enabled = true
-	e.adjustment_saturation = 1.3
+	e.adjustment_saturation = 1.15
 	e.adjustment_contrast = 1.12
 	e.adjustment_brightness = 0.97
 	# brume d'estampe : le lointain (Fuji, îlots) se fond dans le papier
