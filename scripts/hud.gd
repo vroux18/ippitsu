@@ -31,6 +31,8 @@ func _process(delta: float) -> void:
 
 func _draw() -> void:
 	var sz := size
+	if sz.x < 10.0:
+		return
 	var u := sz.x / 400.0  # unité relative à la largeur
 
 	# voile du ralenti : bords qui s'assombrissent légèrement
