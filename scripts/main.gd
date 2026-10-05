@@ -13,6 +13,14 @@ const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
+const Hazards = preload("res://scripts/hazards.gd")
+# malédictions du sanctuaire (après les salles 3 et 7) : un malus pour toute la partie, une récompense tout de suite
+const CURSES := {
+	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus"},
+	"oni_eye": {"name": "Œil d'oni", "text": "Ennemis +50 % de vie  ·  2 rouleaux en plus"},
+	"heavy": {"name": "Pas lourd", "text": "Plus de pas de côté  ·  +2 vies max, soin"},
+	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin"},
+}
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 9
@@ -74,6 +82,13 @@ var room := 0
 var _room_queue: Array = []
 var _stroke_kills := 0
 var bosses: Array = []
+var hazards: Node3D
+var curses: Array = []
+var _pick_mode := "upgrade"
+var _extra_picks := 0
+var _safe_point := Vector3.ZERO
+var kills := 0
+var boss_kills := 0
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 
@@ -94,6 +109,9 @@ func _ready() -> void:
 	menu.play_pressed.connect(_on_play)
 	menu.home_pressed.connect(_on_home)
 	menu.sound_toggled.connect(_on_sound)
+	hazards = Hazards.new()
+	hazards.main = self
+	add_child(hazards)
 	powers = Powers.new()
 	powers.main = self
 	add_child(powers)
@@ -431,6 +449,11 @@ func _start() -> void:
 	room = 0
 	_room_queue = []
 	powers.reset()
+	hazards.clear()
+	curses.clear()
+	_extra_picks = 0
+	kills = 0
+	boss_kills = 0
 	game_over = false
 	touching = false
 	hud.game_over = false
@@ -442,14 +465,15 @@ func _start() -> void:
 
 
 func elan_max() -> float:
-	return ELAN_MAX + powers.elan_bonus()
+	return (ELAN_MAX + powers.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
 
 
 ## Salle suivante : budget d'ennemis croissant, en deux vagues (60 % puis 40 %).
 func _begin_room() -> void:
 	room += 1
 	wave = room
-	safety = true
+	safety = not "heavy" in curses
+	hazards.begin_room(room, hero.position)
 	var budget := 4 + 2 * room
 	var list: Array = []
 	if room >= 3:
@@ -504,6 +528,7 @@ func spawn_minions(list: Array) -> void:
 
 
 func boss_killed(_b: Node3D) -> void:
+	boss_kills += 1
 	hitstop = 0.3
 	shake = 0.7
 	sfx.play("kill", 0.6)
@@ -541,10 +566,14 @@ func _spawn_list(list: Array) -> void:
 		var p := Vector3.ZERO
 		for attempt in 30:
 			p = Vector3(randf_range(-HALF.x + 0.8, HALF.x - 0.8), 0, randf_range(-HALF.y + 0.8, HALF.y - 3.0))
-			if p.distance_to(hero.position) > 4.5:
+			if p.distance_to(hero.position) > 4.5 and not hazards.is_hole(p, -0.8):
 				break
 		e.position = p
 		add_child(e)
+		if "oni_eye" in curses:
+			e.hp *= 1.5
+		if "haste" in curses:
+			e.speed *= 1.25
 		enemies.append(e)
 
 
@@ -559,21 +588,94 @@ func _room_cleared() -> void:
 	if room >= ROOMS:
 		_victory()
 		return
+	_set_state("pick")
+	if room == 3 or room == 7:
+		_open_sanctuary()
+	else:
+		_open_upgrades()
+
+
+func _open_upgrades() -> void:
+	_pick_mode = "upgrade"
 	var ids: Array = powers.offer()
 	var infos: Array = []
 	for id in ids:
 		infos.append(powers.describe(id))
-	_set_state("pick")
 	picker.open(ids, infos)
 	sfx.play("shot", 0.6)
 
 
+func _open_sanctuary() -> void:
+	_pick_mode = "curse"
+	var pool: Array = []
+	for id in CURSES.keys():
+		if not id in curses:
+			pool.append(id)
+	pool.shuffle()
+	var ids: Array = pool.slice(0, 2)
+	var infos: Array = []
+	for id in ids:
+		infos.append({"name": CURSES[id].name, "text": CURSES[id].text, "level": -1, "kanji": "鬼", "color": Color("#7A1F1A")})
+	ids.append("refuse")
+	infos.append({"name": "Passer", "text": "Continuer sans malédiction", "level": -1, "kanji": "道", "color": Color("#8C8FA8")})
+	picker.open(ids, infos)
+	sfx.play("hurt", 0.6, -6.0)
+
+
 func _on_picked(id: String) -> void:
+	if _pick_mode == "curse":
+		if id != "refuse":
+			_take_curse(id)
+		_open_upgrades()
+		return
 	powers.add(id)
 	sfx.play("slash", 1.2, -4.0)
+	if _extra_picks > 0:
+		_extra_picks -= 1
+		_open_upgrades()
+		return
 	elan = elan_max()
 	_set_state("play")
 	_begin_room()
+
+
+func _take_curse(id: String) -> void:
+	curses.append(id)
+	shake = 0.4
+	sfx.play("strike", 0.5)
+	match id:
+		"dry", "oni_eye":
+			_extra_picks += 2
+		"heavy":
+			hero.max_hp += 2
+			hero.hp = hero.max_hp
+		"haste":
+			_extra_picks += 1
+			hero.hp = hero.max_hp
+
+
+## Chute dans un trou du ponton : 1 dégât et retour au dernier point sûr.
+func _fall() -> void:
+	_splash(hero.position, Toon.PRUSSIAN, 18)
+	_splash(hero.position, Toon.FOAM, 10)
+	sfx.play("strike", 1.4)
+	var back := _safe_point
+	if hazards.is_hole(back, -0.4):
+		back = Vector3(0, 0, HALF.y - 2.5)
+	hero.position = back
+	_prev_hero = back
+	_hurt_hero()
+
+
+func drown(e: Node3D) -> void:
+	_splash(e.position, Toon.PRUSSIAN, 14)
+	damage_enemy(e, 99.0, false)
+
+
+func wave_hit(push: Vector3) -> void:
+	_hurt_hero()
+	hero.position = _clamp_point(hero.position + push)
+	_prev_hero = hero.position
 
 
 func _victory() -> void:
@@ -598,6 +700,7 @@ func damage_enemy(e: Node3D, dmg: float, fx := true) -> void:
 	if fx:
 		_splash(e.position, Toon.GOLD, 5)
 	if killed:
+		kills += 1
 		powers.on_kill(e)
 		sfx.play("kill", randf_range(1.1, 1.3), -6.0)
 		_splash(e.position, Toon.VERMILION, 14)
@@ -849,6 +952,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_stroke_kills = 0
 	_prev_hero = hero.position
 	hero.speed_mult = powers.dash_mult()
+	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
 	_shape = StrokeShapes.detect(s.points) if s.length >= 2.0 else {}
 	if not _shape.is_empty():
@@ -866,6 +970,8 @@ func _on_dash_finished() -> void:
 		dash_stroke.start_drying()
 	dash_stroke = null
 	_apply_shape()
+	if hazards.is_hole(hero.position):
+		_fall()
 	for bo in bosses:
 		if is_instance_valid(bo):
 			bo.end_stroke(stroke_id)
@@ -906,6 +1012,8 @@ func free_token(e: Node) -> void:
 
 ## Vrai si finir en `p` dans `eta` secondes tombe dans une attaque (zone qui frappe ou boule qui passe).
 func is_danger(p: Vector3, eta: float) -> bool:
+	if hazards.danger(p, eta):
+		return true
 	for e in enemies:
 		if not is_instance_valid(e):
 			continue
@@ -998,6 +1106,7 @@ func _check_slashes() -> void:
 			dmg = powers.on_hit(e, dmg, dir)
 			var killed: bool = e.take_hit(dmg, dir)
 			if killed:
+				kills += 1
 				_stroke_kills += 1
 				powers.on_kill(e)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
@@ -1191,6 +1300,7 @@ func _process(_delta: float) -> void:
 	_water_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * real
 	if state == "play":
 		powers.update(dt)
+		hazards.update(dt)
 		for bo in bosses:
 			if is_instance_valid(bo) and bo.touching_hero(hero.position):
 				_hurt_hero()

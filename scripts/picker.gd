@@ -114,7 +114,7 @@ func _card(r: Rect2, info: Dictionary, u: float, a: float) -> void:
 	var tw := r.end.x - tx - 14 * u
 	var nfs := int(27 * u)
 	draw_string(TITLE_FONT, Vector2(tx, r.position.y + 46 * u), String(info.name), HORIZONTAL_ALIGNMENT_LEFT, tw, nfs, Color(Toon.SUMI, a))
-	for k in 3:
+	for k in (3 if int(info.level) >= 0 else 0):
 		var c := Vector2(tx + 7 * u + k * 17 * u, r.position.y + 66 * u)
 		if k < int(info.level):
 			draw_circle(c, 5.5 * u, Color(col, a))
