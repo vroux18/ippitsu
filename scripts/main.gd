@@ -183,9 +183,7 @@ func _fit_camera() -> void:
 				found = true
 		dist += 0.25
 	if not found:
-		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)
-	print("fit_camera vs=", vs, " found=", found, " dist=", dist)
-	_cam_base = best
+		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)	_cam_base = best
 	cam.global_transform = best
 
 
@@ -219,7 +217,7 @@ func _start() -> void:
 func _spawn_wave() -> void:
 	wave += 1
 	safety = true
-	var oni := 2 + wave
+	var oni := 1 + wave
 	var kappa := 0 if wave < 2 else (wave) / 2
 	var brute := 0 if wave < 3 else (wave - 1) / 2
 	var list := []
@@ -254,8 +252,7 @@ func _clamp_point(p: Vector3) -> Vector3:
 # ------------------------------------------------------------------ entrée
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch or event is InputEventMouseButton:
-		print("input ", event)
+	# tactile (téléphone) et souris (ordinateur) : l'émulation de Godot est coupée dans project.godot
 	if event is InputEventScreenTouch:
 		if event.index != 0:
 			return
@@ -266,6 +263,13 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag:
 		if event.index == 0:
 			_touch_move(event.position)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_touch_down(event.position)
+		else:
+			_touch_up(event.position)
+	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		_touch_move(event.position)
 
 
 func _ground(sp: Vector2) -> Vector3:
@@ -572,8 +576,6 @@ func _process(_delta: float) -> void:
 	else:
 		Engine.time_scale = target
 	var dt := real * Engine.time_scale
-	if Engine.get_process_frames() % 120 == 0:
-		print("tick wave=", wave, " enemies=", enemies.size(), " ts=", Engine.time_scale, " real=", real, " wait=", wave_wait, " touching=", touching)
 
 	if not touching and not hero.dashing:
 		elan = minf(ELAN_MAX, elan + ELAN_REGEN * real)

@@ -203,11 +203,11 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 				position += dir * speed * delta
 			else:
 				_state = "windup"
-				_timer = 0.85 if kind == "oni" else 1.1
+				_timer = 1.0 if kind == "oni" else 1.2
 				_strike_dir = dir
 				_make_zone()
 		"windup":
-			var total := 0.85 if kind == "oni" else 1.1
+			var total := 1.0 if kind == "oni" else 1.2
 			var k := 1.0 - _timer / total
 			_zone.position = _strike_dir * (_zone_r * 0.9)
 			_zone_fill.scale = Vector3(k, 1, k)
@@ -218,7 +218,7 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 				main.enemy_strike(center, _zone_r)
 				body.rotation.x = 0.4
 				_cancel_attack()
-				_timer = 0.7
+				_timer = 1.3
 		"recover":
 			body.rotation.x = lerpf(body.rotation.x, 0.0, minf(1.0, delta * 6.0))
 			_timer -= delta
