@@ -63,6 +63,14 @@ func start_dash(p: PackedVector3Array) -> void:
 	dashing = true
 
 
+## Arrête net la ruée (bouclier, ricochet).
+func stop_dash() -> void:
+	if dashing:
+		dashing = false
+		path_i = path.size()
+		dash_finished.emit()
+
+
 func dash_end() -> Vector3:
 	if dashing and path.size() > 0:
 		return path[path.size() - 1]

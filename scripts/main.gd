@@ -12,6 +12,9 @@ const Decor = preload("res://scripts/decor.gd")
 const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
+const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
+const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
+const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 9
 const SAVE_PATH := "user://ippitsu.cfg"
 
@@ -71,6 +74,7 @@ var room := 0
 var _room_queue: Array = []
 var _stroke_kills := 0
 var bosses: Array = []
+var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 
 func _ready() -> void:
@@ -104,6 +108,10 @@ func _ready() -> void:
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
+	if autoplay:
+		var fails: Array = StrokeShapes.self_test()
+		if not fails.is_empty():
+			print("SCRIPT ERROR: formes de trait : ", fails)
 	if OS.has_feature("web"):
 		autoplay = autoplay or "autoplay" in str(JavaScriptBridge.eval("location.search", true))
 	_set_state("play" if autoplay else "menu")
@@ -452,10 +460,16 @@ func _begin_room() -> void:
 		budget -= 3
 	while budget > 0:
 		var r := randf()
-		if room >= 2 and r < 0.3 and budget >= 2:
+		if room >= 2 and r < 0.25 and budget >= 2:
 			list.append("kappa")
 			budget -= 2
-		elif room >= 4 and r < 0.4 and budget >= 3:
+		elif room >= 3 and r < 0.4 and budget >= 3:
+			list.append("tate")
+			budget -= 3
+		elif room >= 4 and r < 0.52 and budget >= 2:
+			list.append("funa")
+			budget -= 2
+		elif room >= 4 and r < 0.62 and budget >= 3:
 			list.append("brute")
 			budget -= 3
 		else:
@@ -644,6 +658,68 @@ func fire_trail_fx(points: PackedVector3Array, dur: float) -> void:
 	effects.append({"node": n, "t": 0.0, "life": dur, "kind": "fade", "mats": mats, "alpha": 0.5})
 
 
+## Effet de la forme reconnue, déclenché à l'arrivée de la ruée.
+func _apply_shape() -> void:
+	if _shape.is_empty():
+		return
+	var sh: Dictionary = _shape
+	_shape = {}
+	match String(sh.shape):
+		"loop":
+			# Uzu : tourbillon au centre de la boucle
+			var c: Vector3 = sh.center
+			fire_ring(c, 1.6)
+			_splash(c, Toon.FOAM, 20)
+			for o in nearest_enemies(c, 1.6 + 0.5, 99, null):
+				damage_enemy(o, 2.0)
+		"zigzag":
+			# Inazuma : éclair en chaîne sur 4 ennemis
+			var from := hero.position
+			for o in nearest_enemies(hero.position, 6.0, 4, null):
+				zap(from, o.position)
+				damage_enemy(o, 1.0)
+				from = o.position
+		"enso":
+			# Ensō : tout ce qui est dans le cercle est frappé
+			var c2: Vector3 = sh.center
+			var r2: float = sh.radius
+			_blot(c2, Color(Toon.VERMILION, 0.25), r2, 1.2)
+			for o in nearest_enemies(c2, r2, 99, null):
+				damage_enemy(o, 1.5)
+				o.push((o.position - c2).normalized() * -3.0)
+
+
+## Kaeshi : les boules proches du trait repartent vers les ennemis.
+func _reflect_bullets(pts: PackedVector3Array) -> void:
+	for b in bullets:
+		var n: Node3D = b.node
+		var q := Vector3(n.position.x, 0, n.position.z)
+		for i in range(0, pts.size(), 3):
+			if q.distance_to(pts[i]) < 1.6:
+				b.vel = -b.vel * 1.4
+				b["friendly"] = true
+				_splash(n.position, Toon.GOLD, 6)
+				break
+
+
+func shape_text(pos: Vector3, kanji: String) -> void:
+	if kanji == "":
+		return
+	var l := Label3D.new()
+	l.font = KANJI_FONT
+	l.text = kanji
+	l.font_size = 160
+	l.pixel_size = 0.006
+	l.modulate = Toon.SUMI
+	l.outline_modulate = Toon.WASHI
+	l.outline_size = 18
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.position = pos + Vector3(0, 1.6, 0)
+	add_child(l)
+	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
+
+
 func float_text(pos: Vector3, text: String, color: Color) -> void:
 	var l := Label3D.new()
 	l.text = text
@@ -774,6 +850,14 @@ func _launch(s: MeshInstance3D) -> void:
 	_prev_hero = hero.position
 	hero.speed_mult = powers.dash_mult()
 	powers.on_stroke_release(s.points)
+	_shape = StrokeShapes.detect(s.points) if s.length >= 2.0 else {}
+	if not _shape.is_empty():
+		shape_text(s.last(), String(SHAPE_KANJI.get(_shape.shape, "")))
+		sfx.play("whoosh", 0.7)
+		if _shape.shape == "straight":
+			hero.speed_mult *= 1.3
+		elif _shape.shape == "return":
+			_reflect_bullets(s.points)
 	sfx.play("whoosh", randf_range(0.9, 1.1))
 
 
@@ -781,6 +865,7 @@ func _on_dash_finished() -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = null
+	_apply_shape()
 	for bo in bosses:
 		if is_instance_valid(bo):
 			bo.end_stroke(stroke_id)
@@ -900,6 +985,16 @@ func _check_slashes() -> void:
 			combo += 1
 			var dmg := 1.0 * (1.0 + 0.5 * (combo - 1))
 			var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
+			var piercing: bool = not _shape.is_empty() and _shape.shape == "straight"
+			if not piercing and e.blocks(dir):
+				e.last_stroke = stroke_id
+				combo -= 1
+				clang(p)
+				float_text(p, "×0", Toon.FOAM)
+				hero.stop_dash()
+				continue
+			if piercing:
+				dmg *= 1.5
 			dmg = powers.on_hit(e, dmg, dir)
 			var killed: bool = e.take_hit(dmg, dir)
 			if killed:
@@ -940,7 +1035,7 @@ func _update_bullets(dt: float) -> void:
 		hp.y = 0
 		var d := hp.distance_to(hero.position)
 		# filet de sécurité : un pas de côté automatique, une fois par vague
-		if safety and d < 1.0 and not hero.dashing and hero.invuln <= 0.0 and not game_over:
+		if safety and not b.get("friendly", false) and d < 1.0 and not hero.dashing and hero.invuln <= 0.0 and not game_over:
 			var v: Vector3 = b.vel
 			var side := Vector3(-v.z, 0, v.x).normalized()
 			if side.dot(hero.position - hp) < 0:
@@ -948,7 +1043,11 @@ func _update_bullets(dt: float) -> void:
 			safety = false
 			var step := PackedVector3Array([hero.position, _clamp_point(hero.position + side * 1.3)])
 			hero.start_dash(step)
-		if d < 0.3 + Hero.RADIUS and not hero.dashing and hero.invuln <= 0.0:
+		if b.get("friendly", false):
+			for o in nearest_enemies(hp, 0.8, 1, null):
+				damage_enemy(o, 1.5)
+				b.life = 0.0
+		elif d < 0.3 + Hero.RADIUS and not hero.dashing and hero.invuln <= 0.0:
 			_hurt_hero()
 			b.life = 0.0
 		if b.life <= 0.0 or absf(n.position.x) > HALF.x + 1.0 or absf(n.position.z) > HALF.y + 1.0:
