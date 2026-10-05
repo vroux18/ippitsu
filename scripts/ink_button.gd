@@ -34,7 +34,7 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _process(delta: float) -> void:
-	var real := delta / maxf(Engine.time_scale, 0.01)
+	var real := _real_delta()
 	_press = move_toward(_press, 1.0 if _down else 0.0, real * 12.0)
 	queue_redraw()
 
@@ -92,7 +92,28 @@ func _icon(c: Vector2, s: float) -> void:
 			else:
 				draw_line(c + Vector2(s * 0.45, -s * 0.45), c + Vector2(s * 1.1, s * 0.45), Toon.VERMILION, s * 0.2, true)
 				draw_line(c + Vector2(s * 0.45, s * 0.45), c + Vector2(s * 1.1, -s * 0.45), Toon.VERMILION, s * 0.2, true)
+		"pause":
+			draw_rect(Rect2(c + Vector2(-s * 0.6, -s * 0.7), Vector2(s * 0.42, s * 1.4)), ink)
+			draw_rect(Rect2(c + Vector2(s * 0.18, -s * 0.7), Vector2(s * 0.42, s * 1.4)), ink)
+		"play":
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-s * 0.5, -s * 0.75), c + Vector2(s * 0.75, 0), c + Vector2(-s * 0.5, s * 0.75)]), ink)
+		"map":
+			# petit rouleau
+			draw_rect(Rect2(c + Vector2(-s * 0.8, -s * 0.55), Vector2(s * 1.6, s * 1.1)), Color(ink, 0.25))
+			draw_rect(Rect2(c + Vector2(-s * 0.95, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
+			draw_rect(Rect2(c + Vector2(s * 0.7, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
 		"home":
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-s, -s * 0.05), c + Vector2(0, -s), c + Vector2(s, -s * 0.05)]), ink)
 			draw_rect(Rect2(c + Vector2(-s * 0.7, -s * 0.1), Vector2(s * 1.4, s * 0.95)), ink)
 			draw_rect(Rect2(c + Vector2(-s * 0.18, s * 0.3), Vector2(s * 0.36, s * 0.55)), Toon.WASHI)
+
+
+var _last_ms := 0
+
+
+## Temps réel écoulé (indépendant du ralenti et de la pause).
+func _real_delta() -> float:
+	var now := Time.get_ticks_msec()
+	var d := 0.0 if _last_ms == 0 else (now - _last_ms) / 1000.0
+	_last_ms = now
+	return minf(d, 0.1)

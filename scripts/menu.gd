@@ -1,5 +1,5 @@
 extends Control
-## Accueil (titre, sceau, bouton Jouer, record, son) et boutons de fin de partie.
+## Accueil (titre, sceau, Jouer, Atelier, son), écran de résultats en fin de partie, et pause.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -10,8 +10,10 @@ signal play_pressed
 signal home_pressed
 signal sound_toggled(muted: bool)
 signal atelier_pressed
+signal worlds_pressed
+signal resume_pressed
 
-var mode := "home"  # home | over | hidden
+var mode := "home"  # home | over | pause | hidden
 var best := 0
 var last := 0
 var new_record := false
@@ -20,6 +22,14 @@ var muted := false
 var sumi := 0  # encre (monnaie permanente), affichée sur l'accueil
 var gain_sumi := 0  # encre gagnée à la dernière partie
 var gain_seals := 0
+# résultats de la partie (écran de fin)
+var stat_room := 0
+var stat_kills := 0
+var stat_combo := 0
+var stat_time := 0.0
+var world_name := ""
+var world_kanji := "波"
+var world_color := Toon.PRUSSIAN
 
 var _t := 0.0  # temps réel depuis l'affichage
 var _title := FontVariation.new()
@@ -29,6 +39,9 @@ var _replay: Control
 var _home: Control
 var _sound: Control
 var _atelier: Control
+var _worlds: Control
+var _resume: Control
+var _quit: Control
 
 
 func _ready() -> void:
@@ -50,6 +63,12 @@ func _ready() -> void:
 	_atelier.pressed.connect(func(): atelier_pressed.emit())
 	_sound = _button("", "round")
 	_sound.pressed.connect(_toggle_sound)
+	_worlds = _button("MONDES", "ghost")
+	_worlds.pressed.connect(func(): worlds_pressed.emit())
+	_resume = _button("REPRENDRE", "primary")
+	_resume.pressed.connect(func(): resume_pressed.emit())
+	_quit = _button("ABANDONNER", "ghost")
+	_quit.pressed.connect(func(): home_pressed.emit())
 	show_mode("home")
 
 
@@ -75,15 +94,18 @@ func show_mode(m: String) -> void:
 
 func _process(delta: float) -> void:
 	size = get_viewport_rect().size
-	_t += delta / maxf(Engine.time_scale, 0.01)
+	_t += _real_delta()
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
 
 	_play.visible = mode == "home"
-	_replay.visible = mode == "over" and _t > 1.1
-	_home.visible = mode == "over" and _t > 1.1
-	_sound.visible = mode == "home"
+	_replay.visible = mode == "over" and _t > 0.9
+	_home.visible = mode == "over" and _t > 0.9
+	_worlds.visible = mode == "over" and _t > 0.9
+	_resume.visible = mode == "pause"
+	_quit.visible = mode == "pause"
+	_sound.visible = mode == "home" or mode == "pause"
 	_atelier.visible = mode == "home"
 	_sound.icon = "sound_off" if muted else "sound_on"
 
@@ -99,17 +121,29 @@ func _process(delta: float) -> void:
 	_atelier.modulate.a = appear
 	_atelier.font_size = int(17 * u)
 
-	var over_in := _ease_out(clampf((_t - 1.1) / 0.4, 0.0, 1.0))
+	var over_in := _ease_out(clampf((_t - 0.9) / 0.4, 0.0, 1.0))
+	var by := h * 0.77 + 20.0 * u * (1.0 - over_in)
 	_replay.size = Vector2(bw, bh)
-	_replay.position = Vector2((w - bw) / 2.0, h * 0.7 + 20.0 * u * (1.0 - over_in))
+	_replay.position = Vector2((w - bw) / 2.0, by)
 	_replay.modulate.a = over_in
 	_replay.font_size = int(26 * u)
-	_home.size = Vector2(52, 52) * u
-	_home.position = Vector2((w - 52 * u) / 2.0, h * 0.7 + bh + 22 * u)
+	_worlds.size = Vector2(w * 0.36, 46 * u)
+	_worlds.position = Vector2(w / 2.0 - w * 0.36 - 6 * u, by + bh + 14 * u)
+	_worlds.modulate.a = over_in
+	_worlds.font_size = int(16 * u)
+	_home.size = Vector2(46, 46) * u
+	_home.position = Vector2(w / 2.0 + 6 * u, by + bh + 14 * u)
 	_home.modulate.a = over_in
+	# pause
+	_resume.size = Vector2(bw, bh)
+	_resume.position = Vector2((w - bw) / 2.0, h * 0.5)
+	_resume.font_size = int(24 * u)
+	_quit.size = Vector2(w * 0.5, 46 * u)
+	_quit.position = Vector2((w - w * 0.5) / 2.0, h * 0.5 + bh + 16 * u)
+	_quit.font_size = int(15 * u)
 
 	_sound.size = Vector2(44, 44) * u
-	_sound.position = Vector2(w - 60 * u, 22 * u)
+	_sound.position = Vector2(w - 60 * u, 22 * u) if mode == "home" else Vector2((w - 44 * u) / 2.0, h * 0.5 + bh + 80 * u)
 	queue_redraw()
 
 
@@ -122,8 +156,10 @@ func _draw() -> void:
 		return
 	if mode == "home":
 		_draw_home()
-	elif mode == "over" and _t > 1.1:
-		_draw_over()
+	elif mode == "over":
+		_draw_results()
+	elif mode == "pause":
+		_draw_pause()
 
 
 func _text(font: Font, txt: String, center: Vector2, fs: int, c: Color) -> float:
@@ -201,23 +237,69 @@ func _draw_ink_counter(p: Vector2, u: float) -> void:
 	draw_string(_ui, p + Vector2(16, 6) * u, str(sumi), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.SUMI)
 
 
-func _draw_over() -> void:
+## Écran de fin : la feuille de résultats posée sur le jeu délavé.
+func _draw_results() -> void:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
-	var a := _ease_out(clampf((_t - 1.1) / 0.4, 0.0, 1.0))
-	var txt := "NOUVEAU RECORD" if new_record else "RECORD  ·  SALLE %d / 9" % best
-	if victory:
-		txt = "VICTOIRE"
-	var c := Toon.GOLD if new_record or victory else Color(Toon.SUMI, 0.6)
-	_text(_ui, txt, Vector2(w / 2.0, h * 0.7 - 26 * u), int(13 * u), Color(c, c.a * a))
-	# encre gagnée pendant la partie
-	if gain_sumi > 0 or gain_seals > 0:
-		var g := "+%d  ENCRE" % gain_sumi
-		if gain_seals > 0:
-			g += "   ·   +%d  SCEAU" % gain_seals
-		_text(_ui, g, Vector2(w / 2.0, h * 0.7 - 50 * u), int(13 * u), Color(Toon.SUMI, 0.75 * a))
+	var a := _ease_out(clampf(_t / 0.5, 0.0, 1.0))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.WASHI, 0.6 * a))
+	var card := Rect2(Vector2(w * 0.08, h * 0.12 + 30 * u * (1.0 - a)), Vector2(w * 0.84, h * 0.6))
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Toon.SUMI, 0.2 * a)
+	sb.set_corner_radius_all(int(12 * u))
+	draw_style_box(sb, Rect2(card.position + Vector2(0, 8 * u), card.size))
+	sb.bg_color = Color(Color("#F6F0E2"), a)
+	sb.border_color = Color(Toon.SUMI, a)
+	sb.set_border_width_all(int(2.5 * u))
+	draw_style_box(sb, card)
+	var cx := card.get_center().x
+	# ensō et titre
+	var ec := Vector2(cx, card.position.y + 62 * u)
+	var sweep := TAU * 0.9 * clampf((_t - 0.15) / 0.6, 0.0, 1.0)
+	var ring_col := Toon.GOLD if victory else Toon.VERMILION
+	if sweep > 0.01:
+		draw_arc(ec, 38 * u, -PI / 2.0, -PI / 2.0 + sweep, 48, Color(ring_col, a), 8 * u, true)
+	_text(TITLE_FONT, world_kanji, ec + Vector2(0, 12 * u), int(32 * u), Color(Toon.SUMI, a))
+	_text(_title, "VICTOIRE" if victory else "DÉFAITE", Vector2(cx, card.position.y + 140 * u), int(34 * u), Color(ring_col if victory else Toon.SUMI, a))
+	_text(_ui, world_name.to_upper(), Vector2(cx, card.position.y + 164 * u), int(12 * u), Color(Toon.SUMI, 0.55 * a))
+	# statistiques en deux colonnes
+	var rows := [["SALLE", "%d / 9" % stat_room], ["ENNEMIS", str(stat_kills)], ["COMBO MAX", "×%d" % stat_combo], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	for i in rows.size():
+		var col := i % 2
+		var row := i / 2
+		var k := _ease_out(clampf((_t - 0.3 - 0.08 * i) / 0.35, 0.0, 1.0))
+		var p := Vector2(card.position.x + card.size.x * (0.27 + 0.46 * col), card.position.y + 214 * u + row * 62 * u)
+		_text(_ui, String(rows[i][0]), p, int(11 * u), Color(Toon.SUMI, 0.5 * k * a))
+		_text(TITLE_FONT, String(rows[i][1]), p + Vector2(0, 30 * u), int(26 * u), Color(Toon.SUMI, k * a))
+	# trait d'encre puis gains
+	var ly := card.position.y + 352 * u
+	draw_line(Vector2(card.position.x + 30 * u, ly), Vector2(card.end.x - 30 * u, ly), Color(Toon.SUMI, 0.2 * a), 2 * u)
+	var gk := _ease_out(clampf((_t - 0.7) / 0.4, 0.0, 1.0))
+	var g := "+%d  ENCRE" % gain_sumi
+	if gain_seals > 0:
+		g += "    +%d  SCEAU" % gain_seals
+	var gw := _ui.get_string_size(g, HORIZONTAL_ALIGNMENT_LEFT, -1, int(15 * u)).x
+	var gp := Vector2(cx - gw / 2.0 + 10 * u, ly + 34 * u)
+	var stick := Rect2(gp + Vector2(-22, -16) * u, Vector2(9, 22) * u)
+	var ss := StyleBoxFlat.new()
+	ss.bg_color = Color(Toon.SUMI, gk)
+	ss.border_color = Color(Toon.GOLD, gk)
+	ss.set_border_width_all(int(maxf(1.0, 1.5 * u)))
+	draw_style_box(ss, stick)
+	draw_string(_ui, gp, g, HORIZONTAL_ALIGNMENT_LEFT, -1, int(15 * u), Color(Toon.SUMI, gk * a))
+	if new_record:
+		_text(_ui, "NOUVEAU RECORD", Vector2(cx, ly + 62 * u), int(12 * u), Color(Toon.GOLD, gk * a))
 
+
+## Pause : le jeu figé sous un voile d'encre.
+func _draw_pause() -> void:
+	var w := size.x
+	var h := size.y
+	var u := w / 400.0
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.SUMI, 0.55))
+	_text(_title, "PAUSE", Vector2(w / 2.0, h * 0.36), int(44 * u), Toon.WASHI)
+	_text(TITLE_FONT, world_kanji, Vector2(w / 2.0, h * 0.27), int(30 * u), world_color.lightened(0.3))
 
 func _brush(p0: Vector2, p1: Vector2, wdt: float, c: Color) -> void:
 	var d := p1 - p0
@@ -233,3 +315,14 @@ func _brush(p0: Vector2, p1: Vector2, wdt: float, c: Color) -> void:
 		var t := float(i) / steps
 		pts.append(p0 + d * t - n * wdt * (0.35 + 0.65 * sin(PI * minf(1.0, t * 1.2))) * (1.0 - 0.6 * t))
 	draw_colored_polygon(pts, c)
+
+
+var _last_ms := 0
+
+
+## Temps réel écoulé (indépendant du ralenti et de la pause).
+func _real_delta() -> float:
+	var now := Time.get_ticks_msec()
+	var d := 0.0 if _last_ms == 0 else (now - _last_ms) / 1000.0
+	_last_ms = now
+	return minf(d, 0.1)

@@ -109,6 +109,9 @@ var wave_index := 1
 var _room_done := false
 var _rebuilt := false
 var worldmap: Control
+var _ending_victory := false
+var max_combo := 0
+var run_time := 0.0
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 
@@ -139,6 +142,9 @@ func _ready() -> void:
 	ref_layer.add_child(refuge)
 	refuge.closed.connect(_on_refuge_closed)
 	menu.atelier_pressed.connect(_on_atelier)
+	menu.worlds_pressed.connect(_open_worlds)
+	menu.resume_pressed.connect(_on_resume)
+	hud.pause_pressed.connect(_on_pause)
 	hazards = Hazards.new()
 	hazards.main = self
 	add_child(hazards)
@@ -226,6 +232,9 @@ func _set_state(s: String) -> void:
 			hero.face(Vector3(0, 0, -1))
 		"play":
 			menu.show_mode("hidden")
+			if room == 0:
+				var wd: Dictionary = Worlds.world(current_world)
+				hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":
 			menu.show_mode("over")
 
@@ -236,6 +245,11 @@ func _on_play() -> void:
 		_start()
 		_set_state("play")
 	else:
+		_open_worlds()
+
+
+func _open_worlds() -> void:
+	if true:
 		# choix du monde sur le rouleau
 		menu.show_mode("hidden")
 		state = "worlds"
@@ -249,6 +263,25 @@ func _on_world_chosen(id: int) -> void:
 		apply_world(id)
 	_start()
 	_set_state("intro")
+
+
+func _on_pause() -> void:
+	if state != "play":
+		return
+	if touching and stroke:
+		stroke.queue_free()
+		stroke = null
+	touching = false
+	var w: Dictionary = Worlds.world(current_world)
+	menu.world_kanji = String(w.kanji)
+	menu.world_color = w.color
+	state = "paused"
+	menu.show_mode("pause")
+
+
+func _on_resume() -> void:
+	menu.show_mode("hidden")
+	state = "play"
 
 
 func _on_worldmap_closed() -> void:
@@ -434,6 +467,9 @@ func _start() -> void:
 	kills = 0
 	boss_kills = 0
 	mini_kills = 0
+	max_combo = 0
+	run_time = 0.0
+	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
 	hero.hp = hero.max_hp
 	game_over = false
@@ -493,6 +529,12 @@ func _begin_room() -> void:
 		_waves_left.append(list.slice(b))
 	waves_total = 1 + _waves_left.size()
 	wave_index = 1
+	if room == 5:
+		hud.banner("Ō-KAPPA", "GARDIEN DE LA SALLE 5", Toon.VERMILION, 2.2)
+	elif room == ROOMS:
+		hud.banner("UWABAMI", "LE SERPENT DE MER", Toon.VERMILION, 2.4)
+	elif room > 1:
+		hud.banner("SALLE %d" % room, "", Toon.SUMI, 1.3)
 	_spawn_list(first)
 	sfx.play("strike", 0.7, -2.0)
 
@@ -575,6 +617,7 @@ func _spawn_list(list: Array) -> void:
 		if "haste" in curses:
 			e.speed *= 1.25
 		e.hp *= float(Worlds.world(current_world).hp_mult)
+		e.set_meta("max_hp", e.hp)
 		enemies.append(e)
 
 
@@ -725,15 +768,30 @@ func wave_hit(push: Vector3) -> void:
 
 func _victory() -> void:
 	game_over = true
-	hud.best_wave = room
-	menu.victory = true
-	_award(true)
+	_ending_victory = true
+	hero.invuln = 999.0
+	hud.banner("VICTOIRE", String(Worlds.world(current_world).name), Toon.GOLD, 2.2)
+	_set_state("dying")
+
+
+## Après la séquence de fin : gains, record, et la feuille de résultats.
+func _finish_run() -> void:
+	var won := _ending_victory
+	menu.victory = won
+	_award(won)
 	menu.new_record = room > record
 	if room > record:
 		record = room
 		_save()
 	menu.best = record
-	hero.invuln = 999.0
+	var w: Dictionary = Worlds.world(current_world)
+	menu.stat_room = room
+	menu.stat_kills = kills
+	menu.stat_combo = max_combo
+	menu.stat_time = run_time
+	menu.world_name = String(w.name)
+	menu.world_kanji = String(w.kanji)
+	menu.world_color = w.color
 	_set_state("over")
 
 
@@ -869,6 +927,24 @@ func shape_text(pos: Vector3, kanji: String) -> void:
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
 
+## Chiffre de dégâts au-dessus de l'ennemi : blanc cerclé d'encre, vermillon s'il tue ou en combo.
+func _dmg_text(pos: Vector3, dmg: float, killed: bool) -> void:
+	var txt := str(int(round(dmg))) if absf(dmg - round(dmg)) < 0.05 else "%.1f" % dmg
+	var l := Label3D.new()
+	l.font = KANJI_FONT
+	l.text = txt
+	l.font_size = int(90 + 14 * minf(dmg, 6.0))
+	l.pixel_size = 0.006
+	l.modulate = Toon.VERMILION if killed or combo >= 3 else Color(1, 1, 1)
+	l.outline_modulate = Toon.SUMI
+	l.outline_size = 24
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.position = pos + Vector3(randf_range(-0.4, 0.4), 1.6, 0)
+	add_child(l)
+	effects.append({"node": l, "t": 0.0, "life": 0.7, "kind": "label"})
+
+
 func float_text(pos: Vector3, text: String, color: Color) -> void:
 	var l := Label3D.new()
 	l.text = text
@@ -936,6 +1012,8 @@ func _ground(sp: Vector2) -> Vector3:
 
 
 func _touch_down(sp: Vector2) -> void:
+	if hud.is_over_pause(sp):
+		return
 	if game_over:
 		if hud.over_t > 1.0:
 			_start()
@@ -1111,15 +1189,9 @@ func _hurt_hero() -> void:
 	_splash(hero.position, Toon.SUMI, 14)
 	if hero.hp <= 0:
 		game_over = true
-		hud.best_wave = room
-		menu.victory = false
-		_award(false)
-		menu.new_record = room > record
-		if room > record:
-			record = room
-			_save()
-		menu.best = record
-		_set_state("over")
+		_ending_victory = false
+		_set_state("dying")
+		sfx.play("kill", 0.5)
 		touching = false
 		if stroke:
 			stroke.queue_free()
@@ -1158,6 +1230,8 @@ func _check_slashes() -> void:
 				dmg *= 1.5
 			dmg = powers.on_hit(e, dmg, dir)
 			var killed: bool = e.take_hit(dmg, dir)
+			_dmg_text(p, dmg, killed)
+			max_combo = maxi(max_combo, combo)
 			if killed:
 				kills += 1
 				_stroke_kills += 1
@@ -1322,11 +1396,18 @@ func _process(_delta: float) -> void:
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
 
-	# temps : arrêt sur image > normal (plus de ralenti quand le doigt est posé)
+	# pause : tout est figé, seul l'écran de pause vit
+	if state == "paused":
+		Engine.time_scale = 0.0
+		return
+
+	# temps : arrêt sur image > fin de partie au ralenti > normal
 	var target := 1.0
 	if hitstop > 0.0:
 		hitstop -= real
 		target = 0.02
+	elif state == "dying":
+		target = 0.25 if not _ending_victory else 0.6
 	elif game_over:
 		target = 0.35
 	if target < Engine.time_scale and target != 0.02:
@@ -1350,7 +1431,16 @@ func _process(_delta: float) -> void:
 		if not is_instance_valid(bosses[i]):
 			bosses.remove_at(i)
 	_state_t += real
+	if state == "dying":
+		# la caméra s'approche du héros, l'image se délave
+		if not _ending_victory:
+			hud.dying = clampf(_state_t / 1.3, 0.0, 1.0)
+			var close := Transform3D(Basis(), hero.position + Vector3(0, 7.5, 6.0)).looking_at(hero.position + Vector3(0, 0.8, 0), Vector3.UP)
+			_cam_base = _cam_base.interpolate_with(close, minf(1.0, real * 2.0))
+		if _state_t > 1.6:
+			_finish_run()
 	if state == "play":
+		run_time += real
 		powers.update(dt)
 		hazards.update(dt)
 		for bo in bosses:
@@ -1365,6 +1455,7 @@ func _process(_delta: float) -> void:
 			_spawn_list(_waves_left.pop_front())
 			wave_index += 1
 			sfx.play("strike", 0.8, -4.0)
+			hud.banner("VAGUE %d" % wave_index, "", Toon.SUMI, 1.0)
 		elif room == 0:
 			wave_wait -= real
 			if wave_wait <= 0.0:
@@ -1411,6 +1502,20 @@ func _process(_delta: float) -> void:
 	else:
 		cam.global_transform = _cam_base
 
+	hud.in_play = state in ["play", "transit", "dying", "pick"]
+	hud.world_kanji = String(Worlds.world(current_world).kanji)
+	hud.world_color = Worlds.world(current_world).color
+	hud.rooms_total = ROOMS
+	hud.elan_m = elan_max()
+	hud.combo = combo if hero.dashing else 0
+	var bars: Array = []
+	for e in enemies:
+		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):
+			var mh: float = e.get_meta("max_hp")
+			if e.hp < mh - 0.01 and not cam.is_position_behind(e.position):
+				var top := 2.9 if e.kind == "brute" else 2.1
+				bars.append([cam.unproject_position(e.position + Vector3(0, top, 0)), e.hp / mh])
+	hud.enemy_bars = bars
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp
 	hud.elan = elan / elan_max()
