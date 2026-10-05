@@ -58,7 +58,7 @@ func _ready() -> void:
 			speed = 2.3
 			radius = 0.45
 			_windup = 1.0
-			ch.setup(MINION, 1.6, [["Cloak", Toon.VERMILION, 0.9]])
+			ch.setup(MINION, 1.6, [["Cloak", load("res://assets/kaykit/tex/skeleton_red.png")]])
 			ch.attach("handslot.r", _blade(0.75, Color("#8A8F96")))
 		"brute":
 			hp = 3.5
@@ -68,14 +68,14 @@ func _ready() -> void:
 			_windup = 1.2
 			_attack = "2H_Melee_Attack_Chop"
 			_walk = "Walking_A"
-			ch.setup(WARRIOR, 2.4, [["Helmet", Toon.GOLD, 0.75], ["Cloak", Toon.SUMI, 0.85]])
+			ch.setup(WARRIOR, 2.4, [["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")], ["Cloak", load("res://assets/kaykit/tex/skeleton_ink.png")]])
 			ch.attach("handslot.r", _blade(1.25, Color("#6E747C")))
 		"kappa":
 			hp = 1.0
 			speed = 1.6
 			radius = 0.45
 			_walk = "Walking_B"
-			ch.setup(MAGE, 1.75, [["Hat", Toon.PRUSSIAN, 0.9], ["Body", Toon.PRUSSIAN, 0.85]], [], Toon.GOLD)
+			ch.setup(MAGE, 1.75, [["Hat", load("res://assets/kaykit/tex/skeleton_prussian.png")], ["Body", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
 			ch.attach("handslot.r", _staff())
 			_timer = 1.4 + randf() * 1.5
 	ch.idle = "Idle_Combat"

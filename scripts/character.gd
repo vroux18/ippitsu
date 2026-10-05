@@ -3,7 +3,6 @@ extends Node3D
 ## Les modèles KayKit regardent vers +Z ; le jeu considère -Z comme « devant ».
 
 const Toon = preload("res://scripts/toon.gd")
-const SHADER = preload("res://shaders/ink_toon.gdshader")
 
 const LOOPS := ["Idle", "Idle_B", "Idle_Combat", "2H_Melee_Idle", "Unarmed_Idle", "Walking_A", "Walking_B",
 	"Walking_C", "Walking_D_Skeletons", "Running_A", "Running_B", "Running_C", "Spellcasting", "Blocking"]
@@ -13,12 +12,12 @@ var anim: AnimationPlayer
 var skeleton: Skeleton3D
 var scale_factor := 1.0
 var idle := "Idle"
-var _mats: Array[ShaderMaterial] = []
+var _mats: Array[StandardMaterial3D] = []
 var _current := ""
 var _once := false
 
 
-## `looks` : liste de [motif du nom de maillage, couleur, intensité] — le premier motif trouvé s'applique.
+## `looks` : liste de [motif du nom de maillage, texture recolorée] — le premier motif trouvé s'applique.
 func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], eyes := Toon.VERMILION) -> void:
 	model = scene.instantiate()
 	add_child(model)
@@ -57,22 +56,21 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 			em.albedo_color = eyes
 			mi.material_override = em
 			continue
-		var tint := Color.WHITE
-		var amount := 0.0
+		var tex: Texture2D = null
 		for look in looks:
 			if String(look[0]) in String(mi.name):
-				tint = look[1]
-				amount = look[2]
+				tex = look[1]
 				break
-		print("[ch] ", mi.name, " surfaces=", mi.mesh.get_surface_count(), " amount=", amount, " override=", mi.material_override, " active=", mi.get_active_material(0))
 		for i in mi.mesh.get_surface_count():
 			var src := mi.get_active_material(i)
-			var m := ShaderMaterial.new()
-			m.shader = SHADER
-			if src is BaseMaterial3D:
-				m.set_shader_parameter("albedo_tex", (src as BaseMaterial3D).albedo_texture)
-			m.set_shader_parameter("tint", tint)
-			m.set_shader_parameter("tint_amount", amount)
+			var m := StandardMaterial3D.new()
+			m.albedo_texture = tex if tex else (src as BaseMaterial3D).albedo_texture if src is BaseMaterial3D else null
+			m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+			m.specular_mode = BaseMaterial3D.SPECULAR_TOON
+			m.roughness = 0.9
+			m.emission_enabled = true
+			m.emission = Color.WHITE
+			m.emission_energy_multiplier = 0.0
 			m.next_pass = outline
 			mi.set_surface_override_material(i, m)
 			_mats.append(m)
@@ -148,10 +146,11 @@ func _on_finished(_a: StringName) -> void:
 
 func set_flash(a: float) -> void:
 	for m in _mats:
-		m.set_shader_parameter("flash_amount", a)
+		m.emission = Color.WHITE
+		m.emission_energy_multiplier = a
 
 
 func set_glow(a: float, color := Toon.VERMILION) -> void:
 	for m in _mats:
-		m.set_shader_parameter("glow", a)
-		m.set_shader_parameter("glow_color", color)
+		m.emission = color
+		m.emission_energy_multiplier = a

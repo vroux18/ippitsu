@@ -672,13 +672,11 @@ func _process(_delta: float) -> void:
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
 
-	# temps : arrêt sur image > ralenti du doigt > normal
+	# temps : arrêt sur image > normal (plus de ralenti quand le doigt est posé)
 	var target := 1.0
 	if hitstop > 0.0:
 		hitstop -= real
 		target = 0.02
-	elif touching:
-		target = SLOW
 	elif game_over:
 		target = 0.35
 	if target < Engine.time_scale and target != 0.02:
@@ -731,5 +729,5 @@ func _process(_delta: float) -> void:
 	hud.elan = elan / ELAN_MAX
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
 	hud.wave = maxi(wave, 1)
-	hud.slow = clampf((1.0 - Engine.time_scale) / (1.0 - SLOW), 0.0, 1.0) if touching else 0.0
+	hud.slow = 0.0
 	hud.game_over = game_over

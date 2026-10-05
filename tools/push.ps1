@@ -32,6 +32,14 @@ foreach ($f in $files) {
   $blob = Api POST "repos/$Repo/git/blobs" @{ content = $b64; encoding = "base64" }
   $tree += @{ path = ($f -replace '\\', '/'); mode = "100644"; type = "blob"; sha = $blob.sha }
 }
+# fichiers supprimés localement : on les retire aussi du dépôt
+$local = @{}; foreach ($f in $files) { $local[($f -replace '\\', '/')] = $true }
+$remote = (gh api "repos/$Repo/git/trees/$baseTree`?recursive=1" | ConvertFrom-Json).tree | Where-Object { $_.type -eq 'blob' }
+foreach ($r in $remote) {
+  if (-not $local.ContainsKey($r.path) -and ($r.path -replace '/', '\') -notmatch $exclude) {
+    $tree += @{ path = $r.path; mode = "100644"; type = "blob"; sha = $null }
+  }
+}
 $newTree = Api POST "repos/$Repo/git/trees" @{ base_tree = $baseTree; tree = $tree }
 $commit = Api POST "repos/$Repo/git/commits" @{ message = $Message; tree = $newTree.sha; parents = @($head) }
 Api PATCH "repos/$Repo/git/refs/heads/main" @{ sha = $commit.sha } | Out-Null

@@ -34,9 +34,8 @@ func _ready() -> void:
 	ch = Character.new()
 	body.add_child(ch)
 	ch.setup(MODEL, 1.75, [
-		["Cape", Toon.VERMILION, 0.9],
-		["Head", INK, 0.8],
-		["Rogue", INK, 0.8],
+		["Cape", load("res://assets/kaykit/tex/rogue_cape.png")],
+		["Rogue", load("res://assets/kaykit/tex/rogue_ink.png")],
 	], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
 	ch.attach("handslot.r", _katana())
 
