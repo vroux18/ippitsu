@@ -39,7 +39,7 @@ const UNLOCK_ALL := true  # prototype : tous les mondes ouverts pour les tester
 const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
-const REL := 1.25  # amplification du geste du doigt
+const REL := 1.0  # amplification du petit coup de doigt (esquive)
 const SLOW := 0.1
 
 const ELAN_MAX := 14.0  # longueur de trait maximale
@@ -205,7 +205,40 @@ func _ready() -> void:
 		_set_state("play")
 		room = 1
 		_room_cleared()
+	_warmup()
 	_ticks = Time.get_ticks_usec()
+
+
+## Préchauffage : on affiche une fois, cachés sous le sol, un exemplaire de chaque ennemi et de chaque
+## effet. Godot prépare ainsi leurs shaders pendant l'accueil au lieu de figer l'image en pleine partie.
+func _warmup() -> void:
+	var w := Node3D.new()
+	add_child(w)
+	w.position = hero.position + Vector3(0, -2.6, -2.0)
+	var x := -3.0
+	for k in ["oni", "kappa", "brute", "tate", "funa"]:
+		var e := Enemy.new()
+		e.setup(String(k), hero, self)
+		e.position = Vector3(x, 0, 0)
+		w.add_child(e)
+		e.process_mode = Node.PROCESS_MODE_DISABLED
+		x += 1.5
+	var b := Node3D.new()
+	w.add_child(b)
+	Toon.part(b, Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Vector3.ZERO)
+	var st := InkStroke.new(Vector3.ZERO, 0)
+	w.add_child(st)
+	st.extend_to(Vector3(2, 0, 0), 3.0)
+	var l := Label3D.new()
+	l.font = KANJI_FONT
+	l.text = "12 ×3 渦"
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = false
+	w.add_child(l)
+	_splash(w.position, Toon.VERMILION, 8)
+	_blot(w.position, Toon.VERMILION, 0.5, 1.5)
+	_slash_mark(w.position, Vector3.FORWARD)
+	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
 
 
 # ------------------------------------------------------------------ états
@@ -1041,12 +1074,15 @@ func _touch_down(sp: Vector2) -> void:
 	stroke_layer += 1
 	stroke = InkStroke.new(origin, stroke_layer)
 	add_child(stroke)
+	# le trait part du héros et rejoint directement le doigt
+	_touch_move(sp)
 
 
 func _touch_move(sp: Vector2) -> void:
 	if not touching or stroke == null:
 		return
-	var target := _clamp_point(origin + (_ground(sp) - touch_start) * REL)
+	# le trait suit exactement le doigt (là où il touche le sol), sans amplification
+	var target := _clamp_point(_ground(sp))
 	var was_empty: bool = stroke.exhausted
 	var used: float = stroke.extend_to(target, elan)
 	elan -= used
