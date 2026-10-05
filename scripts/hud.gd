@@ -362,7 +362,7 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var reach := sz.x * (0.1 + 0.9 * (1.0 - pow(1.0 - k_in, 3.0)))
 	var pts := PackedVector2Array()
 	var n := 20
-	var h := 70.0 * u if _banner_small != "" else 54.0 * u
+	var h := 108.0 * u if _banner_small != "" else 60.0 * u
 	for i in n + 1:
 		var x := reach * float(i) / n
 		var th := h * (0.7 + 0.3 * sin(float(i) * 0.9)) * (0.85 + 0.15 * sin(PI * float(i) / n))
@@ -374,12 +374,12 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	draw_colored_polygon(pts, Color(_banner_col, 0.92 * a))
 	var fs := int(30 * u)
 	var tw := TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var ty := cy + (fs * 0.35 if _banner_small == "" else fs * 0.05)
+	var ty := cy + (fs * 0.35 if _banner_small == "" else -fs * 0.05)
 	draw_string(TITLE_FONT, Vector2(sz.x / 2.0 - tw / 2.0, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, a))
 	if _banner_small != "":
 		var sfs := int(13 * u)
 		var sw := UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-		draw_string(UI_FONT, Vector2(sz.x / 2.0 - sw / 2.0, cy + 24 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, 0.85 * a))
+		draw_string(UI_FONT, Vector2(sz.x / 2.0 - sw / 2.0, cy + 26 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, 0.85 * a))
 
 
 func _brush_bar(pos: Vector2, w: float, h: float, fill: float, c: Color) -> void:

@@ -24,6 +24,7 @@ var hero: Node3D
 var main: Node
 
 var dead := false
+var dummy := false  # mannequin du tutoriel : ne bouge pas, n'attaque pas
 var last_stroke := -1
 var body: Node3D
 var ch: Node3D
@@ -294,6 +295,9 @@ func _process(delta: float) -> void:
 
 	if kind == "funa":
 		_ghost(delta)
+		return
+
+	if dummy:
 		return
 
 	var to_hero := hero.position - position

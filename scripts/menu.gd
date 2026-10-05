@@ -13,6 +13,7 @@ signal atelier_pressed
 signal worlds_pressed
 signal resume_pressed
 signal restart_pressed
+signal tuto_pressed
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -44,6 +45,7 @@ var _worlds: Control
 var _resume: Control
 var _quit: Control
 var _restart: Control
+var _help: Control
 
 
 func _ready() -> void:
@@ -77,6 +79,9 @@ func _ready() -> void:
 	_quit.lead_icon = "home"
 	_quit.pressed.connect(func(): home_pressed.emit())
 	_play.lead_icon = "play"
+	_help = _button("", "round")
+	_help.icon = "help"
+	_help.pressed.connect(func(): tuto_pressed.emit())
 	_replay.lead_icon = "replay"
 	show_mode("home")
 
@@ -117,6 +122,9 @@ func _process(delta: float) -> void:
 	_restart.visible = mode == "pause"
 	_sound.visible = mode == "home" or mode == "pause"
 	_atelier.visible = mode == "home"
+	_help.visible = mode == "home"
+	_help.size = Vector2(40, 40) * u
+	_help.position = Vector2(16 * u, 58 * u)
 	_sound.icon = "sound_off" if muted else "sound_on"
 
 	var bw := w * 0.6
@@ -226,7 +234,7 @@ func _draw_home() -> void:
 	# record
 	if best > 0:
 		var ra := _ease_out(clampf((_t - 0.8) / 0.5, 0.0, 1.0))
-		_text(_ui, "RECORD  ·  SALLE %d / 9" % best, Vector2(w / 2.0, h * 0.76 + 64 * u + 14 * u + 46 * u + 30 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
+		_text(_ui, "RECORD  ·  SALLE %d / 15" % best, Vector2(w / 2.0, h * 0.76 + 64 * u + 14 * u + 46 * u + 30 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
 
 	# halo qui respire autour du bouton
 	var pulse := 0.5 + 0.5 * sin(_t * 3.0)
@@ -281,7 +289,7 @@ func _draw_results() -> void:
 	_text(_title, "VICTOIRE" if victory else "DÉFAITE", Vector2(cx, card.position.y + 140 * u), int(34 * u), Color(ring_col if victory else Toon.SUMI, a))
 	_text(_ui, world_name.to_upper(), Vector2(cx, card.position.y + 164 * u), int(12 * u), Color(Toon.SUMI, 0.55 * a))
 	# statistiques en deux colonnes
-	var rows := [["SALLE", "%d / 9" % stat_room], ["ENNEMIS", str(stat_kills)], ["CHAÎNE MAX", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	var rows := [["SALLE", "%d / 15" % stat_room], ["ENNEMIS", str(stat_kills)], ["CHAÎNE MAX", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
 	for i in rows.size():
 		var col := i % 2
 		var row := i / 2
@@ -349,7 +357,7 @@ func _draw_pause() -> void:
 	_text(TITLE_FONT, world_kanji, Vector2(seal.get_center().x, seal.get_center().y + 13 * u), int(34 * u), Color(Toon.WASHI, a))
 	_text(_title, "PAUSE", Vector2(card.get_center().x, card.position.y + 124 * u), int(32 * u), Color(Toon.SUMI, a))
 	# la partie en cours
-	var cols := [["SALLE", "%d / 9" % stat_room], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	var cols := [["SALLE", "%d / 15" % stat_room], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
 	for i in cols.size():
 		var cx := card.position.x + card.size.x * (0.2 + 0.3 * i)
 		_text(_ui, String(cols[i][0]), Vector2(cx, card.position.y + 156 * u), int(10 * u), Color(Toon.SUMI, 0.5 * a))

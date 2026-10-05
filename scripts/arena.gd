@@ -78,12 +78,12 @@ func set_world(id: int) -> void:
 
 
 ## Construit la salle : forme, sol, bords, décor, torii de sortie (caché).
-func build_room(room: int, rooms: int, rng_seed: int) -> void:
+func build_room(room: int, rooms: int, rng_seed: int, mini_room := 8) -> void:
 	for ch in _room_root.get_children():
 		ch.queue_free()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = rng_seed
-	if room <= 1 or room == 5 or room >= rooms:
+	if room <= 1 or room == mini_room or room >= rooms:
 		layout = "full"
 	else:
 		var keys: Array = LAYOUTS.keys()

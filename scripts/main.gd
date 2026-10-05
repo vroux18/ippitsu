@@ -15,6 +15,7 @@ const Boss = preload("res://scripts/boss.gd")
 const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashadokuro": preload("res://scripts/boss_gasha.gd"),
 	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
+const Tutorial = preload("res://scripts/tutorial.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
@@ -32,7 +33,9 @@ const CURSES := {
 }
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
-const ROOMS := 9
+const ROOMS := 15
+const MINI_ROOM := 8  # salle du mini-boss
+const SANCTUARIES := [5, 10]  # malédictions proposées après ces salles
 const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2}
 const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4}  # première salle où chaque ennemi peut venir
 const UNLOCK_ALL := true  # prototype : tous les mondes ouverts pour les tester
@@ -116,6 +119,7 @@ var worldmap: Control
 var _ending_victory := false
 var _final_boss: Node3D
 var music: Node
+var tuto: Control
 var max_combo := 0
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -179,6 +183,11 @@ func _ready() -> void:
 	pick_layer.add_child(picker)
 	picker.picked.connect(_on_picked)
 	picker.reroll.connect(_on_reroll)
+	tuto = Tutorial.new()
+	tuto.main = self
+	pick_layer.add_child(tuto)
+	tuto.finished.connect(_on_tuto_finished)
+	menu.tuto_pressed.connect(_start_tutorial)
 	var map_layer := CanvasLayer.new()
 	map_layer.layer = 4
 	add_child(map_layer)
@@ -306,6 +315,9 @@ func _on_play() -> void:
 	if state == "over":
 		_start()
 		_set_state("play")
+	elif not meta.tuto_done:
+		# toute première partie : on apprend d'abord à tracer
+		_start_tutorial()
 	else:
 		_open_worlds()
 
@@ -346,6 +358,36 @@ func _on_pause() -> void:
 	menu.stat_time = run_time
 	state = "paused"
 	menu.show_mode("pause")
+
+
+## Tutoriel guidé : arène calme, mannequins, héros intouchable, élan illimité.
+func _start_tutorial() -> void:
+	sfx.play("slash", 0.9, -4.0)
+	menu.show_mode("hidden")
+	_start()
+	_set_state("tuto")
+	hero.face(Vector3(0, 0, -1))
+	hero.guard_t = 99999.0
+	hud.banner("TUTORIEL", "APPRENDS À TRACER", Toon.PRUSSIAN, 1.8)
+	tuto.begin()
+
+
+func _on_tuto_finished() -> void:
+	meta.tuto_done = true
+	meta.save_data()
+	_start()
+	_set_state("menu")
+
+
+## Mannequin d'entraînement (tutoriel) : ne bouge pas, n'attaque pas.
+func spawn_dummy(pos: Vector3) -> void:
+	var e := Enemy.new()
+	e.setup("oni", hero, self)
+	e.dummy = true
+	e.position = arena.clamp_walk(pos, 0.8)
+	add_child(e)
+	e.set_meta("max_hp", e.hp)
+	enemies.append(e)
 
 
 func _on_restart() -> void:
@@ -579,7 +621,7 @@ func _begin_room() -> void:
 	hazards.begin_room(room, hero.position)
 	var w: Dictionary = Worlds.world(current_world)
 	var weights: Dictionary = w.enemies
-	var budget := 5 + 3 * room
+	var budget := 5 + 2 * room
 	var list: Array = []
 	if room >= 3:
 		list.append("brute")
@@ -595,7 +637,7 @@ func _begin_room() -> void:
 		list.append(k)
 		budget -= cost
 	list.shuffle()
-	if room == 5:
+	if room == MINI_ROOM:
 		list = ["oni", "oni", "oni"]
 		_spawn_boss("okappa")
 	elif room == ROOMS:
@@ -613,8 +655,8 @@ func _begin_room() -> void:
 		_waves_left.append(list.slice(b))
 	waves_total = 1 + _waves_left.size()
 	wave_index = 1
-	if room == 5:
-		hud.banner("Ō-KAPPA", "GARDIEN DE LA SALLE 5", Toon.VERMILION, 2.2)
+	if room == MINI_ROOM:
+		hud.banner("Ō-KAPPA", "GARDIEN DE LA SALLE %d" % MINI_ROOM, Toon.VERMILION, 2.2)
 	elif room == ROOMS and _final_boss != null:
 		hud.banner(String(_final_boss.title).to_upper(), "GARDIEN DU MONDE", Toon.VERMILION, 2.4)
 	elif room > 1:
@@ -716,7 +758,7 @@ func _room_cleared() -> void:
 		_victory()
 		return
 	_set_state("pick")
-	if room == 3 or room == 7:
+	if room in SANCTUARIES:
 		_open_sanctuary()
 	else:
 		_open_upgrades()
@@ -793,7 +835,7 @@ func _rebuild_room() -> void:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
-	arena.build_room(room + 1, ROOMS, randi())
+	arena.build_room(room + 1, ROOMS, randi(), MINI_ROOM)
 	hero.position = arena.start
 	_prev_hero = hero.position
 	hero.face(Vector3(0, 0, -1))
@@ -823,6 +865,22 @@ func _take_curse(id: String) -> void:
 		"haste":
 			_extra_picks += 1
 			hero.hp = hero.max_hp
+
+
+## Arrivée au-dessus du vide ou d'un trou : le héros s'arrête au bord (dernier point solide du trajet).
+func _land_safe() -> void:
+	var path: PackedVector3Array = hero.path
+	var safe := _safe_point
+	for i in range(path.size() - 1, -1, -1):
+		if not hazards.is_hole(path[i], 0.35):
+			safe = path[i]
+			break
+	if hazards.is_hole(safe, 0.2):
+		safe = arena.clamp_walk(hero.position, 0.5)
+	_splash(hero.position, Toon.FOAM, 8)
+	hero.position = Vector3(safe.x, 0, safe.z)
+	_prev_hero = hero.position
+	sfx.play("empty", 0.7)
 
 
 ## Chute dans un trou du ponton : 1 dégât et retour au dernier point sûr.
@@ -1138,7 +1196,7 @@ func _clamp_point(p: Vector3) -> Vector3:
 
 func _input(event: InputEvent) -> void:
 	# tactile (téléphone) et souris (ordinateur) ; la souris émulée depuis le tactile sert aux boutons du menu
-	if state != "play" and state != "intro":
+	if state != "play" and state != "intro" and state != "tuto":
 		return
 	if event is InputEventMouse and event.device == InputEvent.DEVICE_ID_EMULATION:
 		return
@@ -1172,7 +1230,7 @@ func _ground(sp: Vector2) -> Vector3:
 
 
 func _touch_down(sp: Vector2) -> void:
-	if hud.is_over_pause(sp):
+	if hud.is_over_pause(sp) or tuto.is_over_ui(sp):
 		return
 	if game_over:
 		if hud.over_t > 1.0:
@@ -1266,11 +1324,13 @@ func _on_dash_finished() -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = null
+	if state == "tuto":
+		tuto.on_dash_end(hero.position, _stroke_kills, String(_shape.get("shape", "")))
 	if _stroke_hit:
 		_add_chain(2 if not _shape.is_empty() else 1)
 	_apply_shape()
 	if hazards.is_hole(hero.position):
-		_fall()
+		_land_safe()
 	for bo in bosses:
 		if is_instance_valid(bo):
 			bo.end_stroke(stroke_id)
@@ -1634,6 +1694,9 @@ func _process(_delta: float) -> void:
 			_cam_base = _cam_base.interpolate_with(close, minf(1.0, real * 2.0))
 		if _state_t > 1.6:
 			_finish_run()
+	if state == "tuto":
+		elan = elan_max()
+		_update_moves(dt)
 	if state == "play":
 		run_time += real
 		if chain > 0:
@@ -1702,7 +1765,7 @@ func _process(_delta: float) -> void:
 	else:
 		cam.global_transform = _cam_base
 
-	hud.in_play = state in ["play", "transit", "dying", "pick"]
+	hud.in_play = state in ["play", "transit", "dying", "pick", "tuto"]
 	hud.world_kanji = String(Worlds.world(current_world).kanji)
 	hud.world_color = Worlds.world(current_world).color
 	hud.rooms_total = ROOMS

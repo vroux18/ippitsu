@@ -153,7 +153,7 @@ func _pal(i: int) -> int:
 func _best_of(i: int) -> int:
 	var id := _id(i)
 	var v: Variant = _best.get(id, _best.get(str(id), 0))
-	return clampi(int(v), 0, 9)
+	return clampi(int(v), 0, 15)
 
 
 func _sel() -> int:
@@ -1029,7 +1029,7 @@ func _station(ci: Control, i: int) -> void:
 			else:
 				ci.draw_arc(dc, 2.2 * u * sc, 0.0, TAU, 12, Color(Toon.SUMI, 0.3), maxf(1.0, 1.0 * u), true)
 		var rc: Color = Toon.GOLD if b >= 9 else Color(Toon.SUMI, 0.8)
-		ci.draw_string(_ui, Vector2(rx + dgap * 8.0 + 8.0 * u * sc, y_rec), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, rc)
+		ci.draw_string(_ui, Vector2(rx + dgap * 14.0 + 8.0 * u * sc, y_rec), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, rc)
 
 	var hit_w := maxf(r * 2.0, cw)
 	var hit_top := p.y - r - 28.0 * u

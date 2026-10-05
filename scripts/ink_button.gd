@@ -122,6 +122,11 @@ func _icon(c: Vector2, s: float) -> void:
 			draw_rect(Rect2(c + Vector2(-s * 0.8, -s * 0.55), Vector2(s * 1.6, s * 1.1)), Color(ink, 0.25))
 			draw_rect(Rect2(c + Vector2(-s * 0.95, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
 			draw_rect(Rect2(c + Vector2(s * 0.7, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
+		"help":
+			if font:
+				var fs := int(s * 2.0)
+				var qw := font.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+				draw_string(font, c + Vector2(-qw / 2.0, fs * 0.36), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 		"replay":
 			draw_arc(c, s * 0.8, -0.3, PI * 1.55, 20, ink, s * 0.24, true)
 			var tip := c + Vector2.from_angle(-0.3) * s * 0.8
