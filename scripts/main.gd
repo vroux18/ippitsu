@@ -305,7 +305,7 @@ func _warmup() -> void:
 	_blot(w.position, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(w.position, Vector3.FORWARD)
 	vfx.impact(w.position, Vector3.FORWARD, true)
-	vfx.kill_burst(w.position, Vector3.FORWARD)
+	vfx.kill_burst(w.position, Vector3.FORWARD, true)
 	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
 
 
@@ -1697,8 +1697,12 @@ func _check_slashes() -> void:
 				e.last_stroke = stroke_id
 				combo -= 1
 				clang(p)
-				float_text(p, "×0", Toon.FOAM)
+				float_text(p, "GARDE !", Toon.FOAM)
+				e.shield_break()
 				hero.stop_dash()
+				# le héros rebondit sur le bouclier au lieu de rester collé
+				hero.position = arena.clamp_walk(hero.position - dir.normalized() * 0.8, 0.4)
+				_prev_hero = hero.position
 				continue
 			if piercing:
 				dmg *= 1.5
@@ -1708,25 +1712,25 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
 			_dmg_text(p, dmg, killed)
-			vfx.impact(p, dir, killed or combo >= 3)
+			vfx.impact(p, dir, killed)
 			if killed:
 				_on_enemy_killed(e)
-				vfx.kill_burst(p, dir)
-				hud.screen_flash = maxf(hud.screen_flash, 0.35)
+				# le grand 斬 ne vient que sur une belle série
+				vfx.kill_burst(p, dir, combo >= 3)
+				hud.screen_flash = maxf(hud.screen_flash, 0.12)
 			if killed:
 				kills += 1
 				_stroke_kills += 1
 				powers.on_kill(e)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
-			shake = maxf(shake, 0.16 if killed else 0.08)
+			shake = maxf(shake, 0.11 if killed else 0.05)
 			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
-			_splash(p, Toon.VERMILION, 18 if killed else 10)
-			# éclaboussure d'encre : tache noire et gouttes vermillon
-			_blot(p, Color(Toon.SUMI, 0.7), randf_range(0.25, 0.42) * (1.5 if e.kind == "brute" else 1.0), 2.2)
+			_splash(p, Toon.VERMILION, 8 if killed else 4)
+			# tache d'encre au sol seulement à la mise à mort
 			if killed:
-				_blot(p + Vector3(randf_range(-0.3, 0.3), 0, randf_range(-0.3, 0.3)), Color(Toon.VERMILION, 0.85), 0.18, 2.2)
+				_blot(p, Color(Toon.SUMI, 0.6), randf_range(0.25, 0.38) * (1.4 if e.kind == "brute" else 1.0), 1.8)
 			_slash_mark(p, dir)
-			if combo >= 2:
+			if combo >= 3:
 				_combo_label(p, combo)
 	for bo in bosses:
 		if not is_instance_valid(bo):
@@ -1742,9 +1746,9 @@ func _check_slashes() -> void:
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			shake = maxf(shake, 0.22)
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
-			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 12)
+			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 6)
 			_slash_mark(bo.position, bdir)
-			vfx.impact(bo.position, bdir, true)
+			vfx.impact(bo.position, bdir, false)
 
 
 func _update_bullets(dt: float) -> void:

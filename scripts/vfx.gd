@@ -118,9 +118,11 @@ func impact(pos: Vector3, dir: Vector3, strong := false) -> void:
 		mi.rotation.z = r
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		star.add_child(mi)
-	_fx.append({"node": star, "t": 0.0, "life": 0.3, "kind": "star", "s": 3.6 if strong else 2.6})
-	ring(Vector3(pos.x, 0.06, pos.z), Toon.VERMILION if not strong else Toon.GOLD, 2.0 if strong else 1.4)
-	sparks(p, dir, 22 if strong else 14, Toon.GOLD)
+	# sobre : un éclair court et l'arc de sabre ; l'anneau seulement sur un coup fort
+	_fx.append({"node": star, "t": 0.0, "life": 0.18, "kind": "star", "s": 1.9 if strong else 1.3})
+	if strong:
+		ring(Vector3(pos.x, 0.06, pos.z), Toon.GOLD, 1.4)
+	sparks(p, dir, 8 if strong else 5, Toon.GOLD)
 	arc(p, dir, strong)
 
 
@@ -217,10 +219,9 @@ func sparks(pos: Vector3, dir: Vector3, amount: int, c: Color) -> void:
 	_fx.append({"node": p, "t": 0.0, "life": 0.9, "kind": "none"})
 
 
-## Mise à mort : explosion d'encre et d'or, confettis de papier, grand 斬.
-func kill_burst(pos: Vector3, dir: Vector3) -> void:
+## Mise à mort : éclat d'or, quelques confettis de papier ; le grand 斬 seulement sur un beau coup (`big`).
+func kill_burst(pos: Vector3, dir: Vector3, big := false) -> void:
 	impact(pos, dir, true)
-	sparks(pos + Vector3(0, 0.9, 0), -dir, 10, Toon.VERMILION)
 	# confettis de washi
 	var p := CPUParticles3D.new()
 	if _confetti == null:
@@ -232,8 +233,8 @@ func kill_burst(pos: Vector3, dir: Vector3) -> void:
 		pm.cull_mode = BaseMaterial3D.CULL_DISABLED
 		_confetti.material = pm
 	p.mesh = _confetti
-	p.amount = 16
-	p.lifetime = 1.1
+	p.amount = 7
+	p.lifetime = 0.9
 	p.one_shot = true
 	p.explosiveness = 0.9
 	p.direction = Vector3.UP
@@ -250,12 +251,14 @@ func kill_burst(pos: Vector3, dir: Vector3) -> void:
 	add_child(p)
 	p.emitting = true
 	_fx.append({"node": p, "t": 0.0, "life": 1.4, "kind": "none"})
+	if not big:
+		return
 	# grand idéogramme au pinceau
 	var l := Label3D.new()
 	l.font = UiKit.TITLE_FONT
 	l.text = "斬"
 	l.font_size = 220
-	l.pixel_size = 0.006
+	l.pixel_size = 0.0038
 	l.modulate = Toon.VERMILION
 	l.outline_modulate = Toon.SUMI
 	l.outline_size = 26

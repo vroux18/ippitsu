@@ -17,6 +17,7 @@ const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (même valeur que
 const EDGE_IN := 0.4  # funa : distance au bord du ponton
 
 var _steer := Vector3.ZERO
+var _stagger := 0.0  # tate : garde ouverte après un coup bloqué
 var _steer_t := 0.0
 var kind := "oni"
 var hp := 1.0
@@ -203,13 +204,21 @@ func is_harmless() -> bool:
 
 ## Vrai si un coup venant dans la direction `dir` (ruée du héros) frappe le bouclier (cône frontal 120°).
 func blocks(dir: Vector3) -> bool:
-	if kind != "tate" or dead:
+	if kind != "tate" or dead or _stagger > 0.0:
 		return false
 	var d := Vector3(dir.x, 0, dir.z)
 	if d.length_squared() < 0.0001:
 		return false
 	var front := Vector3(-sin(body.rotation.y), 0, -cos(body.rotation.y))
 	return d.normalized().dot(front) < -0.5
+
+
+## Bouclier frappé : la garde s'ouvre un instant (le coup suivant passe).
+func shield_break() -> void:
+	_stagger = 1.4
+	if _state == "windup":
+		_cancel_attack()
+	ch.play_once("Hit_A", 1.2)
 
 
 func take_hit(dmg: float, dir: Vector3) -> bool:
@@ -329,10 +338,15 @@ func _face(dir: Vector3, delta: float, rate := 10.0) -> void:
 
 
 func _melee(delta: float, dir: Vector3, dist: float) -> void:
+	if _stagger > 0.0:
+		# garde ouverte : il titube, ni marche ni attaque
+		_stagger -= delta
+		return
 	var reach := 0.6 + _zone_r
 	match _state:
 		"move":
-			_face(dir, delta)
+			# le porteur de bouclier pivote lentement : on peut le contourner
+			_face(dir, delta, 3.0 if kind == "tate" else 10.0)
 			if dist > reach - 0.3:
 				# chemin : par la passerelle si le héros est sur une autre plateforme
 				# recalculé 5 fois par seconde seulement (parcours des plateformes)
