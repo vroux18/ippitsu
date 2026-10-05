@@ -392,6 +392,51 @@ func touching_hero(p: Vector3) -> bool:
 	return Vector2(p.x, p.z - (Z_BUST + 0.4)).length() < 1.5
 
 
+## Dégâts de zone (techniques, pouvoirs) : touche la partie vulnérable la plus proche de `center` dans `radius`.
+## Renvoie le point touché, ou Vector3.INF si rien n'est touché (boss invulnérable à cet instant, hors de portée, mort).
+## Main posée au sol (écrasement) : ses PV et ceux du squelette. Effondré : une vertèbre,
+## dégâts simples (l'ordre queue → crâne ne compte que pour les traits).
+func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
+	if dead:
+		return Vector3.INF
+	var fl := _flash
+	if _state == "slam_down" and _active >= 0:
+		var idx := _active
+		var h: Dictionary = _hands[idx]
+		if not h["alive"]:
+			return Vector3.INF
+		if Vector2(_slam_target.x - center.x, _slam_target.z - center.z).length() >= radius + HAND_R:
+			return Vector3.INF
+		h["hp"] = float(h["hp"]) - dmg
+		if fx:
+			h["flash"] = 0.15
+		_damage(dmg)
+		if not fx:
+			_flash = fl
+		if not dead and float(h["hp"]) <= 0.0:
+			_break_hand(idx)
+		return Vector3(_slam_target.x, 0.5, _slam_target.z)
+	if _state == "down":
+		var found := false
+		var best := INF
+		var at := Vector3.ZERO
+		for lamp in _vert_lamps:
+			var ln: Node3D = lamp
+			var p := ln.global_position
+			var d := Vector2(p.x - center.x, p.z - center.z).length()
+			if d < radius + V_R and d < best:
+				best = d
+				found = true
+				at = p
+		if not found:
+			return Vector3.INF
+		_damage(dmg)
+		if not fx:
+			_flash = fl
+		return at
+	return Vector3.INF
+
+
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:

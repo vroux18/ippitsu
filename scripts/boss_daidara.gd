@@ -538,6 +538,31 @@ func touching_hero(p: Vector3) -> bool:
 	return Vector2(p.x - position.x, p.z - position.z).length() < POOL_R
 
 
+## Dégâts de zone (techniques, pouvoirs) : touche la partie vulnérable la plus proche de `center` dans `radius`.
+## Renvoie le point touché, ou Vector3.INF si rien n'est touché (boss invulnérable à cet instant, hors de portée, mort).
+## Seulement carapace ouverte (corps ou mains) : les noyaux ne se brisent qu'avec un trait dans l'ordre.
+func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
+	if dead or _state != "open" or _open <= 0.0:
+		return Vector3.INF
+	var c2 := Vector2(center.x, center.z)
+	var body := position + Vector3(0, 0, 0.6)
+	var best := Vector2(body.x, body.z).distance_to(c2) - POOL_R
+	var at := position + Vector3(0, 2.2, 1.4)
+	for side in 2:
+		var hw := _hand_world(side)
+		var d := Vector2(hw.x, hw.z).distance_to(c2) - HAND_HIT
+		if d < best:
+			best = d
+			at = hw + Vector3(0, 0.5, 0)
+	if best >= radius:
+		return Vector3.INF
+	var fl := _flash
+	_damage(dmg)
+	if not fx:
+		_flash = fl
+	return at
+
+
 # ------------------------------------------------------------------ outils
 
 func _seg_t(p: Vector3, a: Vector3, b: Vector3) -> float:

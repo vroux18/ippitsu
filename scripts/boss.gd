@@ -272,6 +272,42 @@ func touching_hero(p: Vector3) -> bool:
 	return false
 
 
+## Dégâts de zone (techniques, pouvoirs) : touche la partie vulnérable la plus proche de `center` dans `reach`.
+## Renvoie le point touché, ou Vector3.INF si rien n'est touché (boss invulnérable à cet instant, hors de portée, mort).
+## (`reach` plutôt que `radius`, déjà pris par le rayon du boss)
+func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
+	if dead:
+		return Vector3.INF
+	var found := false
+	var at := Vector3.ZERO
+	if kind == "okappa":
+		# enfoui ou en train de surgir : intouchable (comme check_dash)
+		if _state in ["spawn", "sink", "hidden"]:
+			return Vector3.INF
+		if Vector2(position.x - center.x, position.z - center.z).length() < reach + radius:
+			found = true
+			at = position + Vector3(0, 1.2, 0)
+	else:
+		# Uwabami : seulement quand le corps affleure ; dégâts simples, sans bonus de longueur
+		if _depth < -0.4:
+			return Vector3.INF
+		var best := INF
+		for s in _segs:
+			var sp: Vector3 = s.position
+			var d := Vector2(sp.x - center.x, sp.z - center.z).length()
+			if d < reach + SEG_R and d < best:
+				best = d
+				found = true
+				at = Vector3(sp.x, maxf(sp.y, 0.0) + 0.45, sp.z)
+	if not found:
+		return Vector3.INF
+	var fl := _flash
+	_damage(dmg)
+	if not fx:
+		_flash = fl
+	return at
+
+
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:

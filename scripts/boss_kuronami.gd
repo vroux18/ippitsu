@@ -323,6 +323,56 @@ func touching_hero(p: Vector3) -> bool:
 	return false
 
 
+## Dégâts de zone (techniques, pouvoirs) : touche la partie vulnérable la plus proche de `center` dans `radius`.
+## Renvoie le point touché, ou Vector3.INF si rien n'est touché (boss invulnérable à cet instant, hors de portée, mort).
+## Dégâts simples : doigt posé (p1), vague qui roule (p2), œil (p3). Ni doigt tranché ni vague renvoyée.
+func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
+	if dead or _phase == 0 or _pending_shift:
+		return Vector3.INF
+	var found := false
+	var best := INF
+	var at := Vector3.ZERO
+	match _state:
+		"p1":
+			for f: Dictionary in _fingers:
+				if not bool(f["alive"]) or String(f["state"]) != "rest":
+					continue
+				var fa: Vector3 = f["a"]
+				var fb: Vector3 = f["b"]
+				var q := _closest(center, fa, fb)
+				var d := _flat_dist(q, center) - FINGER_W * 0.5
+				if d < radius and d < best:
+					best = d
+					found = true
+					at = q + Vector3(0, 0.4, 0)
+		"p2":
+			for w: Dictionary in _waves:
+				if String(w["state"]) != "roll":
+					continue
+				var x: float = w["x"]
+				var wz: float = w["z"]
+				if absf(wz) > HALF.y:
+					continue
+				var dx := maxf(absf(center.x - x) - LANE_W * 0.5, 0.0)
+				var dz := maxf(absf(center.z - wz) - 0.55, 0.0)
+				var d2 := Vector2(dx, dz).length()
+				if d2 < radius and d2 < best:
+					best = d2
+					found = true
+					at = Vector3(clampf(center.x, x - LANE_W * 0.5, x + LANE_W * 0.5), 0.8, wz)
+		"p3":
+			if _eye.visible and Vector2(center.x, center.z).length() - EYE_R < radius:
+				found = true
+				at = Vector3(0, 0.5, 0)
+	if not found:
+		return Vector3.INF
+	var fl := _flash
+	_deal(dmg)
+	if not fx:
+		_flash = fl
+	return at
+
+
 # ------------------------------------------------------------------ détection des formes
 
 ## Points de la ruée rééchantillonnés tous les `step` mètres.

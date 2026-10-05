@@ -378,6 +378,34 @@ func touching_hero(p: Vector3) -> bool:
 	return false
 
 
+## Dégâts de zone (techniques, pouvoirs) : touche la partie vulnérable la plus proche de `center` dans `reach`.
+## Renvoie le point touché, ou Vector3.INF si rien n'est touché (boss invulnérable à cet instant, hors de portée, mort).
+## (`reach` plutôt que `radius`, déjà pris par le rayon du boss)
+## Seul le vrai renard encaisse : pas d'illusion qui éclate, pas de queue éteinte (réservé à l'Ensō).
+func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
+	if dead:
+		return Vector3.INF
+	var open := false
+	match _state:
+		"p1":
+			open = _fade >= 0.6
+		"p2":
+			# voile de feu-renard : seulement une fois toutes les queues éteintes
+			open = _stun > 0.0
+		"p3_tele", "p3_run", "p3_rest", "p3_stun":
+			open = true
+	if not open:
+		return Vector3.INF
+	if Vector2(position.x - center.x, position.z - center.z).length() >= reach + radius:
+		return Vector3.INF
+	var at := position + Vector3(0, 0.9, 0)
+	var fl := _flash
+	_damage(dmg)
+	if not fx:
+		_flash = fl
+	return at
+
+
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:

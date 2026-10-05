@@ -136,6 +136,7 @@ var level := 1
 var run_gold := 0
 var _pending_levels := 0
 var _pick_context := "room"  # room | level
+var foam := 0  # coups bloqués restants dans la salle (Écume)
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -674,6 +675,7 @@ func _start() -> void:
 	dash_stroke = null
 	_reset_stroke_state(true)
 	_pick_context = "room"
+	foam = 0
 	wave_wait = 0.8
 	room = 0
 	_room_queue = []
@@ -717,6 +719,7 @@ func elan_max() -> float:
 func _begin_room() -> void:
 	room += 1
 	_room_done = false
+	foam = powers.foam_per_room()
 	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
 	hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
 	var w: Dictionary = Worlds.world(current_world)
@@ -798,6 +801,7 @@ func boss_killed(b: Node3D) -> void:
 	pickups.drop(b.position, "coin", 10)
 	if b.kind == "okappa":
 		mini_kills += 1
+		_pending_levels += 1  # le gardien vaincu offre un rouleau
 	else:
 		boss_kills += 1
 	shake = 0.7
@@ -1097,6 +1101,36 @@ func nearest_enemies(pos: Vector3, r: float, n: int, exclude: Node3D) -> Array:
 	return out
 
 
+## Dégâts de zone sur les boss (techniques, pouvoirs). Renvoie les points touchés.
+func damage_bosses(center: Vector3, r: float, dmg: float, fx := true) -> Array:
+	var hits: Array = []
+	for bo in bosses:
+		if not is_instance_valid(bo) or bo.dead:
+			continue
+		var p: Vector3 = bo.aoe_hit(center, r, dmg, fx)
+		if p == Vector3.INF:
+			continue
+		hits.append(p)
+		if fx:
+			_dmg_text(p, dmg, false)
+			_splash(p, Toon.GOLD, 6)
+	return hits
+
+
+## Dégâts le long d'un trait sur les boss : chacun n'est touché qu'une fois.
+func damage_bosses_line(pts: PackedVector3Array, r: float, dmg: float, fx := true) -> void:
+	for bo in bosses:
+		if not is_instance_valid(bo) or bo.dead:
+			continue
+		for i in range(0, pts.size(), 3):
+			var p: Vector3 = bo.aoe_hit(pts[i], r, dmg, fx)
+			if p != Vector3.INF:
+				if fx:
+					_dmg_text(p, dmg, false)
+					_splash(p, Toon.GOLD, 6)
+				break
+
+
 func heal(n: int) -> void:
 	hero.hp = mini(hero.max_hp, hero.hp + n)
 	float_text(hero.position, "+%d" % n, Toon.VERMILION)
@@ -1156,6 +1190,8 @@ func _apply_shape() -> void:
 				zap(from, o.position)
 				damage_enemy(o, 1.2)
 				from = o.position
+			for bp in damage_bosses(hero.position, 6.0, 1.2):
+				zap(from, bp)
 			sfx.play("strike", 1.6, -2.0)
 		"straight":
 			# Ittō / iaï : le héros rengaine, puis la coupe s'abat sur toute la ligne
@@ -1182,6 +1218,13 @@ func _apply_shape() -> void:
 				damage_enemy(o, 3.0)
 				shape_text(o.position, "背")
 				shake = maxf(shake, 0.25)
+			else:
+				var bh: Array = damage_bosses(tip, 2.6, 3.0)
+				if not bh.is_empty():
+					var bp: Vector3 = bh[0]
+					hero.stab(bp - hero.position)
+					zap(hero.position, bp)
+					shake = maxf(shake, 0.25)
 
 
 ## Atterrissage du bond d'ensō : onde de choc qui repousse et blesse tout l'intérieur du cercle.
@@ -1194,6 +1237,7 @@ func _on_hero_landed() -> void:
 	for o in nearest_enemies(hero.position, _enso_r + 0.4, 99, null):
 		damage_enemy(o, 2.0)
 		o.push((o.position - hero.position).normalized() * 4.0)
+	damage_bosses(hero.position, _enso_r + 0.4, 2.0)
 
 
 ## Techniques qui durent : toupie (dégâts réguliers + aspiration) et coupe différée de l'iaï.
@@ -1209,6 +1253,7 @@ func _update_moves(dt: float) -> void:
 			for o in nearest_enemies(hero.position, 1.9, 99, null):
 				damage_enemy(o, 0.6)
 				_slash_mark(o.position, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+			damage_bosses(hero.position, 1.9, 0.6)
 	if _iai_t > 0.0:
 		_iai_t -= dt
 		if _iai_t <= 0.0 and _iai_points.size() > 1:
@@ -1222,6 +1267,7 @@ func _update_moves(dt: float) -> void:
 				if is_instance_valid(e) and not e.dead and powers._near_line(e.position, _iai_points, 0.9 + float(e.radius)):
 					damage_enemy(e, 2.0)
 					_dmg_text(e.position, 2.0, false)
+			damage_bosses_line(_iai_points, 0.9, 2.0)
 			_iai_points = PackedVector3Array()
 
 
@@ -1420,6 +1466,7 @@ func _touch_up(sp: Vector2) -> void:
 			var end := _clamp_point(origin + flick.normalized() * dd)
 			s.extend_to(end, dd)
 			elan -= powers.dodge_cost(DODGE_COST)
+			hero.invuln = maxf(hero.invuln, powers.val("shadow_step"))
 			_launch(s)
 		else:
 			elan = minf(elan_max(), elan + stroke.length)
@@ -1600,6 +1647,13 @@ func _break_chain() -> void:
 func _hurt_hero() -> void:
 	if hero.dashing or hero.invuln > 0.0 or hero.protected() or game_over:
 		return
+	if foam > 0:
+		# bouclier d'écume : le coup est bu par l'écume
+		foam -= 1
+		hero.invuln = 0.6
+		clang(hero.position)
+		float_text(hero.position, "ÉCUME", Toon.FOAM)
+		return
 	hero.hurt()
 	_break_chain()
 	hud.hurt_flash = 1.0
@@ -1684,6 +1738,7 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(bd, bdir)
+			powers.on_boss_hit(bo.position)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			shake = maxf(shake, 0.22)
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
