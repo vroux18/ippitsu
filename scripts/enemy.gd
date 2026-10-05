@@ -1,10 +1,16 @@
 extends Node3D
-## Yōkai du prototype :
-##  oni   — fonce sur le héros, frappe une zone annoncée par un disque qui se remplit
-##  kappa — garde ses distances et tire de grosses boules lentes
-##  brute — grand oni lent et costaud (il faut l'enchaîner dans un combo)
+## Squelettes de samouraï (KayKit) :
+##  oni   — Minion : fonce sur le héros, frappe une zone annoncée par un disque qui se remplit
+##  kappa — Mage : garde ses distances et lance de grosses boules lentes
+##  brute — Warrior : grand, lent et costaud (il faut l'enchaîner dans un combo)
 
 const Toon = preload("res://scripts/toon.gd")
+const Character = preload("res://scripts/character.gd")
+const MINION = preload("res://assets/kaykit/Skeleton_Minion.glb")
+const WARRIOR = preload("res://assets/kaykit/Skeleton_Warrior.glb")
+const MAGE = preload("res://assets/kaykit/Skeleton_Mage.glb")
+
+const SPAWN_TIME := 1.0
 
 var kind := "oni"
 var hp := 1.0
@@ -16,16 +22,18 @@ var main: Node
 var dead := false
 var last_stroke := -1
 var body: Node3D
-var _mats: Array[StandardMaterial3D] = []
-var _base_colors: Array[Color] = []
+var ch: Node3D
 var _flash := 0.0
-var _spawn := 0.7
+var _spawn := SPAWN_TIME
 var _knock := Vector3.ZERO
 var _t := 0.0
+var _walk := "Walking_D_Skeletons"
 
 # attaque
 var _state := "move"  # move | windup | recover
 var _timer := 0.0
+var _windup := 1.0
+var _attack := "1H_Melee_Attack_Chop"
 var _strike_dir := Vector3.FORWARD
 var _zone: Node3D
 var _zone_fill: MeshInstance3D
@@ -42,82 +50,57 @@ func _ready() -> void:
 	_t = randf() * 10.0
 	body = Node3D.new()
 	add_child(body)
+	ch = Character.new()
+	body.add_child(ch)
 	match kind:
 		"oni":
 			hp = 1.0
 			speed = 2.3
 			radius = 0.45
-			_build_oni(Color("#C8442F"), Toon.PRUSSIAN, 1.0)
+			_windup = 1.0
+			ch.setup(MINION, 1.6, [["Cloak", Toon.VERMILION, 0.9]])
+			ch.attach("handslot.r", _blade(0.75, Color("#8A8F96")))
 		"brute":
 			hp = 3.5
 			speed = 1.4
 			radius = 0.75
 			_zone_r = 1.5
-			_build_oni(Color("#3B3A44"), Toon.VERMILION, 1.55)
+			_windup = 1.2
+			_attack = "2H_Melee_Attack_Chop"
+			_walk = "Walking_A"
+			ch.setup(WARRIOR, 2.4, [["Helmet", Toon.GOLD, 0.75], ["Cloak", Toon.SUMI, 0.85]])
+			ch.attach("handslot.r", _blade(1.25, Color("#6E747C")))
 		"kappa":
 			hp = 1.0
 			speed = 1.6
 			radius = 0.45
-			_build_kappa()
-			_timer = 1.2 + randf() * 1.5
+			_walk = "Walking_B"
+			ch.setup(MAGE, 1.75, [["Hat", Toon.PRUSSIAN, 0.9], ["Body", Toon.PRUSSIAN, 0.85]], [], Toon.GOLD)
+			ch.attach("handslot.r", _staff())
+			_timer = 1.4 + randf() * 1.5
+	ch.idle = "Idle_Combat"
 	Toon.disc(self, radius * 0.95, Color(0, 0, 0, 0.22))
-	body.scale = Vector3.ONE * 0.01
+	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / SPAWN_TIME, 0.0)
 
 
-func _m(c: Color, outline := true) -> StandardMaterial3D:
-	var m := Toon.mat(c, outline)
-	_mats.append(m)
-	_base_colors.append(c)
-	return m
+func _blade(blade_len: float, steel: Color) -> Node3D:
+	var k := Node3D.new()
+	Toon.part(k, Toon.box(Vector3(0.05, 0.2, 0.05)), Toon.mat(Color("#4A3A2C")), Vector3.ZERO)
+	Toon.part(k, Toon.box(Vector3(0.035, blade_len, 0.08)), Toon.mat(steel, true, 0.015), Vector3(0, 0.1 + blade_len / 2.0, 0))
+	return k
 
 
-func _build_oni(skin_c: Color, cloth_c: Color, s: float) -> void:
-	var skin := _m(skin_c)
-	var cloth := _m(cloth_c)
-	var horn := _m(Toon.FOAM)
-	var dark := _m(Toon.SUMI, false)
-	var root := Node3D.new()
-	root.scale = Vector3.ONE * s
-	body.add_child(root)
-	Toon.part(root, Toon.capsule(0.13, 0.38), skin, Vector3(-0.15, 0.19, 0))
-	Toon.part(root, Toon.capsule(0.13, 0.38), skin, Vector3(0.15, 0.19, 0))
-	Toon.part(root, Toon.sphere(0.36), skin, Vector3(0, 0.62, 0), Vector3(1.05, 0.95, 0.95))
-	Toon.part(root, Toon.cyl(0.36, 0.33, 0.2), cloth, Vector3(0, 0.42, 0))
-	Toon.part(root, Toon.sphere(0.3), skin, Vector3(0, 1.08, -0.02))
-	var h1 := Toon.part(root, Toon.cyl(0.0, 0.07, 0.24, 8), horn, Vector3(-0.15, 1.36, -0.02))
-	h1.rotation = Vector3(0, 0, 0.35)
-	var h2 := Toon.part(root, Toon.cyl(0.0, 0.07, 0.24, 8), horn, Vector3(0.15, 1.36, -0.02))
-	h2.rotation = Vector3(0, 0, -0.35)
-	Toon.part(root, Toon.box(Vector3(0.07, 0.06, 0.02)), dark, Vector3(-0.1, 1.12, -0.29))
-	Toon.part(root, Toon.box(Vector3(0.07, 0.06, 0.02)), dark, Vector3(0.1, 1.12, -0.29))
-	Toon.part(root, Toon.box(Vector3(0.2, 0.04, 0.02)), dark, Vector3(0, 0.98, -0.28))
-	# massue
-	var club := Toon.part(root, Toon.cyl(0.11, 0.05, 0.75, 8), _m(Color("#6B4A2E")), Vector3(0.42, 0.75, -0.1))
-	club.rotation = Vector3(-0.5, 0, -0.25)
-
-
-func _build_kappa() -> void:
-	var skin := _m(Color("#4F8C83"))
-	var shell := _m(Toon.PRUSSIAN)
-	var plate := _m(Toon.FOAM)
-	var beak := _m(Toon.GOLD)
-	var dark := _m(Toon.SUMI, false)
-	Toon.part(body, Toon.capsule(0.11, 0.34), skin, Vector3(-0.13, 0.17, 0))
-	Toon.part(body, Toon.capsule(0.11, 0.34), skin, Vector3(0.13, 0.17, 0))
-	Toon.part(body, Toon.sphere(0.32), skin, Vector3(0, 0.55, 0))
-	Toon.part(body, Toon.sphere(0.34), shell, Vector3(0, 0.6, 0.14), Vector3(1, 1.05, 0.7))
-	Toon.part(body, Toon.sphere(0.3), skin, Vector3(0, 1.0, 0))
-	Toon.part(body, Toon.cyl(0.2, 0.22, 0.05), plate, Vector3(0, 1.27, 0))
-	Toon.part(body, Toon.box(Vector3(0.18, 0.06, 0.14)), beak, Vector3(0, 0.95, -0.3))
-	Toon.part(body, Toon.box(Vector3(0.07, 0.07, 0.02)), dark, Vector3(-0.11, 1.07, -0.27))
-	Toon.part(body, Toon.box(Vector3(0.07, 0.07, 0.02)), dark, Vector3(0.11, 1.07, -0.27))
+func _staff() -> Node3D:
+	var k := Node3D.new()
+	Toon.part(k, Toon.cyl(0.03, 0.03, 1.3, 8), Toon.mat(Color("#4A3A2C")), Vector3(0, 0.35, 0))
+	Toon.part(k, Toon.sphere(0.12), Toon.mat(Toon.VERMILION), Vector3(0, 1.05, 0))
+	return k
 
 
 func _make_zone() -> void:
 	_zone = Node3D.new()
 	add_child(_zone)
-	var ring := Toon.disc(_zone, _zone_r, Color(Toon.VERMILION, 0.18), 0.03)
-	ring.name = "ring"
+	Toon.disc(_zone, _zone_r, Color(Toon.VERMILION, 0.18), 0.03)
 	_zone_fill = Toon.disc(_zone, _zone_r, Color(Toon.VERMILION, 0.45), 0.035)
 
 
@@ -134,7 +117,11 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 	if hp <= 0.0:
 		dead = true
 		_cancel_attack()
+		_timer = 0.0
+		ch.hold()
+		ch.play_once("Death_C_Skeletons", 1.6, 0.05)
 		return true
+	ch.play_once("Hit_A", 1.6)
 	return false
 
 
@@ -148,28 +135,26 @@ func _cancel_attack() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
+	if _flash > 0.0:
+		_flash -= delta
+		ch.set_flash(1.0 if _flash > 0.0 else 0.0)
+
 	if dead:
-		# s'écrase et disparaît
-		body.scale = body.scale.lerp(Vector3(1.6, 0.05, 1.6), minf(1.0, delta * 14.0))
+		# s'effondre, puis s'enfonce dans le ponton
 		position += _knock * delta
 		_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 8.0))
 		_timer += delta
-		if _timer > 0.35:
+		if _timer > 1.1:
+			body.position.y -= delta * 1.5
+		if _timer > 1.6:
 			queue_free()
 		return
 
 	if _spawn > 0.0:
 		_spawn -= delta
-		var k := clampf(1.0 - _spawn / 0.7, 0.0, 1.0)
-		body.scale = Vector3.ONE * (ease(k, 0.4) * (1.0 + 0.15 * sin(k * PI)))
+		var to := hero.position - position
+		body.rotation.y = atan2(-to.x, -to.z)
 		return
-	body.scale = Vector3.ONE
-
-	# flash blanc au coup
-	if _flash > 0.0:
-		_flash -= delta
-	for i in _mats.size():
-		_mats[i].albedo_color = Toon.FOAM if _flash > 0.0 else _base_colors[i]
 
 	var to_hero := hero.position - position
 	to_hero.y = 0
@@ -186,9 +171,6 @@ func _process(delta: float) -> void:
 	_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 9.0))
 	main.clamp_to_arena(self, radius)
 
-	# dandinement
-	body.position.y = absf(sin(_t * 9.0)) * 0.06 if _state == "move" else 0.0
-
 
 func _face(dir: Vector3, delta: float, rate := 10.0) -> void:
 	body.rotation.y = lerp_angle(body.rotation.y, atan2(-dir.x, -dir.z), minf(1.0, delta * rate))
@@ -201,26 +183,27 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 			_face(dir, delta)
 			if dist > reach - 0.3:
 				position += dir * speed * delta
+				ch.play(_walk, speed / 1.6)
 			else:
+				ch.play("Idle_Combat")
+			if dist <= reach - 0.3:
 				_state = "windup"
-				_timer = 1.0 if kind == "oni" else 1.2
+				_timer = _windup
 				_strike_dir = dir
 				_make_zone()
+				# le coup de l'animation tombe pile à la fin de l'annonce
+				ch.play_once(_attack, ch.length(_attack) * 0.5 / _windup)
 		"windup":
-			var total := 1.0 if kind == "oni" else 1.2
-			var k := 1.0 - _timer / total
+			var k := 1.0 - _timer / _windup
 			_zone.position = _strike_dir * (_zone_r * 0.9)
 			_zone_fill.scale = Vector3(k, 1, k)
-			body.rotation.x = -0.35 * k
 			_timer -= delta
 			if _timer <= 0.0:
 				var center := position + _strike_dir * (_zone_r * 0.9)
 				main.enemy_strike(center, _zone_r)
-				body.rotation.x = 0.4
 				_cancel_attack()
 				_timer = 1.3
 		"recover":
-			body.rotation.x = lerpf(body.rotation.x, 0.0, minf(1.0, delta * 6.0))
 			_timer -= delta
 			if _timer <= 0.0:
 				_state = "move"
@@ -236,19 +219,23 @@ func _shooter(delta: float, dir: Vector3, dist: float) -> void:
 			want = -1.0
 		elif dist > 7.0:
 			want = 1.0
-		position += (dir * want + side * 0.6) * speed * delta
+		var v := (dir * want + side * 0.6) * speed
+		position += v * delta
+		if v.length() > 0.3:
+			ch.play(_walk, 0.8)
+		else:
+			ch.play("Idle_Combat")
 		_timer -= delta
 		if _timer <= 0.0:
 			_state = "windup"
-			_timer = 0.6
+			_timer = 0.7
+			ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / 0.7)
 	elif _state == "windup":
-		var k := 1.0 - _timer / 0.6
-		body.scale = Vector3.ONE * (1.0 + 0.25 * k)
-		for i in _mats.size():
-			_mats[i].albedo_color = _base_colors[i].lerp(Toon.VERMILION, 0.6 * k)
+		var k := 1.0 - _timer / 0.7
+		ch.set_glow(0.55 * k)
 		_timer -= delta
 		if _timer <= 0.0:
-			body.scale = Vector3.ONE
-			main.spawn_bullet(position + Vector3(0, 0.9, 0) + dir * 0.4, dir)
+			ch.set_glow(0.0)
+			main.spawn_bullet(position + Vector3(0, 1.1, 0) + dir * 0.5, dir)
 			_state = "move"
 			_timer = 2.6 + randf() * 1.2

@@ -7,6 +7,8 @@ const Enemy = preload("res://scripts/enemy.gd")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Hud = preload("res://scripts/hud.gd")
+const Menu = preload("res://scripts/menu.gd")
+const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
 const REL := 1.25  # amplification du geste du doigt
@@ -49,6 +51,12 @@ var game_over := false
 var _ticks := 0
 var _cam_base := Transform3D()
 
+var state := "menu"  # menu | intro | play | over
+var menu: Control
+var record := 0
+var _state_t := 0.0
+var _menu_slash := 3.0
+
 
 func _ready() -> void:
 	randomize()
@@ -59,9 +67,80 @@ func _ready() -> void:
 	add_child(layer)
 	hud = Hud.new()
 	layer.add_child(hud)
+	var top := CanvasLayer.new()
+	top.layer = 2
+	add_child(top)
+	menu = Menu.new()
+	top.add_child(menu)
+	menu.play_pressed.connect(_on_play)
+	menu.home_pressed.connect(_on_home)
+	menu.sound_toggled.connect(_on_sound)
+	_load()
 	get_viewport().size_changed.connect(_fit_camera)
 	_start()
+	_set_state("menu")
 	_ticks = Time.get_ticks_usec()
+
+
+# ------------------------------------------------------------------ états
+
+func _load() -> void:
+	var cfg := ConfigFile.new()
+	if cfg.load(SAVE_PATH) == OK:
+		record = int(cfg.get_value("game", "best", 0))
+		menu.muted = bool(cfg.get_value("game", "muted", false))
+	menu.best = record
+	AudioServer.set_bus_mute(0, menu.muted)
+
+
+func _save() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("game", "best", record)
+	cfg.set_value("game", "muted", menu.muted)
+	cfg.save(SAVE_PATH)
+
+
+func _set_state(s: String) -> void:
+	state = s
+	_state_t = 0.0
+	hud.visible = s != "menu"
+	match s:
+		"menu":
+			menu.show_mode("home")
+			hero.face(Vector3(0, 0, 1))
+			hero.snap_facing()
+		"intro":
+			menu.show_mode("hidden")
+			hero.face(Vector3(0, 0, -1))
+		"play":
+			menu.show_mode("hidden")
+		"over":
+			menu.show_mode("over")
+
+
+func _on_play() -> void:
+	sfx.play("slash", 0.8, -4.0)
+	if state == "over":
+		_start()
+		_set_state("play")
+	else:
+		_set_state("intro")
+
+
+func _on_home() -> void:
+	_start()
+	_set_state("menu")
+
+
+func _on_sound(muted: bool) -> void:
+	AudioServer.set_bus_mute(0, muted)
+	_save()
+
+
+func _menu_transform() -> Transform3D:
+	var hp := hero.position
+	var pos := hp + Vector3(1.1, 1.7, 4.6)
+	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0.2, 2.1, -2.0), Vector3.UP)
 
 
 # ------------------------------------------------------------------ décor
@@ -94,13 +173,29 @@ func _build_world() -> void:
 	cam.current = true
 
 	# l'eau tout autour (bleu de Prusse) et ses rides d'écume
-	var water := Toon.part(world, Toon.box(Vector3(80, 0.1, 80)), Toon.mat(Toon.PRUSSIAN, false), Vector3(0, -0.6, 0))
+	var water := Toon.part(world, Toon.box(Vector3(600, 0.1, 600)), Toon.mat(Toon.PRUSSIAN, false), Vector3(0, -0.6, 0))
 	water.name = "water"
-	for i in 40:
-		var foam := Toon.part(world, Toon.box(Vector3(randf_range(0.6, 2.2), 0.02, 0.07)), Toon.mat(Toon.FOAM, false),
-			Vector3(randf_range(-9, 9), -0.54, randf_range(-14, 14)))
+	var foam_mat := Toon.mat(Toon.FOAM, false)
+	for i in 90:
+		var far := i >= 50
+		var foam := Toon.part(world, Toon.box(Vector3(randf_range(0.6, 2.2) * (3.0 if far else 1.0), 0.02, 0.07 * (2.0 if far else 1.0))), foam_mat,
+			Vector3(randf_range(-9, 9) * (3.0 if far else 1.0), -0.54, randf_range(-14, 14) if not far else randf_range(-70, -12)))
 		if absf(foam.position.x) < HALF.x + 0.8 and absf(foam.position.z) < HALF.y + 0.8:
 			foam.position.x += signf(foam.position.x + 0.01) * (HALF.x + 1.5)
+
+	# au loin : le Fuji, le soleil vermillon et des bancs de brume (vus depuis l'accueil)
+	var fuji := Toon.flat(Color("#5D7392"))
+	fuji.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	Toon.part(world, Toon.cyl(2.0, 46.0, 26.0, 48), fuji, Vector3(-18, 12.4, -170))
+	var snow := Toon.flat(Toon.FOAM)
+	snow.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	Toon.part(world, Toon.cyl(2.05, 12.5, 7.0, 48), snow, Vector3(-18, 21.9, -169.6))
+	var sun_mat := Toon.flat(Toon.VERMILION)
+	sun_mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	Toon.part(world, Toon.sphere(11.0), sun_mat, Vector3(26, 26, -230))
+	var mist := Toon.flat(Color(Toon.WASHI, 0.85))
+	Toon.part(world, Toon.box(Vector3(140, 1.6, 0.1)), mist, Vector3(-30, 6.0, -150))
+	Toon.part(world, Toon.box(Vector3(90, 1.1, 0.1)), mist, Vector3(30, 10.5, -160))
 
 	# le ponton : grande plateforme de bois clair, planches et bord d'encre
 	var deck := Vector2(HALF.x + 0.5, HALF.y + 0.5)
@@ -212,6 +307,9 @@ func _start() -> void:
 	touching = false
 	hud.game_over = false
 	hud.over_t = 0.0
+	hitstop = 0.0
+	shake = 0.0
+	Engine.time_scale = 1.0
 	_fit_camera()
 
 
@@ -253,7 +351,11 @@ func _clamp_point(p: Vector3) -> Vector3:
 # ------------------------------------------------------------------ entrée
 
 func _input(event: InputEvent) -> void:
-	# tactile (téléphone) et souris (ordinateur) : l'émulation de Godot est coupée dans project.godot
+	# tactile (téléphone) et souris (ordinateur) ; la souris émulée depuis le tactile sert aux boutons du menu
+	if state != "play" and state != "intro":
+		return
+	if event is InputEventMouse and event.device == InputEvent.DEVICE_ID_EMULATION:
+		return
 	if event is InputEventScreenTouch:
 		if event.index != 0:
 			return
@@ -394,6 +496,12 @@ func _hurt_hero() -> void:
 	if hero.hp <= 0:
 		game_over = true
 		hud.best_wave = wave
+		menu.new_record = wave > record
+		if wave > record:
+			record = wave
+			_save()
+		menu.best = record
+		_set_state("over")
 		touching = false
 		if stroke:
 			stroke.queue_free()
@@ -589,14 +697,28 @@ func _process(_delta: float) -> void:
 	for i in range(enemies.size() - 1, -1, -1):
 		if not is_instance_valid(enemies[i]):
 			enemies.remove_at(i)
-	if not game_over and enemies.is_empty():
+	_state_t += real
+	if state == "play" and enemies.is_empty():
 		wave_wait -= real
 		if wave_wait <= 0.0:
 			_spawn_wave()
 			wave_wait = 1.2
 
-	# secousse de caméra
-	if shake > 0.0:
+	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
+	if state == "menu":
+		var sway := Vector3(sin(_state_t * 0.35) * 0.25, sin(_state_t * 0.5) * 0.08, 0)
+		cam.global_transform = _menu_transform().translated(sway)
+		_menu_slash -= real
+		if _menu_slash <= 0.0:
+			_menu_slash = 4.0
+			hero.ch.play_once("1H_Melee_Attack_Slice_Diagonal", 1.0)
+	elif state == "intro":
+		var k := clampf(_state_t / 0.9, 0.0, 1.0)
+		k = k * k * (3.0 - 2.0 * k)
+		cam.global_transform = _menu_transform().interpolate_with(_cam_base, k)
+		if k >= 1.0:
+			_set_state("play")
+	elif shake > 0.0:
 		shake = maxf(0.0, shake - real * 1.6)
 		var s := shake * shake * 1.2
 		cam.global_transform = _cam_base.translated(Vector3(randf_range(-s, s), randf_range(-s, s) * 0.5, randf_range(-s, s)))

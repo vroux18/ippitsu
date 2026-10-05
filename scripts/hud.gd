@@ -113,9 +113,3 @@ func _draw_game_over(sz: Vector2, u: float, font: Font) -> void:
 	var txt := str(best_wave)
 	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	draw_string(font, c + Vector2(-tw / 2.0, fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.SUMI, a))
-	# invitation à rejouer : un petit doigt qui tapote
-	if over_t > 1.2:
-		var pulse := 0.5 + 0.5 * sin(over_t * 5.0)
-		var p := Vector2(sz.x / 2.0, c.y + 150 * u)
-		draw_circle(p, (10 + 6 * pulse) * u, Color(Toon.SUMI, 0.25 + 0.3 * pulse))
-		draw_circle(p, 6 * u, Toon.SUMI)

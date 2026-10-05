@@ -78,6 +78,7 @@ jobs:
       - name: Vérification des scripts (quelques secondes de jeu)
         run: |
           godot --headless --path . --quit-after 180 2>&1 | tee run.log
+          godot --headless --path . --quit-after 900 -- --autoplay 2>&1 | tee -a run.log
           ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" run.log
 
       - name: Export APK
