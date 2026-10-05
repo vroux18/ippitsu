@@ -149,8 +149,8 @@ func _icon(kind: String, c: Vector2, s: float, ink: Color) -> void:
 			draw_circle(c, s * 0.62, ink)
 			draw_circle(c, s * 0.26, Toon.WASHI)
 		"help":
-			if font:
-				var fs := int(s * 2.0)
+			var fs := int(s * 2.0)
+			if font and fs > 0:
 				var qw := font.get_string_size("?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 				draw_string(font, c + Vector2(-qw / 2.0, fs * 0.36), "?", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 		"replay":
