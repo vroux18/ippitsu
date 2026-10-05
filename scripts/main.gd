@@ -161,7 +161,10 @@ func _ready() -> void:
 	worldmap.closed.connect(_on_worldmap_closed)
 	_load()
 	get_viewport().size_changed.connect(_fit_camera)
-	apply_world(1)
+	# `?world=N` (web) : ouvre directement le monde N
+	var wsearch := str(JavaScriptBridge.eval("location.search", true)) if OS.has_feature("web") else ""
+	var wpos := wsearch.find("world=")
+	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, 5) if wpos >= 0 else 1)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
