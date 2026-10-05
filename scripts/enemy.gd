@@ -44,7 +44,7 @@ var _windup := 1.0
 var _attack := "1H_Melee_Attack_Chop"
 var _strike_dir := Vector3.FORWARD
 var _zone: Node3D
-var _zone_fill: MeshInstance3D
+var _tele: Node3D  # visuel partagé de l'annonce (vfx.tele_disc)
 var _zone_r := 1.0
 var _shadow: MeshInstance3D
 
@@ -192,8 +192,7 @@ func _make_zone(fixed := false) -> void:
 	# zone fixe : reste à l'endroit visé, en coordonnées globales
 	_zone.top_level = fixed
 	add_child(_zone)
-	Toon.disc(_zone, _zone_r, Color(Toon.VERMILION, 0.18), 0.03)
-	_zone_fill = Toon.disc(_zone, _zone_r, Color(Toon.VERMILION, 0.45), 0.035)
+	_tele = main.vfx.tele_disc(_zone, _zone_r)
 
 
 func is_harmless() -> bool:
@@ -233,8 +232,10 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 		dead = true
 		_cancel_attack()
 		_timer = 0.0
+		# mort sobre : petit recul (~0.5 m), pas de vrille
+		_knock = Vector3.ZERO if kind == "funa" else dir.normalized() * 4.0
 		ch.hold()
-		ch.play_once("Death_C_Skeletons", 1.6, 0.05)
+		ch.play_once("Death_C_Skeletons", 2.4, 0.05)
 		return true
 	ch.play_once("Hit_A", 1.6)
 	return false
@@ -259,14 +260,16 @@ func hurt_dot(dmg: float) -> bool:
 		dead = true
 		_cancel_attack()
 		_timer = 0.0
+		_knock = Vector3.ZERO
 		ch.hold()
-		ch.play_once("Death_C_Skeletons", 1.6, 0.05)
+		ch.play_once("Death_C_Skeletons", 2.4, 0.05)
 		return true
 	return false
 
 
 func push(v: Vector3) -> void:
-	if kind != "brute" and kind != "funa":
+	# un mort n'est plus projeté (fin sobre)
+	if kind != "brute" and kind != "funa" and not dead:
 		_knock += v
 
 
@@ -289,18 +292,18 @@ func _process(delta: float) -> void:
 			ch.set_glow(0.35, FUNA_TINT)
 
 	if dead:
-		# projeté en tournoyant, puis s'effondre et s'enfonce dans le ponton
-		if _timer < 0.35:
-			body.rotation.y += delta * 22.0
-			body.position.y = sin(_timer / 0.35 * PI) * 0.9
-		elif body.position.y > 0.0 and _timer < 1.1:
-			body.position.y = 0.0
+		# mort sobre (0.6 s) : petit recul, bascule en arrière, puis s'enfonce dans le sol
 		position += _knock * delta
 		_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 8.0))
 		_timer += delta
-		if _timer > 1.1:
-			body.position.y -= delta * 1.5
-		if _timer > 1.6:
+		body.rotation.x = 0.35 * clampf(_timer / 0.2, 0.0, 1.0)
+		var sink := clampf((_timer - 0.2) / 0.4, 0.0, 1.0)
+		if sink > 0.0:
+			body.position.y = -1.3 * sink * sink
+		body.scale = Vector3.ONE * (1.0 - 0.2 * sink)
+		if _shadow:
+			_shadow.visible = sink < 0.5
+		if _timer > 0.6:
 			queue_free()
 		return
 
@@ -378,9 +381,8 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 		"windup":
 			var k := 1.0 - _timer / _windup
 			_zone.position = _strike_dir * (_zone_r * 0.9)
-			_zone_fill.scale = Vector3(k, 1, k)
-			# dernier instant : la zone flashe blanc écume
-			(_zone_fill.material_override as StandardMaterial3D).albedo_color = Color(Toon.FOAM, 0.85) if _timer < 0.15 else Color(Toon.VERMILION, 0.45)
+			# remplissage, pulsation et flash final (vfx.tele_update)
+			main.vfx.tele_update(_tele, k, _timer)
 			_timer -= delta
 			if _timer <= 0.0:
 				var center := position + _strike_dir * (_zone_r * 0.9)
@@ -513,9 +515,7 @@ func _ghost(delta: float) -> void:
 					ch.play_once("Throw", ch.length("Throw") * 0.5 / _windup)
 			if _state == "windup":
 				var k := 1.0 - _timer / _windup
-				_zone_fill.scale = Vector3(k, 1, k)
-				# dernier instant : la zone flashe blanc écume
-				(_zone_fill.material_override as StandardMaterial3D).albedo_color = Color(Toon.FOAM, 0.85) if _timer < 0.15 else Color(Toon.VERMILION, 0.45)
+				main.vfx.tele_update(_tele, k, _timer)
 				_timer -= delta
 				if _timer <= 0.0:
 					main.enemy_strike(_target, _zone_r)

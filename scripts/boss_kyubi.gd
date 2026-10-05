@@ -65,7 +65,7 @@ var _atk_t := 2.5
 
 # zone annoncée (pilier de feu-renard)
 var _zone: Node3D = null
-var _zone_fill: MeshInstance3D
+var _zone_fill: Node3D  # visuel partagé de l'annonce (vfx.tele_disc)
 var _zone_center := Vector3.ZERO
 var _zone_r := 1.4
 var _zone_t := 0.0
@@ -497,9 +497,7 @@ func _make_zone(center: Vector3, r: float, t: float) -> void:
 	_zone_r = r
 	_zone_t = t
 	_zone_total = t
-	Toon.disc(_zone, r, Color(Toon.VERMILION, 0.18), 0.03)
-	_zone_fill = Toon.disc(_zone, r, Color(Toon.VERMILION, 0.45), 0.035)
-	_zone_fill.scale = Vector3(0.01, 1, 0.01)
+	_zone_fill = main.vfx.tele_disc(_zone, r)
 
 
 func _cancel() -> void:
@@ -513,9 +511,7 @@ func _update_zone(delta: float) -> void:
 		return
 	_zone_t -= delta
 	var k := clampf(1.0 - _zone_t / _zone_total, 0.01, 1.0)
-	_zone_fill.scale = Vector3(k, 1, k)
-	var m := _zone_fill.material_override as StandardMaterial3D
-	m.albedo_color = Color(Toon.FOAM, 0.85) if _zone_t < 0.15 else Color(Toon.VERMILION, 0.45)
+	main.vfx.tele_update(_zone_fill, k, _zone_t)
 	if _zone_t <= 0.0:
 		# pilier de feu-renard
 		var c := _zone_center
@@ -657,11 +653,9 @@ func _make_band(t: Dictionary) -> void:
 	add_child(bn)
 	bn.global_position = Vector3(tp.x, 0, tp.z)
 	bn.rotation.y = atan2(dir.x, dir.z)
-	var bg := Toon.part(bn, Toon.box(Vector3(0.7, 0.004, BAND_LEN)), Toon.flat(Color(Toon.VERMILION, 0.18)), Vector3(0, 0.03, BAND_LEN * 0.5))
-	bg.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var fill := Toon.part(bn, Toon.box(Vector3(0.7, 0.004, BAND_LEN)), Toon.flat(Color(Toon.VERMILION, 0.45)), Vector3(0, 0.035, 0))
-	fill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	fill.scale = Vector3(1, 1, 0.01)
+	# bande annoncée : part de la queue (z = 0) et se remplit vers +z
+	var fill: Node3D = main.vfx.tele_rect(bn, 0.35, BAND_LEN * 0.5, Vector2(0, -1))
+	fill.position.z = BAND_LEN * 0.5
 	t["band"] = bn
 	t["fill"] = fill
 	t["dir"] = dir
@@ -753,8 +747,8 @@ func _plan_route() -> void:
 	_clear_marks()
 	for i in range(0, _route.size(), 3):
 		var rp: Vector3 = _route[i]
-		var m := Toon.disc(_marks, 0.2, Color(Toon.VERMILION, 0.6), 0.04)
-		m.position = Vector3(rp.x, 0.04, rp.z)
+		var m: MeshInstance3D = main.vfx.tele_dot(_marks, 0.2)
+		m.position = Vector3(rp.x, m.position.y, rp.z)
 		m.visible = false
 		_mark_idx.append(i)
 	_route_i = 0
@@ -844,8 +838,7 @@ func _process(delta: float) -> void:
 			for i in cnt:
 				var mk: MeshInstance3D = _marks.get_child(i)
 				mk.visible = float(i) / float(maxi(cnt, 1)) <= kk * 1.25
-				var mm := mk.material_override as StandardMaterial3D
-				mm.albedo_color = Color(Toon.FOAM, 0.9) if _timer < 0.15 else Color(Toon.VERMILION, 0.6)
+				main.vfx.tele_dot_flash(mk, _timer < 0.15)
 			if _timer <= 0.0:
 				_state = "p3_run"
 				if _cut:
@@ -959,12 +952,9 @@ func _phase2(delta: float) -> void:
 		if f <= TAIL_ANNOUNCE and t["band"] == null:
 			_make_band(t)
 		if t["band"] != null:
-			var fill: MeshInstance3D = t["fill"]
+			var fill: Node3D = t["fill"]
 			var k := clampf(1.0 - f / TAIL_ANNOUNCE, 0.01, 1.0)
-			fill.scale = Vector3(1, 1, k)
-			fill.position.z = BAND_LEN * k * 0.5
-			var m := fill.material_override as StandardMaterial3D
-			m.albedo_color = Color(Toon.FOAM, 0.85) if f < 0.15 else Color(Toon.VERMILION, 0.45)
+			main.vfx.tele_update(fill, k, f)
 		if f <= 0.0:
 			var tp: Vector3 = t["pos"]
 			var d: Vector3 = t["dir"]

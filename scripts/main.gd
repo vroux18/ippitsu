@@ -28,6 +28,7 @@ const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
 const Bot = preload("res://scripts/bot.gd")
+const PowerData = preload("res://scripts/power_data.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus"},
@@ -36,6 +37,8 @@ const CURSES := {
 	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin"},
 }
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
+const SHAPE_NAMES := {"loop": "UZU · TOUPIE", "zigzag": "INAZUMA · ÉCLAIR EN CHAÎNE", "return": "KAESHI · GARDE",
+	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · ONDE DE CHOC", "hook": "KAGI · ESTOC"}
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 15
 const MINI_ROOM := 8  # salle du mini-boss
@@ -84,12 +87,16 @@ var _attackers: Array = []
 var game_over := false
 var _ticks := 0
 var _cam_base := Transform3D()
+var _cam_pad := Transform3D()
+var _cam_full := Transform3D()
 
 var state := "menu"  # menu | worlds | intro | play | pick | transit | paused | dying | over | tuto
 var menu: Control
 var record := 0
 var _state_t := 0.0
-var _menu_slash := 3.0
+const MENU_BOAT := Vector3(0, 0, -23.0)  # la barque de l'accueil, au large derrière l'arène
+const BOAT_DECK := -0.24
+var menu_boat: Node3D
 var _env: Environment
 var _light_mode := false  # rendu allégé (téléphone)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
@@ -140,6 +147,7 @@ var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
 var _bot: Node = null  # robot testeur (CI)
 var _last_offer: Array = []  # derniers rouleaux proposés (pour le robot)
+var _shrine: Node3D = null  # autel du sanctuaire (facultatif)
 var in_hub := false  # sanctuaire de départ (avant la salle 1)
 var _hub_t := 0.0
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
@@ -350,17 +358,19 @@ func _save() -> void:
 func _set_state(s: String) -> void:
 	state = s
 	_state_t = 0.0
-	hud.visible = s != "menu" and s != "worlds"
+	hud.visible = not s in ["menu", "worlds", "sail"]
 	match s:
 		"menu":
 			menu.show_mode("home")
 			music.play_menu()
-			hero.face(Vector3(0, 0, 1))
-			hero.snap_facing()
+			_board_boat()
 		"intro":
 			menu.show_mode("hidden")
 			music.play_world(current_world)
+			# la caméra quitte la barque et rejoint l'arène où le héros attend
+			hero.position = arena.start
 			hero.face(Vector3(0, 0, -1))
+			hero.snap_facing()
 		"play":
 			menu.show_mode("hidden")
 			if room == 0:
@@ -372,7 +382,7 @@ func _set_state(s: String) -> void:
 					hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":
 			menu.show_mode("over")
-		"worlds":
+		"worlds", "sail":
 			menu.show_mode("hidden")
 
 
@@ -385,7 +395,7 @@ func _on_play() -> void:
 		# toute première partie : on apprend d'abord à tracer
 		_start_tutorial()
 	else:
-		_open_worlds()
+		_set_state("sail")
 
 
 func _open_worlds() -> void:
@@ -522,10 +532,58 @@ func _on_sound(muted: bool) -> void:
 	_save()
 
 
+## Plan d'accueil : derrière le héros debout sur sa barque, face au paysage du monde.
 func _menu_transform() -> Transform3D:
-	var hp := hero.position
-	var pos := hp + Vector3(0.35, 1.45, 3.4)
-	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0.0, 2.0, -2.0), Vector3.UP)
+	var bp := menu_boat.position if menu_boat != null else MENU_BOAT
+	bp.y = 0.0
+	var pos := bp + Vector3(0.55, 1.55, 3.6)
+	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.2, 1.75, -9.0), Vector3.UP)
+
+
+## Barque de l'accueil (au large, derrière l'arène) : coque, pont, lanterne, sillage d'écume.
+func _build_menu_boat() -> void:
+	menu_boat = Node3D.new()
+	world.add_child(menu_boat)
+	menu_boat.position = MENU_BOAT
+	var hull := Toon.mat(Color("#5E4130"), true, 0.03)
+	var deck := Toon.mat(Color("#B88A5A"), true, 0.02)
+	var dark := Toon.mat(Color("#2E221B"), false)
+	Toon.part(menu_boat, Toon.box(Vector3(1.15, 0.32, 3.2)), hull, Vector3(0, -0.43, 0))
+	var bow := Toon.part(menu_boat, Toon.box(Vector3(0.95, 0.28, 1.0)), hull, Vector3(0, -0.33, -1.85))
+	bow.rotation.x = 0.38
+	var stern := Toon.part(menu_boat, Toon.box(Vector3(1.0, 0.26, 0.6)), hull, Vector3(0, -0.36, 1.75))
+	stern.rotation.x = -0.25
+	Toon.part(menu_boat, Toon.box(Vector3(0.98, 0.04, 2.9)), deck, Vector3(0, -0.26, 0.05))
+	for sx in [-1.0, 1.0]:
+		Toon.part(menu_boat, Toon.box(Vector3(0.07, 0.1, 3.3)), dark, Vector3(0.57 * sx, -0.24, 0))
+	# perche et lanterne à la poupe
+	Toon.part(menu_boat, Toon.cyl(0.025, 0.03, 1.5), dark, Vector3(0.38, 0.5, 1.45))
+	var lan := Toon.mat(Color("#F4C97A"), true, 0.02)
+	lan.emission_enabled = true
+	lan.emission = Color("#FFB35A")
+	lan.emission_energy_multiplier = 1.6
+	Toon.part(menu_boat, Toon.sphere(0.13), lan, Vector3(0.38, 1.18, 1.45), Vector3(1, 1.35, 1))
+	# sillage d'écume autour de la coque
+	var foam := _disc(menu_boat, 1.0, Toon.flat(Color(Toon.FOAM, 0.55)), -0.53)
+	foam.scale = Vector3(0.95, 1, 2.1)
+	menu_boat.visible = false
+
+
+## Tangage de la barque ; le héros reste debout dessus.
+func _rock_boat() -> void:
+	var bob := sin(_state_t * 1.3) * 0.045
+	menu_boat.position.y = MENU_BOAT.y + bob
+	menu_boat.rotation = Vector3(sin(_state_t * 0.9) * 0.025, 0, sin(_state_t * 1.1) * 0.035)
+	hero.position = Vector3(menu_boat.position.x, BOAT_DECK + bob, menu_boat.position.z - 0.2)
+
+
+## Pose le héros sur la barque, de dos (face au paysage).
+func _board_boat() -> void:
+	menu_boat.visible = true
+	menu_boat.position = MENU_BOAT
+	hero.position = MENU_BOAT + Vector3(0, BOAT_DECK, -0.2)
+	hero.face(Vector3(0, 0, -1))
+	hero.snap_facing()
 
 
 # ------------------------------------------------------------------ décor
@@ -598,6 +656,7 @@ func _build_world() -> void:
 	# la salle (sol, décor, torii de sortie) et le monde (vide, lointain, particules)
 	arena = Arena.new()
 	world.add_child(arena)
+	_build_menu_boat()
 
 
 ## Applique l'ambiance d'un monde : ciel, brume, lumière, puis le décor lointain.
@@ -615,17 +674,27 @@ func apply_world(id: int) -> void:
 	arena.set_world(id)
 
 
+## Deux cadrages : avec le pad (arène en haut, pad dessous) et sans (arène qui occupe l'écran).
+## Le jeu glisse de l'un à l'autre selon la visibilité du pad.
 func _fit_camera() -> void:
-	# cherche la caméra la plus proche qui montre toute l'arène, quelle que soit la taille d'écran
 	var vs := get_viewport().get_visible_rect().size
 	if vs.x <= 0 or vs.y <= 0:
 		return
+	_cam_pad = _frame(vs, 0.68)
+	_cam_full = _frame(vs, 0.9)
+	var k := hud.pad_alpha if hud != null and ctrl_mode == "pad" else 0.0
+	_cam_base = _cam_full.interpolate_with(_cam_pad, k)
+	cam.global_transform = _cam_base
+
+
+## Caméra la plus proche qui montre toute l'arène entre le haut de l'écran et `bottom_k` (fraction de hauteur).
+func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
 	var tilt := deg_to_rad(54.0)
 	var corners := [Vector3(-HALF.x - 0.6, 0, -HALF.y - 0.6), Vector3(HALF.x + 0.6, 0, -HALF.y - 0.6),
 		Vector3(-HALF.x - 0.6, 0, HALF.y + 0.6), Vector3(HALF.x + 0.6, 0, HALF.y + 0.6),
 		Vector3(0, 3.4, -HALF.y - 0.7)]
 	var top := vs.y * 0.085
-	var bottom := vs.y * 0.68  # sous l'arène : le pad tactile
+	var bottom := vs.y * bottom_k  # sous l'arène : le pad tactile (s'il est affiché)
 	var best := Transform3D()
 	var found := false
 	var dist := 12.0
@@ -657,8 +726,7 @@ func _fit_camera() -> void:
 		dist += 0.25
 	if not found:
 		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)
-	_cam_base = best
-	cam.global_transform = best
+	return best
 
 
 # ------------------------------------------------------------------ partie
@@ -704,6 +772,7 @@ func _start(hub := true) -> void:
 	_waves_left = []
 	_room_done = false
 	powers.reset()
+	_sync_power_seals()
 	hazards.clear()
 	curses.clear()
 	elan = elan_max()  # après la remise à zéro des pouvoirs et malédictions
@@ -741,6 +810,19 @@ func _hub_dummy() -> void:
 	var a := randf() * TAU
 	var d: float = sqrt(randf()) * arena.hub_training_radius * 0.7
 	spawn_dummy(arena.hub_training_center + Vector3(cos(a) * d, 0, sin(a) * d))
+
+
+## Sceaux des pouvoirs possédés, affichés dans le HUD (kanji, couleur d'école, niveau, couleur de rareté).
+func _sync_power_seals() -> void:
+	var seals: Array = []
+	for id in powers.levels.keys():
+		var pd: Dictionary = PowerData.POWERS.get(String(id), {})
+		if pd.is_empty():
+			continue
+		var school: Dictionary = PowerData.SCHOOLS.get(String(pd.get("school", "")), {})
+		var rar: Dictionary = PowerData.RARITIES.get(String(pd.get("rarity", "common")), {})
+		seals.append([String(pd.get("kanji", school.get("kanji", "墨"))), school.get("color", Toon.SUMI), int(powers.levels[id]), rar.get("color", Color(0.6, 0.6, 0.6)), int(rar.get("rank", 0))])
+	hud.power_seals = seals
 
 
 func elan_max() -> float:
@@ -899,6 +981,7 @@ func collect(kind: String, value: int) -> void:
 			xp -= xp_need()
 			level += 1
 			_pending_levels += 1
+			hud.toast("NIVEAU %d  ·  ROULEAU EN FIN DE SALLE" % level)
 	else:
 		run_gold += value
 		sfx.play("empty", 2.0, -10.0)
@@ -923,19 +1006,60 @@ func _room_cleared() -> void:
 	if room >= ROOMS:
 		_victory()
 		return
+	_open_gate()
 	if room in SANCTUARIES:
-		_pick_context = "room"
-		_set_state("pick")
-		_open_sanctuary()
-	else:
-		_open_gate()
+		_spawn_shrine()
 
 
 func _open_gate() -> void:
 	elan = elan_max()
 	_set_state("play")
+	var was_open: bool = arena.gate_open
 	arena.open_gate()
+	# fin de salle bien visible : bandeau doré, éclat d'or au pied du torii
+	if room > 0 and not in_hub and not was_open:
+		hud.banner("SALLE NETTOYÉE", "LE TORII S'OUVRE  ·  AVANCE VERS LUI", Toon.GOLD, 1.8)
+		var gp: Vector3 = arena.gate_pos
+		vfx.ring(Vector3(gp.x, 0.08, gp.z), Toon.GOLD, 2.6)
+		vfx.ring(Vector3(gp.x, 0.08, gp.z), Toon.GOLD, 1.6)
+		_splash(gp + Vector3(0, 0.6, 0), Toon.GOLD, 18)
+		shake = maxf(shake, 0.12)
 	sfx.play("shot", 1.4, -4.0)
+	sfx.play("whoosh", 0.7, -6.0)
+
+
+## Sanctuaire facultatif (après certaines salles) : un petit autel près du torii.
+## Le toucher propose un pacte ; passer le torii l'ignore.
+func _spawn_shrine() -> void:
+	var gp: Vector3 = arena.gate_pos
+	var side := 1.0 if randf() < 0.5 else -1.0
+	var p: Vector3 = arena.clamp_walk(gp + Vector3(2.3 * side, 0, 2.2), 0.6)
+	if p.distance_to(gp) < 1.8:
+		p = arena.clamp_walk(gp + Vector3(-2.3 * side, 0, 2.2), 0.6)
+	_shrine = Node3D.new()
+	add_child(_shrine)
+	_shrine.position = Vector3(p.x, 0, p.z)
+	var stone := Toon.mat(Color("#8C8A86"))
+	var red := Toon.mat(Color("#7A1F1A"))
+	var roof := Toon.mat(Toon.SUMI)
+	Toon.part(_shrine, Toon.box(Vector3(0.8, 0.18, 0.7)), stone, Vector3(0, 0.09, 0))
+	Toon.part(_shrine, Toon.box(Vector3(0.56, 0.5, 0.46)), red, Vector3(0, 0.43, 0))
+	Toon.part(_shrine, Toon.box(Vector3(0.82, 0.08, 0.7)), roof, Vector3(0, 0.72, 0))
+	var top := Toon.part(_shrine, Toon.box(Vector3(0.5, 0.08, 0.5)), roof, Vector3(0, 0.8, 0))
+	top.rotation.y = PI / 4.0
+	_disc(_shrine, 1.1, Toon.flat(Color(Toon.GOLD, 0.35)), 0.02)
+	var l := Label3D.new()
+	l.font = KANJI_FONT
+	l.text = "鬼"
+	l.font_size = 110
+	l.pixel_size = 0.005
+	l.modulate = Toon.VERMILION
+	l.outline_modulate = Toon.SUMI
+	l.outline_size = 18
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.position = Vector3(0, 1.45, 0)
+	_shrine.add_child(l)
+	hud.banner("UN SANCTUAIRE", "TOUCHE-LE POUR UN PACTE  ·  OU PASSE LE TORII", Color("#7A1F1A"), 2.6)
 
 
 func _open_upgrades() -> void:
@@ -986,6 +1110,7 @@ func _on_picked(id: String) -> void:
 			_open_gate()
 		return
 	powers.add(id)
+	_sync_power_seals()
 	sfx.play("slash", 1.2, -4.0)
 	if _extra_picks > 0:
 		_extra_picks -= 1
@@ -1009,6 +1134,9 @@ func _transit() -> void:
 
 func _rebuild_room() -> void:
 	_rebuilt = true
+	if is_instance_valid(_shrine):
+		_shrine.queue_free()
+	_shrine = null
 	if in_hub:
 		# on quitte le sanctuaire : les mannequins restent derrière
 		in_hub = false
@@ -1180,38 +1308,34 @@ func heal(n: int) -> void:
 	float_text(hero.position, "+%d" % n, Toon.VERMILION)
 
 
+## Éclair (雷) : zigzag jaune cerné d'encre, de a à b (à hauteur de torse).
 func zap(a: Vector3, b: Vector3) -> void:
-	var n := Node3D.new()
-	add_child(n)
-	var mid := (a + b) / 2.0 + Vector3(0, 0.9, 0)
-	n.position = mid
-	var d := b - a
-	d.y = 0
-	n.rotation.y = atan2(-d.x, -d.z)
-	var m := Toon.flat(Color(Toon.GOLD, 1.0))
-	Toon.part(n, Toon.box(Vector3(0.08, 0.08, d.length())), m, Vector3.ZERO)
-	effects.append({"node": n, "t": 0.0, "life": 0.22, "kind": "fade", "mats": [m], "alpha": 1.0})
+	vfx.bolt(Vector3(a.x, 0.9, a.z), Vector3(b.x, 0.9, b.z))
 
 
+## Cercle de feu (火) : couronne de flammes, anneau orange, braises, roussi.
 func fire_ring(pos: Vector3, r: float) -> void:
-	_blot(pos, Color(Toon.GOLD, 0.55), r, 0.8)
-	_splash(pos, Toon.GOLD, 16)
+	vfx.fire_burst(pos, r)
 
 
+## Sillage de feu : vraies flammes le long du trait et traînée de suie (durée en temps du jeu).
 func fire_trail_fx(points: PackedVector3Array, dur: float) -> void:
-	var n := Node3D.new()
-	add_child(n)
-	var mats: Array = []
-	var acc := 0.0
-	for i in range(1, points.size()):
-		acc += points[i].distance_to(points[i - 1])
-		if acc < 0.45:
-			continue
-		acc = 0.0
-		var d := Toon.disc(n, randf_range(0.28, 0.4), Color(Toon.GOLD, 0.5), 0.05)
-		d.position = Vector3(points[i].x, 0.05, points[i].z)
-		mats.append(d.material_override)
-	effects.append({"node": n, "t": 0.0, "life": dur, "kind": "fade", "mats": mats, "alpha": 0.5})
+	vfx.fire_trail(points, dur)
+
+
+## Estoc d'ombre (影) de a vers b (crochet, riposte d'Utsusemi).
+func shadow_stab(a: Vector3, b: Vector3) -> void:
+	vfx.shadow_stab(a, b)
+
+
+## Tourbillon de vent (風) : toupie de la boucle, tourbillons.
+func wind_spin(pos: Vector3, r: float) -> void:
+	vfx.swirl(pos, r)
+
+
+## Onde d'encre (墨) : choc de l'ensō.
+func ink_wave(pos: Vector3, r: float) -> void:
+	vfx.ink_wave(pos, r)
 
 
 ## Technique de la forme reconnue, déclenchée à l'arrivée de la ruée.
@@ -1221,12 +1345,13 @@ func _apply_shape() -> void:
 	var sh: Dictionary = _shape
 	_shape = {}
 	powers.on_shape(String(sh.shape), sh)
+	hud.shape_pop(String(sh.shape), String(SHAPE_NAMES.get(String(sh.shape), "")))
 	match String(sh.shape):
 		"loop":
 			# Uzu : toupie sabre tendu, aspire et lacère tout autour pendant ~1 s
 			hero.spin(0.95)
 			_spin_tick = 0.0
-			fire_ring(hero.position, 1.8)
+			wind_spin(hero.position, 1.8)
 			sfx.play("whoosh", 1.4)
 		"zigzag":
 			# Inazuma : éclair en chaîne sur 4 ennemis
@@ -1259,7 +1384,7 @@ func _apply_shape() -> void:
 			if not near.is_empty():
 				var o: Node3D = near[0]
 				hero.stab(o.position - hero.position)
-				zap(hero.position, o.position)
+				shadow_stab(hero.position, o.position)
 				damage_enemy(o, 3.0)
 				shape_text(o.position, "背")
 				shake = maxf(shake, 0.25)
@@ -1268,7 +1393,7 @@ func _apply_shape() -> void:
 				if not bh.is_empty():
 					var bp: Vector3 = bh[0]
 					hero.stab(bp - hero.position)
-					zap(hero.position, bp)
+					shadow_stab(hero.position, bp)
 					shake = maxf(shake, 0.25)
 
 
@@ -1278,7 +1403,7 @@ func _on_hero_landed() -> void:
 	sfx.play("strike", 0.7)
 	_blot(hero.position, Color(Toon.VERMILION, 0.3), _enso_r, 1.2)
 	_splash(hero.position, Toon.SUMI, 24)
-	fire_ring(hero.position, _enso_r * 0.6)
+	ink_wave(hero.position, _enso_r * 0.6)
 	for o in nearest_enemies(hero.position, _enso_r + 0.4, 99, null):
 		damage_enemy(o, 2.0)
 		o.push((o.position - hero.position).normalized() * 4.0)
@@ -1317,16 +1442,9 @@ func _update_moves(dt: float) -> void:
 			_iai_points = PackedVector3Array()
 
 
+## Iaï : grand trait blanc cerné d'encre sur toute la ligne.
 func _iai_line(a: Vector3, b: Vector3) -> void:
-	var n := Node3D.new()
-	add_child(n)
-	n.position = (a + b) / 2.0 + Vector3(0, 0.6, 0)
-	var d := b - a
-	d.y = 0
-	n.rotation.y = atan2(-d.x, -d.z)
-	var m := Toon.flat(Color(1, 1, 1, 1))
-	Toon.part(n, Toon.box(Vector3(0.12, 0.05, d.length() + 1.0)), m, Vector3.ZERO)
-	effects.append({"node": n, "t": 0.0, "life": 0.35, "kind": "fade", "mats": [m], "alpha": 1.0})
+	vfx.slash_line(a, b)
 
 ## Kaeshi : les boules proches du trait repartent vers les ennemis.
 func _reflect_bullets(pts: PackedVector3Array) -> void:
@@ -1662,6 +1780,8 @@ func enemy_strike(center: Vector3, r: float) -> void:
 	shake = maxf(shake, 0.12)
 	sfx.play("strike", randf_range(0.9, 1.1), -3.0)
 	_blot(center, Color(Toon.VERMILION, 0.35), r * 0.9, 0.6)
+	# le coup tombe : bref anneau d'encre sur le bord de la zone
+	vfx.ring(Vector3(center.x, 0.08, center.z), Toon.SUMI, r)
 	var d := Vector2(hero.position.x - center.x, hero.position.z - center.z).length()
 	if d < r + Hero.RADIUS * 0.6:
 		_hurt_hero()
@@ -1899,10 +2019,11 @@ func _slash_mark(pos: Vector3, dir: Vector3) -> void:
 	var d := dir.normalized()
 	n.rotation.y = atan2(-d.x, -d.z) + randf_range(-0.5, 0.5)
 	if not _fx_cache.has("slash"):
-		_fx_cache["slash"] = Toon.box(Vector3(0.09, 0.03, 2.2))
+		_fx_cache["slash"] = Toon.box(Vector3(0.06, 0.02, 1.5))
 	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(1, 1, 1, 0.95)), Vector3.ZERO)
-	bar.rotation.x = randf_range(-0.4, 0.4)
-	effects.append({"node": n, "t": 0.0, "life": 0.18, "kind": "slash", "mats": [bar.material_override], "alpha": 0.95})
+	bar.rotation.x = randf_range(-0.25, 0.25)
+	bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	effects.append({"node": n, "t": 0.0, "life": 0.14, "kind": "slash", "mats": [bar.material_override], "alpha": 0.95})
 
 
 func _combo_label(pos: Vector3, n: int) -> void:
@@ -2002,10 +2123,11 @@ func _process(_delta: float) -> void:
 	if state == "tuto":
 		elan = elan_max()
 		_update_moves(dt)
-	if state == "play" and _pending_levels > 0 and not hero.dashing and not touching:
+	# rouleaux de niveau : seulement une fois la salle nettoyée (jamais en plein combat)
+	if state == "play" and _pending_levels > 0 and _room_done and not hero.dashing and not touching:
 		_pending_levels -= 1
 		_pick_context = "level"
-		hud.toast("NIVEAU %d" % level)
+		hud.toast("NIVEAU %d  ·  CHOISIS TON ROULEAU" % level)
 		vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 2.2)
 		_set_state("pick")
 		_open_upgrades()
@@ -2053,6 +2175,13 @@ func _process(_delta: float) -> void:
 				wave_wait = 0.8
 				_room_done = true
 				_room_cleared()
+		elif is_instance_valid(_shrine) and not hero.dashing and Vector2(hero.position.x - _shrine.position.x, hero.position.z - _shrine.position.z).length() < 1.3:
+			# le héros touche l'autel : le pacte est proposé
+			_shrine.queue_free()
+			_shrine = null
+			_pick_context = "room"
+			_set_state("pick")
+			_open_sanctuary()
 		elif arena.gate_open and arena.gate_reached(hero.position):
 			_transit()
 		# un noyé hors de la terre ferme est ramené au bord le plus proche
@@ -2070,19 +2199,27 @@ func _process(_delta: float) -> void:
 
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
-		var sway := Vector3(sin(_state_t * 0.35) * 0.25, sin(_state_t * 0.5) * 0.08, 0)
+		# la barque tangue doucement, le héros avec elle
+		_rock_boat()
+		var sway := Vector3(sin(_state_t * 0.35) * 0.18, sin(_state_t * 0.5) * 0.06, 0)
 		cam.global_transform = _menu_transform().translated(sway)
-		_menu_slash -= real
-		if _menu_slash <= 0.0:
-			_menu_slash = 4.0
-			hero.ch.play_once("1H_Melee_Attack_Slice_Diagonal", 1.0)
 	elif state == "intro":
-		var k := clampf(_state_t / 0.9, 0.0, 1.0)
+		var k := clampf(_state_t / 1.6, 0.0, 1.0)
 		k = k * k * (3.0 - 2.0 * k)
 		cam.global_transform = _menu_transform().interpolate_with(_cam_base, k)
 		if k >= 1.0:
+			menu_boat.visible = false
 			_set_state("play")
+	elif state == "sail":
+		# Jouer : la barque prend le large (elle accélère), puis on choisit le monde
+		menu_boat.position.z -= real * minf(_state_t * 3.2, 2.6)
+		_rock_boat()
+		cam.global_transform = _menu_transform()
+		if _state_t > 1.3:
+			_open_worlds()
 	elif state == "worlds":
+		menu_boat.position.z -= real * 0.6  # elle glisse encore doucement derrière la carte
+		_rock_boat()
 		cam.global_transform = _menu_transform()
 	elif shake > 0.0:
 		shake = maxf(0.0, shake - real * 1.6)
@@ -2095,6 +2232,10 @@ func _process(_delta: float) -> void:
 	hud.pad_active = touching
 	var show_pad := pad_show == "always" or (pad_show == "start" and (state == "tuto" or _strokes_done < 12))
 	hud.pad_alpha = move_toward(hud.pad_alpha, 1.0 if show_pad else 0.0, real * 1.5)
+	if state in ["play", "transit", "pick", "tuto", "paused"]:
+		# l'arène descend quand le pad s'efface (plus de grande bande d'eau vide en bas)
+		var kp: float = hud.pad_alpha if ctrl_mode == "pad" else 0.0
+		_cam_base = _cam_full.interpolate_with(_cam_pad, kp * kp * (3.0 - 2.0 * kp))
 	hud.in_play = state in IN_PLAY_STATES
 	hud.pause_enabled = state == "play"  # le bouton pause n'apparaît que là où il agit
 	var wd: Dictionary = Worlds.world(current_world)

@@ -50,6 +50,11 @@ var _toast := ""
 var _toast_t := -1.0
 var screen_flash := 0.0  # éclair blanc bref à la mise à mort
 var show_fps := false  # `?fps` dans l'adresse web
+var _shapes: Array = []  # figures enchaînées : [forme, âge]
+var shape_name := ""
+var _shape_t := 9.0
+var _real_dt := 0.0
+var power_seals: Array = []  # [kanji, couleur d'école, niveau, couleur de rareté, rang] des pouvoirs possédés
 var game_over := false
 var over_t := 0.0
 var best_wave := 0
@@ -147,6 +152,8 @@ func _process(_delta: float) -> void:
 		_toast_t += real
 		if _toast_t > 1.4:
 			_toast_t = -1.0
+	_shape_t += real
+	_real_dt = real
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -175,7 +182,16 @@ func _draw() -> void:
 
 	if in_play:
 		_draw_pad(u)
+		# voile de papier en dégradé derrière le bandeau du haut : lisible sur n'importe quel décor
+		var top_h := 96.0 * u
+		var paper := Color(Toon.PAPER, 0.88)
+		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0), Vector2(sz.x, top_h * 0.55), Vector2(0, top_h * 0.55)]),
+			PackedColorArray([paper, paper, paper, paper]))
+		draw_polygon(PackedVector2Array([Vector2(0, top_h * 0.55), Vector2(sz.x, top_h * 0.55), Vector2(sz.x, top_h), Vector2(0, top_h)]),
+			PackedColorArray([paper, paper, Color(paper, 0.0), Color(paper, 0.0)]))
 		_draw_hearts(u)
+		_draw_seals(sz, u)
+		_draw_shape_pop(sz, u)
 		_draw_xp(u)
 		_draw_chain(u)
 		_draw_room(sz, u)
@@ -260,10 +276,11 @@ func _heart_pts(c: Vector2, s: float, closed := false) -> PackedVector2Array:
 
 
 func _draw_hearts(u: float) -> void:
-	var per_row := 6
+	# une seule rangée : au-delà de 5 cœurs, ils se resserrent et rapetissent (place jusqu'au sceau du monde)
+	var k_fit := minf(1.0, 5.0 / maxf(float(max_hp), 1.0))
 	for i in max_hp:
-		var c := Vector2(24 * u + (i % per_row) * 27 * u, 34 * u + (i / per_row) * 25 * u)
-		var s := 10.5 * u
+		var c := Vector2(24 * u + i * 27 * u * k_fit, 34 * u)
+		var s := 10.5 * u * lerpf(1.0, k_fit, 0.6)
 		var lost_t := -1.0
 		for l in _lost:
 			if int(l[0]) == i:
@@ -286,6 +303,117 @@ func _draw_hearts(u: float) -> void:
 				draw_circle(c + Vector2(cos(a), sin(a)) * (6.0 + 26.0 * k) * u + Vector2(0, 30 * k * k) * u, 2.4 * u * (1.0 - k), Color(Toon.VERMILION, 1.0 - k))
 		else:
 			draw_polyline(_heart_pts(c, s, true), Color(Toon.SUMI, 0.3), 1.8 * u, true)
+
+
+## Figures réussies : les sceaux s'alignent quand on les enchaîne (6 au plus), le dernier porte son nom.
+## La rangée s'efface 3 s après la dernière figure.
+func shape_pop(shape: String, label: String) -> void:
+	if _shape_t > 3.0:
+		_shapes.clear()
+	_shapes.append([shape, 0.0])
+	if _shapes.size() > 6:
+		_shapes.pop_front()
+	shape_name = plain(label)
+	_shape_t = 0.0
+
+
+func _draw_shape_pop(sz: Vector2, u: float) -> void:
+	if _shapes.is_empty() or _shape_t > 3.4:
+		return
+	var a := clampf((3.4 - _shape_t) / 0.4, 0.0, 1.0)
+	var n := _shapes.size()
+	var r := 19.0 * u
+	var gap := 2.0 * r + 8.0 * u
+	var y := 150.0 * u
+	var x0 := sz.x / 2.0 - (n - 1) * gap / 2.0
+	for i in n:
+		var sh: Array = _shapes[i]
+		sh[1] = float(sh[1]) + _real_dt
+		var k_in := clampf(float(sh[1]) / 0.15, 0.0, 1.0)
+		var newest := i == n - 1
+		var rr := r * (1.25 if newest else 1.0) * (0.6 + 0.4 * (1.0 - pow(1.0 - k_in, 3.0)))
+		var c := Vector2(x0 + i * gap, y)
+		if i > 0:
+			# trait d'encre qui relie les figures enchaînées
+			draw_line(Vector2(x0 + (i - 1) * gap + r, y), c - Vector2(rr, 0), Color(Toon.SUMI, 0.6 * a), 2.0 * u)
+		_draw_symbol(String(sh[0]), c, rr, a)
+	if shape_name != "":
+		var fs := int(11 * u)
+		var tw := UiKit.UI_FONT.get_string_size(shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var cx := x0 + (n - 1) * gap
+		var tx := clampf(cx - tw / 2.0, 8.0 * u, sz.x - tw - 8.0 * u)
+		var tp := Vector2(tx, y + r * 1.25 + 17.0 * u)
+		var la := a * clampf((2.2 - _shape_t) / 0.3, 0.0, 1.0)
+		draw_rect(Rect2(tp + Vector2(-8 * u, -fs * 1.05), Vector2(tw + 16 * u, fs * 1.55)), Color(Toon.SUMI, 0.8 * la))
+		draw_string(UiKit.UI_FONT, tp, shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, la))
+
+
+## Symbole d'une figure au pinceau, dans un sceau rond de rayon r.
+func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
+	draw_circle(c, r + 2.5 * r / 30.0, Color(Toon.SUMI, 0.85 * a))
+	draw_circle(c, r, Color(Toon.PAPER, 0.95 * a))
+	var ink := Color(Toon.SUMI, a)
+	var w := 4.0 * r / 30.0
+	var s := r * 0.62
+	match shape:
+		"loop":
+			# spirale
+			var pts := PackedVector2Array()
+			for i in 40:
+				var t := float(i) / 39.0
+				pts.append(c + Vector2.from_angle(t * TAU * 1.75) * s * (0.15 + 0.85 * t))
+			draw_polyline(pts, ink, w, true)
+		"zigzag":
+			# éclair
+			draw_polyline(PackedVector2Array([c + Vector2(-0.6, -0.9) * s, c + Vector2(0.25, -0.15) * s, c + Vector2(-0.25, 0.1) * s, c + Vector2(0.6, 0.9) * s]), Color(Toon.GOLD.darkened(0.2), a), w * 1.2, true)
+		"straight":
+			# coupe nette en diagonale
+			draw_line(c + Vector2(-0.95, 0.55) * s, c + Vector2(0.95, -0.55) * s, ink, w * 1.3, true)
+			draw_line(c + Vector2(-0.6, 0.55) * s, c + Vector2(0.95, -0.35) * s, Color(Toon.VERMILION, a * 0.8), w * 0.5, true)
+		"return":
+			# demi-tour
+			draw_arc(c + Vector2(0, -0.1) * s, s * 0.55, PI, TAU, 16, ink, w, true)
+			draw_line(c + Vector2(-0.55, -0.1) * s, c + Vector2(-0.55, 0.8) * s, ink, w, true)
+			draw_line(c + Vector2(0.55, -0.1) * s, c + Vector2(0.55, 0.6) * s, ink, w, true)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(0.3, 0.55) * s, c + Vector2(0.8, 0.55) * s, c + Vector2(0.55, 0.95) * s]), ink)
+		"enso":
+			# cercle ouvert, plus épais au départ
+			draw_arc(c, s * 0.85, -PI * 0.35, PI * 1.5, 32, ink, w * 1.5, true)
+			draw_circle(c + Vector2.from_angle(-PI * 0.35) * s * 0.85, w * 0.9, ink)
+		"hook":
+			# hameçon
+			draw_line(c + Vector2(0.35, -0.9) * s, c + Vector2(0.35, 0.3) * s, ink, w, true)
+			draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
+
+## Pouvoirs possédés : colonne de petits sceaux sous le bouton pause (école, niveau, liseré de rareté).
+func _draw_seals(sz: Vector2, u: float) -> void:
+	var r := 11.0 * u
+	var x := sz.x - 26.0 * u
+	var y := 84.0 * u
+	for sd in power_seals:
+		var c := Vector2(x, y)
+		var col: Color = sd[1]
+		var rc: Color = sd[3]
+		# liseré de rareté (or animé pour les légendaires)
+		var glow := 0.0
+		if int(sd[4]) >= 3:
+			glow = 0.35 + 0.25 * sin(_t * 3.0)
+		draw_circle(c, r + 2.5 * u + glow * 2.0 * u, Color(rc, 0.9))
+		draw_circle(c, r, col)
+		var fs := int(13 * u)
+		var k := String(sd[0])
+		var kw := UiKit.TITLE_FONT.get_string_size(k, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(UiKit.TITLE_FONT, c + Vector2(-kw / 2.0, fs * 0.36), k, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.WASHI)
+		# niveau : petits points sous le sceau
+		var lv := int(sd[2])
+		for i in lv:
+			draw_circle(c + Vector2((i - (lv - 1) / 2.0) * 5.0 * u, r + 5.0 * u), 1.6 * u, Toon.SUMI)
+		y += 2.0 * r + 12.0 * u
+		if y > sz.y * 0.6:
+			# deuxième colonne
+			y = 84.0 * u
+			x -= 2.0 * r + 10.0 * u
 
 
 ## Chaîne : sous les cœurs, nombre, bonus de dégâts et jauge de temps restant ; éclat quand elle se brise.

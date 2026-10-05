@@ -34,7 +34,7 @@ var _flash := 0.0
 var _stun := 0.0
 var _last_stroke := -1
 var _zone: Node3D
-var _zone_fill: MeshInstance3D
+var _zone_fill: Node3D  # visuel partagé de l'annonce (vfx.tele_disc)
 var _zone_center := Vector3.ZERO
 var _zone_r := 1.6
 var _cycle := 0
@@ -357,8 +357,7 @@ func _make_zone(center: Vector3, r: float, t: float) -> void:
 	_zone_center = Vector3(center.x, 0, center.z)
 	_zone_r = r
 	_timer = t
-	Toon.disc(_zone, r, Color(Toon.VERMILION, 0.18), 0.03)
-	_zone_fill = Toon.disc(_zone, r, Color(Toon.VERMILION, 0.45), 0.035)
+	_zone_fill = main.vfx.tele_disc(_zone, r)
 
 
 func _cancel() -> void:
@@ -369,9 +368,7 @@ func _cancel() -> void:
 
 func _zone_step(total: float) -> bool:
 	var k := 1.0 - _timer / total
-	_zone_fill.scale = Vector3(k, 1, k)
-	var m := _zone_fill.material_override as StandardMaterial3D
-	m.albedo_color = Color(Toon.FOAM, 0.85) if _timer < 0.15 else Color(Toon.VERMILION, 0.45)
+	main.vfx.tele_update(_zone_fill, k, _timer)
 	return _timer <= 0.0
 
 
@@ -494,6 +491,7 @@ func _uwabami(delta: float) -> void:
 			for i in _marks.get_child_count():
 				var m: Node3D = _marks.get_child(i)
 				m.visible = float(i) / float(_marks.get_child_count()) <= k * 1.4
+				main.vfx.tele_dot_flash(m as MeshInstance3D, _timer < 0.15)
 			if _timer <= 0.0:
 				_state = "undulate"
 				_path_i = 0
@@ -564,8 +562,8 @@ func _plan_crossing() -> void:
 		var p: Vector3 = _path[i]
 		if absf(p.z) > HALF.y + 0.5:
 			continue
-		var m := Toon.disc(_marks, 0.22, Color(Toon.FOAM, 0.85), 0.04)
-		m.position = Vector3(p.x, 0.04, p.z)
+		var m: MeshInstance3D = main.vfx.tele_dot(_marks, 0.22)
+		m.position = Vector3(p.x, m.position.y, p.z)
 		m.visible = false
 
 

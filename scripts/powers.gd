@@ -15,14 +15,16 @@ const LEG_MAX := 3  # légendaires par partie
 const PITY_EPIC := 3  # offres d'affilée sans épique (ou mieux) avant d'en garantir un
 const PITY_LEG := 5  # offres sans légendaire (une fois permis) avant d'en garantir un
 const DASH_SPEED := 34.0  # même valeur que hero.gd
-const FOX_COLOR := Color("#A8E6FF")
-const FLAME_COLOR := Color("#FF8A3D")
-const WIND_COLOR := Color("#BFEADF")
+const Vfx = preload("res://scripts/vfx.gd")
+const FOX_COLOR := Color("#B58BFF")  # feu de renard : lilas (école de l'ombre)
+const FLAME_COLOR := Color("#FF5A1F")  # = Vfx.FIRE
+const WIND_COLOR := Color("#5FD6A8")  # = Vfx.WIND
 
 var main: Node3D
 var levels := {}  # id -> niveau (1..max)
 var _tiers := {}  # école -> palier d'affinité atteint (0, 1, 2)
 var _burn := {}  # instance_id -> [ennemi, temps restant, dégâts/s]
+var _burn_fx := {}  # instance_id -> flammes accrochées à l'ennemi (visuel seul)
 var _trails: Array = []  # [points, temps restant, tick, dégâts/s]
 var _boss_burn: Array = []  # [point, temps restant, dégâts/s]
 var _kills := 0
@@ -73,6 +75,7 @@ func reset() -> void:
 	levels.clear()
 	_tiers.clear()
 	_burn.clear()
+	_clear_burn_fx()
 	_trails.clear()
 	_boss_burn.clear()
 	_kills = 0
@@ -585,7 +588,9 @@ func _crit(pos: Vector3) -> float:
 	if t == 0:
 		return 1.0
 	if randf() < (0.1 if t == 1 else 0.25):
-		main.splash(pos, Toon.GOLD, 10)
+		# critique d'ombre : bouffée violette
+		main.vfx.smoke(pos, 0.3, 5)
+		main.splash(pos, Vfx.SHADOW, 6)
 		return 2.0 if t == 1 else 2.5
 	return 1.0
 
@@ -608,11 +613,12 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		var fwd := Vector3(-sin(ry), 0, -cos(ry))
 		if dir.normalized().dot(fwd) > 0.5:
 			out *= val("shadow_back")
-			main.float_text(e.position, "×" + _num(val("shadow_back")), Toon.GOLD)
+			main.float_text(e.position, "×" + _num(val("shadow_back")), FOX_COLOR)
 	out *= _crit(e.position)
 	if lvl("bolt_thunder") > 0 and combo >= 3:
 		out += val("bolt_thunder") * _bolt_mult()
 		_stun(e)
+		main.vfx.sparks(e.position + Vector3(0, 0.9, 0), Vector3.UP, 4, Vfx.BOLT)
 	# Kaishaku : sous le seuil, le coup achève
 	if lvl("shadow_execute") > 0:
 		var th := val("shadow_execute") + (10.0 if lvl("shadow_back") > 0 else 0.0)
@@ -632,6 +638,7 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		if side.dot(e.position - main.hero.position) < 0.0:
 			side = -side
 		e.push(side * val("water_push") * 3.0 * _wave_mult())
+		main.vfx.wave_arc(e.position, side, 0.7)
 	_storm(e.position)
 	if lvl("bolt_arc") > 0:
 		for o in main.nearest_enemies(e.position, 3.0, int(val("bolt_arc")), e):
@@ -657,6 +664,7 @@ func on_boss_hit(pos: Vector3, _dmg: float = 1.0) -> void:
 		if _boss_burn.size() >= 6:
 			_boss_burn.remove_at(0)
 		_boss_burn.append([pos, 3.0, burn])
+		main.vfx.flames(pos, 0.35, 5)
 	if lvl("bolt_arc") > 0:
 		for o in main.nearest_enemies(pos, 3.0, int(val("bolt_arc")), null):
 			main.zap(pos, o.position)
@@ -683,7 +691,9 @@ func _common_hit(pos: Vector3) -> void:
 	if lvl("shadow_stolen") > 0 and combo >= 4 and _stolen_stroke != int(main.stroke_id):
 		_stolen_stroke = int(main.stroke_id)
 		_slow(val("shadow_stolen"), 0.3)
-		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Data.SCHOOLS["shadow"]["color"], 2.0)
+		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Vfx.SHADOW, 2.0)
+		main.vfx.smoke(pos, 0.6, 7)
+		main.vfx.school_kanji(pos, "shadow")
 
 
 ## Orage : toutes les N touches, la foudre tombe sur les 3 ennemis les plus proches.
@@ -693,9 +703,14 @@ func _storm(pos: Vector3) -> void:
 	_hits += 1
 	if _hits % int(val("bolt_storm")) != 0:
 		return
+	var struck := false
 	for o in main.nearest_enemies(pos, 7.0, 3, null):
-		main.zap(pos, o.position)
+		# orage : la foudre tombe du ciel sur chaque cible
+		main.vfx.sky_bolt(o.position, false)
 		main.damage_enemy(o, 1.0 * _bolt_mult())
+		struck = true
+	if struck:
+		main.vfx.school_kanji(pos, "bolt")
 	main.damage_bosses(pos, 3.0, 1.0 * _bolt_mult())
 
 
@@ -708,6 +723,7 @@ func on_kill(e: Node3D) -> void:
 	var eid := e.get_instance_id()
 	var burning := _burn.has(eid)
 	_burn.erase(eid)
+	_drop_burn_fx(eid)
 	_fox_cd.erase(eid)
 	if _kill_depth >= 2:
 		return
@@ -717,6 +733,7 @@ func on_kill(e: Node3D) -> void:
 		var p: Vector3 = e.position
 		var dmg := val("fire_spark") * _fire_mult()
 		main.fire_ring(p, 1.6)
+		main.vfx.school_kanji(p, "fire")
 		for o in main.nearest_enemies(p, 1.6, 99, e):
 			_ignite(o, maxf(val("fire_burn"), 0.5), 3.0)
 			main.damage_enemy(o, dmg)
@@ -734,24 +751,25 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		main.damage_bosses(pos, 1.8, hd)
 	if lvl("shadow_veil") > 0 and kills >= 2:
 		main.hero.invuln = maxf(float(main.hero.invuln), val("shadow_veil"))
+		main.vfx.smoke(pos, 0.5, 6)
 	if lvl("water_tide") > 0:
 		var td := val("water_tide") * _wave_mult()
-		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Toon.FOAM, 1.75)
-		main.splash(pos, Toon.PRUSSIAN, 12)
+		main.vfx.water_burst(pos, 1.75)
 		_burst(pos, 2.6, td, 9.0)
 	if lvl("water_uzushio") > 0 and combo >= 3:
 		_add_whirl(pos)
 	if _charge > 0.05:
 		var cd := _charge * _bolt_mult()
 		_charge = 0.0
-		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Toon.GOLD, 1.5)
+		main.vfx.ring(Vector3(pos.x, 0.07, pos.z), Vfx.BOLT, 1.5)
 		for o in main.nearest_enemies(pos, 2.2, 99, null):
 			main.zap(pos, o.position)
 			main.damage_enemy(o, cd)
 		main.damage_bosses(pos, 2.2, cd)
 	if lvl("wind_fujin") > 0:
 		# l'arrivée souffle : repousse et blesse un peu
-		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), WIND_COLOR, 1.6)
+		main.vfx.ring(Vector3(pos.x, 0.07, pos.z), WIND_COLOR, 1.6)
+		main.vfx.swirl(pos, 1.8)
 		_burst(pos, 2.4, 0.8, 12.0)
 	if lvl("water_kanagawa") > 0 and _strokes % 3 == 0 and _last_pts.size() > 1:
 		_add_wave(_last_pts)
@@ -759,7 +777,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		_drum()
 	if lvl("ink_ippitsu") > 0 and _stroke_hits >= 4:
 		_ippitsu_next = true
-		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Toon.GOLD, 2.0)
+		main.vfx.ink_wave(pos, 1.6)
 		main.shape_text(pos, "筆")
 	_ippitsu_now = false
 
@@ -799,6 +817,8 @@ func on_shape(shape: String, info: Dictionary) -> void:
 			if lvl("bolt_inazuma") > 0:
 				# l'éclair de base frappe les 4 plus proches ; Inazuma continue la chaîne
 				var list: Array = main.nearest_enemies(hp, 8.0, 4 + int(val("bolt_inazuma")), null)
+				if list.size() > 4:
+					main.vfx.school_kanji(hp, "bolt")
 				var from := hp
 				for i in list.size():
 					var o = list[i]
@@ -815,7 +835,8 @@ func on_enso_land(pos: Vector3, r: float) -> void:
 	if lvl("ink_enso") == 0:
 		return
 	var rr := r * 1.4 + 0.4
-	main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Toon.GOLD, rr / 1.5)
+	main.vfx.ink_wave(pos, rr / 1.5)
+	main.vfx.school_kanji(pos, "ink")
 	main.shake = maxf(float(main.shake), 0.6)
 	_burst(pos, rr, 2.0, 8.0)
 	if _enso_heal_room != _room:
@@ -847,7 +868,7 @@ func on_hurt() -> bool:
 		main.sfx.play("whoosh", 0.7)
 		var d := val2("shadow_utsusemi")
 		for o in main.nearest_enemies(p, 2.4, 99, null):
-			main.zap(p, o.position)
+			main.vfx.shadow_stab(p, o.position)
 			main.damage_enemy(o, d)
 		main.damage_bosses(p, 2.4, d)
 		return true
@@ -857,11 +878,12 @@ func on_hurt() -> bool:
 		h.invuln = 2.5
 		var p2: Vector3 = h.position
 		main.shape_text(p2, "鳳")
-		main.vfx.ring(Vector3(p2.x, 0.06, p2.z), Toon.GOLD, 2.4)
-		main.vfx.ring(Vector3(p2.x, 0.1, p2.z), FLAME_COLOR, 1.5)
-		main.vfx.sparks(p2 + Vector3(0, 0.5, 0), Vector3.UP, 14, Toon.GOLD)
-		main.splash(p2, Toon.GOLD, 30)
-		main.splash(p2, Toon.VERMILION, 24)
+		# renaissance : grande couronne de flammes et braises
+		main.vfx.fire_burst(p2, 2.4)
+		main.vfx.ring(Vector3(p2.x, 0.1, p2.z), Vfx.FIRE_HOT, 1.5)
+		main.vfx.embers(p2, 0.8, 10)
+		main.splash(p2, Vfx.FIRE_HOT, 14)
+		main.splash(p2, Vfx.FIRE, 14)
 		main.shake = 0.7
 		main.sfx.play("strike", 0.6)
 		main.float_text(p2, "+%d" % int(h.hp), Toon.VERMILION)
@@ -882,6 +904,7 @@ func on_room_start(r: int) -> void:
 	_foam_seen = int(main.foam)
 	_charge = 0.0
 	_burn.clear()
+	_clear_burn_fx()
 	_boss_burn.clear()
 	_trails.clear()
 	_fox_cd.clear()
@@ -933,6 +956,7 @@ func _update_burns(dt: float) -> void:
 		b[1] = float(b[1]) - dt
 		if not is_instance_valid(e) or e.dead or float(b[1]) <= 0.0:
 			_burn.erase(k)
+			_drop_burn_fx(k)
 			continue
 		main.damage_enemy(e, float(b[2]) * fm * dt, false)
 	for i in range(_boss_burn.size() - 1, -1, -1):
@@ -976,7 +1000,7 @@ func _watch_foam() -> void:
 	var f := int(main.foam)
 	if f < _foam_seen and lvl("water_foam") > 0:
 		var p: Vector3 = main.hero.position
-		main.vfx.ring(Vector3(p.x, 0.06, p.z), Toon.FOAM, 1.5)
+		main.vfx.water_burst(p, 1.5)
 		_burst(p, 2.2, val2("water_foam") * _wave_mult(), 10.0)
 	_foam_seen = f
 
@@ -984,7 +1008,6 @@ func _watch_foam() -> void:
 ## Kamaitachi : pendant la ruée, les lames de vent tranchent ce qui passe à côté.
 func _blades(p: Vector3) -> void:
 	var d := val("wind_blades")
-	var c: Color = Data.SCHOOLS["wind"]["color"]
 	for e in main.enemies:
 		if not _alive(e):
 			continue
@@ -994,7 +1017,8 @@ func _blades(p: Vector3) -> void:
 		if Vector2(e.position.x - p.x, e.position.z - p.z).length() < 1.75 + float(e.radius):
 			_blade_hit[eid] = true
 			main.damage_enemy(e, d)
-			main.vfx.sparks(e.position + Vector3(0, 0.7, 0), e.position - p, 4, c.lightened(0.4))
+			# lame de vent : croissant jade
+			main.vfx.wind_slash(e.position, e.position - p)
 
 
 ## Kagami : la ruée renvoie les boules qu'elle frôle vers l'ennemi le plus proche.
@@ -1017,7 +1041,8 @@ func _mirror(p: Vector3) -> void:
 			to.y = 0
 			b["vel"] = to.normalized() * speed
 		b["friendly"] = true
-		main.splash(n.position, Toon.FOAM, 6)
+		main.splash(n.position, Vfx.WATER, 5)
+		main.vfx.ring(Vector3(n.position.x, 0.07, n.position.z), Vfx.WATER, 0.6)
 
 
 ## Fudō Myōō : halo de flammes, 4 ticks par seconde.
@@ -1109,6 +1134,7 @@ func _drum() -> void:
 	for i in mini(2, hits.size()):
 		_bolt_strike(hits[i], false)
 	_drum_pulse = 1.0
+	main.vfx.school_kanji(p, "bolt")
 	main.shake = maxf(float(main.shake), 0.3)
 	main.sfx.play("strike", 1.3, -2.0)
 
@@ -1126,9 +1152,10 @@ func _fujin_pull(points: PackedVector3Array) -> void:
 			e.position += d / dist * minf(1.8, dist - 0.2)
 			if hurt:
 				main.damage_enemy(e, 0.5, false)
-	var step := maxi(1, points.size() / 5)
+	var step := maxi(1, points.size() / 4)
 	for i in range(0, points.size(), step):
-		main.vfx.sparks(points[i] + Vector3(0, 0.5, 0), Vector3.UP, 3, WIND_COLOR)
+		main.vfx.swirl(points[i], 0.7)
+	main.vfx.school_kanji(points[points.size() - 1], "wind")
 
 
 ## Dégâts et recul en cercle autour de `p` (ennemis et boss).
@@ -1144,8 +1171,7 @@ func _burst(p: Vector3, r: float, dmg: float, push: float) -> void:
 
 ## Ensō parfait : onde d'encre (chaque forme), qui brûle avec Foyer.
 func _ink_wave(p: Vector3, r: float, dmg: float) -> void:
-	main.vfx.ring(Vector3(p.x, 0.06, p.z), Toon.SUMI, r / 1.5)
-	main.splash(p, Toon.SUMI, 12)
+	main.vfx.ink_wave(p, r / 1.5)
 	if lvl("fire_hearth") > 0:
 		for o in main.nearest_enemies(p, r, 99, null):
 			_ignite(o, maxf(val("fire_burn"), 0.6), 3.0)
@@ -1153,13 +1179,9 @@ func _ink_wave(p: Vector3, r: float, dmg: float) -> void:
 
 
 func _whirl_burst(p: Vector3, r: float, dmg: float) -> void:
-	var node := Node3D.new()
-	_holder().add_child(node)
-	node.position = Vector3(p.x, 0.5, p.z)
-	var mi := _part(node, _torus(), main.vfx.glow_mat(WIND_COLOR, 2.0))
-	mi.scale = Vector3(r * 0.8, 0.3, r * 0.8)
-	_fx.append({"node": node, "t": 0.0, "life": 0.45, "kind": "spin"})
-	main.vfx.sparks(p + Vector3(0, 0.5, 0), Vector3.UP, 5, WIND_COLOR)
+	# tourbillon tranchant : spirale jade et lames de vent
+	main.vfx.swirl(p, r)
+	main.vfx.wind_slash(p, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.1)
 	_burst(p, r, dmg, 7.0)
 
 
@@ -1173,6 +1195,27 @@ func _ignite(e, dps: float, dur: float) -> void:
 		b[2] = maxf(float(b[2]), dps)
 	else:
 		_burn[eid] = [e, dur, dps]
+	if not _burn_fx.has(eid) or not is_instance_valid(_burn_fx[eid]):
+		# l'ennemi en feu porte de petites flammes (un seul émetteur par ennemi)
+		_burn_fx[eid] = main.vfx.burner(e, 0.25, 4, Vector3(0, 0.3, 0))
+
+
+## Visuel de brûlure : retiré quand la brûlure s'arrête.
+func _drop_burn_fx(eid) -> void:
+	if not _burn_fx.has(eid):
+		return
+	var n = _burn_fx[eid]
+	if is_instance_valid(n):
+		n.queue_free()
+	_burn_fx.erase(eid)
+
+
+func _clear_burn_fx() -> void:
+	for k in _burn_fx.keys():
+		var n = _burn_fx[k]
+		if is_instance_valid(n):
+			n.queue_free()
+	_burn_fx.clear()
 
 
 ## Étourdit (garde ouverte, attaque annulée) ; la brute reste inarrêtable.
@@ -1197,7 +1240,9 @@ func _add_wheel(p: Vector3) -> void:
 	var ring := _part(spin, _torus(), main.vfx.glow_mat(FLAME_COLOR, 2.8))
 	ring.rotation.z = PI / 2.0
 	ring.scale = Vector3(0.55, 0.9, 0.55)
-	_part(spin, _sphere(), main.vfx.glow_mat(Toon.GOLD, 2.0)).scale = Vector3.ONE * 1.4
+	_part(spin, _sphere(), main.vfx.glow_mat(Vfx.FIRE_HOT, 2.0)).scale = Vector3.ONE * 1.4
+	# la roue crache des flammes en roulant
+	main.vfx.burner(node, 0.4, 7, Vector3(0, -0.45, 0))
 	var dur := 3.5 + (0.5 if lvl("fire_trail") > 0 else 0.0)
 	_zones.append({"kind": "wheel", "pos": Vector3(p.x, 0, p.z), "t": dur, "tick": 0.0, "r": 1.3,
 		"dps": val("fire_kasha") * _fire_mult(), "node": node, "spin": spin, "drop": 0.0, "last": Vector3(p.x, 0, p.z)})
@@ -1209,17 +1254,23 @@ func _add_whirl(p: Vector3) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
 	node.position = Vector3(p.x, 0.0, p.z)
-	Toon.disc(node, 2.2, Color(Toon.PRUSSIAN, 0.32), 0.03)
+	# tourbillon d'eau : fond bleu, bord cyan, spirales d'écume
+	var pool := _part(node, _disc_mesh(), _flat("whirl", Color(Vfx.WATER, 0.28)))
+	pool.scale = Vector3(2.2, 1, 2.2)
+	pool.position.y = 0.05
 	var spin := Node3D.new()
 	node.add_child(spin)
-	for k in 2:
-		var ring := _part(spin, _torus(), main.vfx.glow_mat(Toon.FOAM, 1.6))
-		ring.scale = Vector3(2.0 - 0.8 * k, 0.05, 2.0 - 0.8 * k)
-		ring.position.y = 0.06 + 0.04 * k
+	var edge := _part(spin, _torus(), main.vfx.glow_mat(Vfx.WATER, 1.8))
+	edge.scale = Vector3(2.2, 0.05, 2.2)
+	edge.position.y = 0.07
+	var sw := _part(spin, main.vfx.swirl_mesh(), main.vfx.glow_mat(Vfx.WATER_FOAM, 1.6))
+	sw.scale = Vector3(1.9, 1, 1.9)
+	sw.position.y = 0.09
+	main.vfx.school_kanji(p, "water")
 	var dur := 3.0 + (1.0 if lvl("water_tide") > 0 else 0.0)
 	_zones.append({"kind": "whirl", "pos": Vector3(p.x, 0, p.z), "t": dur, "tick": 0.0, "r": 2.2,
 		"dps": val("water_uzushio") * _wave_mult(), "node": node, "spin": spin})
-	main.splash(p, Toon.PRUSSIAN, 14)
+	main.vfx.water_burst(p, 1.6)
 
 
 func _add_inkring(p: Vector3, r: float) -> void:
@@ -1227,7 +1278,9 @@ func _add_inkring(p: Vector3, r: float) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
 	node.position = Vector3(p.x, 0.0, p.z)
-	Toon.disc(node, r, Color(Toon.SUMI, 0.22), 0.025)
+	var pool := _part(node, _disc_mesh(), _flat("inkpool", Color(Toon.SUMI, 0.22)))
+	pool.scale = Vector3(r, 1, r)
+	pool.position.y = 0.05
 	var spin := Node3D.new()
 	node.add_child(spin)
 	var ring := _part(spin, _torus(), _ink_mat())
@@ -1310,10 +1363,10 @@ func _update_zones(dt: float) -> void:
 func _add_wave(points: PackedVector3Array) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
-	var wall := _part(node, _box(), _flat("wave", Color(Toon.PRUSSIAN, 0.85)))
+	var wall := _part(node, _box(), _flat("wave", Color("#1668B0", 0.88)))
 	wall.scale = Vector3(2.6, 0.75, 0.45)
 	wall.position = Vector3(0, 0.38, 0)
-	var crest := _part(node, _box(), main.vfx.glow_mat(Toon.FOAM, 1.4))
+	var crest := _part(node, _box(), main.vfx.glow_mat(Vfx.WATER_FOAM, 1.4))
 	crest.scale = Vector3(2.9, 0.2, 0.6)
 	crest.position = Vector3(0, 0.8, -0.1)
 	var dmg := (3.0 + (1.0 if lvl("water_push") > 0 else 0.0)) * _wave_mult()
@@ -1332,7 +1385,7 @@ func _add_clone(points: PackedVector3Array) -> void:
 	var head := _part(node, _sphere(), m)
 	head.scale = Vector3.ONE * 2.0
 	head.position = Vector3(0, 1.42, 0)
-	var blade := _part(node, _box(), main.vfx.glow_mat(Color("#B9A6FF"), 2.2))
+	var blade := _part(node, _box(), main.vfx.glow_mat(FOX_COLOR, 2.2))
 	blade.scale = Vector3(0.05, 0.05, 1.0)
 	blade.position = Vector3(0.35, 0.9, -0.35)
 	blade.rotation.y = 0.5
@@ -1364,6 +1417,8 @@ func _update_sweeps(dt: float) -> void:
 			s["delay"] = float(s["delay"]) - dt
 			if float(s["delay"]) <= 0.0:
 				node.visible = true
+				if kind == "clone":
+					main.vfx.smoke(node.position, 0.35, 5)
 				if kind == "clone" and lvl("fire_trail") > 0:
 					_add_trail(s["pts"], 2.5, val("fire_trail"))
 			continue
@@ -1392,16 +1447,17 @@ func _update_sweeps(dt: float) -> void:
 					main.damage_enemy(e, dmg)
 				else:
 					main.damage_enemy(e, dmg * _global_mult())
-					main.splash(e.position, Toon.SUMI, 6)
+					main.vfx.smoke(e.position, 0.25, 4)
 		if not bool(s["boss_done"]):
 			var bh: Array = main.damage_bosses(b, r + 0.3, dmg)
 			if not bh.is_empty():
 				s["boss_done"] = true
 		if kind == "wave":
 			s["fx"] = float(s["fx"]) + dt
-			if float(s["fx"]) >= 0.1:
+			if float(s["fx"]) >= 0.12:
 				s["fx"] = 0.0
-				main.splash(b, Toon.FOAM, 5)
+				main.splash(b, Vfx.WATER_FOAM, 4)
+				main.splash(b, Vfx.WATER, 3)
 		node.position = Vector3(b.x, 0, b.z)
 		if dir.length_squared() > 0.0001:
 			node.rotation.y = atan2(-dir.x, -dir.z)
@@ -1445,15 +1501,20 @@ func _ensure_visuals() -> void:
 	if lvl("fire_fudo") > 0 and not is_instance_valid(_halo):
 		_halo = Node3D.new()
 		_holder().add_child(_halo)
-		Toon.disc(_halo, 1.9, Color(Toon.VERMILION, 0.1), 0.02)
+		var glow := _part(_halo, _disc_mesh(), _flat("halo", Color(Vfx.FIRE, 0.1)))
+		glow.scale = Vector3(1.9, 1, 1.9)
+		glow.position.y = 0.05
 		var ring := _part(_halo, _torus(), main.vfx.glow_mat(FLAME_COLOR, 2.4))
 		ring.scale = Vector3(1.9, 0.06, 1.9)
 		ring.position.y = 0.07
 		_flames.clear()
+		# langues de flamme face caméra qui vacillent sur le cercle
+		var tongue: Mesh = main.vfx.flame_mesh()
 		for k in 8:
 			var a := TAU * float(k) / 8.0
-			var f := _part(_halo, _sphere(), main.vfx.glow_mat(Color("#FFC24A") if k % 2 == 0 else FLAME_COLOR, 2.6))
-			f.position = Vector3(cos(a) * 1.9, 0.3, sin(a) * 1.9)
+			var col := Vfx.FIRE_HOT if k % 2 == 0 else FLAME_COLOR
+			var f := _part(_halo, tongue, main.vfx.flame_mat(col))
+			f.position = Vector3(cos(a) * 1.9, 0.1, sin(a) * 1.9)
 			_flames.append(f)
 	if lvl("bolt_raijin") > 0 and not is_instance_valid(_drums):
 		_drums = Node3D.new()
@@ -1461,11 +1522,11 @@ func _ensure_visuals() -> void:
 		var spin := Node3D.new()
 		spin.name = "Spin"
 		_drums.add_child(spin)
-		var band := _part(spin, _torus(), main.vfx.glow_mat(Toon.GOLD, 1.8))
+		var band := _part(spin, _torus(), main.vfx.glow_mat(Vfx.BOLT, 1.8))
 		band.scale = Vector3(0.85, 0.04, 0.85)
 		for k in 8:
 			var a2 := TAU * float(k) / 8.0
-			var dr := _part(spin, _drum_mesh(), main.vfx.glow_mat(Toon.GOLD, 2.2))
+			var dr := _part(spin, _drum_mesh(), main.vfx.glow_mat(Vfx.BOLT if k % 2 == 0 else Toon.GOLD, 2.2))
 			dr.position = Vector3(cos(a2) * 0.85, 0, sin(a2) * 0.85)
 			dr.rotation.y = -a2
 			dr.rotation.z = PI / 2.0
@@ -1504,7 +1565,7 @@ func _process(delta: float) -> void:
 		for k in _flames.size():
 			var f: Node3D = _flames[k]
 			var flick := 0.8 + 0.35 * sin(_anim * 9.0 + float(k) * 1.7)
-			f.scale = Vector3(1.0, 2.6 * flick, 1.0)
+			f.scale = Vector3(0.9, 0.9 * flick, 0.9)
 	if is_instance_valid(_drums):
 		_drum_pulse = maxf(0.0, _drum_pulse - dt * 3.0)
 		_drums.position = hp + Vector3(0, 1.75, 0.25)
@@ -1562,19 +1623,8 @@ func _process(delta: float) -> void:
 
 ## Éclair vertical qui tombe du ciel sur `p`.
 func _bolt_strike(p: Vector3, big: bool) -> void:
-	var node := Node3D.new()
-	_holder().add_child(node)
-	node.position = Vector3(p.x, 0, p.z)
-	var core := _part(node, _box(), main.vfx.glow_mat(Color(1, 0.97, 0.85), 3.5))
-	core.scale = Vector3(0.12, 7.0, 0.12)
-	core.position.y = 3.5
-	var halo := _part(node, _box(), main.vfx.glow_mat(Toon.GOLD, 2.5))
-	halo.scale = Vector3(0.3, 7.0, 0.3)
-	halo.position = Vector3(0.05, 3.5, 0)
-	halo.rotation.y = 0.6
-	_fx.append({"node": node, "t": 0.0, "life": 0.25, "kind": "bolt"})
-	main.vfx.ring(Vector3(p.x, 0.06, p.z), Toon.GOLD, 1.2 if big else 0.8)
-	main.vfx.sparks(p + Vector3(0, 0.3, 0), Vector3.UP, 6 if big else 4, Toon.GOLD)
+	# éclair brisé qui tombe du ciel, flash, anneau jaune, petite brûlure au sol
+	main.vfx.sky_bolt(p, big)
 	if big:
 		main.sfx.play("strike", 1.7, -4.0)
 
@@ -1590,7 +1640,7 @@ func _shell(p: Vector3) -> void:
 	head.scale = Vector3.ONE * 2.0
 	head.position = Vector3(0, 1.42, 0)
 	_fx.append({"node": node, "t": 0.0, "life": 0.7, "kind": "shell"})
-	main.splash(p, Toon.SUMI, 16)
+	main.vfx.smoke(p, 0.5, 8)
 
 
 func _part(parent: Node3D, mesh: Mesh, mat: Material) -> MeshInstance3D:
@@ -1642,6 +1692,12 @@ func _capsule() -> Mesh:
 		c.rings = 3
 		_cache["capsule"] = c
 	return _cache["capsule"]
+
+
+func _disc_mesh() -> Mesh:
+	if not _cache.has("disc"):
+		_cache["disc"] = Toon.cyl(1.0, 1.0, 0.004, 24)
+	return _cache["disc"]
 
 
 func _drum_mesh() -> Mesh:

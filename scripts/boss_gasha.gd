@@ -504,14 +504,12 @@ func _add_zone(shape: String, c: Vector3, hx: float, hz: float, total: float, si
 	var n := Node3D.new()
 	_rig.add_child(n)
 	n.position = Vector3(c.x, 0, c.z)
-	var fill: MeshInstance3D
+	# annonce au langage commun (vfx) ; le balayage se remplit depuis le côté de la main
+	var fill: Node3D
 	if shape == "disc":
-		Toon.disc(n, hx, Color(Toon.VERMILION, 0.18), 0.03)
-		fill = Toon.disc(n, hx, Color(Toon.VERMILION, 0.45), 0.035)
+		fill = main.vfx.tele_disc(n, hx)
 	else:
-		_flat_rect(n, hx, hz, Color(Toon.VERMILION, 0.18), 0.03)
-		fill = _flat_rect(n, hx, hz, Color(Toon.VERMILION, 0.45), 0.035)
-	fill.scale = Vector3(0.01, 1, 0.01)
+		fill = main.vfx.tele_rect(n, hx, hz, Vector2(side, 0))
 	var z := {"node": n, "fill": fill, "shape": shape, "c": Vector3(c.x, 0, c.z), "hx": hx, "hz": hz,
 		"t": total, "total": total, "side": side}
 	_zones.append(z)
@@ -876,16 +874,8 @@ func _update_zones(delta: float) -> void:
 		var t := float(z["t"]) - delta
 		z["t"] = t
 		var k := clampf(1.0 - t / float(z["total"]), 0.0, 1.0)
-		var fill: MeshInstance3D = z["fill"]
-		var side := float(z["side"])
-		if side != 0.0:
-			# balayage : la bande se remplit depuis le côté de la main
-			fill.scale = Vector3(maxf(k, 0.01), 1, 1)
-			fill.position.x = side * float(z["hx"]) * (1.0 - k)
-		else:
-			fill.scale = Vector3(maxf(k, 0.01), 1, maxf(k, 0.01))
-		var m := fill.material_override as StandardMaterial3D
-		m.albedo_color = Color(Toon.FOAM, 0.85) if t < 0.15 else Color(Toon.VERMILION, 0.45)
+		var fill: Node3D = z["fill"]
+		main.vfx.tele_update(fill, k, t)
 		if z.has("stele"):
 			var s: Node3D = z["stele"]
 			s.visible = t < 0.45

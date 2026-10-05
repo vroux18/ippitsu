@@ -149,6 +149,8 @@ func _play(dt: float) -> void:
 				if db < best:
 					best = db
 					target = bo.position
+	if target == Vector3.INF and is_instance_valid(main._shrine):
+		target = main._shrine.position  # le robot prend les pactes (pour les tester)
 	if target == Vector3.INF:
 		if main.arena.gate_open:
 			target = main.arena.gate_pos

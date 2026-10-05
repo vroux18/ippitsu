@@ -602,16 +602,11 @@ func _band_zone(a: Vector3, b: Vector3, w: float, t: float) -> Dictionary:
 	var l := maxf(d.length(), 0.1)
 	root.position = Vector3(a.x, 0, a.z)
 	root.rotation.y = atan2(-d.x, -d.z)
-	var bg := Toon.part(root, Toon.box(Vector3(w, 0.004, l)), Toon.flat(Color(Toon.VERMILION, 0.18)), Vector3(0, 0.03, -l * 0.5))
-	bg.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var piv := Node3D.new()
-	root.add_child(piv)
-	piv.position.y = 0.035
-	piv.scale = Vector3(1, 1, 0.01)
-	var fill := Toon.part(piv, Toon.box(Vector3(w, 0.004, l)), Toon.flat(Color(Toon.VERMILION, 0.45)), Vector3(0, 0, -l * 0.5))
-	fill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# bande au langage commun (vfx) : part de a (z = 0) et se remplit vers -z
+	var fill: Node3D = main.vfx.tele_rect(root, w * 0.5, l * 0.5, Vector2(0, 1))
+	fill.position.z = -l * 0.5
 	var z := {
-		"kind": "band", "root": root, "piv": piv, "fill": fill, "a": Vector3(a.x, 0, a.z),
+		"kind": "band", "root": root, "fill": fill, "a": Vector3(a.x, 0, a.z),
 		"b": Vector3(b.x, 0, b.z), "r": w * 0.5, "t": t, "total": t,
 	}
 	_zones.append(z)
@@ -623,9 +618,7 @@ func _disc_zone(c: Vector3, r: float, t: float) -> Dictionary:
 	var root := Node3D.new()
 	add_child(root)
 	root.position = Vector3(c.x, 0, c.z)
-	Toon.disc(root, r, Color(Toon.VERMILION, 0.18), 0.03)
-	var fill := Toon.disc(root, r, Color(Toon.VERMILION, 0.45), 0.035)
-	fill.scale = Vector3(0.01, 1, 0.01)
+	var fill: Node3D = main.vfx.tele_disc(root, r)
 	var z := {"kind": "disc", "root": root, "fill": fill, "c": Vector3(c.x, 0, c.z), "r": r, "t": t, "total": t}
 	_zones.append(z)
 	return z
@@ -638,14 +631,8 @@ func _zone_tick(z: Dictionary, delta: float) -> bool:
 	z["t"] = t
 	var total: float = z["total"]
 	var k := clampf(1.0 - t / total, 0.01, 1.0)
-	var fill: MeshInstance3D = z["fill"]
-	if String(z["kind"]) == "band":
-		var piv: Node3D = z["piv"]
-		piv.scale = Vector3(1, 1, k)
-	else:
-		fill.scale = Vector3(k, 1, k)
-	var m := fill.material_override as StandardMaterial3D
-	m.albedo_color = Color(FOAM, 0.85) if t < 0.15 else Color(Toon.VERMILION, 0.45)
+	var fill: Node3D = z["fill"]
+	main.vfx.tele_update(fill, k, t)
 	return t <= 0.0
 
 

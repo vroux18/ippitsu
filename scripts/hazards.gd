@@ -1,5 +1,5 @@
 extends Node3D
-## Dangers d'arène, dans tous les mondes (hors salles de boss) :
+## Dangers d'arène, dans tous les mondes (hors salles de boss), à l'allure du sol de chaque monde :
 ##  trous   — planches pourries : on peut tracer au-dessus, pas finir dedans (chute, 1 dégât).
 ##            Les ennemis projetés dedans tombent à l'eau (sauf les costauds).
 ##  vague   — déferlante : bande transversale annoncée 1.3 s, qui balaie et repousse.
@@ -8,7 +8,19 @@ const Toon = preload("res://scripts/toon.gd")
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
 const WAVE_W := 2.5
 const WAVE_WARN := 1.3
-
+# allure des trous selon le sol du monde : bord, fond, reflet, liseré, éclats (couleurs, taille, relevé)
+const HOLE_STYLES := {
+	1: {"rim": Color("#3A2A1D"), "deep": Color("#0A1524"), "mid": Color("#123050"), "edge": Color(0.91, 0.93, 0.94, 0.55),
+		"debris": [Color("#A88452"), Color("#8E6B3E"), Color("#B8935F")], "size": Vector3(0.1, 0.05, 0.45), "tilt": 1.0, "glow": false},
+	2: {"rim": Color("#262A33"), "deep": Color("#080B10"), "mid": Color("#16323A"), "edge": Color(0.55, 0.62, 0.7, 0.5),
+		"debris": [Color("#7D8593"), Color("#5E6573"), Color("#9AA2AE")], "size": Vector3(0.22, 0.1, 0.3), "tilt": 0.35, "glow": false},
+	3: {"rim": Color("#BFD6E4"), "deep": Color("#0C1F2E"), "mid": Color("#1D4660"), "edge": Color(0.95, 0.98, 1.0, 0.8),
+		"debris": [Color("#E8F2F8"), Color("#C9DEEA"), Color("#F6FAFC")], "size": Vector3(0.16, 0.06, 0.42), "tilt": 1.3, "glow": false},
+	4: {"rim": Color("#22150F"), "deep": Color("#7A1E0E"), "mid": Color("#F0662A"), "edge": Color(1.0, 0.72, 0.3, 0.7),
+		"debris": [Color("#2E211B"), Color("#3B2A22"), Color("#1E1612")], "size": Vector3(0.24, 0.09, 0.3), "tilt": 0.4, "glow": true},
+	5: {"rim": Color("#1B1A1E"), "deep": Color("#050506"), "mid": Color("#22202A"), "edge": Color(0.94, 0.9, 0.82, 0.45),
+		"debris": [Color("#EFE6D2"), Color("#E2D6BC"), Color("#F6F0E2")], "size": Vector3(0.2, 0.012, 0.28), "tilt": 0.8, "glow": false},
+}
 var main: Node
 var holes: Array = []  # [centre, rayon]
 var _hole_nodes: Array = []
@@ -25,8 +37,8 @@ var _crest_t := -1.0
 
 func begin_room(room: int, hero_pos: Vector3, boss := false) -> void:
 	clear()
-	# trous à partir de la salle 2, plus nombreux ensuite ; rien dans une salle de boss (il a ses propres attaques)
-	var n := 0 if room < 2 or boss else mini(1 + room / 3, 3)
+	# trous à partir de la salle 4, un de plus toutes les 4 salles ; rien dans une salle de boss
+	var n := 0 if room < 4 or boss else mini(1 + (room - 4) / 4, 3)
 	for i in n:
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)
@@ -40,7 +52,7 @@ func begin_room(room: int, hero_pos: Vector3, boss := false) -> void:
 				holes.append([c, r])
 				_make_hole(c, r)
 				break
-	_wave_on = room >= 4 and not boss
+	_wave_on = room >= 6 and not boss
 	_wave_t = randf_range(6.0, 8.0)
 
 
@@ -67,29 +79,39 @@ func _make_hole(c: Vector3, r: float) -> void:
 	var radii: Array = []
 	for i in count:
 		radii.append(r * randf_range(0.78, 1.1) * (0.85 if i % 2 == 0 else 1.0))
-	# bois noirci autour de la cassure, puis l'eau sombre, puis un liseré d'écume
-	_ring_mesh(n, radii, 1.0, 1.22, Color("#3A2A1D"), 0.008)
-	_fan_mesh(n, radii, 1.0, Color("#0A1524"), 0.012)
-	_fan_mesh(n, radii, 0.72, Color("#123050"), 0.014)
-	_ring_mesh(n, radii, 0.86, 1.0, Color(Toon.FOAM, 0.55), 0.016)
-	# planches cassées qui pointent vers le trou, esquilles relevées
-	var woods := [Toon.mat(Color("#A88452")), Toon.mat(Color("#8E6B3E")), Toon.mat(Color("#B8935F"))]
+	var st: Dictionary = HOLE_STYLES.get(int(main.current_world) if main != null else 1, HOLE_STYLES[1])
+	# bord (matière du sol cassée), fond sombre, reflet, liseré
+	_ring_mesh(n, radii, 1.0, 1.22, st["rim"], 0.008)
+	_fan_mesh(n, radii, 1.0, st["deep"], 0.012)
+	var mid := _fan_mesh(n, radii, 0.72, st["mid"], 0.014)
+	if st["glow"]:
+		# lave : le cœur luit
+		var gm := mid.material_override as StandardMaterial3D
+		gm.emission_enabled = true
+		gm.emission = st["mid"]
+		gm.emission_energy_multiplier = 1.4
+	_ring_mesh(n, radii, 0.86, 1.0, st["edge"], 0.016)
+	# éclats du sol qui pointent vers le trou (planches, pierres, glace, croûte, papier selon le monde)
+	var mats: Array = []
+	for col in st["debris"]:
+		mats.append(Toon.mat(col))
+	var sz: Vector3 = st["size"]
 	for i in 10:
 		var a := TAU * i / 10.0 + randf_range(-0.15, 0.15)
 		var rr: float = radii[int(a / TAU * count) % count]
-		var l := randf_range(0.3, 0.6)
-		var p := Toon.part(n, Toon.box(Vector3(randf_range(0.07, 0.12), 0.05, l)), woods[i % 3],
+		var l := randf_range(0.6, 1.2) * sz.z
+		var p := Toon.part(n, Toon.box(Vector3(randf_range(0.7, 1.2) * sz.x, sz.y, l)), mats[i % mats.size()],
 			Vector3(cos(a), 0, sin(a) * 0.85) * (rr + 0.05) + Vector3(0, 0.04, 0))
-		p.rotation = Vector3(randf_range(0.25, 0.6), -a - PI / 2.0, randf_range(-0.2, 0.2))
-	# deux débris qui flottent dans l'eau
+		p.rotation = Vector3(randf_range(0.25, 0.6) * st["tilt"], -a - PI / 2.0, randf_range(-0.2, 0.2))
+	# deux débris dans le fond
 	for i in 2:
-		var d := Toon.part(n, Toon.box(Vector3(0.28, 0.04, 0.09)), woods[i], Vector3(randf_range(-0.3, 0.3) * r, 0.02, randf_range(-0.25, 0.25) * r))
+		var d := Toon.part(n, Toon.box(Vector3(sz.z * 0.6, sz.y * 0.8, sz.x)), mats[i % mats.size()], Vector3(randf_range(-0.3, 0.3) * r, 0.02, randf_range(-0.25, 0.25) * r))
 		d.rotation.y = randf() * PI
 	_hole_nodes.append(n)
 
 
 ## Disque irrégulier plein (eau).
-func _fan_mesh(parent: Node3D, radii: Array, k: float, col: Color, y: float) -> void:
+func _fan_mesh(parent: Node3D, radii: Array, k: float, col: Color, y: float) -> MeshInstance3D:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var count := radii.size()
@@ -106,6 +128,7 @@ func _fan_mesh(parent: Node3D, radii: Array, k: float, col: Color, y: float) -> 
 	mi.material_override = Toon.flat(col)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
+	return mi
 
 
 ## Anneau irrégulier entre deux échelles du contour (bord, écume).

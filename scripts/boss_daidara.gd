@@ -646,26 +646,18 @@ func _make_zone(k: String, c: Vector3, r: float, total: float, dir := Vector3.ZE
 	node.top_level = true
 	add_child(node)
 	node.global_position = Vector3(c.x, 0, c.z)
-	var base: MeshInstance3D
-	var fill: MeshInstance3D
+	# annonces au langage commun (vfx) : carré du poing, cône du souffle, disque de cendre
+	var fill: Node3D
 	var rock: Node3D = null
 	if k == "fist":
-		var sq := Toon.box(Vector3(3.0, 0.004, 3.0))
-		base = Toon.part(node, sq, Toon.flat(Color(Toon.VERMILION, 0.18)), Vector3(0, 0.03, 0))
-		fill = Toon.part(node, sq, Toon.flat(Color(Toon.VERMILION, 0.45)), Vector3(0, 0.035, 0))
+		fill = main.vfx.tele_rect(node, 1.5, 1.5)
 	elif k == "breath":
 		node.rotation.y = atan2(dir.x, dir.z)
-		var fan := _fan_mesh(deg_to_rad(22.5), r)
-		base = Toon.part(node, fan, Toon.flat(Color(Toon.VERMILION, 0.18)), Vector3(0, 0.03, 0))
-		fill = Toon.part(node, fan, Toon.flat(Color(Toon.VERMILION, 0.45)), Vector3(0, 0.035, 0))
+		fill = main.vfx.tele_fan(node, deg_to_rad(22.5), r)
 	else:
-		base = Toon.disc(node, r, Color(Toon.VERMILION, 0.18), 0.03)
-		fill = Toon.disc(node, r, Color(Toon.VERMILION, 0.45), 0.035)
+		fill = main.vfx.tele_disc(node, r)
 		# le bloc de cendre qui tombe du ciel
 		rock = Toon.part(node, _rock(0.32, 5), _rock_mat, Vector3(0, 9.0, 0))
-	base.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	fill.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	fill.scale = Vector3(0.01, 1, 0.01)
 	var z := {"kind": k, "node": node, "fill": fill, "c": Vector3(c.x, 0, c.z), "r": r, "t": total, "total": total, "dir": dir, "rock": rock, "done": false}
 	_zones.append(z)
 	return z
@@ -678,10 +670,8 @@ func _update_zones(delta: float) -> void:
 		z["t"] = t
 		var total: float = z["total"]
 		var k := clampf(1.0 - t / total, 0.01, 1.0)
-		var fill: MeshInstance3D = z["fill"]
-		fill.scale = Vector3(k, 1, k)
-		var fm := fill.material_override as StandardMaterial3D
-		fm.albedo_color = Color(Toon.FOAM, 0.85) if t < 0.15 else Color(Toon.VERMILION, 0.45)
+		var fill: Node3D = z["fill"]
+		main.vfx.tele_update(fill, k, t)
 		var rock: Node3D = z["rock"]
 		if rock != null:
 			rock.position.y = lerpf(9.0, 0.35, k * k)

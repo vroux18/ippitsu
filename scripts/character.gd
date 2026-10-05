@@ -110,7 +110,7 @@ func length(a: String) -> float:
 
 
 ## Animation en boucle (marche, attente…).
-func play(a: String, speed := 1.0, blend := 0.15) -> void:
+func play(a: String, speed := 1.0, blend := 0.2) -> void:
 	if anim == null or not anim.has_animation(a):
 		return
 	if a == _current and not _once:
@@ -123,14 +123,17 @@ func play(a: String, speed := 1.0, blend := 0.15) -> void:
 
 
 ## Animation jouée une fois, puis retour à `idle`.
-func play_once(a: String, speed := 1.0, blend := 0.08) -> void:
+func play_once(a: String, speed := 1.0, blend := 0.1) -> void:
 	if anim == null or not anim.has_animation(a):
 		return
 	_once = true
 	_current = a
+	var again := anim.current_animation == a
 	anim.play(a, blend)
 	anim.speed_scale = speed
-	anim.seek(0.0, true)
+	# même animation déjà en cours : on la relance ; sinon on garde le fondu (pas de saut de pose)
+	if again:
+		anim.seek(0.0, true)
 
 
 ## Fige la pose finale (mort) : la boucle ne reprend pas.
