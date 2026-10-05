@@ -17,6 +17,9 @@ static func mat(color: Color, outline := true, outline_size := 0.035) -> Standar
 	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
 	m.specular_mode = BaseMaterial3D.SPECULAR_TOON
 	m.roughness = 0.85
+	m.rim_enabled = true
+	m.rim = 0.25
+	m.rim_tint = 0.6
 	if outline:
 		var o := StandardMaterial3D.new()
 		o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -43,7 +46,6 @@ static func part(parent: Node3D, mesh: Mesh, material: Material, pos: Vector3, s
 	mi.material_override = material
 	mi.position = pos
 	mi.scale = scl
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
 	return mi
 
@@ -84,4 +86,6 @@ static func cyl(top: float, bottom: float, h: float, sides := 16) -> CylinderMes
 
 ## Disque plat posé au sol (ombre, tache d'encre, zone d'attaque).
 static func disc(parent: Node3D, r: float, color: Color, y := 0.01) -> MeshInstance3D:
-	return part(parent, cyl(r, r, 0.004, 24), flat(color), Vector3(0, y, 0))
+	var d := part(parent, cyl(r, r, 0.004, 24), flat(color), Vector3(0, y, 0))
+	d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return d

@@ -28,7 +28,7 @@ var _flash := 0.0
 
 
 func _ready() -> void:
-	Toon.disc(self, 0.42, Color(0, 0, 0, 0.22))
+	Toon.disc(self, 0.42, Color(0, 0, 0, 0.12))
 	body = Node3D.new()
 	add_child(body)
 	ch = Character.new()

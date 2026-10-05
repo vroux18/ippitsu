@@ -47,7 +47,6 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 
 	for n in meshes:
 		var mi := n as MeshInstance3D
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		if not mi.visible:
 			continue
 		if "Eyes" in String(mi.name):
@@ -68,6 +67,9 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 			m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
 			m.specular_mode = BaseMaterial3D.SPECULAR_TOON
 			m.roughness = 0.9
+			m.rim_enabled = true
+			m.rim = 0.35
+			m.rim_tint = 0.5
 			m.emission_enabled = true
 			m.emission = Color.WHITE
 			m.emission_energy_multiplier = 0.0

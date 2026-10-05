@@ -56,6 +56,7 @@ var menu: Control
 var record := 0
 var _state_t := 0.0
 var _menu_slash := 3.0
+var _water_mat: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -155,17 +156,39 @@ func _build_world() -> void:
 	e.background_mode = Environment.BG_COLOR
 	e.background_color = Toon.WASHI
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	e.ambient_light_color = Color(1, 0.97, 0.92)
-	e.ambient_light_energy = 0.55
+	e.ambient_light_color = Color(0.86, 0.9, 1.0)
+	e.ambient_light_energy = 0.42
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	# brume d'estampe : le lointain (Fuji, îlots) se fond dans le papier
+	e.fog_enabled = true
+	e.fog_light_color = Toon.WASHI
+	e.fog_density = 0.006
+	e.fog_sky_affect = 0.0
+	# halo doux sur ce qui brille (soleil, lanternes, éclairs de coup)
+	e.glow_enabled = true
+	e.glow_intensity = 0.6
+	e.glow_bloom = 0.05
+	e.glow_hdr_threshold = 1.1
 	env.environment = e
 	add_child(env)
 
+	# soleil chaud et rasant qui projette de vraies ombres
 	var sun := DirectionalLight3D.new()
-	sun.rotation = Vector3(deg_to_rad(-60), deg_to_rad(-35), 0)
-	sun.light_energy = 1.05
-	sun.light_color = Color(1, 0.96, 0.9)
+	sun.rotation = Vector3(deg_to_rad(-52), deg_to_rad(-38), 0)
+	sun.light_energy = 1.25
+	sun.light_color = Color(1.0, 0.9, 0.78)
+	sun.shadow_enabled = true
+	sun.shadow_blur = 1.5
+	sun.shadow_opacity = 0.6
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
+	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
+	# contre-jour froid, sans ombre, pour détacher les silhouettes
+	var fill := DirectionalLight3D.new()
+	fill.rotation = Vector3(deg_to_rad(-25), deg_to_rad(150), 0)
+	fill.light_energy = 0.35
+	fill.light_color = Color(0.7, 0.8, 1.0)
+	add_child(fill)
 
 	cam = Camera3D.new()
 	cam.fov = 38.0
@@ -174,7 +197,26 @@ func _build_world() -> void:
 	cam.current = true
 
 	# l'eau tout autour (bleu de Prusse) et ses rides d'écume
-	var water := Toon.part(world, Toon.box(Vector3(600, 0.1, 600)), Toon.mat(Toon.PRUSSIAN, false), Vector3(0, -0.6, 0))
+	# eau : bleu de Prusse, reflets animés (normal map de bruit qui défile)
+	_water_mat = StandardMaterial3D.new()
+	_water_mat.albedo_color = Toon.PRUSSIAN
+	_water_mat.roughness = 0.25
+	_water_mat.metallic_specular = 0.7
+	var noise := FastNoiseLite.new()
+	noise.frequency = 0.035
+	var ntex := NoiseTexture2D.new()
+	ntex.noise = noise
+	ntex.seamless = true
+	ntex.as_normal_map = true
+	ntex.bump_strength = 6.0
+	ntex.width = 256
+	ntex.height = 256
+	_water_mat.normal_enabled = true
+	_water_mat.normal_texture = ntex
+	_water_mat.normal_scale = 0.6
+	_water_mat.uv1_scale = Vector3(60, 60, 1)
+	var water := Toon.part(world, Toon.box(Vector3(600, 0.1, 600)), _water_mat, Vector3(0, -0.6, 0))
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	water.name = "water"
 	var foam_mat := Toon.mat(Toon.FOAM, false)
 	for i in 90:
@@ -200,12 +242,26 @@ func _build_world() -> void:
 
 	# le ponton : grande plateforme de bois clair, planches et bord d'encre
 	var deck := Vector2(HALF.x + 0.5, HALF.y + 0.5)
-	Toon.part(world, Toon.box(Vector3(deck.x * 2, 0.5, deck.y * 2)), Toon.mat(Toon.WOOD, false), Vector3(0, -0.25, 0))
-	var plank := Toon.mat(Color("#BFA77D"), false)
-	var x := -deck.x + 0.9
-	while x < deck.x:
-		Toon.part(world, Toon.box(Vector3(0.03, 0.01, deck.y * 2)), plank, Vector3(x, 0.003, 0))
-		x += 0.9
+	# structure sombre sous les planches (visible dans les jointures)
+	Toon.part(world, Toon.box(Vector3(deck.x * 2, 0.46, deck.y * 2)), Toon.mat(Color("#5B4630"), false), Vector3(0, -0.27, 0))
+	# planches : teintes et longueurs variées, joints décalés
+	var woods := [Color("#D6C096"), Color("#CDB58A"), Color("#DCC9A2"), Color("#C8AF83"), Color("#D2BC92")]
+	var wood_mats := []
+	for wc in woods:
+		var wm := Toon.mat(wc, false)
+		wm.rim_enabled = false
+		wood_mats.append(wm)
+	var pw := 0.62
+	var count := int(deck.x * 2 / pw)
+	for i in count:
+		var px := -deck.x + pw * (i + 0.5)
+		var z0 := -deck.y
+		while z0 < deck.y - 0.01:
+			var l := minf(randf_range(2.6, 5.5), deck.y - z0)
+			var pl := Toon.part(world, Toon.box(Vector3(pw - 0.035, 0.09, l - 0.03)), wood_mats[randi() % wood_mats.size()],
+				Vector3(px, -0.045 + randf_range(-0.006, 0.006), z0 + l / 2.0))
+			pl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			z0 += l
 	var edge := Toon.mat(Toon.SUMI, false)
 	Toon.part(world, Toon.box(Vector3(deck.x * 2 + 0.1, 0.56, 0.1)), edge, Vector3(0, -0.25, deck.y))
 	Toon.part(world, Toon.box(Vector3(deck.x * 2 + 0.1, 0.56, 0.1)), edge, Vector3(0, -0.25, -deck.y))
@@ -697,6 +753,7 @@ func _process(_delta: float) -> void:
 		if not is_instance_valid(enemies[i]):
 			enemies.remove_at(i)
 	_state_t += real
+	_water_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * real
 	if state == "play" and enemies.is_empty():
 		wave_wait -= real
 		if wave_wait <= 0.0:

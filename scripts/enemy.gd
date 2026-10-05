@@ -79,7 +79,7 @@ func _ready() -> void:
 			ch.attach("handslot.r", _staff())
 			_timer = 1.4 + randf() * 1.5
 	ch.idle = "Idle_Combat"
-	Toon.disc(self, radius * 0.95, Color(0, 0, 0, 0.22))
+	Toon.disc(self, radius * 0.95, Color(0, 0, 0, 0.12))
 	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / SPAWN_TIME, 0.0)
 
 
