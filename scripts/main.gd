@@ -157,10 +157,8 @@ func _build_world() -> void:
 	e.background_color = Toon.WASHI
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	e.ambient_light_color = Color(0.86, 0.9, 1.0)
-	e.ambient_light_energy = 0.36
-	e.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-	e.tonemap_exposure = 1.05
-	e.tonemap_white = 2.2
+	e.ambient_light_energy = 0.3
+	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	# brume d'estampe : le lointain (Fuji, îlots) se fond dans le papier
 	e.fog_enabled = true
 	e.fog_light_color = Toon.WASHI
@@ -172,7 +170,7 @@ func _build_world() -> void:
 	# soleil chaud et rasant qui projette de vraies ombres
 	var sun := DirectionalLight3D.new()
 	sun.rotation = Vector3(deg_to_rad(-52), deg_to_rad(-38), 0)
-	sun.light_energy = 0.95
+	sun.light_energy = 0.72
 	sun.light_color = Color(1.0, 0.9, 0.78)
 	sun.shadow_enabled = true
 	sun.shadow_blur = 1.5
@@ -242,7 +240,7 @@ func _build_world() -> void:
 	# structure sombre sous les planches (visible dans les jointures)
 	Toon.part(world, Toon.box(Vector3(deck.x * 2, 0.46, deck.y * 2)), Toon.mat(Color("#5B4630"), false), Vector3(0, -0.27, 0))
 	# planches : teintes et longueurs variées, joints décalés
-	var woods := [Color("#B8975F"), Color("#AD8B55"), Color("#C2A36D"), Color("#A88452"), Color("#B5925C")]
+	var woods := [Color("#C9AE7C"), Color("#BFA171"), Color("#D0B686"), Color("#B99B6B"), Color("#C5A978")]
 	var wood_mats := []
 	for wc in woods:
 		var wm := Toon.mat(wc, false)
