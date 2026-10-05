@@ -183,7 +183,8 @@ func _fit_camera() -> void:
 				found = true
 		dist += 0.25
 	if not found:
-		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)	_cam_base = best
+		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)
+	_cam_base = best
 	cam.global_transform = best
 
 
