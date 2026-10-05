@@ -57,7 +57,7 @@ func _draw() -> void:
 			_box.bg_color = Toon.SUMI.lightened(0.06 * (1.0 - _press))
 			draw_style_box(_box, r)
 			draw_rect(Rect2(r.position + Vector2(rad, 2), Vector2(r.size.x - rad * 2, 2)), Color(1, 1, 1, 0.08))
-			draw_rect(Rect2(r.position + Vector2(0, r.size.y * 0.22), Vector2(4, r.size.y * 0.56)), Toon.VERMILION)
+			draw_rect(Rect2(r.position + Vector2(maxf(8.0, rad * 0.6), r.size.y * 0.3), Vector2(3, r.size.y * 0.4)), Toon.VERMILION)
 			_label(r, Toon.WASHI)
 		"ghost":
 			_box.bg_color = Color(Toon.WASHI, 0.92)
@@ -86,7 +86,7 @@ func _label(r: Rect2, c: Color) -> void:
 	var asc := font.get_ascent(font_size)
 	var desc := font.get_descent(font_size)
 	var isz := font_size * 0.42
-	var lead := isz * 2.6 if lead_icon != "" else 0.0
+	var lead := isz * 3.4 if lead_icon != "" else 0.0
 	var x := r.get_center().x - (w + lead) / 2.0
 	if lead_icon != "":
 		var keep := icon
