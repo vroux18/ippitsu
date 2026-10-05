@@ -730,7 +730,7 @@ func _start(hub := true) -> void:
 ## Mannequin d'entraînement dans le cercle du dojo du sanctuaire.
 func _hub_dummy() -> void:
 	var a := randf() * TAU
-	var d := sqrt(randf()) * arena.hub_training_radius * 0.7
+	var d: float = sqrt(randf()) * arena.hub_training_radius * 0.7
 	spawn_dummy(arena.hub_training_center + Vector3(cos(a) * d, 0, sin(a) * d))
 
 
