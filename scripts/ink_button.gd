@@ -70,7 +70,7 @@ func _draw() -> void:
 
 
 func _label(r: Rect2, c: Color) -> void:
-	if text == "" or font == null:
+	if text == "" or font == null or font_size <= 0:
 		return
 	var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
 	var asc := font.get_ascent(font_size)

@@ -75,6 +75,8 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 			m.next_pass = outline
 			mi.set_surface_override_material(i, m)
 			_mats.append(m)
+		# l'import glTF peut poser un material_override, prioritaire sur les matériaux par surface
+		mi.material_override = _mats.back() if mi.mesh.get_surface_count() == 1 else null
 
 	skeleton = model.find_children("*", "Skeleton3D", true, false).front() as Skeleton3D
 	anim = model.find_children("*", "AnimationPlayer", true, false).front() as AnimationPlayer

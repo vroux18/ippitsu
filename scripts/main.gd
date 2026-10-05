@@ -78,7 +78,8 @@ func _ready() -> void:
 	_load()
 	get_viewport().size_changed.connect(_fit_camera)
 	_start()
-	_set_state("menu")
+	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
+	_set_state("play" if "--autoplay" in OS.get_cmdline_user_args() else "menu")
 	_ticks = Time.get_ticks_usec()
 
 
@@ -139,8 +140,8 @@ func _on_sound(muted: bool) -> void:
 
 func _menu_transform() -> Transform3D:
 	var hp := hero.position
-	var pos := hp + Vector3(1.1, 1.7, 4.6)
-	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0.2, 2.1, -2.0), Vector3.UP)
+	var pos := hp + Vector3(0.35, 1.45, 3.4)
+	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0.0, 2.0, -2.0), Vector3.UP)
 
 
 # ------------------------------------------------------------------ décor

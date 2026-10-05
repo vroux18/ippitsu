@@ -105,6 +105,8 @@ func _ease_out(k: float) -> float:
 
 
 func _draw() -> void:
+	if size.x < 10.0:
+		return
 	if mode == "home":
 		_draw_home()
 	elif mode == "over" and _t > 1.1:
@@ -131,17 +133,17 @@ func _draw_home() -> void:
 	var a := _ease_out(clampf(_t / 0.6, 0.0, 1.0))
 
 	# sceau vermillon « 一筆 »
-	var seal := Rect2(Vector2(w / 2.0 - 26 * u, h * 0.075 - 8 * u * (1.0 - a)), Vector2(52, 76) * u)
+	var seal := Rect2(Vector2(w / 2.0 - 22 * u, h * 0.05 - 8 * u * (1.0 - a)), Vector2(44, 66) * u)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(Toon.VERMILION, a)
 	sb.set_corner_radius_all(int(8 * u))
 	draw_style_box(sb, seal)
-	var kfs := int(30 * u)
-	_text(TITLE_FONT, "一", Vector2(seal.get_center().x, seal.position.y + 34 * u), kfs, Color(Toon.WASHI, a))
-	_text(TITLE_FONT, "筆", Vector2(seal.get_center().x, seal.position.y + 66 * u), kfs, Color(Toon.WASHI, a))
+	var kfs := int(26 * u)
+	_text(TITLE_FONT, "一", Vector2(seal.get_center().x, seal.position.y + 30 * u), kfs, Color(Toon.WASHI, a))
+	_text(TITLE_FONT, "筆", Vector2(seal.get_center().x, seal.position.y + 58 * u), kfs, Color(Toon.WASHI, a))
 
 	# titre
-	var ty := h * 0.215
+	var ty := h * 0.235
 	var tfs := int(66 * u)
 	var tw := _text(_title, "IPPITSU", Vector2(w / 2.0, ty + 10 * u * (1.0 - a)), tfs, Color(Toon.SUMI, a))
 
