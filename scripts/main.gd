@@ -260,7 +260,8 @@ func _ready() -> void:
 		music.play_world(current_world)
 		_begin_room()
 	else:
-		_set_state("play" if autoplay else "menu")
+		# `?hub` : directement en jeu dans le sanctuaire de départ
+		_set_state("play" if autoplay or "hub" in wsearch else "menu")
 	# `?pick` (web) : ouvre directement le choix de rouleau, pour vérifier l'écran
 	if "pick" in wsearch:
 		_pick_context = "room"
