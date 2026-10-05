@@ -275,3 +275,71 @@ func random_point(avoid: Vector3, min_dist: float, margin := 0.8) -> Vector3:
 		if p.distance_to(avoid) > min_dist:
 			return p
 	return p
+
+
+# ------------------------------------------------------------------ chemin des ennemis
+
+## Où un ennemi doit aller pour rejoindre `to` : tout droit si la ligne reste sur la terre ferme,
+## sinon la passerelle (zone commune entre deux plateformes) la plus utile vers sa cible.
+func steer(from: Vector3, to: Vector3) -> Vector3:
+	if rects.size() <= 1 or _line_walkable(from, to, 0.3):
+		return to
+	var a := _rect_of(from)
+	var b := _rect_of(to)
+	if a == b:
+		return to
+	# parcours en largeur sur les plateformes qui se touchent
+	var prev := {a: -1}
+	var queue: Array = [a]
+	while not queue.is_empty():
+		var cur: int = queue.pop_front()
+		if cur == b:
+			break
+		for j in rects.size():
+			if not prev.has(j) and _touch(cur, j):
+				prev[j] = cur
+				queue.append(j)
+	if not prev.has(b):
+		return to
+	var step := b
+	while int(prev[step]) != a and int(prev[step]) != -1:
+		step = int(prev[step])
+	return _portal(a, step)
+
+
+func _line_walkable(p: Vector3, q: Vector3, margin: float) -> bool:
+	var d := p.distance_to(q)
+	var n := maxi(1, int(d / 0.4))
+	for i in range(1, n + 1):
+		if not walkable(p.lerp(q, float(i) / n), margin):
+			return false
+	return true
+
+
+func _rect_of(p: Vector3) -> int:
+	var best := 0
+	var best_d := INF
+	for i in rects.size():
+		var r: Rect2 = rects[i]
+		if r.has_point(Vector2(p.x, p.z)):
+			return i
+		var q := Vector2(clampf(p.x, r.position.x, r.end.x), clampf(p.z, r.position.y, r.end.y))
+		var d := q.distance_to(Vector2(p.x, p.z))
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+func _touch(i: int, j: int) -> bool:
+	var a: Rect2 = rects[i]
+	var b: Rect2 = rects[j]
+	return i != j and a.grow(0.05).intersects(b.grow(0.05))
+
+
+func _portal(i: int, j: int) -> Vector3:
+	var a: Rect2 = rects[i]
+	var b: Rect2 = rects[j]
+	var inter := a.grow(0.05).intersection(b.grow(0.05))
+	var c := inter.get_center()
+	return Vector3(c.x, 0, c.y)

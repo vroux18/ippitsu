@@ -322,7 +322,11 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 		"move":
 			_face(dir, delta)
 			if dist > reach - 0.3:
-				position += dir * speed * delta
+				# chemin : par la passerelle si le héros est sur une autre plateforme
+				var sd: Vector3 = main.steer_dir(position, hero.position)
+				position += sd * speed * delta
+				if sd != Vector3.ZERO:
+					_face(sd, delta)
 				ch.play(_walk, speed / 1.6)
 			else:
 				# tate : garde le bouclier levé à l'arrêt

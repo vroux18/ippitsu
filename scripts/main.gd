@@ -380,6 +380,11 @@ func _build_world() -> void:
 	e.ambient_light_color = Color(0.86, 0.9, 1.0)
 	e.ambient_light_energy = 0.3
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
+	# couleurs plus franches : un peu plus de saturation et de contraste
+	e.adjustment_enabled = true
+	e.adjustment_saturation = 1.3
+	e.adjustment_contrast = 1.12
+	e.adjustment_brightness = 0.97
 	# brume d'estampe : le lointain (Fuji, îlots) se fond dans le papier
 	e.fog_enabled = true
 	e.fog_light_color = Toon.WASHI
@@ -1007,6 +1012,14 @@ func float_text(pos: Vector3, text: String, color: Color) -> void:
 	l.position = pos + Vector3(0, 2.2, 0)
 	add_child(l)
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
+
+## Direction de marche d'un ennemi vers 	o, en passant par les passerelles si besoin.
+func steer_dir(from: Vector3, to: Vector3) -> Vector3:
+	var t: Vector3 = arena.steer(from, to)
+	var d := t - from
+	d.y = 0
+	return d.normalized() if d.length_squared() > 0.0001 else Vector3.ZERO
+
 
 func clamp_to_arena(n: Node3D, r: float) -> void:
 	var cp: Vector3 = arena.clamp_walk(n.position, r)
