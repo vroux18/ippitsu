@@ -76,10 +76,11 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (9 sa
 
 ---
 
-### Monde 1 — KANAGAWA (le Ponton des Vagues)
-*Le monde du prototype.*
+### Monde 1 — GRANDE VAGUE (Kanagawa)
+*Le monde du prototype. Estampe : « Sous la vague au large de Kanagawa ».*
 
-- **Ambiance** : ponton de bois au-dessus de la mer, vent salé, Grande Vague figée à l'horizon, Fuji minuscule, torii vermillon dans l'eau. Lumière de matin, ciel washi.
+- **Ambiance** : ponton de bois au-dessus de la baie de Kanagawa, vent salé, **la Grande Vague figée à l'horizon, griffes d'écume dressées, Fuji minuscule dans son creux** (le cadrage exact de l'estampe en fond). Torii vermillon dans l'eau (Itsukushima). Premier lever de soleil de l'an (*hatsu-hinode*) : disque vermillon pâle.
+- **Clin d'œil** : à chaque nouvelle salle, la Vague du fond a un peu plus avancé ; au boss, elle surplombe l'arène.
 - **Palette propre** : vert d'eau `#4F7F7A` (mer proche), sable mouillé `#B9A57E` (planches).
 - **Décor / props low-poly** : planches (box 1×0.1×0.3, variation ±5°), pilotis (cyl), torii (2 cyl + 2 box), lanternes de port (cyl + cube papier émissif), filets de pêche (plan alpha), barques *oshiokuri* (coque 6 faces), cordages, tonneaux de saké, mouettes (billboard 2 frames).
 - **Dangers d'arène** :
@@ -110,8 +111,10 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (9 sa
 
 ---
 
-### Monde 2 — SAGANO (la Bambouseraie)
-- **Ambiance** : forêt de bambous la nuit, brume basse, clair de lune, petits sanctuaires de renards (inari) aux torii serrés, lucioles. Silence, puis bruissement.
+### Monde 2 — TANABATA (la Bambouseraie aux renards)
+*Estampes : « Feux de renards la nuit à Ōji » ; cascade de Kirifuri en fond.*
+- **Ambiance** : bambouseraie d'Arashiyama la nuit de **Tanabata**, bandes de papier *tanzaku* (5 couleurs pâles) accrochées aux tiges, brume basse, Voie lactée en bande sur le ciel, allées de torii serrés façon Fushimi Inari, feux de renards (*kitsune-bi*) comme dans l'estampe d'Ōji. Cascade de Kirifuri au loin.
+- **Clin d'œil** : couper un bambou décoré fait tomber ses tanzaku en pluie de papier (pur feedback) ; la procession des **noces du renard** (*kitsune no yomeiri*) traverse le fond pendant le boss.
 - **Palette propre** : vert bambou `#5E7F4A`, jade pâle `#A3B07A`. Nuit = washi assombri `#C9BFA8` au sol.
 - **Décor / props** : tiges de bambou (cyl 0.12 × 4 m, nœuds tous les 0.6 m), touffes de 3–7 tiges, statues de renard (kitsune assis, 30 tris de style), petits torii rouges en rangée, lanternes de pierre *tōrō*, sentier de dalles, feuilles qui tombent (particules).
 - **Dangers d'arène** :
@@ -138,8 +141,10 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (9 sa
 
 ---
 
-### Monde 3 — YUKI (le Temple sous la neige)
-- **Ambiance** : temple de montagne sous la neige, escaliers, cimetière de stèles, lanternes de pierre allumées une à une. Neige qui tombe en diagonale. Silence ouaté.
+### Monde 3 — CENT CONTES (le Temple sous la neige)
+*Estampes : série « Hyaku monogatari » (Oiwa dans la lanterne, Okiku et les assiettes) ; « Neige sur la Sumida ».*
+- **Ambiance** : temple de montagne sous la neige pendant **Obon** : lanternes de papier flottant sur un étang gelé à moitié (*tōrō nagashi*), cimetière de stèles, escaliers, lanternes de pierre allumées une à une. Neige qui tombe en diagonale. Silence ouaté. Le jeu des **cent contes** (*hyakumonogatari kaidankai*) : 100 bougies, une s'éteint à chaque salle (compteur visuel au fond, aucun texte).
+- **Clin d'œil Hokusai** : le Chōchin-obake reprend le **visage d'Oiwa dans la lanterne déchirée** ; ajouter en variante l'**Okiku** (fantôme du puits de Sarayashiki, cou de serpent fait d'assiettes) comme tireuse d'assiettes (voir tableau).
 - **Palette propre** : bleu glace `#BFD6E3`, gris lavande `#8C8FA8` (ombres sur la neige).
 - **Décor / props** : stèles (*haka*, box empilées), lanternes *tōrō* (5 pièces), cloche de temple suspendue, toits de pagode à 3 niveaux (fond), pins tordus (cônes + tronc courbe), bols d'offrande, statues *jizō* à bonnet rouge (attention : bonnet **sombre**, pas vermillon), congères (demi-sphères).
 - **Dangers d'arène** :
@@ -152,6 +157,7 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (9 sa
   | `chochin` | **Chōchin-obake** (lanterne) | 1 | tireuse : éventail de 3 flammes (4.5 m/s) toutes les 3 s. Tranchée : **explose** r1.8, 1.5 dmg à tous (héros compris si à l'arrivée dans le rayon !) | la trancher en *milieu* de trait, pas en fin |
   | `kasa` | **Kasa-obake** (parapluie) | 1 | saute (1 bond / 1.4 s, 2.5 m), atterrissage = zone r0.9 annoncée 0.8 s ; en l'air il est intouchable | le trancher entre deux bonds (fenêtre 0.6 s au sol) |
   | `gaki` | **Gaki** (affamés) | 0.4 | essaim de 6–10, 2.6 m/s, contact = 1 dmg ; se jettent sur les flaques d'encre (trait < 2 s) et y restent 1.5 s | **appât** : tracer un leurre, puis repasser sur le groupe (combo ×5+) |
+  | `okiku` | **Okiku** (fantôme du puits, Hokusai) | 2 | sort d'un puits (fixe), lance des **assiettes** qui tournent : 1, 2, 3… jusqu'à 9 en éventail (une de plus à chaque salve, 4 m/s), puis se recache 2 s et recommence à 1 | la tuer avant la salve 5 ; tracer entre les assiettes |
   | `oni` W3 | **Hone gelé** | 1.5 | variante Hone dont la zone laisse une plaque de glace 4 s | |
 - **Mini-boss — Yuki-onna** (femme des neiges, 35 PV, flotte à 0.5 m)
   - *Souffle* : cône 70° sur 6 m annoncé 1.1 s, gèle 1.5 s (bloque le tracé).
@@ -165,8 +171,10 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (9 sa
 
 ---
 
-### Monde 4 — KAZAN (la Forge des oni)
-- **Ambiance** : intérieur du Fuji, forge géante des oni, coulées de lave noire veinée d'or, chaînes, cendres qui montent. Chaleur, distorsion. Le Fuji vu « de dedans ».
+### Monde 4 — FUJI ROUGE (la Forge des oni)
+*Estampes : « Fuji rouge » (Gaifū kaisei) ; « Orage sous le sommet ».*
+- **Ambiance** : flancs puis intérieur du **Fuji rouge** de l'estampe (pente rouge-brun, nuages en écailles, ciel bleu de Prusse), qui mène à la forge géante des oni : forges de sabres (Seki), coulées de lave noire veinée d'or, chaînes, cendres qui montent. Pendant le boss, **éclairs sous le sommet** comme dans « Orage sous le sommet ».
+- **Fête** : torches géantes du **Yoshida Hi-Matsuri** (fête du feu au pied du Fuji) plantées en bord d'arène = braseros/geysers allumés.
 - **Palette propre** : rouge braise `#8E2A1E` (sombre, jamais vif), cendre `#5A5550`. La lave est **sumi + veines or** (pour ne pas concurrencer le vermillon des annonces).
 - **Décor / props** : enclumes, soufflets, fûts de *tatara* (four), chaînes, piques de roche (cônes), ponts de pierre, statues de Fudō Myōō (fond), braseros, lingots, masques d'oni accrochés.
 - **Dangers d'arène** :
@@ -193,8 +201,19 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (9 sa
 
 ---
 
-### Monde 5 — SUMI-NO-UMI (la Mer d'encre)
-- **Ambiance** : l'estampe inachevée. On est *dans* la Grande Vague figée : la mer est d'encre, le ciel est du papier brut, des bords déchirés flottent, des traits de construction au crayon apparaissent. Le Fuji est minuscule et menacé. Aube rose délavée.
+### Monde 5 — TRENTE-SIX VUES (la Mer d'encre)
+*Estampes : toute la série « Trente-six vues du mont Fuji » + croquis du « Hokusai Manga ».*
+- **Ambiance** : les estampes envahies par la Vague Noire. **Chaque salle reprend une Vue** reconnaissable, à moitié noyée d'encre :
+  | Salle | Vue de référence | Particularité d'arène |
+  |---|---|---|
+  | 1 | *Ejiri* (papiers emportés par le vent) | rafales : des feuilles de papier traversent l'arène et **masquent** brièvement ; vent latéral 0.8 m/s |
+  | 2 | *Kajikazawa* (pêcheur sur un rocher) | rocher central + vagues de côté |
+  | 3 | *Fujimigahara* (le tonnelier dans la barrique) | **barrique géante** au centre : anneau = mur circulaire, on trace autour ou à travers l'ouverture |
+  | 4 | *Pont de Mannen à Fukagawa* | pont arqué : deux niveaux, tracer dessous ou dessus |
+  | 5 | *Mishima* (bûcherons et grand cèdre) | arbre central à contourner (Ensō autour) |
+  | 6–8 | *Shichiri-ga-hama*, *Ushibori*, *Tama* | variations de rivage |
+  | 9 | retour à la **Grande Vague**, en noir | boss final |
+  La mer est d'encre, le ciel est du papier brut, des bords déchirés flottent, des croquis du *Manga* (petits personnages en trait) courent en fond. Nouvel An (*Shōgatsu*) : *kadomatsu* en bambou aux portes.
 - **Palette propre** : indigo nuit `#0E1A2E` (mer d'encre), rose aube `#E4B7B0` (ciel, rare).
 - **Décor / props** : barques *oshiokuri* (sol de l'arène = 3–4 barques reliées), griffes d'écume (crêtes en forme de doigts, extrudées), morceaux de papier déchiré flottants (plans), sceaux de peintre géants (cylindres gravés), pinceaux plantés comme des mâts, tache d'encre animée (shader).
 - **Dangers d'arène** :
@@ -440,19 +459,21 @@ Lanterne : 10 niveaux, chacun activable séparément (1 sceau pour déverrouille
 ### 6.5 Source chaude (*onsen*)
 Choix : soigner 3 PV **ou** +1 PV max **ou** monter une amélioration d'un niveau.
 
+**Nourriture** (soins, selon le monde, §2.0) : une salle de combat finie sans dégât laisse tomber le plat du monde (onigiri, inari-zushi, soupe miso, onsen tamago, mochi) : +1 PV. La boutique vend le plat « de fête » du monde (takoyaki, dango, amazake, yakitori, soba) : +2 PV pour 35 mon.
+
 ### 6.6 Événements (salle « ? », 1 écran, 2 boutons-icônes, zéro ou une ligne de texte)
 | id | Nom | Choix |
 |---|---|---|
 | `ev_jizo` | **Jizō** | donner 30 mon → soin complet / passer |
 | `ev_fox_wedding` | **Noces du renard** (pluie sous le soleil) | suivre la procession : combat surprise d'élite (récompense légendaire) / passer |
-| `ev_painter` | **L'élève de Gakyō** | échanger une amélioration contre une autre de même école, rareté +1 |
+| `ev_painter` | **L'élève du peintre** | échanger une amélioration contre une autre de même école, rareté +1 |
 | `ev_kappa_sumo` | **Sumo du kappa** | mini-défi : pousser un kappa dans l'eau en < 10 s (Ressac aide) → 50 mon / rien |
 | `ev_lantern` | **Cent lanternes** (*hyakumonogatari*) | éteindre les lanternes en un seul trait (toutes = 1 Vue secrète ou 1 sceau la première fois) |
 | `ev_cursed_blade` | **Lame maudite** | prendre une malédiction aléatoire + 1 légendaire |
 | `ev_tea` | **Cérémonie du thé** | attendre 5 s sans toucher l'écran → +1 relance et +2 élan max |
 
 ### 6.7 Défaite et retour
-Mort : le héros se dissout en encre qui coule sur le papier (1.5 s), fondu vers l'Atelier ; Gakyō peint la Vue suivante (animation 3 s, passable par un tap) ; écran de gains (sumi, Vue, sceau) en icônes et chiffres.
+Mort : le héros se dissout en encre qui coule sur le papier (1.5 s), fondu vers l'Atelier ; le peintre accroche l'estampe suivante (animation 3 s, passable par un tap) ; écran de gains (sumi, Vue, sceau) en icônes et chiffres.
 
 ---
 
@@ -538,6 +559,7 @@ Champs : `id`, `world`, `name`, `model` (glb KayKit/Quaternius proposé), `scale
   {"id":"chochin","world":3,"name":"Chōchin-obake","model":"lantern","scale":1.2,"hp":1.0,"speed":1.0,"radius":0.45,"ai":"shooter","attack":{"shape":"bullet_fan","speed":4.5,"count":3,"spread_deg":40,"windup":0.8,"cooldown":3.0,"dmg":1},"cost":2,"rule":"cut_mid_stroke","flags":["explode_on_death_r1.8_dmg1.5_hits_hero"]},
   {"id":"kasa","world":3,"name":"Kasa-obake","model":"umbrella","scale":1.3,"hp":1.0,"speed":0.0,"radius":0.4,"ai":"leaper","attack":{"shape":"disc_landing","r":0.9,"windup":0.8,"hop":2.5,"period":1.4,"dmg":1},"cost":1,"rule":"hit_between_hops","flags":["airborne_untouchable"]},
   {"id":"gaki","world":3,"name":"Gaki","model":"Skeleton_Minion_small","scale":1.0,"hp":0.4,"speed":2.6,"radius":0.3,"ai":"swarm","attack":{"shape":"contact","dmg":1},"cost":0.5,"rule":"bait_with_ink","flags":["group_6_10","eat_ink_1.5s"]},
+  {"id":"okiku","world":3,"name":"Okiku","model":"ghost_plates","scale":1.5,"hp":2.0,"speed":0.0,"radius":0.5,"ai":"shooter","attack":{"shape":"bullet_fan","speed":4.0,"count":"salvo_index_1_to_9","spread_deg":80,"windup":0.8,"cooldown":2.2,"dmg":1},"cost":3,"rule":"kill_early","flags":["well_fixed","hide_2s_after_9"]},
   {"id":"oni_frost","world":3,"name":"Hone gelé","model":"Skeleton_Minion","scale":1.6,"hp":1.5,"speed":2.1,"radius":0.45,"ai":"melee","attack":{"shape":"disc","r":1.0,"windup":1.0,"cooldown":1.3,"dmg":1,"leaves":"ice_4s"},"cost":1.5,"rule":"none","flags":["interruptible"]},
 
   {"id":"aka_ao","world":4,"name":"Aka & Ao","model":"oni_pair","scale":2.0,"hp":3.0,"speed":2.0,"radius":0.6,"ai":"linked","attack":{"aka":{"shape":"line","len":7.0,"windup":1.0,"speed":9.0},"ao":{"shape":"disc","r":1.4,"windup":1.2},"chain_contact_dmg":1,"dmg":1},"cost":6,"rule":"both_in_one_stroke_or_cut_chain","flags":["revive_partner_3s_50pct","chain_len_4"]},
@@ -610,14 +632,14 @@ Champs : `id`, `world`, `name`, `model` (glb KayKit/Quaternius proposé), `scale
 17. Malédictions restantes.
 
 ### P4 — Mondes 2 et 3
-18. Sagano : bosquets coupables (obstacle de trait = nouvelle règle moteur : `stroke.extend_to` s'arrête sur collision), Kitsune-bi (duo lié), Tanuki, Kamaitachi, Kodama, Tsuchinoko ; Tsuchigumo ; Kyūbi + forme **Ensō**.
-19. Yuki : glace (glissade d'arrivée), révélation des fantômes par l'encre fraîche (le trait doit persister au sol 2 s : déjà le cas visuellement), Gashadokuro.
+18. Tanabata : bosquets coupables (obstacle de trait = nouvelle règle moteur : `stroke.extend_to` s'arrête sur collision), Kitsune-bi (duo lié), Tanuki, Kamaitachi, Kodama, Tsuchinoko ; Tsuchigumo ; Kyūbi + forme **Ensō**.
+19. Cent Contes : glace (glissade d'arrivée), révélation des fantômes par l'encre fraîche (le trait doit persister au sol 2 s : déjà le cas visuellement), Gashadokuro.
 20. Benkei.
 
 ### P5 — Mondes 4 et 5, fin
-21. Kazan (geysers, coulée, Daidarabotchi « relier les points »).
-22. Sumi-no-Umi (Kuro-kage : enregistrer le dernier trait, Vague globale + abris, Kuro-Nami 3 phases).
-23. Kohaku, Vues 9–36, fin, Marées.
+21. Fuji Rouge (geysers, coulée, Daidarabotchi « relier les points »).
+22. Trente-six Vues (une Vue par salle, Kuro-kage : enregistrer le dernier trait, Vague globale + abris, Kuro-Nami 3 phases).
+23. Kohaku, estampes de collection, fin, Marées.
 
 ### Repères d'équilibrage à surveiller
 - Temps moyen de salle 30–45 s ; dégâts reçus par salle ≈ 0.5–1 PV en monde 1 sans amélioration.
