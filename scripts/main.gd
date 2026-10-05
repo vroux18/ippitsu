@@ -48,6 +48,8 @@ var shake := 0.0
 var wave := 0
 var wave_wait := 1.0
 var safety := true
+var attack_tokens := 2  # ennemis autorisés à préparer une attaque en même temps
+var _attackers: Array = []
 var game_over := false
 var _ticks := 0
 var _cam_base := Transform3D()
@@ -365,6 +367,7 @@ func _start() -> void:
 		if is_instance_valid(e):
 			e.queue_free()
 	enemies.clear()
+	_attackers.clear()
 	for b in bullets:
 		b.node.queue_free()
 	bullets.clear()
@@ -480,6 +483,7 @@ func _touch_move(sp: Vector2) -> void:
 	var was_empty: bool = stroke.exhausted
 	var used: float = stroke.extend_to(target, elan)
 	elan -= used
+	stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
@@ -548,6 +552,41 @@ func spawn_bullet(pos: Vector3, dir: Vector3) -> void:
 	shadow.position.y = -pos.y + 0.012
 	bullets.append({"node": n, "vel": dir * 3.4, "life": 7.0})
 	sfx.play("shot", randf_range(0.9, 1.1), -6.0)
+
+
+func take_token(e: Node) -> bool:
+	for i in range(_attackers.size() - 1, -1, -1):
+		if not is_instance_valid(_attackers[i]) or _attackers[i].dead:
+			_attackers.remove_at(i)
+	if e in _attackers:
+		return true
+	if _attackers.size() >= attack_tokens:
+		return false
+	_attackers.append(e)
+	return true
+
+
+func free_token(e: Node) -> void:
+	_attackers.erase(e)
+
+
+## Vrai si finir en `p` dans `eta` secondes tombe dans une attaque (zone qui frappe ou boule qui passe).
+func is_danger(p: Vector3, eta: float) -> bool:
+	for e in enemies:
+		if not is_instance_valid(e):
+			continue
+		var z: Array = e.danger_zone()
+		if z.size() == 3:
+			var c: Vector3 = z[0]
+			if Vector2(p.x - c.x, p.z - c.z).length() < float(z[1]) + 0.35 and float(z[2]) < eta + 0.35:
+				return true
+	for b in bullets:
+		var n: Node3D = b.node
+		for k in 4:
+			var q: Vector3 = n.position + b.vel * (eta + 0.15 * k)
+			if Vector2(p.x - q.x, p.z - q.z).length() < 0.75:
+				return true
+	return false
 
 
 func enemy_strike(center: Vector3, r: float) -> void:
@@ -625,7 +664,7 @@ func _update_bullets(dt: float) -> void:
 		hp.y = 0
 		var d := hp.distance_to(hero.position)
 		# filet de sécurité : un pas de côté automatique, une fois par vague
-		if safety and d < 1.0 and not hero.dashing and hero.invuln <= 0.0 and not touching and not game_over:
+		if safety and d < 1.0 and not hero.dashing and hero.invuln <= 0.0 and not game_over:
 			var v: Vector3 = b.vel
 			var side := Vector3(-v.z, 0, v.x).normalized()
 			if side.dot(hero.position - hp) < 0:
@@ -802,6 +841,8 @@ func _process(_delta: float) -> void:
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp
 	hud.elan = elan / ELAN_MAX
+	if touching and stroke != null:
+		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
 	hud.wave = maxi(wave, 1)
 	hud.slow = 0.0

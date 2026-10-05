@@ -125,9 +125,17 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 	return false
 
 
+## Zone d'attaque en préparation : [centre, rayon, temps restant], ou [] s'il n'y en a pas.
+func danger_zone() -> Array:
+	if _state == "windup" and _zone != null:
+		return [position + _strike_dir * (_zone_r * 0.9), _zone_r, _timer]
+	return []
+
+
 func _cancel_attack() -> void:
 	_state = "recover"
 	_timer = 0.6
+	main.free_token(self)
 	if _zone:
 		_zone.queue_free()
 		_zone = null
@@ -187,6 +195,12 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 			else:
 				ch.play("Idle_Combat")
 			if dist <= reach - 0.3:
+				# jeton d'attaque : au plus N ennemis en préparation en même temps
+				if not main.take_token(self):
+					var around := Vector3(-dir.z, 0, dir.x) * (1.0 if get_instance_id() % 2 == 0 else -1.0)
+					position += around * 1.0 * delta
+					ch.play(_walk, 0.6)
+					return
 				_state = "windup"
 				_timer = _windup
 				_strike_dir = dir
@@ -197,6 +211,8 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 			var k := 1.0 - _timer / _windup
 			_zone.position = _strike_dir * (_zone_r * 0.9)
 			_zone_fill.scale = Vector3(k, 1, k)
+			# dernier instant : la zone flashe blanc écume
+			(_zone_fill.material_override as StandardMaterial3D).albedo_color = Color(Toon.FOAM, 0.85) if _timer < 0.15 else Color(Toon.VERMILION, 0.45)
 			_timer -= delta
 			if _timer <= 0.0:
 				var center := position + _strike_dir * (_zone_r * 0.9)
@@ -227,6 +243,9 @@ func _shooter(delta: float, dir: Vector3, dist: float) -> void:
 			ch.play("Idle_Combat")
 		_timer -= delta
 		if _timer <= 0.0:
+			if not main.take_token(self):
+				_timer = 0.4
+				return
 			_state = "windup"
 			_timer = 0.7
 			ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / 0.7)
@@ -237,5 +256,6 @@ func _shooter(delta: float, dir: Vector3, dist: float) -> void:
 		if _timer <= 0.0:
 			ch.set_glow(0.0)
 			main.spawn_bullet(position + Vector3(0, 1.1, 0) + dir * 0.5, dir)
+			main.free_token(self)
 			_state = "move"
 			_timer = 2.6 + randf() * 1.2

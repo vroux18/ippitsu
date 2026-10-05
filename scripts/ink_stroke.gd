@@ -16,6 +16,8 @@ var _y := 0.02
 var _imesh := ImmediateMesh.new()
 var _mat: StandardMaterial3D
 var _tip: MeshInstance3D
+var _ring: MeshInstance3D
+var danger := false
 
 
 func _init(start: Vector3, layer: int) -> void:
@@ -30,6 +32,8 @@ func _init(start: Vector3, layer: int) -> void:
 
 func _ready() -> void:
 	_tip = Toon.disc(self, 0.16, Color(Toon.SUMI, 0.9), _y + 0.002)
+	# cercle d'arrivée : là où le héros va s'arrêter (vermillon = zone qui va frapper)
+	_ring = Toon.disc(self, 0.55, Color(Toon.SUMI, 0.18), _y + 0.001)
 	_rebuild()
 
 
@@ -72,14 +76,20 @@ func start_drying() -> void:
 	drying = true
 	if _tip:
 		_tip.visible = false
+		_ring.visible = false
 
 
 func _process(delta: float) -> void:
 	if not drying:
 		if _tip:
-			_tip.position = last()
+			_tip.position = last() + Vector3(0, _y + 0.004, 0)
 			var pulse := 1.0 + (0.35 * sin(Time.get_ticks_msec() * 0.03) if exhausted else 0.0)
 			_tip.scale = Vector3(pulse, 1, pulse)
+			_ring.position = last() + Vector3(0, _y + 0.002, 0)
+			var ring_mat := _ring.material_override as StandardMaterial3D
+			ring_mat.albedo_color = Color(Toon.VERMILION, 0.55) if danger else Color(Toon.SUMI, 0.18)
+			var rs := 1.0 + (0.15 * sin(Time.get_ticks_msec() * 0.02) if danger else 0.0)
+			_ring.scale = Vector3(rs, 1, rs)
 		return
 	_dry_t += delta
 	if _dry_t > 1.6:
