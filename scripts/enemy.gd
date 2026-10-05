@@ -443,9 +443,9 @@ func _nearest_edge(p: Vector3) -> Vector3:
 	var ez := HALF.y - EDGE_IN
 	var dx := HALF.x - absf(p.x)
 	var dz := HALF.y - absf(p.z)
-	if dx <= dz:
-		return Vector3(ex * (1.0 if p.x >= 0.0 else -1.0), 0, clampf(p.z, -ez, ez))
-	return Vector3(clampf(p.x, -ex, ex), 0, ez * (1.0 if p.z >= 0.0 else -1.0))
+	var q := Vector3(ex * (1.0 if p.x >= 0.0 else -1.0), 0, clampf(p.z, -ez, ez)) if dx <= dz else Vector3(clampf(p.x, -ex, ex), 0, ez * (1.0 if p.z >= 0.0 else -1.0))
+	# salles en plateformes : toujours sur la terre ferme
+	return main.arena.clamp_walk(q, radius)
 
 
 ## Autre point du bord, loin de l'ancien et pas collé au héros.
@@ -460,6 +460,7 @@ func _random_edge() -> Vector3:
 			q = Vector3(ex * (1.0 if randf() < 0.5 else -1.0), 0, randf_range(-ez + 0.4, ez - 0.4))
 		else:
 			q = Vector3(randf_range(-ex + 0.4, ex - 0.4), 0, ez * (1.0 if randf() < 0.5 else -1.0))
+		q = main.arena.clamp_walk(q, radius)
 		best = q
 		if q.distance_to(position) > 3.0 and q.distance_to(hero.position) > 2.0:
 			break

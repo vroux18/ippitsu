@@ -137,6 +137,8 @@ var run_gold := 0
 var _pending_levels := 0
 var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
+var in_hub := false  # sanctuaire de départ (avant la salle 1)
+var _hub_t := 0.0
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -242,6 +244,8 @@ func _ready() -> void:
 		if not fails.is_empty():
 			print("SCRIPT ERROR: formes de trait : ", fails)
 	autoplay = autoplay or "autoplay" in wsearch
+	if autoplay or "room=" in wsearch:
+		_start(false)  # tests : directement dans les salles, sans le sanctuaire
 	# `?room=N` (web) : commence directement à la salle N (tests des boss : 8 et 15)
 	var rm := wsearch.find("room=")
 	if rm >= 0:
@@ -353,7 +357,10 @@ func _set_state(s: String) -> void:
 			if room == 0:
 				music.play_world(current_world)
 				var wd: Dictionary = Worlds.world(current_world)
-				hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
+				if in_hub:
+					hud.banner("SANCTUAIRE", "ENTRAÎNE-TOI  ·  PASSE LE TORII POUR PARTIR", wd.color, 2.6)
+				else:
+					hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":
 			menu.show_mode("over")
 		"worlds":
@@ -417,7 +424,7 @@ func _notification(what: int) -> void:
 func _start_tutorial() -> void:
 	sfx.play("slash", 0.9, -4.0)
 	menu.show_mode("hidden")
-	_start()
+	_start(false)
 	_set_state("tuto")
 	hero.face(Vector3(0, 0, -1))
 	hero.guard_t = 99999.0
@@ -647,7 +654,8 @@ func _fit_camera() -> void:
 
 # ------------------------------------------------------------------ partie
 
-func _start() -> void:
+## Nouvelle partie. `hub` : on démarre dans le sanctuaire (zone d'entraînement, torii vers la salle 1).
+func _start(hub := true) -> void:
 	for e in enemies:
 		if is_instance_valid(e):
 			e.queue_free()
@@ -662,7 +670,12 @@ func _start() -> void:
 	bullets.clear()
 	if hero:
 		hero.queue_free()
-	arena.build_room(1, ROOMS, randi(), MINI_ROOM)
+	in_hub = hub
+	if hub:
+		arena.build_hub(randi())
+		arena.open_gate()
+	else:
+		arena.build_room(1, ROOMS, randi(), MINI_ROOM)
 	hero = Hero.new()
 	add_child(hero)
 	hero.position = arena.start
@@ -709,6 +722,16 @@ func _start() -> void:
 	shake = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
+	if hub:
+		for i in 3:
+			_hub_dummy()
+
+
+## Mannequin d'entraînement dans le cercle du dojo du sanctuaire.
+func _hub_dummy() -> void:
+	var a := randf() * TAU
+	var d := sqrt(randf()) * arena.hub_training_radius * 0.7
+	spawn_dummy(arena.hub_training_center + Vector3(cos(a) * d, 0, sin(a) * d))
 
 
 func elan_max() -> float:
@@ -873,6 +896,8 @@ func collect(kind: String, value: int) -> void:
 
 ## Un ennemi tombe : il lâche de l'expérience et parfois de l'or.
 func _on_enemy_killed(e: Node3D) -> void:
+	if e.dummy:
+		return  # mannequin : pas de butin
 	var k := String(e.kind)
 	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
 	if randf() < (0.8 if k == "brute" else 0.4):
@@ -972,6 +997,13 @@ func _transit() -> void:
 
 func _rebuild_room() -> void:
 	_rebuilt = true
+	if in_hub:
+		# on quitte le sanctuaire : les mannequins restent derrière
+		in_hub = false
+		for e in enemies:
+			if is_instance_valid(e):
+				e.queue_free()
+		enemies.clear()
 	for e in effects:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
@@ -1977,6 +2009,18 @@ func _process(_delta: float) -> void:
 			wave_index += 1
 			sfx.play("strike", 0.8, -4.0)
 			hud.toast("VAGUE %d / %d" % [wave_index, waves_total])
+		elif in_hub:
+			# sanctuaire : les mannequins reviennent, le torii mène à la salle 1
+			var dummies := 0
+			for e in enemies:
+				if is_instance_valid(e) and not e.dead and e.dummy:
+					dummies += 1
+			_hub_t -= real
+			if dummies < 3 and _hub_t <= 0.0:
+				_hub_t = 1.2
+				_hub_dummy()
+			if arena.gate_reached(hero.position):
+				_transit()
 		elif room == 0:
 			wave_wait -= real
 			if wave_wait <= 0.0:

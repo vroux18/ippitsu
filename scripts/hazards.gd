@@ -31,7 +31,7 @@ func begin_room(room: int, hero_pos: Vector3, boss := false) -> void:
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)
 			var c := Vector3(randf_range(-HALF.x + 1.4, HALF.x - 1.4), 0, randf_range(-HALF.y + 2.0, HALF.y - 2.0))
-			var ok: bool = c.distance_to(hero_pos) > 3.0 and main.arena.walkable(c, r + 0.4)
+			var ok: bool = c.distance_to(hero_pos) > 3.0 and main.arena.walkable(c, r + 0.4) and not main.arena.is_bridge(c, r + 1.0)
 			for h in holes:
 				var hc: Vector3 = h[0]
 				if hc.distance_to(c) < float(h[1]) + r + 1.5:
