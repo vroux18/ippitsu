@@ -1359,8 +1359,8 @@ func _touch_down(sp: Vector2) -> void:
 	if game_over:
 		return
 	# on trace dans le pad du bas : le trait part du héros et reproduit le geste du doigt, en plus grand
-	if ctrl_mode == "pad" and not pad_rect().has_point(sp):
-		return
+	# en mode pad, on peut poser le doigt n'importe où : le geste est reproduit depuis le héros
+	# (le cadre du pad n'est qu'un repère visuel)
 	_strokes_done += 1
 	touching = true
 	_pad_start = sp
