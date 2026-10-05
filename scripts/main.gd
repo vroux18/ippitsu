@@ -14,6 +14,8 @@ const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
+const Meta = preload("res://scripts/meta.gd")
+const Refuge = preload("res://scripts/refuge.gd")
 # malédictions du sanctuaire (après les salles 3 et 7) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus"},
@@ -62,7 +64,7 @@ var hitstop := 0.0
 var shake := 0.0
 var wave := 0
 var wave_wait := 1.0
-var safety := true
+var safety_left := 1  # pas de côté automatiques restants dans la salle
 var attack_tokens := 2  # ennemis autorisés à préparer une attaque en même temps
 var _attackers: Array = []
 var game_over := false
@@ -83,6 +85,9 @@ var _room_queue: Array = []
 var _stroke_kills := 0
 var bosses: Array = []
 var hazards: Node3D
+var meta: RefCounted
+var refuge: Control
+var mini_kills := 0
 var curses: Array = []
 var _pick_mode := "upgrade"
 var _extra_picks := 0
@@ -109,6 +114,16 @@ func _ready() -> void:
 	menu.play_pressed.connect(_on_play)
 	menu.home_pressed.connect(_on_home)
 	menu.sound_toggled.connect(_on_sound)
+	meta = Meta.new()
+	meta.load_data()
+	var ref_layer := CanvasLayer.new()
+	ref_layer.layer = 4
+	add_child(ref_layer)
+	refuge = Refuge.new()
+	refuge.meta = meta
+	ref_layer.add_child(refuge)
+	refuge.closed.connect(_on_refuge_closed)
+	menu.atelier_pressed.connect(_on_atelier)
 	hazards = Hazards.new()
 	hazards.main = self
 	add_child(hazards)
@@ -156,6 +171,7 @@ func _load() -> void:
 		record = int(cfg.get_value("game", "best", 0))
 		menu.muted = bool(cfg.get_value("game", "muted", false))
 	menu.best = record
+	menu.sumi = meta.sumi
 	AudioServer.set_bus_mute(0, menu.muted)
 
 
@@ -191,6 +207,18 @@ func _on_play() -> void:
 		_set_state("play")
 	else:
 		_set_state("intro")
+
+
+func _on_atelier() -> void:
+	sfx.play("whoosh", 0.8)
+	menu.show_mode("hidden")
+	refuge.open()
+
+
+func _on_refuge_closed() -> void:
+	menu.sumi = meta.sumi
+	_set_state("menu")
+	_start()
 
 
 func _on_home() -> void:
@@ -454,6 +482,9 @@ func _start() -> void:
 	_extra_picks = 0
 	kills = 0
 	boss_kills = 0
+	mini_kills = 0
+	hero.max_hp = 5 + meta.hp_bonus()
+	hero.hp = hero.max_hp
 	game_over = false
 	touching = false
 	hud.game_over = false
@@ -465,14 +496,14 @@ func _start() -> void:
 
 
 func elan_max() -> float:
-	return (ELAN_MAX + powers.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
+	return (ELAN_MAX + powers.elan_bonus() + meta.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
 
 
 ## Salle suivante : budget d'ennemis croissant, en deux vagues (60 % puis 40 %).
 func _begin_room() -> void:
 	room += 1
 	wave = room
-	safety = not "heavy" in curses
+	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
 	hazards.begin_room(room, hero.position)
 	var budget := 4 + 2 * room
 	var list: Array = []
@@ -528,7 +559,10 @@ func spawn_minions(list: Array) -> void:
 
 
 func boss_killed(_b: Node3D) -> void:
-	boss_kills += 1
+	if _b.kind == "okappa":
+		mini_kills += 1
+	else:
+		boss_kills += 1
 	hitstop = 0.3
 	shake = 0.7
 	sfx.play("kill", 0.6)
@@ -639,6 +673,14 @@ func _on_picked(id: String) -> void:
 	_begin_room()
 
 
+func _award(victory: bool) -> void:
+	var cleared := room if victory else room - 1
+	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills)
+	menu.gain_sumi = int(g.get("sumi", 0))
+	menu.gain_seals = int(g.get("seals", 0))
+	menu.sumi = meta.sumi
+
+
 func _take_curse(id: String) -> void:
 	curses.append(id)
 	shake = 0.4
@@ -682,6 +724,7 @@ func _victory() -> void:
 	game_over = true
 	hud.best_wave = room
 	menu.victory = true
+	_award(true)
 	menu.new_record = room > record
 	if room > record:
 		record = room
@@ -1061,6 +1104,7 @@ func _hurt_hero() -> void:
 		game_over = true
 		hud.best_wave = room
 		menu.victory = false
+		_award(false)
 		menu.new_record = room > record
 		if room > record:
 			record = room
@@ -1144,12 +1188,12 @@ func _update_bullets(dt: float) -> void:
 		hp.y = 0
 		var d := hp.distance_to(hero.position)
 		# filet de sécurité : un pas de côté automatique, une fois par vague
-		if safety and not b.get("friendly", false) and d < 1.0 and not hero.dashing and hero.invuln <= 0.0 and not game_over:
+		if safety_left > 0 and not b.get("friendly", false) and d < 1.0 and not hero.dashing and hero.invuln <= 0.0 and not game_over:
 			var v: Vector3 = b.vel
 			var side := Vector3(-v.z, 0, v.x).normalized()
 			if side.dot(hero.position - hp) < 0:
 				side = -side
-			safety = false
+			safety_left -= 1
 			var step := PackedVector3Array([hero.position, _clamp_point(hero.position + side * 1.3)])
 			hero.start_dash(step)
 		if b.get("friendly", false):
@@ -1283,7 +1327,7 @@ func _process(_delta: float) -> void:
 	var dt := real * Engine.time_scale
 
 	if not touching and not hero.dashing:
-		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * real)
+		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real)
 
 	_check_slashes()
 	_update_bullets(dt)

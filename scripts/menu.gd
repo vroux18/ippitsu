@@ -9,6 +9,7 @@ const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
 signal play_pressed
 signal home_pressed
 signal sound_toggled(muted: bool)
+signal atelier_pressed
 
 var mode := "home"  # home | over | hidden
 var best := 0
@@ -16,6 +17,9 @@ var last := 0
 var new_record := false
 var victory := false
 var muted := false
+var sumi := 0  # encre (monnaie permanente), affichée sur l'accueil
+var gain_sumi := 0  # encre gagnée à la dernière partie
+var gain_seals := 0
 
 var _t := 0.0  # temps réel depuis l'affichage
 var _title := FontVariation.new()
@@ -24,6 +28,7 @@ var _play: Control
 var _replay: Control
 var _home: Control
 var _sound: Control
+var _atelier: Control
 
 
 func _ready() -> void:
@@ -41,6 +46,8 @@ func _ready() -> void:
 	_home = _button("", "round")
 	_home.icon = "home"
 	_home.pressed.connect(func(): home_pressed.emit())
+	_atelier = _button("ATELIER", "ghost")
+	_atelier.pressed.connect(func(): atelier_pressed.emit())
 	_sound = _button("", "round")
 	_sound.pressed.connect(_toggle_sound)
 	show_mode("home")
@@ -77,15 +84,20 @@ func _process(delta: float) -> void:
 	_replay.visible = mode == "over" and _t > 1.1
 	_home.visible = mode == "over" and _t > 1.1
 	_sound.visible = mode == "home"
+	_atelier.visible = mode == "home"
 	_sound.icon = "sound_off" if muted else "sound_on"
 
 	var bw := w * 0.6
 	var bh := 64.0 * u
 	var appear := _ease_out(clampf((_t - 0.55) / 0.5, 0.0, 1.0))
 	_play.size = Vector2(bw, bh)
-	_play.position = Vector2((w - bw) / 2.0, h * 0.8 + 30.0 * u * (1.0 - appear))
+	_play.position = Vector2((w - bw) / 2.0, h * 0.76 + 30.0 * u * (1.0 - appear))
 	_play.modulate.a = appear
 	_play.font_size = int(26 * u)
+	_atelier.size = Vector2(w * 0.42, 46.0 * u)
+	_atelier.position = Vector2((w - w * 0.42) / 2.0, h * 0.76 + bh + 14.0 * u + 30.0 * u * (1.0 - appear))
+	_atelier.modulate.a = appear
+	_atelier.font_size = int(17 * u)
 
 	var over_in := _ease_out(clampf((_t - 1.1) / 0.4, 0.0, 1.0))
 	_replay.size = Vector2(bw, bh)
@@ -124,6 +136,7 @@ func _draw_home() -> void:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
+	_draw_ink_counter(Vector2(20, 30) * u, u)
 
 	# voile washi en haut (lisibilité du titre) et en bas (bouton)
 	var top := PackedColorArray([Color(Toon.WASHI, 0.95), Color(Toon.WASHI, 0.95), Color(Toon.WASHI, 0.0), Color(Toon.WASHI, 0.0)])
@@ -161,7 +174,7 @@ func _draw_home() -> void:
 	# record
 	if best > 0:
 		var ra := _ease_out(clampf((_t - 0.8) / 0.5, 0.0, 1.0))
-		_text(_ui, "RECORD  ·  SALLE %d / 9" % best, Vector2(w / 2.0, h * 0.8 + 64 * u + 34 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
+		_text(_ui, "RECORD  ·  SALLE %d / 9" % best, Vector2(w / 2.0, h * 0.76 + 64 * u + 14 * u + 46 * u + 30 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
 
 	# halo qui respire autour du bouton
 	var pulse := 0.5 + 0.5 * sin(_t * 3.0)
@@ -174,6 +187,19 @@ func _draw_home() -> void:
 	draw_style_box(halo, r)
 
 
+## Compteur d'encre : un bâton d'encre et le nombre.
+func _draw_ink_counter(p: Vector2, u: float) -> void:
+	var stick := Rect2(p + Vector2(0, -12) * u, Vector2(9, 24) * u)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Toon.SUMI
+	sb.border_color = Toon.GOLD
+	sb.set_border_width_all(int(maxf(1.0, 1.5 * u)))
+	sb.set_corner_radius_all(int(2 * u))
+	draw_style_box(sb, stick)
+	var fs := int(17 * u)
+	draw_string(_ui, p + Vector2(16, 6) * u, str(sumi), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.SUMI)
+
+
 func _draw_over() -> void:
 	var w := size.x
 	var h := size.y
@@ -184,6 +210,12 @@ func _draw_over() -> void:
 		txt = "VICTOIRE"
 	var c := Toon.GOLD if new_record or victory else Color(Toon.SUMI, 0.6)
 	_text(_ui, txt, Vector2(w / 2.0, h * 0.7 - 26 * u), int(13 * u), Color(c, c.a * a))
+	# encre gagnée pendant la partie
+	if gain_sumi > 0 or gain_seals > 0:
+		var g := "+%d  ENCRE" % gain_sumi
+		if gain_seals > 0:
+			g += "   ·   +%d  SCEAU" % gain_seals
+		_text(_ui, g, Vector2(w / 2.0, h * 0.7 - 50 * u), int(13 * u), Color(Toon.SUMI, 0.75 * a))
 
 
 func _brush(p0: Vector2, p1: Vector2, wdt: float, c: Color) -> void:

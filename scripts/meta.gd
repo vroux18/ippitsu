@@ -3,7 +3,7 @@ extends RefCounted
 
 const SAVE_PATH := "user://ippitsu_meta.cfg"
 const MAX_PRINTS := 24
-const SUMI_PER_ROOM := 0  # réglage d'équilibrage : bonus d'encre par salle franchie (0 = §5.1 strict)
+const SUMI_PER_ROOM := 8  # réglage d'équilibrage : bonus d'encre par salle franchie (0 = §5.1 strict)
 
 ## Ordre d'affichage des lignes de la Pierre à encre.
 const ORDER := ["brush", "ink", "paper", "breath", "purse", "choice"]
