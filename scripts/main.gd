@@ -14,6 +14,9 @@ const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
+const Arena = preload("res://scripts/arena.gd")
+const Worlds = preload("res://scripts/worlds.gd")
+const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
 # malédictions du sanctuaire (après les salles 3 et 7) : un malus pour toute la partie, une récompense tout de suite
@@ -26,6 +29,9 @@ const CURSES := {
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 9
+const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2}
+const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4}  # première salle où chaque ennemi peut venir
+const UNLOCK_ALL := true  # prototype : tous les mondes ouverts pour les tester
 const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
@@ -76,7 +82,10 @@ var menu: Control
 var record := 0
 var _state_t := 0.0
 var _menu_slash := 3.0
-var _water_mat: StandardMaterial3D
+var _env: Environment
+var _sun: DirectionalLight3D
+var arena: Node3D
+var current_world := 1
 
 var powers: Node
 var picker: Control
@@ -94,6 +103,12 @@ var _extra_picks := 0
 var _safe_point := Vector3.ZERO
 var kills := 0
 var boss_kills := 0
+var _waves_left: Array = []
+var waves_total := 1
+var wave_index := 1
+var _room_done := false
+var _rebuilt := false
+var worldmap: Control
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 
@@ -136,8 +151,17 @@ func _ready() -> void:
 	picker = Picker.new()
 	pick_layer.add_child(picker)
 	picker.picked.connect(_on_picked)
+	picker.reroll.connect(_on_reroll)
+	var map_layer := CanvasLayer.new()
+	map_layer.layer = 4
+	add_child(map_layer)
+	worldmap = WorldMap.new()
+	map_layer.add_child(worldmap)
+	worldmap.world_chosen.connect(_on_world_chosen)
+	worldmap.closed.connect(_on_worldmap_closed)
 	_load()
 	get_viewport().size_changed.connect(_fit_camera)
+	apply_world(1)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
@@ -206,7 +230,23 @@ func _on_play() -> void:
 		_start()
 		_set_state("play")
 	else:
-		_set_state("intro")
+		# choix du monde sur le rouleau
+		menu.show_mode("hidden")
+		state = "worlds"
+		var unlocked: int = 5 if UNLOCK_ALL else int(meta.unlocked)
+		worldmap.open(Worlds.WORLDS, unlocked, meta.world_best, current_world)
+
+
+func _on_world_chosen(id: int) -> void:
+	sfx.play("slash", 0.9, -4.0)
+	if id != current_world:
+		apply_world(id)
+	_start()
+	_set_state("intro")
+
+
+func _on_worldmap_closed() -> void:
+	_set_state("menu")
 
 
 func _on_atelier() -> void:
@@ -283,124 +323,25 @@ func _build_world() -> void:
 	add_child(cam)
 	cam.current = true
 
-	# l'eau tout autour (bleu de Prusse) et ses rides d'écume
-	# eau : bleu de Prusse, reflets animés (normal map de bruit qui défile)
-	_water_mat = StandardMaterial3D.new()
-	_water_mat.albedo_color = Toon.PRUSSIAN
-	_water_mat.roughness = 0.25
-	_water_mat.metallic_specular = 0.7
-	var noise := FastNoiseLite.new()
-	noise.frequency = 0.035
-	var ntex := NoiseTexture2D.new()
-	ntex.noise = noise
-	ntex.seamless = true
-	ntex.as_normal_map = true
-	ntex.bump_strength = 6.0
-	ntex.width = 256
-	ntex.height = 256
-	_water_mat.normal_enabled = true
-	_water_mat.normal_texture = ntex
-	_water_mat.normal_scale = 0.6
-	_water_mat.uv1_scale = Vector3(60, 60, 1)
-	var water := Toon.part(world, Toon.box(Vector3(600, 0.1, 600)), _water_mat, Vector3(0, -0.6, 0))
-	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	water.name = "water"
-	var foam_mat := Toon.mat(Toon.FOAM, false)
-	for i in 90:
-		var far := i >= 50
-		var foam := Toon.part(world, Toon.box(Vector3(randf_range(0.6, 2.2) * (3.0 if far else 1.0), 0.02, 0.07 * (2.0 if far else 1.0))), foam_mat,
-			Vector3(randf_range(-9, 9) * (3.0 if far else 1.0), -0.54, randf_range(-14, 14) if not far else randf_range(-70, -12)))
-		if absf(foam.position.x) < HALF.x + 0.8 and absf(foam.position.z) < HALF.y + 0.8:
-			foam.position.x += signf(foam.position.x + 0.01) * (HALF.x + 1.5)
+	_env = e
+	_sun = sun
+	# la salle (sol, décor, torii de sortie) et le monde (vide, lointain, particules)
+	arena = Arena.new()
+	world.add_child(arena)
 
-	# au loin : le Fuji, le soleil vermillon et des bancs de brume (vus depuis l'accueil)
-	var fuji := Toon.flat(Color("#5D7392"))
-	fuji.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-	Toon.part(world, Toon.cyl(2.0, 46.0, 26.0, 48), fuji, Vector3(-18, 12.4, -170))
-	var snow := Toon.flat(Toon.FOAM)
-	snow.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-	Toon.part(world, Toon.cyl(2.05, 12.5, 7.0, 48), snow, Vector3(-18, 21.9, -169.6))
-	var sun_mat := Toon.flat(Toon.VERMILION)
-	sun_mat.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-	Toon.part(world, Toon.sphere(11.0), sun_mat, Vector3(26, 26, -230))
-	var mist := Toon.flat(Color(Toon.WASHI, 0.85))
-	Toon.part(world, Toon.box(Vector3(140, 1.6, 0.1)), mist, Vector3(-30, 6.0, -150))
-	Toon.part(world, Toon.box(Vector3(90, 1.1, 0.1)), mist, Vector3(30, 10.5, -160))
 
-	# le ponton : grande plateforme de bois clair, planches et bord d'encre
-	var deck := Vector2(HALF.x + 0.5, HALF.y + 0.5)
-	# structure sombre sous les planches (visible dans les jointures)
-	Toon.part(world, Toon.box(Vector3(deck.x * 2, 0.46, deck.y * 2)), Toon.mat(Color("#5B4630"), false), Vector3(0, -0.27, 0))
-	# planches : teintes et longueurs variées, joints décalés
-	var woods := [Color("#C9AE7C"), Color("#BFA171"), Color("#D0B686"), Color("#B99B6B"), Color("#C5A978")]
-	var wood_mats := []
-	for wc in woods:
-		var wm := Toon.mat(wc, false)
-		wm.rim_enabled = false
-		wm.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-		wood_mats.append(wm)
-	var pw := 0.62
-	var count := int(deck.x * 2 / pw)
-	for i in count:
-		var px := -deck.x + pw * (i + 0.5)
-		var z0 := -deck.y
-		while z0 < deck.y - 0.01:
-			var l := minf(randf_range(2.6, 5.5), deck.y - z0)
-			var pl := Toon.part(world, Toon.box(Vector3(pw - 0.035, 0.09, l - 0.03)), wood_mats[randi() % wood_mats.size()],
-				Vector3(px, -0.045 + randf_range(-0.006, 0.006), z0 + l / 2.0))
-			pl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			z0 += l
-	var edge := Toon.mat(Toon.SUMI, false)
-	Toon.part(world, Toon.box(Vector3(deck.x * 2 + 0.1, 0.56, 0.1)), edge, Vector3(0, -0.25, deck.y))
-	Toon.part(world, Toon.box(Vector3(deck.x * 2 + 0.1, 0.56, 0.1)), edge, Vector3(0, -0.25, -deck.y))
-	Toon.part(world, Toon.box(Vector3(0.1, 0.56, deck.y * 2)), edge, Vector3(deck.x, -0.25, 0))
-	Toon.part(world, Toon.box(Vector3(0.1, 0.56, deck.y * 2)), edge, Vector3(-deck.x, -0.25, 0))
-	# pieux
-	var post := Toon.mat(Color("#5B4630"))
-	for sx in [-1.0, 1.0]:
-		for k in 5:
-			var z := lerpf(-deck.y, deck.y, k / 4.0)
-			Toon.part(world, Toon.cyl(0.14, 0.14, 0.9), post, Vector3(sx * (deck.x + 0.05), -0.3, z))
-
-	# torii vermillon et corde sacrée au fond de l'arène
-	Decor.torii(world, Vector3(0, 0, -deck.y - 0.2))
-	Decor.rope_shimenawa(world, Vector3(-2.05, 2.3, -9.08), Vector3(2.05, 2.3, -9.08))
-
-	# lanternes de pierre aux quatre coins, lanternes de papier sur les bords
-	for sx in [-1.0, 1.0]:
-		Decor.stone_lantern(world, Vector3(sx * 4.65, 0, 8.65))
-		Decor.stone_lantern(world, Vector3(sx * 4.7, 0, -8.7))
-		for z in [-3.0, 3.0]:
-			var pl := Decor.paper_lantern(world, Vector3(sx * 5.0, 0, z), 1.0, Toon.VERMILION if z < 0 else Toon.WASHI)
-			pl.rotation.y = 0.0 if sx > 0 else PI
-
-	# rochers, cerisiers, pin et bambous dans l'eau autour du ponton
-	Decor.rock(world, Vector3(-6.0, -0.55, -6.5), 1.6, 1)
-	Decor.rock(world, Vector3(6.3, -0.55, -2.0), 1.2, 2)
-	Decor.rock(world, Vector3(-6.4, -0.55, 3.5), 0.9, 3)
-	Decor.rock(world, Vector3(6.0, -0.55, 6.5), 1.3, 4)
-	Decor.rock(world, Vector3(5.6, -0.55, 1.0), 0.55, 5)
-	Decor.rock(world, Vector3(-5.6, -0.55, -2.2), 0.6, 6)
-	Decor.rock(world, Vector3(-7.0, -0.55, -10.5), 2.2, 7)
-	Decor.sakura(world, Vector3(-7.0, 0.1, -10.5), 1.3, 1)
-	Decor.rock(world, Vector3(7.2, -0.55, -11.0), 2.0, 8)
-	Decor.pine(world, Vector3(7.2, 0.05, -11.0), 1.2, 2)
-	Decor.rock(world, Vector3(6.8, -0.55, -5.5), 1.8, 9)
-	Decor.sakura(world, Vector3(6.8, 0.1, -5.5), 1.0, 4)
-	Decor.rock(world, Vector3(-6.6, -0.55, -1.5), 1.6, 10)
-	Decor.bamboo(world, Vector3(-6.6, -0.05, -1.5), 1.0, 3)
-
-	# au large : la Grande Vague de Kanagawa et des îlots à pins
-	var w1 := Decor.great_wave(world, Vector3(-24, -0.55, -48), 2.6, 1)
-	w1.rotation.y = 0.6
-	var w2 := Decor.great_wave(world, Vector3(32, -0.55, -75), 3.5, 2)
-	w2.rotation.y = -0.5
-	Decor.island(world, Vector3(14, -0.55, -30), 1.4, 1)
-	Decor.island(world, Vector3(-34, -0.55, -70), 2.4, 2)
-	Decor.island(world, Vector3(45, -0.55, -110), 3.0, 3)
-
-	# pétales de cerisier qui dérivent sur l'arène
-	Decor.petals(world, AABB(Vector3(-5.5, 0.0, -10.0), Vector3(11.0, 4.5, 20.0)))
+## Applique l'ambiance d'un monde : ciel, brume, lumière, puis le décor lointain.
+func apply_world(id: int) -> void:
+	current_world = id
+	var w: Dictionary = Worlds.world(id)
+	_env.background_color = w.sky
+	_env.fog_light_color = w.fog
+	_env.fog_density = float(w.fog_density)
+	_env.ambient_light_color = w.ambient_color
+	_env.ambient_light_energy = float(w.ambient_energy)
+	_sun.light_color = w.sun_color
+	_sun.light_energy = float(w.sun_energy)
+	arena.set_world(id)
 
 
 func _fit_camera() -> void:
@@ -466,9 +407,10 @@ func _start() -> void:
 	bullets.clear()
 	if hero:
 		hero.queue_free()
+	arena.build_room(1, ROOMS, randi())
 	hero = Hero.new()
 	add_child(hero)
-	hero.position = Vector3(0, 0, HALF.y - 2.5)
+	hero.position = arena.start
 	hero.dash_finished.connect(_on_dash_finished)
 	_prev_hero = hero.position
 	elan = elan_max()
@@ -476,10 +418,13 @@ func _start() -> void:
 	wave_wait = 0.8
 	room = 0
 	_room_queue = []
+	_waves_left = []
+	_room_done = false
 	powers.reset()
 	hazards.clear()
 	curses.clear()
 	_extra_picks = 0
+	picker.rerolls = meta.rerolls()
 	kills = 0
 	boss_kills = 0
 	mini_kills = 0
@@ -499,55 +444,70 @@ func elan_max() -> float:
 	return (ELAN_MAX + powers.elan_bonus() + meta.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
 
 
-## Salle suivante : budget d'ennemis croissant, en deux vagues (60 % puis 40 %).
+## Salle suivante : 3 vagues d'ennemis à tuer, tirées selon le monde, budget croissant.
 func _begin_room() -> void:
 	room += 1
 	wave = room
+	_room_done = false
 	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
 	hazards.begin_room(room, hero.position)
-	var budget := 4 + 2 * room
+	var w: Dictionary = Worlds.world(current_world)
+	var weights: Dictionary = w.enemies
+	var budget := 5 + 3 * room
 	var list: Array = []
 	if room >= 3:
 		list.append("brute")
 		budget -= 3
-	if room == 5 or room == ROOMS:
-		list.append("brute")
-		budget -= 3
-	while budget > 0:
-		var r := randf()
-		if room >= 2 and r < 0.25 and budget >= 2:
-			list.append("kappa")
-			budget -= 2
-		elif room >= 3 and r < 0.4 and budget >= 3:
-			list.append("tate")
-			budget -= 3
-		elif room >= 4 and r < 0.52 and budget >= 2:
-			list.append("funa")
-			budget -= 2
-		elif room >= 4 and r < 0.62 and budget >= 3:
-			list.append("brute")
-			budget -= 3
-		else:
-			list.append("oni")
-			budget -= 1
+	var guard := 0
+	while budget > 0 and guard < 100:
+		guard += 1
+		var k := _weighted_kind(weights)
+		var cost := int(KIND_COST.get(k, 1))
+		if room < int(KIND_ROOM.get(k, 1)) or cost > budget:
+			k = "oni"
+			cost = 1
+		list.append(k)
+		budget -= cost
+	list.shuffle()
 	if room == 5:
-		list = ["oni", "oni"]
+		list = ["oni", "oni", "oni"]
 		_spawn_boss("okappa")
 	elif room == ROOMS:
 		list = []
 		_spawn_boss("uwabami")
-	list.shuffle()
-	var first := int(ceil(list.size() * 0.6))
-	_room_queue = list.slice(first)
-	_spawn_list(list.slice(0, first))
+	# découpe en vagues : 40 % / 35 % / 25 %
+	_waves_left = []
+	var n := list.size()
+	var a := int(ceil(n * 0.4))
+	var b := int(ceil(n * 0.75))
+	var first: Array = list.slice(0, a)
+	if b > a:
+		_waves_left.append(list.slice(a, b))
+	if n > b:
+		_waves_left.append(list.slice(b))
+	waves_total = 1 + _waves_left.size()
+	wave_index = 1
+	_spawn_list(first)
 	sfx.play("strike", 0.7, -2.0)
 
+
+func _weighted_kind(weights: Dictionary) -> String:
+	var total := 0.0
+	for k in weights.keys():
+		total += float(weights[k])
+	var r := randf() * total
+	for k in weights.keys():
+		r -= float(weights[k])
+		if r <= 0.0:
+			return String(k)
+	return "oni"
 
 func _spawn_boss(k: String) -> void:
 	var b := Boss.new()
 	b.setup(k, self)
 	if k == "okappa":
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
+	b.max_hp_mult = float(Worlds.world(current_world).hp_mult)
 	add_child(b)
 	bosses.append(b)
 	sfx.play("strike", 0.5)
@@ -599,8 +559,8 @@ func _spawn_list(list: Array) -> void:
 		e.setup(String(k), hero, self)
 		var p := Vector3.ZERO
 		for attempt in 30:
-			p = Vector3(randf_range(-HALF.x + 0.8, HALF.x - 0.8), 0, randf_range(-HALF.y + 0.8, HALF.y - 3.0))
-			if p.distance_to(hero.position) > 4.5 and not hazards.is_hole(p, -0.8):
+			p = arena.random_point(hero.position, 4.5)
+			if not hazards.is_hole(p, -0.8):
 				break
 		e.position = p
 		add_child(e)
@@ -608,6 +568,7 @@ func _spawn_list(list: Array) -> void:
 			e.hp *= 1.5
 		if "haste" in curses:
 			e.speed *= 1.25
+		e.hp *= float(Worlds.world(current_world).hp_mult)
 		enemies.append(e)
 
 
@@ -656,6 +617,14 @@ func _open_sanctuary() -> void:
 	sfx.play("hurt", 0.6, -6.0)
 
 
+func _on_reroll() -> void:
+	sfx.play("whoosh", 1.2, -4.0)
+	if _pick_mode == "curse":
+		_open_sanctuary()
+	else:
+		_open_upgrades()
+
+
 func _on_picked(id: String) -> void:
 	if _pick_mode == "curse":
 		if id != "refuse":
@@ -670,12 +639,40 @@ func _on_picked(id: String) -> void:
 		return
 	elan = elan_max()
 	_set_state("play")
+	arena.open_gate()
+	sfx.play("shot", 1.4, -4.0)
+
+
+## Passage du torii : un coup de pinceau couvre l'écran, la salle suivante apparaît derrière.
+func _transit() -> void:
+	_set_state("transit")
+	_rebuilt = false
+	if touching and stroke:
+		stroke.queue_free()
+		stroke = null
+	touching = false
+	hero.stop_dash()
+	sfx.play("whoosh", 0.6)
+
+
+func _rebuild_room() -> void:
+	_rebuilt = true
+	for e in effects:
+		if is_instance_valid(e.node):
+			e.node.queue_free()
+	effects.clear()
+	arena.build_room(room + 1, ROOMS, randi())
+	hero.position = arena.start
+	_prev_hero = hero.position
+	hero.face(Vector3(0, 0, -1))
+	hero.snap_facing()
 	_begin_room()
 
 
 func _award(victory: bool) -> void:
 	var cleared := room if victory else room - 1
 	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills)
+	meta.record_world(current_world, room, victory)
 	menu.gain_sumi = int(g.get("sumi", 0))
 	menu.gain_seals = int(g.get("seals", 0))
 	menu.sumi = meta.sumi
@@ -703,7 +700,7 @@ func _fall() -> void:
 	sfx.play("strike", 1.4)
 	var back := _safe_point
 	if hazards.is_hole(back, -0.4):
-		back = Vector3(0, 0, HALF.y - 2.5)
+		back = arena.start
 	hero.position = back
 	_prev_hero = back
 	_hurt_hero()
@@ -881,6 +878,12 @@ func float_text(pos: Vector3, text: String, color: Color) -> void:
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
 func clamp_to_arena(n: Node3D, r: float) -> void:
+	var cp: Vector3 = arena.clamp_walk(n.position, r)
+	n.position = Vector3(cp.x, n.position.y, cp.z)
+	return
+
+
+func _clamp_to_bounds(n: Node3D, r: float) -> void:
 	n.position.x = clampf(n.position.x, -HALF.x + r, HALF.x - r)
 	n.position.z = clampf(n.position.z, -HALF.y + r, HALF.y - r)
 
@@ -1341,7 +1344,6 @@ func _process(_delta: float) -> void:
 		if not is_instance_valid(bosses[i]):
 			bosses.remove_at(i)
 	_state_t += real
-	_water_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * real
 	if state == "play":
 		powers.update(dt)
 		hazards.update(dt)
@@ -1352,17 +1354,35 @@ func _process(_delta: float) -> void:
 		for e in enemies:
 			if is_instance_valid(e) and not e.dead:
 				alive += 1
-		if not _room_queue.is_empty() and alive <= 1:
-			_spawn_list(_room_queue)
-			_room_queue = []
-		elif enemies.is_empty() and _room_queue.is_empty() and bosses.is_empty():
+		if not _waves_left.is_empty() and alive <= 1:
+			# vague suivante
+			_spawn_list(_waves_left.pop_front())
+			wave_index += 1
+			sfx.play("strike", 0.8, -4.0)
+		elif room == 0:
+			wave_wait -= real
+			if wave_wait <= 0.0:
+				_begin_room()
+		elif not _room_done and enemies.is_empty() and _waves_left.is_empty() and bosses.is_empty():
 			wave_wait -= real
 			if wave_wait <= 0.0:
 				wave_wait = 0.8
-				if room == 0:
-					_begin_room()
-				else:
-					_room_cleared()
+				_room_done = true
+				_room_cleared()
+		elif arena.gate_open and arena.gate_reached(hero.position):
+			_transit()
+		# un noyé hors de la terre ferme est ramené au bord le plus proche
+		for e in enemies:
+			if is_instance_valid(e) and e.kind == "funa" and not e.dead:
+				var cp: Vector3 = arena.clamp_walk(e.position, 0.45)
+				e.position = Vector3(cp.x, e.position.y, cp.z)
+	elif state == "transit":
+		hud.wipe = clampf(_state_t / 0.35, 0.0, 1.0) if _state_t < 0.45 else clampf(1.0 - (_state_t - 0.45) / 0.35, 0.0, 1.0)
+		if _state_t >= 0.4 and not _rebuilt:
+			_rebuild_room()
+		if _state_t >= 0.8:
+			hud.wipe = 0.0
+			_set_state("play")
 
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
@@ -1392,6 +1412,10 @@ func _process(_delta: float) -> void:
 		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
 	hud.wave = maxi(wave, 1)
+	hud.wave_index = wave_index
+	hud.waves_total = waves_total
+	hud.show_waves = state == "play" and room > 0 and not _room_done
+	hud.gate_hint = arena.gate_open and state == "play"
 	hud.slow = 0.0
 	hud.game_over = game_over
 	hud.boss_name = ""

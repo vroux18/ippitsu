@@ -15,6 +15,11 @@ var over_t := 0.0
 var best_wave := 0
 var boss_name := ""
 var boss_ratio := 1.0
+var wipe := 0.0  # rideau d'encre de la transition entre salles (0..1)
+var wave_index := 1
+var waves_total := 1
+var show_waves := false
+var gate_hint := false
 
 
 func _ready() -> void:
@@ -62,6 +67,24 @@ func _draw() -> void:
 	draw_circle(Vector2(sz.x - 30 * u, 32 * u), 17 * u, Toon.SUMI)
 	draw_string(font, Vector2(sz.x - 30 * u - tw / 2.0, 32 * u + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.WASHI)
 
+	# vagues de la salle : une pastille par vague, pleine quand elle est arrivée
+	if show_waves and waves_total > 1 and boss_name == "":
+		for i in waves_total:
+			var wp := Vector2(sz.x - 30 * u - (waves_total - 1 - i) * 14 * u, 62 * u)
+			if i < wave_index:
+				draw_circle(wp, 4.5 * u, Toon.SUMI)
+			else:
+				draw_arc(wp, 4.0 * u, 0, TAU, 14, Color(Toon.SUMI, 0.4), 1.5 * u, true)
+
+	# torii ouvert : une flèche d'encre pulse vers le haut
+	if gate_hint:
+		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.006)
+		var ax := sz.x / 2.0
+		var ay := 120.0 * u - 8.0 * u * pulse
+		var arrow := PackedVector2Array([Vector2(ax, ay - 16 * u), Vector2(ax + 16 * u, ay + 6 * u), Vector2(ax + 6 * u, ay + 6 * u),
+			Vector2(ax + 6 * u, ay + 22 * u), Vector2(ax - 6 * u, ay + 22 * u), Vector2(ax - 6 * u, ay + 6 * u), Vector2(ax - 16 * u, ay + 6 * u)])
+		draw_colored_polygon(arrow, Color(Toon.GOLD, 0.55 + 0.4 * pulse))
+
 	# barre du boss : son nom et un trait vermillon qui s'amenuise
 	if boss_name != "" and not game_over:
 		var bw := sz.x * 0.6
@@ -95,6 +118,19 @@ func _draw() -> void:
 
 	if game_over:
 		_draw_game_over(sz, u, font)
+
+	# rideau d'encre : un grand coup de pinceau qui balaie l'écran
+	if wipe > 0.001:
+		var edge := sz.x * 1.4 * wipe
+		var pts := PackedVector2Array()
+		pts.append(Vector2(-10, -10))
+		var steps := 24
+		for i in steps + 1:
+			var y := -10.0 + (sz.y + 20.0) * float(i) / steps
+			var jag := sin(float(i) * 1.7) * 14.0 * u + sin(float(i) * 0.6) * 22.0 * u
+			pts.append(Vector2(edge - y * 0.25 + jag, y))
+		pts.append(Vector2(-10, sz.y + 10))
+		draw_colored_polygon(pts, Toon.SUMI)
 
 
 func _brush_bar(pos: Vector2, w: float, h: float, fill: float, c: Color) -> void:

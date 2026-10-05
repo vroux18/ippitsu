@@ -31,6 +31,8 @@ var runs := 0  # parties jouées
 var best_room := 0  # meilleure salle atteinte
 var wins := 0  # victoires (la première rapporte +2 sceaux)
 var ranks := {}  # id de ligne -> rang acheté
+var unlocked := 1  # mondes débloqués (1..5)
+var world_best := {}  # monde -> meilleure salle atteinte
 
 
 func _init() -> void:
@@ -50,6 +52,9 @@ func load_data() -> void:
 	runs = maxi(0, int(cf.get_value("meta", "runs", 0)))
 	best_room = maxi(0, int(cf.get_value("meta", "best_room", 0)))
 	wins = maxi(0, int(cf.get_value("meta", "wins", 0)))
+	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, 5)
+	for wid in range(1, 6):
+		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
 	for id in ORDER:
 		ranks[id] = clampi(int(cf.get_value("stone", id, 0)), 0, max_rank(id))
 
@@ -62,6 +67,9 @@ func save_data() -> void:
 	cf.set_value("meta", "runs", runs)
 	cf.set_value("meta", "best_room", best_room)
 	cf.set_value("meta", "wins", wins)
+	cf.set_value("meta", "unlocked", unlocked)
+	for wid in world_best.keys():
+		cf.set_value("worlds", str(wid), int(world_best[wid]))
 	for id in ORDER:
 		cf.set_value("stone", id, rank(id))
 	cf.save(SAVE_PATH)
@@ -172,3 +180,11 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 	best_room = maxi(best_room, rooms_cleared)
 	save_data()
 	return {"sumi": gained, "seals": new_seals, "print": got_print}
+
+
+## Fin d'une partie dans un monde : record du monde, et le suivant s'ouvre en cas de victoire.
+func record_world(world_id: int, room_reached: int, victory: bool) -> void:
+	world_best[world_id] = maxi(int(world_best.get(world_id, 0)), room_reached)
+	if victory:
+		unlocked = clampi(maxi(unlocked, world_id + 1), 1, 5)
+	save_data()

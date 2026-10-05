@@ -31,7 +31,7 @@ func begin_room(room: int, hero_pos: Vector3) -> void:
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)
 			var c := Vector3(randf_range(-HALF.x + 1.4, HALF.x - 1.4), 0, randf_range(-HALF.y + 2.0, HALF.y - 2.0))
-			var ok := c.distance_to(hero_pos) > 3.0
+			var ok: bool = c.distance_to(hero_pos) > 3.0 and main.arena.walkable(c, r + 0.4)
 			for h in holes:
 				var hc: Vector3 = h[0]
 				if hc.distance_to(c) < float(h[1]) + r + 1.5:
@@ -73,6 +73,9 @@ func _make_hole(c: Vector3, r: float) -> void:
 
 
 func is_hole(p: Vector3, margin := 0.0) -> bool:
+	# le vide autour des plateformes compte comme un trou
+	if main != null and main.arena != null and not main.arena.walkable(p, -margin):
+		return true
 	for h in holes:
 		var c: Vector3 = h[0]
 		var r: float = h[1]
@@ -125,6 +128,8 @@ func update(dt: float) -> void:
 
 func _start_band() -> void:
 	_band_z = randf_range(-HALF.y + 2.0, HALF.y - 2.0)
+	if not main.arena.walkable(Vector3(main.hero.position.x, 0, _band_z), 0.0):
+		_band_z = main.hero.position.z
 	if absf(_band_z - main.hero.position.z) > 5.0:
 		_band_z = clampf(main.hero.position.z + randf_range(-2.0, 2.0), -HALF.y + 1.5, HALF.y - 1.5)
 	_band_dir = 1.0 if randf() < 0.5 else -1.0

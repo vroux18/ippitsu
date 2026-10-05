@@ -6,6 +6,9 @@ const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
 
 signal picked(id: String)
+signal reroll
+
+var rerolls := 0  # relances disponibles (Atelier : Choix)
 
 var _ids: Array = []
 var _infos: Array = []
@@ -13,6 +16,7 @@ var _t := 0.0
 var _down := -1
 var _chosen := -1
 var _rects: Array = []
+var _reroll_rect := Rect2()
 
 
 func _ready() -> void:
@@ -35,6 +39,13 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		var i := _hit(event.position)
+		if rerolls > 0 and _reroll_rect.has_point(event.position):
+			if not event.pressed:
+				rerolls -= 1
+				visible = false
+				reroll.emit()
+			accept_event()
+			return
 		if event.pressed:
 			_down = i
 		elif _down >= 0 and i == _down:
@@ -87,6 +98,21 @@ func _draw() -> void:
 			r = r.grow(6.0 * u * sin(clampf(_t / 0.45, 0.0, 1.0) * PI))
 		_rects.append(r)
 		_card(r, info, u, appear * (0.92 if _down == i else 1.0))
+	# relance : petit bouton sous les cartes
+	_reroll_rect = Rect2()
+	if rerolls > 0 and _chosen < 0 and _infos.size() > 0:
+		var last: Rect2 = _rects[_rects.size() - 1]
+		_reroll_rect = Rect2(Vector2(w / 2.0 - 70 * u, last.end.y + 22 * u), Vector2(140 * u, 40 * u))
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(Toon.WASHI, 0.9 * fade)
+		sb.border_color = Color(Toon.SUMI, fade)
+		sb.set_border_width_all(int(2 * u))
+		sb.set_corner_radius_all(999)
+		draw_style_box(sb, _reroll_rect)
+		var txt := "RELANCER  %d" % rerolls
+		var fs := int(14 * u)
+		var tw := UI_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(UI_FONT, Vector2(_reroll_rect.get_center().x - tw / 2.0, _reroll_rect.get_center().y + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.SUMI, fade))
 
 
 func _card(r: Rect2, info: Dictionary, u: float, a: float) -> void:

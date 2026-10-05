@@ -23,6 +23,7 @@ var hp := 18.0
 var max_hp := 18.0
 var dead := false
 var radius := 1.0
+var max_hp_mult := 1.0  # difficulté du monde
 
 var _state := "spawn"
 var _timer := 1.2
@@ -70,6 +71,7 @@ func _ready() -> void:
 		hp = 60.0
 		radius = SEG_R
 		_build_uwabami()
+	hp *= max_hp_mult
 	max_hp = hp
 
 
