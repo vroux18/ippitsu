@@ -129,6 +129,53 @@ jobs:
         with:
           path: build/web
 
+  # robot testeur : joue les 5 mondes en entier (en parallèle de l'export, ne bloque pas l'APK)
+  bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot-bin
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Godot
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/godot-bin
+          cd /tmp
+          wget -q https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          mv Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot-bin/godot
+
+      - name: Musique et import
+        run: |
+          echo "$HOME/godot-bin" >> $GITHUB_PATH
+          export PATH="$HOME/godot-bin:$PATH"
+          godot --headless --path . --script tools/bake_music.gd
+          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
+          godot --headless --path . --import || true
+
+      - name: Partie complète des 5 mondes
+        run: |
+          godot --headless --path . --fixed-fps 30 -- --bot > bot.log 2>&1 || true
+          grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" bot.log | head -400
+          grep -q "BOT DONE" bot.log
+          ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" bot.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bot-log
+          path: bot.log
+
   web:
     needs: export
     runs-on: ubuntu-latest

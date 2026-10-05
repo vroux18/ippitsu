@@ -27,6 +27,7 @@ const Worlds = preload("res://scripts/worlds.gd")
 const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
+const Bot = preload("res://scripts/bot.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus"},
@@ -137,6 +138,8 @@ var run_gold := 0
 var _pending_levels := 0
 var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
+var _bot: Node = null  # robot testeur (CI)
+var _last_offer: Array = []  # derniers rouleaux proposés (pour le robot)
 var in_hub := false  # sanctuaire de départ (avant la salle 1)
 var _hub_t := 0.0
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
@@ -270,6 +273,11 @@ func _ready() -> void:
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
+	# `-- --bot` : le robot joue les 5 mondes en entier et signale les blocages (CI)
+	if "--bot" in OS.get_cmdline_user_args():
+		_bot = Bot.new()
+		add_child(_bot)
+		_bot.begin(self)
 	_warmup()
 	_ticks = Time.get_ticks_usec()
 
@@ -297,7 +305,7 @@ func _warmup() -> void:
 	st.extend_to(Vector3(2, 0, 0), 3.0)
 	var l := Label3D.new()
 	l.font = KANJI_FONT
-	l.text = "0123456789.× 渦雷返一円鉤"
+	l.text = "0123456789.× 渦雷返一円鉤斬逃波筆炎鳳神嵐狐背"
 	l.font_size = 120  # mêmes tailles que les textes de combat : glyphes prêts d'avance
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = false
@@ -743,6 +751,7 @@ func _begin_room() -> void:
 	room += 1
 	_room_done = false
 	foam = powers.foam_per_room()
+	powers.on_room_start(room)
 	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
 	hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
 	var w: Dictionary = Worlds.world(current_world)
@@ -930,7 +939,8 @@ func _open_gate() -> void:
 
 func _open_upgrades() -> void:
 	_pick_mode = "upgrade"
-	var ids: Array = powers.offer()
+	var ids: Array = powers.offer(room)
+	_last_offer = ids
 	var infos: Array = []
 	for id in ids:
 		infos.append(powers.describe(id))
@@ -950,6 +960,7 @@ func _open_sanctuary() -> void:
 	for id in ids:
 		infos.append({"name": CURSES[id].name, "text": CURSES[id].text, "level": -1, "kanji": "鬼", "color": Color("#7A1F1A")})
 	ids.append("refuse")
+	_last_offer = ids
 	infos.append({"name": "Passer", "text": "Continuer sans malédiction", "level": -1, "kanji": "道", "color": Color("#8C8FA8")})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
@@ -1208,6 +1219,7 @@ func _apply_shape() -> void:
 		return
 	var sh: Dictionary = _shape
 	_shape = {}
+	powers.on_shape(String(sh.shape), sh)
 	match String(sh.shape):
 		"loop":
 			# Uzu : toupie sabre tendu, aspire et lacère tout autour pendant ~1 s
@@ -1270,6 +1282,7 @@ func _on_hero_landed() -> void:
 		damage_enemy(o, 2.0)
 		o.push((o.position - hero.position).normalized() * 4.0)
 	damage_bosses(hero.position, _enso_r + 0.4, 2.0)
+	powers.on_enso_land(hero.position, _enso_r)
 
 
 ## Techniques qui durent : toupie (dégâts réguliers + aspiration) et coupe différée de l'iaï.
@@ -1500,6 +1513,7 @@ func _touch_up(sp: Vector2) -> void:
 			elan -= powers.dodge_cost(DODGE_COST)
 			hero.invuln = maxf(hero.invuln, powers.val("shadow_step"))
 			_launch(s)
+			powers.on_dodge(origin, end)
 		else:
 			elan = minf(elan_max(), elan + stroke.length)
 			stroke.queue_free()
@@ -1686,6 +1700,8 @@ func _hurt_hero() -> void:
 		clang(hero.position)
 		float_text(hero.position, "ÉCUME", Toon.FOAM)
 		return
+	if powers.on_hurt():
+		return
 	hero.hurt()
 	_break_chain()
 	hud.hurt_flash = 1.0
@@ -1773,8 +1789,8 @@ func _check_slashes() -> void:
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
-			bo.take_hit(bd, bdir)
-			powers.on_boss_hit(bo.position)
+			bo.take_hit(powers.boss_dmg(bd), bdir)
+			powers.on_boss_hit(bo.position, bd)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			shake = maxf(shake, 0.22)
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
@@ -1936,6 +1952,9 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
+	if _bot != null:
+		real = 1.0 / 30.0  # pas fixe : le robot joue aussi vite que la machine le permet
+		_bot.step(real)
 
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):
@@ -1948,6 +1967,8 @@ func _process(_delta: float) -> void:
 		target = 0.25 if not _ending_victory else 0.6
 	elif game_over:
 		target = 0.35
+	elif state == "play":
+		target = powers.time_mult()  # ralentis des pouvoirs (souffle suspendu, instant volé)
 	if target < Engine.time_scale:
 		Engine.time_scale = lerpf(Engine.time_scale, target, minf(1.0, real * 18.0))
 	else:
