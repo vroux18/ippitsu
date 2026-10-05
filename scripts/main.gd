@@ -220,6 +220,9 @@ func _ready() -> void:
 		_room_cleared()
 	if "atelier" in wsearch:
 		_on_atelier()
+	if "pause" in wsearch:
+		_set_state("play")
+		_on_pause()
 	_warmup()
 	_ticks = Time.get_ticks_usec()
 
