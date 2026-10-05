@@ -94,7 +94,9 @@ jobs:
         run: |
           mkdir -p build/web
           # build debug pendant le prototypage : les erreurs de script s'affichent dans la console du navigateur
-          godot --headless --path . --export-debug "Web" build/web/index.html
+          # noms de fichiers uniques à chaque build : pas de mélange de versions dans le cache du téléphone
+          godot --headless --path . --export-debug "Web" build/web/ippitsu-${{ github.run_number }}.html
+          cp build/web/ippitsu-${{ github.run_number }}.html build/web/index.html
           test -s build/web/index.html
 
       - name: Publication (release)

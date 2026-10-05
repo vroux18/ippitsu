@@ -147,7 +147,7 @@ func _fit_camera() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	if vs.x <= 0 or vs.y <= 0:
 		return
-	var tilt := deg_to_rad(58.0)
+	var tilt := deg_to_rad(54.0)
 	var corners := [Vector3(-HALF.x - 0.6, 0, -HALF.y - 0.6), Vector3(HALF.x + 0.6, 0, -HALF.y - 0.6),
 		Vector3(-HALF.x - 0.6, 0, HALF.y + 0.6), Vector3(HALF.x + 0.6, 0, HALF.y + 0.6),
 		Vector3(0, 3.4, -HALF.y - 0.7)]
@@ -157,22 +157,30 @@ func _fit_camera() -> void:
 	var found := false
 	var dist := 12.0
 	while dist < 70.0 and not found:
-		for zi in 25:
-			var zc := -1.5 + zi * 0.25
+		# à cette distance, garde le cadrage qui centre l'arène verticalement
+		var best_gap := INF
+		for zi in 41:
+			var zc := -4.0 + zi * 0.2
 			var focus := Vector3(0, 0, zc)
 			var pos := focus + Vector3(0, sin(tilt), cos(tilt)) * dist
 			var tr := Transform3D(Basis(), pos).looking_at(focus, Vector3.UP)
 			cam.global_transform = tr
 			var ok := true
+			var min_y := INF
+			var max_y := -INF
 			for c in corners:
 				var p := cam.unproject_position(c)
+				min_y = minf(min_y, p.y)
+				max_y = maxf(max_y, p.y)
 				if p.x < vs.x * 0.01 or p.x > vs.x * 0.99 or p.y < top or p.y > bottom:
 					ok = false
 					break
 			if ok:
-				best = tr
+				var gap := absf((min_y - top) - (bottom - max_y))
+				if gap < best_gap:
+					best_gap = gap
+					best = tr
 				found = true
-				break
 		dist += 0.25
 	if not found:
 		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)
@@ -246,6 +254,8 @@ func _clamp_point(p: Vector3) -> Vector3:
 # ------------------------------------------------------------------ entrée
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch or event is InputEventMouseButton:
+		print("input ", event)
 	if event is InputEventScreenTouch:
 		if event.index != 0:
 			return
@@ -562,6 +572,8 @@ func _process(_delta: float) -> void:
 	else:
 		Engine.time_scale = target
 	var dt := real * Engine.time_scale
+	if Engine.get_process_frames() % 120 == 0:
+		print("tick wave=", wave, " enemies=", enemies.size(), " ts=", Engine.time_scale, " real=", real, " wait=", wave_wait, " touching=", touching)
 
 	if not touching and not hero.dashing:
 		elan = minf(ELAN_MAX, elan + ELAN_REGEN * real)
