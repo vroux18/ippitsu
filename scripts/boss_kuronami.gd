@@ -48,6 +48,7 @@ var _flash := 0.0
 var _volley := 0
 var _last_lane := -1
 var _pending_shift := false
+var _eye_grace := 0.0  # l'œil ne blesse pas au contact juste après une boucle autour de lui
 
 var _pts: Array = []  # positions de la ruée en cours (Vector3, y = 0)
 var _zones: Array = []  # annonces actives (bandes et disques)
@@ -318,7 +319,7 @@ func touching_hero(p: Vector3) -> bool:
 				if absf(p.x - x) <= LANE_W * 0.5 + 0.2 and absf(p.z - z) <= 0.55:
 					return true
 		"p3":
-			if _eye.visible and Vector2(p.x, p.z).length() < EYE_R:
+			if _eye.visible and _eye_grace <= 0.0 and Vector2(p.x, p.z).length() < EYE_R:
 				return true
 	return false
 
@@ -504,6 +505,10 @@ func _check_enso(samples: Array) -> void:
 		sum_r += r
 		sum_r2 += r * r
 		cnt += 1
+	if absf(turn) >= PI:
+		# la technique Ensō de main fait bondir le héros au centre du cercle, donc dans l'œil :
+		# sans ce répit, chaque ensō réussi coûtait un cœur à l'atterrissage
+		_eye_grace = 1.5
 	if cnt < 6:
 		return
 	var mean := sum_r / float(cnt)
@@ -958,6 +963,8 @@ func _wave_step(w: Dictionary, delta: float) -> bool:
 # --- phase 3 : l'ensō
 
 func _phase3(delta: float) -> void:
+	if _eye_grace > 0.0:
+		_eye_grace -= delta
 	_eye.scale = _eye.scale.lerp(Vector3.ONE, minf(1.0, delta * 3.0))
 	_orbit.rotation.y += delta * 0.9
 	# l'iris suit le héros, l'œil cligne
@@ -1003,3 +1010,116 @@ func _eye_attack() -> void:
 		for i in n:
 			var c := hero.position if i == 0 else Vector3(randf_range(-HALF.x, HALF.x), 0, randf_range(-HALF.y + 1.0, HALF.y - 1.0))
 			_drops.append({"type": "rain", "zone": _disc_zone(_in_arena(c), 1.3, 1.1)})
+
+
+# ------------------------------------------------------------------ robot testeur
+
+const BOT_HALF := Vector2(4.3, 8.3)  # bornes des points du robot (comme main._clamp_point)
+const BOT_ENSO_R := 2.5
+
+
+## Trait qu'un bon joueur tracerait maintenant (points au sol depuis le héros), ou vide = attendre.
+func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
+	var none := PackedVector3Array()
+	var h := Vector3(hero_pos.x, 0, hero_pos.z)
+	if dead or _pending_shift:
+		return none
+	match _state:
+		"p1":
+			return _bot_claw(h)
+		"p2":
+			return _bot_kaeshi(h)
+		"p3":
+			return _bot_enso(h)
+	return none
+
+
+## Phase 1 : longer un doigt posé sur 80 % de sa longueur, en partant du bout le plus proche.
+func _bot_claw(h: Vector3) -> PackedVector3Array:
+	var best := PackedVector3Array()
+	var best_l := 1e9
+	for f: Dictionary in _fingers:
+		if not bool(f["alive"]) or String(f["state"]) != "rest" or float(f["t"]) < 0.5 or float(f["hurt"]) > 0.0:
+			continue
+		var a: Vector3 = f["a"]
+		var b: Vector3 = f["b"]
+		for opt in [[0.0, 0.82], [1.0, 0.18]]:
+			var o: Array = opt
+			var s := a.lerp(b, float(o[0]))
+			var e := a.lerp(b, float(o[1]))
+			var l := h.distance_to(s) + s.distance_to(e)
+			if l < best_l:
+				best_l = l
+				best = _bot_dense([h, s, e])
+	return best
+
+
+## Phase 2 : aller-retour devant une (ou deux) vague(s) qui roule(nt), retour au point de départ.
+func _bot_kaeshi(h: Vector3) -> PackedVector3Array:
+	var targets: Array = []
+	for w: Dictionary in _waves:
+		if String(w["state"]) != "roll":
+			continue
+		var x: float = w["x"]
+		var z: float = w["z"]
+		if z < -HALF.y - 0.6 or z > HALF.y - 2.2:
+			continue
+		var pick := Vector3.INF
+		var pick_d := 1e9
+		for dz in [2.6, 3.6, 4.4, 1.8]:
+			for dx in [0.0, -1.3, 1.3]:
+				var t := _bot_clamp(Vector3(x + float(dx), 0, z + float(dz)))
+				if absf(t.x - x) > LANE_W * 0.5 + 0.2 or t.z < z + 1.2:
+					continue
+				var d := h.distance_to(t)
+				if d >= 2.3 and d <= 6.5 and d < pick_d:
+					pick_d = d
+					pick = t
+		if pick != Vector3.INF:
+			targets.append(pick)
+	if targets.is_empty():
+		return PackedVector3Array()
+	var t0: Vector3 = targets[0]
+	var way: Array = [h, t0]
+	if targets.size() > 1:
+		var t1: Vector3 = targets[1]
+		if h.distance_to(t0) + t0.distance_to(t1) + t1.distance_to(h) <= 14.0:
+			way.append(t1)
+	way.append(h)
+	return _bot_dense(way)
+
+
+## Phase 3 : ensō de rayon 2.5 autour de l'œil (312°, ≈ 13.6 m), après placement sur le cercle.
+func _bot_enso(h: Vector3) -> PackedVector3Array:
+	var r := Vector2(h.x, h.z).length()
+	var phi := PI * 0.5
+	if r > 0.3:
+		phi = atan2(h.z, h.x)
+	if r < 1.75 or r > 3.35:
+		return _bot_dense([h, Vector3(cos(phi), 0, sin(phi)) * BOT_ENSO_R])
+	var way: Array = [h]
+	var sweep := deg_to_rad(312.0)
+	for i in range(0, 53):
+		var th := phi + sweep * float(i) / 52.0
+		way.append(Vector3(cos(th), 0, sin(th)) * BOT_ENSO_R)
+	return _bot_dense(way)
+
+
+func _bot_clamp(p: Vector3) -> Vector3:
+	return Vector3(clampf(p.x, -BOT_HALF.x, BOT_HALF.x), 0, clampf(p.z, -BOT_HALF.y, BOT_HALF.y))
+
+
+## Polyligne finale : au sol, bornée à l'arène, points espacés de 0.4 m au plus.
+func _bot_dense(way: Array) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	for i in way.size():
+		var p: Vector3 = way[i]
+		if i == 0:
+			out.append(Vector3(p.x, 0, p.z))
+			continue
+		p = _bot_clamp(p)
+		var last: Vector3 = out[out.size() - 1]
+		var n := int(ceil(last.distance_to(p) / 0.4))
+		for k in range(1, n + 1):
+			out.append(last.lerp(p, float(k) / float(n)))
+	return out

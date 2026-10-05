@@ -228,16 +228,24 @@ func _draw() -> void:
 
 	# rideau d'encre : un grand coup de pinceau qui balaie l'écran
 	if wipe > 0.001:
+		# bande par bande (quadrilatères simples) : jamais de polygone qui se recoupe au début du balayage
 		var edge := sz.x * 1.4 * wipe
-		var pts := PackedVector2Array()
-		pts.append(Vector2(-10, -10))
 		var n := 24
+		var prev := Vector2.ZERO
 		for i in n + 1:
 			var y := -10.0 + (sz.y + 20.0) * float(i) / n
 			var jag := sin(float(i) * 1.7) * 14.0 * u + sin(float(i) * 0.6) * 22.0 * u
-			pts.append(Vector2(edge - y * 0.25 + jag, y))
-		pts.append(Vector2(-10, sz.y + 10))
-		draw_colored_polygon(pts, Toon.SUMI)
+			var cur := Vector2(maxf(edge - y * 0.25 + jag, -10.0), y)
+			if i > 0 and (cur.x > -9.0 or prev.x > -9.0):
+				var q := PackedVector2Array([Vector2(-10, prev.y)])
+				if prev.x > -9.99:
+					q.append(prev)
+				if cur.x > -9.99:
+					q.append(cur)
+				q.append(Vector2(-10, cur.y))
+				if q.size() >= 3:
+					draw_colored_polygon(q, Toon.SUMI)
+			prev = cur
 
 
 # ------------------------------------------------------------------ éléments

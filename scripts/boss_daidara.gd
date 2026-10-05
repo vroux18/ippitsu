@@ -416,32 +416,7 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		return false
 	if _run.is_empty() or int(_run["layout"]) != _layout_id:
 		_run = {"layout": _layout_id, "order": [], "bad": false, "body": false}
-	if _cores_lock <= 0.0 and _state == "fight":
-		var order: Array = _run["order"]
-		var found: Array = []
-		for i in _cores.size():
-			if order.has(i):
-				continue
-			var c: Dictionary = _cores[i]
-			var p: Vector3 = c["p"]
-			if _seg_dist(p, a, b) < CORE_HIT:
-				found.append([_seg_t(p, a, b), i])
-		found.sort_custom(func(x, y): return x[0] < y[0])
-		for f in found:
-			var i: int = f[1]
-			var c: Dictionary = _cores[i]
-			var p: Vector3 = c["p"]
-			if i == order.size() and not _run["bad"]:
-				# dans l'ordre : le noyau s'illumine, un peu d'élan rendu pour la suite
-				_core_color(c, Toon.FOAM, 1.2)
-				main.small_hit(p + Vector3(0, 0.7, 0))
-				if i > 0:
-					main.elan = minf(main.elan_max(), main.elan + 2.0)
-			else:
-				_run["bad"] = true
-				_core_color(c, Toon.SUMI, 0.0)
-				main.splash(p + Vector3(0, 0.7, 0), ASH, 6)
-			order.append(i)
+	_touch_cores(a, b)
 	# le corps : basalte (×0) sauf carapace ouverte
 	var touch := _seg_dist(position + Vector3(0, 0, 0.6), a, b) < POOL_R + 0.3
 	for side in 2:
@@ -457,6 +432,37 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	return false
 
 
+## Note les noyaux touchés par la ruée a..b, dans le sens du trait.
+func _touch_cores(a: Vector3, b: Vector3) -> void:
+	if _cores_lock > 0.0 or _state != "fight":
+		return
+	var order: Array = _run["order"]
+	var found: Array = []
+	for i in _cores.size():
+		if order.has(i):
+			continue
+		var c: Dictionary = _cores[i]
+		var p: Vector3 = c["p"]
+		if _seg_dist(p, a, b) < CORE_HIT:
+			found.append([_seg_t(p, a, b), i])
+	found.sort_custom(func(x, y): return x[0] < y[0])
+	for f in found:
+		var i: int = f[1]
+		var c: Dictionary = _cores[i]
+		var p: Vector3 = c["p"]
+		if i == order.size() and not _run["bad"]:
+			# dans l'ordre : le noyau s'illumine, un peu d'élan rendu pour la suite
+			_core_color(c, Toon.FOAM, 1.2)
+			main.small_hit(p + Vector3(0, 0.7, 0))
+			if i > 0:
+				main.elan = minf(main.elan_max(), main.elan + 2.0)
+		else:
+			_run["bad"] = true
+			_core_color(c, Toon.SUMI, 0.0)
+			main.splash(p + Vector3(0, 0.7, 0), ASH, 6)
+		order.append(i)
+
+
 func take_hit(dmg: float, _dir: Vector3) -> void:
 	if dead:
 		return
@@ -467,6 +473,11 @@ func take_hit(dmg: float, _dir: Vector3) -> void:
 func end_stroke(_stroke_id: int) -> void:
 	if _run.is_empty():
 		return
+	if not dead and int(_run["layout"]) == _layout_id:
+		# la dernière image de la ruée (celle où elle s'achève) n'est pas passée par check_dash :
+		# sans elle, un trait qui finit sur le dernier noyau le ratait
+		var pa: Vector3 = main._prev_hero
+		_touch_cores(pa, hero.position)
 	var run: Dictionary = _run
 	_run = {}
 	if dead:
@@ -963,3 +974,124 @@ func _animate_body(delta: float) -> void:
 		glow = 2.2 + 0.6 * sin(_t * 10.0)
 	_crack_mat.emission_energy_multiplier = glow + 1.5 * charge
 	_eye_mat.emission_energy_multiplier = 1.2 + 2.5 * charge
+
+
+# ------------------------------------------------------------------ robot testeur
+
+## Trait qu'un bon joueur tracerait maintenant (points au sol depuis le héros), ou vide = attendre.
+func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
+	var none := PackedVector3Array()
+	var h := Vector3(hero_pos.x, 0, hero_pos.z)
+	if dead:
+		return none
+	var pool := Vector3(position.x, 0, position.z)
+	if _state == "open":
+		# carapace ouverte : trait droit (iaï) devant le bassin, d'une main à l'autre
+		var body := pool + Vector3(0, 0, 0.6)
+		var sx := -1.0 if h.x > body.x else 1.0
+		var near_end := body + Vector3(-sx * 3.8, 0, 1.9)
+		var far_end := body + Vector3(sx * 3.8, 0, 1.9)
+		if h.distance_to(near_end) < 0.8:
+			return _bot_dense([h, far_end])
+		return _bot_dense([h, body + Vector3(0, 0, 2.0), far_end])
+	if _state != "fight" or _cores.size() < 2 or _cores_lock > 0.0:
+		return none
+	var pts: Array = []
+	for c in _cores:
+		var cd: Dictionary = c
+		var p: Vector3 = cd["p"]
+		pts.append(Vector3(p.x, 0, p.z))
+	var first: Vector3 = pts[0]
+	var second: Vector3 = pts[1]
+	if h.distance_to(first) > 2.6:
+		# placement juste avant le premier noyau, sans en toucher aucun
+		var entry := _bot_off_pool(_bot_clamp(first - (second - first).normalized() * 1.1))
+		return _bot_route([h, entry], pts, 1.0)
+	# un seul trait qui relie les noyaux dans l'ordre, en évitant ceux qui viennent après
+	var way: Array = [h]
+	for i in pts.size():
+		var a: Vector3 = way[way.size() - 1]
+		var b: Vector3 = pts[i]
+		_bot_leg(way, a, b, pts.slice(i + 1), 1.0, 3)
+	var last: Vector3 = pts[pts.size() - 1]
+	var prev: Vector3 = pts[pts.size() - 2]
+	way.append(_bot_off_pool(_bot_clamp(last + (last - prev).normalized() * 0.9)))
+	return _bot_dense(way)
+
+
+## Repousse un point d'arrivée hors du bassin de lave (contact = dégâts).
+func _bot_off_pool(p: Vector3) -> Vector3:
+	var c := Vector3(position.x, 0, position.z)
+	var v := p - c
+	v.y = 0
+	if v.length() >= POOL_R + 0.4:
+		return p
+	if v.length_squared() < 0.01:
+		v = Vector3(0, 0, 1)
+	return _bot_clamp(c + v.normalized() * (POOL_R + 0.5))
+
+
+const BOT_HALF := Vector2(4.3, 8.3)  # bornes des points du robot (comme main._clamp_point)
+
+
+func _bot_clamp(p: Vector3) -> Vector3:
+	return Vector3(clampf(p.x, -BOT_HALF.x, BOT_HALF.x), 0, clampf(p.z, -BOT_HALF.y, BOT_HALF.y))
+
+
+## Polyligne finale : au sol, bornée à l'arène, points espacés de 0.4 m au plus.
+func _bot_dense(way: Array) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	for i in way.size():
+		var p: Vector3 = way[i]
+		if i == 0:
+			out.append(Vector3(p.x, 0, p.z))
+			continue
+		p = _bot_clamp(p)
+		var last: Vector3 = out[out.size() - 1]
+		var n := int(ceil(last.distance_to(p) / 0.4))
+		for k in range(1, n + 1):
+			out.append(last.lerp(p, float(k) / float(n)))
+	return out
+
+
+## Relie les points de passage en contournant les points `avoid` (à `clear` m près).
+func _bot_route(way: Array, avoid: Array, clear: float) -> PackedVector3Array:
+	var first: Vector3 = way[0]
+	var pts: Array = [Vector3(first.x, 0, first.z)]
+	for i in range(1, way.size()):
+		var a: Vector3 = pts[pts.size() - 1]
+		var b: Vector3 = way[i]
+		_bot_leg(pts, a, _bot_clamp(b), avoid, clear, 3)
+	return _bot_dense(pts)
+
+
+func _bot_leg(out: Array, a: Vector3, b: Vector3, avoid: Array, clear: float, depth: int) -> void:
+	var seg := b - a
+	seg.y = 0
+	var l2 := seg.length_squared()
+	var best_t := 2.0
+	var hit := Vector3.ZERO
+	if depth > 0 and l2 > 0.0001:
+		for o in avoid:
+			var p: Vector3 = o
+			p.y = 0
+			if p.distance_to(a) < clear or p.distance_to(b) < clear:
+				continue
+			var t := clampf((p - a).dot(seg) / l2, 0.0, 1.0)
+			if (a + seg * t).distance_to(p) < clear and t < best_t:
+				best_t = t
+				hit = p
+	if best_t > 1.0:
+		out.append(b)
+		return
+	# détour : on passe à côté de l'obstacle le plus proche du départ
+	var q := a + seg * best_t
+	var n := q - hit
+	n.y = 0
+	if n.length() < 0.05:
+		n = Vector3(-seg.z, 0, seg.x)
+		if n.dot(-q) < 0.0:
+			n = -n
+	var w := _bot_clamp(hit + n.normalized() * (clear + 0.35))
+	_bot_leg(out, a, w, avoid, clear, depth - 1)
+	_bot_leg(out, w, b, avoid, clear, depth - 1)

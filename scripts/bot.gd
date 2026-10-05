@@ -1,5 +1,6 @@
 extends Node
-## Robot testeur (CI, `-- --bot`) : joue les 5 mondes d'affilée, sanctuaire compris, héros intouchable.
+## Robot testeur (CI, `-- --bot`) : joue les 5 mondes d'affilée, sanctuaire compris. Le héros prend de vrais coups
+## (soigné à chaque salle, protégé seulement à 1 cœur), puis une dernière partie où il doit mourir.
 ## Il trace vers l'ennemi le plus proche (traits droits, zigzags, boucles, ensō), prend les rouleaux et
 ## les malédictions, et signale les salles où il reste bloqué. Fin : « BOT DONE » puis il quitte.
 
@@ -16,6 +17,9 @@ var _last_room := -2
 var _n := 0
 var _total := 0.0
 var _picks := 0
+var _death_test := false
+var _hits_taken := 0
+var _last_hp := -1
 
 
 func begin(m: Node) -> void:
@@ -39,7 +43,13 @@ func step(dt: float) -> void:
 		main.get_tree().quit()
 		return
 	if is_instance_valid(main.hero):
-		main.hero.guard_t = 99999.0
+		var h = main.hero
+		if _last_hp >= 0 and h.hp < _last_hp:
+			_hits_taken += _last_hp - h.hp
+		_last_hp = h.hp
+		# protégé seulement au dernier cœur (sauf dans la partie où il doit mourir)
+		if not _death_test and h.hp <= 1:
+			h.guard_t = 99999.0
 	match String(main.state):
 		"pick":
 			if not main._last_offer.is_empty():
@@ -51,15 +61,22 @@ func step(dt: float) -> void:
 				main._on_picked(id)
 		"over":
 			print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
-			if main.room < main.ROOMS:
+			if main.room < main.ROOMS and not _death_test:
 				print("SCRIPT ERROR: bot : monde %d terminé avant la salle %d" % [world, main.ROOMS])
-			world += 1
-			if world > 5:
-				print("BOT alertes : %d" % alerts.size())
+			if _death_test:
+				print("BOT mort testée : écran de fin atteint (salle %d)" % main.room)
+				print("BOT alertes : %d, coups reçus : %d" % [alerts.size(), _hits_taken])
 				for a in alerts:
 					print("BOT ALERTE ", a)
 				print("BOT DONE")
 				main.get_tree().quit()
+				return
+			world += 1
+			if world > 5:
+				# dernière partie : le héros doit mourir (mort, ralenti, résultats)
+				_death_test = true
+				world = 1
+				_new_run()
 				return
 			_new_run()
 		"play":
@@ -70,6 +87,11 @@ func _play(dt: float) -> void:
 	if main.room != _last_room:
 		_last_room = main.room
 		_room_t = 0.0
+		main.hero.guard_t = 0.0
+		if not _death_test:
+			main.hero.hp = main.hero.max_hp  # soigné à chaque salle
+		else:
+			main.hero.hp = 1
 		print("BOT monde %d salle %d (%s)" % [world, main.room, String(main.arena.layout)])
 	_room_t += dt
 	if _room_t > ROOM_TIMEOUT:
@@ -96,10 +118,19 @@ func _play(dt: float) -> void:
 		_room_t = 0.0
 		if main.arena.gate_open:
 			main.hero.position = main.arena.gate_pos
+	if _death_test and not main.in_hub:
+		return  # il se laisse frapper
 	_t -= dt
 	if _t > 0.0 or main.hero.dashing or main.touching:
 		return
 	_t = 0.3
+	# boss : il dit lui-même quel trait le blesse maintenant (vide = attendre)
+	for bo in main.bosses:
+		if is_instance_valid(bo) and not bo.dead and bo.has_method("bot_stroke"):
+			var bp: PackedVector3Array = bo.bot_stroke(main.hero.position)
+			if bp.size() >= 2:
+				_stroke_points(bp)
+			return
 	var target := Vector3.INF
 	if not main.in_hub:
 		var best := 1e9
@@ -121,6 +152,18 @@ func _play(dt: float) -> void:
 		else:
 			return
 	_stroke(Vector3(target.x, 0, target.z))
+
+
+func _stroke_points(pts: PackedVector3Array) -> void:
+	var s := InkStroke.new(main.hero.position, main.stroke_layer)
+	main.stroke_layer += 1
+	main.add_child(s)
+	for p in pts:
+		s.extend_to(main._clamp_point(p), 40.0)
+	if s.length < 0.7:
+		s.queue_free()
+		return
+	main._launch(s)
 
 
 func _stroke(target: Vector3) -> void:

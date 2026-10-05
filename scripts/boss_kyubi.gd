@@ -3,7 +3,7 @@ extends Node3D
 ##  Phase 1 — Illusions : 3 renards identiques. Le vrai a une ombre qui bouge et des yeux or.
 ##            Frapper un faux = il éclate en 6 feux follets lents. Frapper le vrai = 4 dmg
 ##            et les faux disparaissent 6 s.
-##  Phase 2 (≤ 60 %) — Les neuf queues : 9 feux plantés en cercle (r ≈ 4) qui tirent à tour de rôle.
+##  Phase 2 (≤ 60 %) — Les neuf queues : 9 feux plantés en cercle (r ≈ 2.4) qui tirent à tour de rôle.
 ##            Kyūbi est protégé ; seul un Ensō (boucle fermée autour de lui) éteint les queues
 ##            incluses : 2 dmg par queue ; toutes éteintes = étourdi 3 s (vulnérable).
 ##  Phase 3 (≤ 25 %) — Fuite en zigzag à 6 m/s le long d'une route annoncée ;
@@ -19,7 +19,9 @@ const ASH := Color("#5C5862")
 const TAILS := 9
 const FOX_SCALE := 1.2
 const CENTER := Vector3(0, 0, -1.0)  # centre de l'anneau des queues
-const RING := Vector2(3.3, 4.0)  # anneau un peu ovale pour tenir dans la largeur de l'arène
+# anneau un peu ovale ; assez serré pour qu'un ensō de 14 m d'élan (r ≈ 2.2) autour de lui
+# puisse inclure les queues (à 3.3 × 4.0, aucune n'était atteignable sans bonus d'élan)
+const RING := Vector2(2.3, 2.5)
 const BAND_LEN := 4.5
 const TAIL_ANNOUNCE := 1.0  # annonce des tirs de queue (≥ 0.9 s)
 const TAIL_PERIOD := 4.0
@@ -240,7 +242,7 @@ func _clear_ground_tails() -> void:
 func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead:
 		return false
-	if _phase == 2:
+	if _phase == 2 and hero.dashing:
 		_record(a, b)
 	match _state:
 		"p1":
@@ -298,6 +300,11 @@ func take_hit(dmg: float, dir: Vector3) -> void:
 
 ## Fin du trait : en phase 2, cherche une boucle fermée (Ensō) qui entoure Kyūbi.
 func end_stroke(_stroke_id: int) -> void:
+	if _phase == 2 and not _pts.is_empty():
+		# la dernière image de la ruée n'est pas passée par check_dash : sans elle la boucle
+		# perdait son dernier mètre (fermeture ratée)
+		var pa: Vector3 = main._prev_hero
+		_record(pa, hero.position)
 	var pts: Array = _pts
 	_pts = []
 	if dead or _phase != 2 or _state != "p2" or pts.size() < 6:
@@ -1049,3 +1056,187 @@ func _animate(delta: float) -> void:
 		var flame: Node3D = t["flame"]
 		var fk := 1.0 + 0.12 * sin(_t * 11.0 + n.global_position.x * 3.0)
 		flame.scale = Vector3(fk, 2.0 - fk, fk)
+
+
+# ------------------------------------------------------------------ robot testeur
+
+## Trait qu'un bon joueur tracerait maintenant (points au sol depuis le héros), ou vide = attendre.
+func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
+	var none := PackedVector3Array()
+	var h := Vector3(hero_pos.x, 0, hero_pos.z)
+	var me := Vector3(position.x, 0, position.z)
+	if dead:
+		return none
+	match _state:
+		"p1":
+			if _fade < 0.6 or _shuffle_dir == -1:
+				return none
+			# le vrai renard (yeux or), en contournant les illusions
+			var fakes: Array = []
+			for f in _fakes:
+				if f["alive"]:
+					var fn: Node3D = f["node"]
+					fakes.append(Vector3(fn.global_position.x, 0, fn.global_position.z))
+			if fakes.is_empty():
+				return _bot_line(h, me, 7.3)
+			var d := me - h
+			var dir := Vector3(0, 0, -1)
+			if d.length() > 0.1:
+				dir = d.normalized()
+			return _bot_route([h, me, me + dir * 1.2], fakes, radius + 0.8)
+		"p2":
+			if _stun > 0.0:
+				return _bot_line(h, me, 7.3)
+			return _bot_tail_stroke(h)
+		"p3_tele", "p3_run":
+			if _cut:
+				return none
+			# couper la route devant lui, en travers
+			var k := _route_i + (8 if _state == "p3_tele" else 14)
+			if k >= _route.size() - 2:
+				return none
+			var r0: Vector3 = _route[k]
+			var r1: Vector3 = _route[k + 1]
+			var q := (r0 + r1) * 0.5
+			var tg := r1 - r0
+			tg.y = 0
+			var nrm := Vector3(-tg.z, 0, tg.x).normalized()
+			var p1 := q - nrm * 1.2
+			var p2 := q + nrm * 1.2
+			if h.distance_to(p2) < h.distance_to(p1):
+				var sw := p1
+				p1 = p2
+				p2 = sw
+			return _bot_dense([h, p1, p2])
+		"p3_rest", "p3_stun":
+			return _bot_line(h, me, 7.3)
+	return none
+
+
+## Phase 2 : ensō le long de l'intérieur de l'anneau (345°), depuis mi-rayon, qui revient près
+## de son départ (boucle presque fermée de _find_loop) : ≈ 14.5 m, 8 à 9 queues d'un coup.
+## Placement d'abord si le héros n'est pas à mi-rayon.
+func _bot_tail_stroke(h: Vector3) -> PackedVector3Array:
+	var c := Vector3(position.x, 0, position.z)
+	var ex := RING.x - 0.25
+	var ez := RING.y - 0.25
+	var u := Vector2((h.x - c.x) / ex, (h.z - c.z) / ez)
+	var phi := atan2(u.y, u.x)
+	var rho := u.length()
+	if rho < 0.35 or rho > 0.8:
+		# placement à mi-rayon, entre deux queues (de l'autre côté si on est collé à lui)
+		var step := TAU / float(TAILS)
+		var aim := phi + (PI if rho < 0.35 else 0.0)
+		var k := roundf((aim + PI * 0.5 - step * 0.5) / step)
+		var pm := -PI * 0.5 + step * 0.5 + k * step
+		var rr := 0.6 if rho < 0.35 else 0.45
+		return _bot_dense([h, c + Vector3(cos(pm) * ex, 0, sin(pm) * ez) * rr])
+	var way: Array = [h]
+	var sweep := deg_to_rad(345.0)
+	for i in range(0, 41):
+		var th := phi + sweep * float(i) / 40.0
+		way.append(c + Vector3(cos(th) * ex, 0, sin(th) * ez))
+	# on revient vers le départ, loin des queues
+	way.append(c + Vector3(cos(phi) * ex, 0, sin(phi) * ez) * 0.7)
+	return _bot_dense(way)
+
+
+const BOT_HALF := Vector2(4.3, 8.3)  # bornes des points du robot (comme main._clamp_point)
+
+
+func _bot_clamp(p: Vector3) -> Vector3:
+	return Vector3(clampf(p.x, -BOT_HALF.x, BOT_HALF.x), 0, clampf(p.z, -BOT_HALF.y, BOT_HALF.y))
+
+
+## Polyligne finale : au sol, bornée à l'arène, points espacés de 0.4 m au plus.
+func _bot_dense(way: Array) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	for i in way.size():
+		var p: Vector3 = way[i]
+		if i == 0:
+			out.append(Vector3(p.x, 0, p.z))
+			continue
+		p = _bot_clamp(p)
+		var last: Vector3 = out[out.size() - 1]
+		var n := int(ceil(last.distance_to(p) / 0.4))
+		for k in range(1, n + 1):
+			out.append(last.lerp(p, float(k) / float(n)))
+	return out
+
+
+## Relie les points de passage en contournant les points `avoid` (à `clear` m près).
+func _bot_route(way: Array, avoid: Array, clear: float) -> PackedVector3Array:
+	var first: Vector3 = way[0]
+	var pts: Array = [Vector3(first.x, 0, first.z)]
+	for i in range(1, way.size()):
+		var a: Vector3 = pts[pts.size() - 1]
+		var b: Vector3 = way[i]
+		_bot_leg(pts, a, _bot_clamp(b), avoid, clear, 3)
+	return _bot_dense(pts)
+
+
+func _bot_leg(out: Array, a: Vector3, b: Vector3, avoid: Array, clear: float, depth: int) -> void:
+	var seg := b - a
+	seg.y = 0
+	var l2 := seg.length_squared()
+	var best_t := 2.0
+	var hit := Vector3.ZERO
+	if depth > 0 and l2 > 0.0001:
+		for o in avoid:
+			var p: Vector3 = o
+			p.y = 0
+			if p.distance_to(a) < clear or p.distance_to(b) < clear:
+				continue
+			var t := clampf((p - a).dot(seg) / l2, 0.0, 1.0)
+			if (a + seg * t).distance_to(p) < clear and t < best_t:
+				best_t = t
+				hit = p
+	if best_t > 1.0:
+		out.append(b)
+		return
+	# détour : on passe à côté de l'obstacle le plus proche du départ
+	var q := a + seg * best_t
+	var n := q - hit
+	n.y = 0
+	if n.length() < 0.05:
+		n = Vector3(-seg.z, 0, seg.x)
+		if n.dot(-q) < 0.0:
+			n = -n
+	var w := _bot_clamp(hit + n.normalized() * (clear + 0.35))
+	_bot_leg(out, a, w, avoid, clear, depth - 1)
+	_bot_leg(out, w, b, avoid, clear, depth - 1)
+
+
+## Place libre devant p dans la direction dir avant le bord de l'arène.
+func _bot_room(p: Vector3, dir: Vector3) -> float:
+	var t := 99.0
+	if dir.x > 0.001:
+		t = minf(t, (BOT_HALF.x - p.x) / dir.x)
+	elif dir.x < -0.001:
+		t = minf(t, (-BOT_HALF.x - p.x) / dir.x)
+	if dir.z > 0.001:
+		t = minf(t, (BOT_HALF.y - p.z) / dir.z)
+	elif dir.z < -0.001:
+		t = minf(t, (-BOT_HALF.y - p.z) / dir.z)
+	return maxf(t, 0.0)
+
+
+## Trait droit qui traverse tgt, long d'au moins min_len si l'arène le permet (iaï dès 7 m).
+func _bot_line(h: Vector3, tgt: Vector3, min_len: float) -> PackedVector3Array:
+	var d := tgt - h
+	d.y = 0
+	var dist := d.length()
+	var dir := Vector3(-h.x, 0, -h.z)
+	if dist > 0.3:
+		dir = d / dist
+	if dir.length_squared() < 0.01:
+		dir = Vector3(0, 0, 1)
+	dir = dir.normalized()
+	var l := minf(maxf(min_len, dist + 1.2), _bot_room(h, dir))
+	if l < dist + 0.5:
+		# cible collée au bord : on la traverse puis on revient vers le centre
+		var back := Vector3(-tgt.x, 0, -tgt.z)
+		if back.length_squared() < 0.01:
+			back = Vector3(0, 0, 1)
+		return _bot_dense([h, tgt, tgt + back.normalized() * 2.0])
+	return _bot_dense([h, h + dir * l])

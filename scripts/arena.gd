@@ -645,8 +645,9 @@ func _process(delta: float) -> void:
 
 func walkable(p: Vector3, margin := 0.0) -> bool:
 	for r in rects:
-		var rr: Rect2 = r
-		if rr.grow(-margin).has_point(Vector2(p.x, p.z)):
+		var rr: Rect2 = (r as Rect2).grow(-margin)
+		# plateforme plus étroite que la marge : rien de praticable dessus
+		if rr.size.x > 0.0 and rr.size.y > 0.0 and rr.has_point(Vector2(p.x, p.z)):
 			return true
 	return false
 

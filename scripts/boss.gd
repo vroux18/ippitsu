@@ -151,8 +151,17 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 			_last_stroke = stroke_id
 			return true
 		return false
-	if _depth < -0.4:
+	# hors ruée (image qui suit la fin du trait, bond d'ensō) : rien ne compte
+	if not hero.dashing:
 		return false
+	_mark_segs(a, b)
+	return false
+
+
+## Note les segments d'Uwabami touchés par la ruée a..b.
+func _mark_segs(a: Vector3, b: Vector3) -> void:
+	if _depth < -0.4:
+		return
 	for i in SEGMENTS:
 		if _hits.has(i):
 			continue
@@ -160,7 +169,6 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		if _seg_dist(s.position, a, b) < SEG_R + 0.5:
 			_hits[i] = true
 			main.small_hit(s.position)
-	return false
 
 
 func take_hit(dmg: float, dir: Vector3) -> void:
@@ -183,6 +191,10 @@ func take_hit(dmg: float, dir: Vector3) -> void:
 
 ## Fin du trait : Uwabami encaisse selon la plus longue suite de segments tranchés.
 func end_stroke(_stroke_id: int) -> void:
+	if kind == "uwabami" and not dead:
+		# la dernière image de la ruée n'est pas encore passée par check_dash
+		var pa: Vector3 = main._prev_hero
+		_mark_segs(pa, hero.position)
 	var hit_set: Dictionary = _hits
 	_hits = {}
 	if kind != "uwabami" or dead or hit_set.is_empty():
@@ -616,3 +628,142 @@ func _update_body() -> void:
 		s.visible = _depth > -1.5
 		var flash := _flash > 0.0
 		s.scale = Vector3.ONE * (1.08 if flash else 1.0)
+
+
+# ------------------------------------------------------------------ robot testeur
+
+## Trait qu'un bon joueur tracerait maintenant (points au sol depuis le héros), ou vide = attendre.
+func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
+	var none := PackedVector3Array()
+	var h := Vector3(hero_pos.x, 0, hero_pos.z)
+	if dead:
+		return none
+	if kind == "okappa":
+		if _state in ["spawn", "sink", "hidden", "dying"]:
+			return none
+		# trait droit (iaï) à travers lui
+		return _bot_line(h, Vector3(position.x, 0, position.z), 7.3)
+	# Uwabami : corps posé (repos, crachats), tranché d'un bout à l'autre
+	if _depth < -0.3 or not (_state == "rest" or _state == "spit"):
+		return none
+	var pts: Array = []
+	for s in _segs:
+		var sn: Node3D = s
+		pts.append(Vector3(sn.position.x, 0, sn.position.z))
+	var head: Vector3 = pts[0]
+	var tail: Vector3 = pts[SEGMENTS - 1]
+	if h.distance_to(tail) < h.distance_to(head):
+		pts.reverse()
+	var first: Vector3 = pts[0]
+	var second: Vector3 = pts[1]
+	if h.distance_to(first) > 3.0:
+		# placement dans le prolongement du bout le plus proche
+		var lead := first + (first - second).normalized() * 1.0
+		return _bot_route([h, lead], pts, SEG_R + 0.75)
+	var last: Vector3 = pts[SEGMENTS - 1]
+	var prev: Vector3 = pts[SEGMENTS - 2]
+	var way: Array = [h]
+	way.append_array(pts)
+	way.append(last + (last - prev).normalized() * 1.2)
+	return _bot_dense(way)
+
+
+const BOT_HALF := Vector2(4.3, 8.3)  # bornes des points du robot (comme main._clamp_point)
+
+
+func _bot_clamp(p: Vector3) -> Vector3:
+	return Vector3(clampf(p.x, -BOT_HALF.x, BOT_HALF.x), 0, clampf(p.z, -BOT_HALF.y, BOT_HALF.y))
+
+
+## Polyligne finale : au sol, bornée à l'arène, points espacés de 0.4 m au plus.
+func _bot_dense(way: Array) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	for i in way.size():
+		var p: Vector3 = way[i]
+		if i == 0:
+			out.append(Vector3(p.x, 0, p.z))
+			continue
+		p = _bot_clamp(p)
+		var last: Vector3 = out[out.size() - 1]
+		var n := int(ceil(last.distance_to(p) / 0.4))
+		for k in range(1, n + 1):
+			out.append(last.lerp(p, float(k) / float(n)))
+	return out
+
+
+## Relie les points de passage en contournant les points `avoid` (à `clear` m près).
+func _bot_route(way: Array, avoid: Array, clear: float) -> PackedVector3Array:
+	var first: Vector3 = way[0]
+	var pts: Array = [Vector3(first.x, 0, first.z)]
+	for i in range(1, way.size()):
+		var a: Vector3 = pts[pts.size() - 1]
+		var b: Vector3 = way[i]
+		_bot_leg(pts, a, _bot_clamp(b), avoid, clear, 3)
+	return _bot_dense(pts)
+
+
+func _bot_leg(out: Array, a: Vector3, b: Vector3, avoid: Array, clear: float, depth: int) -> void:
+	var seg := b - a
+	seg.y = 0
+	var l2 := seg.length_squared()
+	var best_t := 2.0
+	var hit := Vector3.ZERO
+	if depth > 0 and l2 > 0.0001:
+		for o in avoid:
+			var p: Vector3 = o
+			p.y = 0
+			if p.distance_to(a) < clear or p.distance_to(b) < clear:
+				continue
+			var t := clampf((p - a).dot(seg) / l2, 0.0, 1.0)
+			if (a + seg * t).distance_to(p) < clear and t < best_t:
+				best_t = t
+				hit = p
+	if best_t > 1.0:
+		out.append(b)
+		return
+	# détour : on passe à côté de l'obstacle le plus proche du départ
+	var q := a + seg * best_t
+	var n := q - hit
+	n.y = 0
+	if n.length() < 0.05:
+		n = Vector3(-seg.z, 0, seg.x)
+		if n.dot(-q) < 0.0:
+			n = -n
+	var w := _bot_clamp(hit + n.normalized() * (clear + 0.35))
+	_bot_leg(out, a, w, avoid, clear, depth - 1)
+	_bot_leg(out, w, b, avoid, clear, depth - 1)
+
+
+## Place libre devant p dans la direction dir avant le bord de l'arène.
+func _bot_room(p: Vector3, dir: Vector3) -> float:
+	var t := 99.0
+	if dir.x > 0.001:
+		t = minf(t, (BOT_HALF.x - p.x) / dir.x)
+	elif dir.x < -0.001:
+		t = minf(t, (-BOT_HALF.x - p.x) / dir.x)
+	if dir.z > 0.001:
+		t = minf(t, (BOT_HALF.y - p.z) / dir.z)
+	elif dir.z < -0.001:
+		t = minf(t, (-BOT_HALF.y - p.z) / dir.z)
+	return maxf(t, 0.0)
+
+
+## Trait droit qui traverse tgt, long d'au moins min_len si l'arène le permet (iaï dès 7 m).
+func _bot_line(h: Vector3, tgt: Vector3, min_len: float) -> PackedVector3Array:
+	var d := tgt - h
+	d.y = 0
+	var dist := d.length()
+	var dir := Vector3(-h.x, 0, -h.z)
+	if dist > 0.3:
+		dir = d / dist
+	if dir.length_squared() < 0.01:
+		dir = Vector3(0, 0, 1)
+	dir = dir.normalized()
+	var l := minf(maxf(min_len, dist + 1.2), _bot_room(h, dir))
+	if l < dist + 0.5:
+		# cible collée au bord : on la traverse puis on revient vers le centre
+		var back := Vector3(-tgt.x, 0, -tgt.z)
+		if back.length_squared() < 0.01:
+			back = Vector3(0, 0, 1)
+		return _bot_dense([h, tgt, tgt + back.normalized() * 2.0])
+	return _bot_dense([h, h + dir * l])

@@ -167,8 +167,16 @@ jobs:
         run: |
           godot --headless --path . --fixed-fps 30 -- --bot > bot.log 2>&1 || true
           grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" bot.log | head -400
-          grep -q "BOT DONE" bot.log
-          ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" bot.log
+          # (sous bash -e, « ! cmd » ne fait pas échouer l'étape : on teste explicitement)
+          fail=0
+          grep -q "BOT DONE" bot.log || { echo "::error::le robot n'a pas fini"; fail=1; }
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" bot.log; then fail=1; fi
+          # erreurs du moteur pendant la partie (hors fuites signalées à la fermeture)
+          errs=$(grep -E "^ERROR:" bot.log | grep -v "at exit" || true)
+          if [ -n "$errs" ]; then echo "$errs" | sort | uniq -c; fail=1; fi
+          # salles où le robot est resté bloqué
+          if grep "^BOT ALERTE" bot.log; then fail=1; fi
+          exit $fail
 
       - uses: actions/upload-artifact@v4
         if: always()
