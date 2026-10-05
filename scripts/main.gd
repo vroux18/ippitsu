@@ -827,7 +827,8 @@ func _spawn_list(list: Array) -> void:
 
 
 func xp_need() -> int:
-	return 3 + 2 * level
+	# courbe plus raide : ~1 niveau par salle au début, puis de plus en plus espacé
+	return 8 + 5 * level + level * level
 
 
 ## Butin ramassé (appelé par pickups.gd).
@@ -1559,7 +1560,8 @@ func _add_chain(n: int) -> void:
 	_chain_t = 0.0
 	for tier in CHAIN_TIERS.keys():
 		if before < int(tier) and chain >= int(tier):
-			hud.banner(String(CHAIN_TIERS[tier]), "CHAÎNE %d  ·  DÉGÂTS +%d %%" % [chain, int(round((chain_mult() - 1.0) * 100.0))], Toon.GOLD, 1.2)
+			# petite annonce plutôt qu'un bandeau : on ne cache pas l'action en plein combat
+			hud.toast("%s  ·  DÉGÂTS +%d %%" % [String(CHAIN_TIERS[tier]), int(round((chain_mult() - 1.0) * 100.0))])
 			sfx.play("shot", 1.5, -2.0)
 
 
