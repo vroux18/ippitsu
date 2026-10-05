@@ -63,13 +63,18 @@ func _ready() -> void:
 
 
 ## Bandeau d'annonce au centre : début de partie, nouvelle salle, boss…
+## Les polices réduites n'ont pas les voyelles longues (ō, ū) : on les écrit sans macron.
+static func plain(s: String) -> String:
+	return s.replace("Ō", "O").replace("ō", "o").replace("Ū", "U").replace("ū", "u")
+
+
 func is_over_pause(p: Vector2) -> bool:
 	return _pause != null and _pause.visible and Rect2(_pause.position, _pause.size).grow(8.0).has_point(p)
 
 
 func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
-	_banner_big = big
-	_banner_small = small
+	_banner_big = plain(big)
+	_banner_small = plain(small)
 	_banner_col = col
 	_banner_t = 0.0
 	_banner_len = length
@@ -273,8 +278,9 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 	var bx := (sz.x - bw) / 2.0
 	var by := 84.0 * u
 	var bfs := int(16 * u)
-	var nw := TITLE_FONT.get_string_size(boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	draw_string(TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, by - 7 * u), boss_name, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
+	var bn := plain(boss_name)
+	var nw := TITLE_FONT.get_string_size(bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+	draw_string(TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, by - 7 * u), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
 	# rouleau : deux baguettes et la barre d'encre vermillon
 	draw_rect(Rect2(bx - 6 * u, by - 3 * u, 4 * u, 16 * u), Toon.SUMI)
 	draw_rect(Rect2(bx + bw + 2 * u, by - 3 * u, 4 * u, 16 * u), Toon.SUMI)
