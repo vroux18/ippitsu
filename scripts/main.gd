@@ -118,6 +118,18 @@ var _final_boss: Node3D
 var music: Node
 var max_combo := 0
 var run_time := 0.0
+var _spin_tick := 0.0
+# chaîne : ruées réussies d'affilée sans prendre de coup (bonus de dégâts)
+const CHAIN_TIMEOUT := 6.0
+const CHAIN_TIERS := {5: "FLUIDE", 10: "TRANCHANT", 20: "MAÎTRE"}
+var chain := 0
+var max_chain := 0
+var _chain_t := 0.0
+var _stroke_hit := false
+var _iai_t := 0.0
+var _iai_points := PackedVector3Array()
+var _enso_center := Vector3.ZERO
+var _enso_r := 2.0
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 
@@ -506,6 +518,7 @@ func _start() -> void:
 	add_child(hero)
 	hero.position = arena.start
 	hero.dash_finished.connect(_on_dash_finished)
+	hero.landed.connect(_on_hero_landed)
 	_prev_hero = hero.position
 	elan = elan_max()
 	wave = 0
@@ -524,6 +537,9 @@ func _start() -> void:
 	mini_kills = 0
 	max_combo = 0
 	run_time = 0.0
+	chain = 0
+	max_chain = 0
+	_chain_t = 0.0
 	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
 	hero.hp = hero.max_hp
@@ -841,7 +857,7 @@ func _finish_run() -> void:
 	var w: Dictionary = Worlds.world(current_world)
 	menu.stat_room = room
 	menu.stat_kills = kills
-	menu.stat_combo = max_combo
+	menu.stat_combo = max_chain
 	menu.stat_time = run_time
 	menu.world_name = String(w.name)
 	menu.world_kanji = String(w.kanji)
@@ -919,7 +935,7 @@ func fire_trail_fx(points: PackedVector3Array, dur: float) -> void:
 	effects.append({"node": n, "t": 0.0, "life": dur, "kind": "fade", "mats": mats, "alpha": 0.5})
 
 
-## Effet de la forme reconnue, déclenché à l'arrivée de la ruée.
+## Technique de la forme reconnue, déclenchée à l'arrivée de la ruée.
 func _apply_shape() -> void:
 	if _shape.is_empty():
 		return
@@ -927,28 +943,97 @@ func _apply_shape() -> void:
 	_shape = {}
 	match String(sh.shape):
 		"loop":
-			# Uzu : tourbillon au centre de la boucle
-			var c: Vector3 = sh.center
-			fire_ring(c, 1.6)
-			_splash(c, Toon.FOAM, 20)
-			for o in nearest_enemies(c, 1.6 + 0.5, 99, null):
-				damage_enemy(o, 2.0)
+			# Uzu : toupie sabre tendu, aspire et lacère tout autour pendant ~1 s
+			hero.spin(0.95)
+			_spin_tick = 0.0
+			fire_ring(hero.position, 1.8)
+			sfx.play("whoosh", 1.4)
 		"zigzag":
 			# Inazuma : éclair en chaîne sur 4 ennemis
 			var from := hero.position
 			for o in nearest_enemies(hero.position, 6.0, 4, null):
 				zap(from, o.position)
-				damage_enemy(o, 1.0)
+				damage_enemy(o, 1.2)
 				from = o.position
+			sfx.play("strike", 1.6, -2.0)
+		"straight":
+			# Ittō / iaï : le héros rengaine, puis la coupe s'abat sur toute la ligne
+			hero.guard(0.35)
+			_iai_t = 0.3
+		"return":
+			# Kaeshi : garde, intouchable un instant
+			hero.guard(0.7)
+			_splash(hero.position, Toon.GOLD, 12)
 		"enso":
-			# Ensō : tout ce qui est dans le cercle est frappé
-			var c2: Vector3 = sh.center
-			var r2: float = sh.radius
-			_blot(c2, Color(Toon.VERMILION, 0.25), r2, 1.2)
-			for o in nearest_enemies(c2, r2, 99, null):
-				damage_enemy(o, 1.5)
-				o.push((o.position - c2).normalized() * -3.0)
+			# Ensō : bond au centre du cercle, puis frappe au sol
+			_enso_center = sh.center
+			_enso_r = maxf(float(sh.radius), 2.0)
+			hero.leap(_enso_center, 0.45)
+			sfx.play("whoosh", 0.8)
+		"hook":
+			# Kagi : demi-tour et estoc sur l'ennemi le plus proche de la pointe
+			var tip: Vector3 = sh.tip
+			var near: Array = nearest_enemies(tip, 2.6, 1, null)
+			if not near.is_empty():
+				var o: Node3D = near[0]
+				hero.stab(o.position - hero.position)
+				zap(hero.position, o.position)
+				damage_enemy(o, 3.0)
+				shape_text(o.position, "背")
+				shake = maxf(shake, 0.25)
 
+
+## Atterrissage du bond d'ensō : onde de choc qui repousse et blesse tout l'intérieur du cercle.
+func _on_hero_landed() -> void:
+	shake = maxf(shake, 0.5)
+	sfx.play("strike", 0.7)
+	_blot(hero.position, Color(Toon.VERMILION, 0.3), _enso_r, 1.2)
+	_splash(hero.position, Toon.SUMI, 24)
+	fire_ring(hero.position, _enso_r * 0.6)
+	for o in nearest_enemies(hero.position, _enso_r + 0.4, 99, null):
+		damage_enemy(o, 2.0)
+		o.push((o.position - hero.position).normalized() * 4.0)
+
+
+## Techniques qui durent : toupie (dégâts réguliers + aspiration) et coupe différée de l'iaï.
+func _update_moves(dt: float) -> void:
+	if hero.spinning > 0.0:
+		_spin_tick -= dt
+		for o in nearest_enemies(hero.position, 3.0, 99, null):
+			var d: Vector3 = hero.position - o.position
+			d.y = 0
+			o.position += d.normalized() * 2.5 * dt
+		if _spin_tick <= 0.0:
+			_spin_tick = 0.16
+			for o in nearest_enemies(hero.position, 1.9, 99, null):
+				damage_enemy(o, 0.6)
+				_slash_mark(o.position, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+	if _iai_t > 0.0:
+		_iai_t -= dt
+		if _iai_t <= 0.0 and _iai_points.size() > 1:
+			# la ligne de coupe apparaît d'un coup sur tout le trait
+			var a: Vector3 = _iai_points[0]
+			var b: Vector3 = _iai_points[_iai_points.size() - 1]
+			_iai_line(a, b)
+			shake = maxf(shake, 0.4)
+			sfx.play("kill", 1.3)
+			for e in enemies:
+				if is_instance_valid(e) and not e.dead and powers._near_line(e.position, _iai_points, 0.9 + float(e.radius)):
+					damage_enemy(e, 2.0)
+					_dmg_text(e.position, 2.0, false)
+			_iai_points = PackedVector3Array()
+
+
+func _iai_line(a: Vector3, b: Vector3) -> void:
+	var n := Node3D.new()
+	add_child(n)
+	n.position = (a + b) / 2.0 + Vector3(0, 0.6, 0)
+	var d := b - a
+	d.y = 0
+	n.rotation.y = atan2(-d.x, -d.z)
+	var m := Toon.flat(Color(1, 1, 1, 1))
+	Toon.part(n, Toon.box(Vector3(0.12, 0.05, d.length() + 1.0)), m, Vector3.ZERO)
+	effects.append({"node": n, "t": 0.0, "life": 0.35, "kind": "fade", "mats": [m], "alpha": 1.0})
 
 ## Kaeshi : les boules proches du trait repartent vers les ennemis.
 func _reflect_bullets(pts: PackedVector3Array) -> void:
@@ -1145,6 +1230,7 @@ func _launch(s: MeshInstance3D) -> void:
 	stroke_id += 1
 	combo = 0
 	_stroke_kills = 0
+	_stroke_hit = false
 	_prev_hero = hero.position
 	hero.speed_mult = powers.dash_mult()
 	_safe_point = s.points[0]
@@ -1154,7 +1240,10 @@ func _launch(s: MeshInstance3D) -> void:
 		shape_text(s.last(), String(SHAPE_KANJI.get(_shape.shape, "")))
 		sfx.play("whoosh", 0.7)
 		if _shape.shape == "straight":
-			hero.speed_mult *= 1.3
+			hero.speed_mult *= 1.6
+			_iai_points = s.points
+		elif _shape.shape == "zigzag":
+			hero.speed_mult *= 1.5
 		elif _shape.shape == "return":
 			_reflect_bullets(s.points)
 	sfx.play("whoosh", randf_range(0.9, 1.1))
@@ -1164,6 +1253,8 @@ func _on_dash_finished() -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = null
+	if _stroke_hit:
+		_add_chain(2 if not _shape.is_empty() else 1)
 	_apply_shape()
 	if hazards.is_hole(hero.position):
 		_fall()
@@ -1243,10 +1334,34 @@ func enemy_strike(center: Vector3, r: float) -> void:
 		_hurt_hero()
 
 
+func chain_mult() -> float:
+	return 1.0 + minf(chain * 0.05, 1.0)
+
+
+func _add_chain(n: int) -> void:
+	var before := chain
+	chain += n
+	max_chain = maxi(max_chain, chain)
+	_chain_t = 0.0
+	for tier in CHAIN_TIERS.keys():
+		if before < int(tier) and chain >= int(tier):
+			hud.banner(String(CHAIN_TIERS[tier]), "CHAÎNE %d  ·  DÉGÂTS +%d %%" % [chain, int(round((chain_mult() - 1.0) * 100.0))], Toon.GOLD, 1.2)
+			sfx.play("shot", 1.5, -2.0)
+
+
+func _break_chain() -> void:
+	if chain >= 3:
+		hud.chain_break = 1.0
+		hud.chain_lost = chain
+	chain = 0
+	_chain_t = 0.0
+
+
 func _hurt_hero() -> void:
-	if hero.dashing or hero.invuln > 0.0 or game_over:
+	if hero.dashing or hero.invuln > 0.0 or hero.protected() or game_over:
 		return
 	hero.hurt()
+	_break_chain()
 	hud.hurt_flash = 1.0
 	shake = 0.45
 	sfx.play("hurt")
@@ -1292,7 +1407,10 @@ func _check_slashes() -> void:
 				continue
 			if piercing:
 				dmg *= 1.5
+			dmg *= chain_mult()
 			dmg = powers.on_hit(e, dmg, dir)
+			_stroke_hit = true
+			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
 			_dmg_text(p, dmg, killed)
 			max_combo = maxi(max_combo, combo)
@@ -1313,7 +1431,9 @@ func _check_slashes() -> void:
 			continue
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
-			var bd := 1.0 * (1.0 + 0.5 * (combo - 1))
+			var bd := 1.0 * (1.0 + 0.5 * (combo - 1)) * chain_mult()
+			_stroke_hit = true
+			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(bd, bdir)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
@@ -1503,6 +1623,11 @@ func _process(_delta: float) -> void:
 			_finish_run()
 	if state == "play":
 		run_time += real
+		if chain > 0:
+			_chain_t += real
+			if _chain_t > CHAIN_TIMEOUT:
+				chain = 0
+		_update_moves(dt)
 		powers.update(dt)
 		hazards.update(dt)
 		for bo in bosses:
@@ -1570,6 +1695,9 @@ func _process(_delta: float) -> void:
 	hud.rooms_total = ROOMS
 	hud.elan_m = elan_max()
 	hud.combo = combo if hero.dashing else 0
+	hud.chain = chain
+	hud.chain_left = 1.0 - _chain_t / CHAIN_TIMEOUT
+	hud.chain_mult = chain_mult()
 	var bars: Array = []
 	for e in enemies:
 		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):

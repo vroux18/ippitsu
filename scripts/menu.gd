@@ -264,7 +264,7 @@ func _draw_results() -> void:
 	_text(_title, "VICTOIRE" if victory else "DÉFAITE", Vector2(cx, card.position.y + 140 * u), int(34 * u), Color(ring_col if victory else Toon.SUMI, a))
 	_text(_ui, world_name.to_upper(), Vector2(cx, card.position.y + 164 * u), int(12 * u), Color(Toon.SUMI, 0.55 * a))
 	# statistiques en deux colonnes
-	var rows := [["SALLE", "%d / 9" % stat_room], ["ENNEMIS", str(stat_kills)], ["COMBO MAX", "×%d" % stat_combo], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	var rows := [["SALLE", "%d / 9" % stat_room], ["ENNEMIS", str(stat_kills)], ["CHAÎNE MAX", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
 	for i in rows.size():
 		var col := i % 2
 		var row := i / 2

@@ -6,6 +6,7 @@ const Character = preload("res://scripts/character.gd")
 const MODEL = preload("res://assets/kaykit/Rogue_Hooded.glb")
 
 signal dash_finished
+signal landed  # fin d'un bond (ensō)
 
 const DASH_SPEED := 34.0
 const RADIUS := 0.35
@@ -13,6 +14,13 @@ const INK := Color("#34333D")
 
 var max_hp := 5
 var speed_mult := 1.0  # bonus de vitesse de ruée (pouvoirs)
+# techniques des formes de trait : pendant ces mouvements le héros ne peut pas être touché
+var spinning := 0.0
+var guard_t := 0.0
+var _leap_t := -1.0
+var _leap_dur := 0.4
+var _leap_from := Vector3.ZERO
+var _leap_to := Vector3.ZERO
 var hp := 5
 var dashing := false
 var dead := false
@@ -69,6 +77,40 @@ func stop_dash() -> void:
 		dashing = false
 		path_i = path.size()
 		dash_finished.emit()
+
+
+## Toupie (boucle) : le héros tourne sur lui-même, sabre tendu.
+func spin(d: float) -> void:
+	spinning = d
+	ch.play_once("2H_Melee_Attack_Spinning", 1.8)
+
+
+## Garde (retour) : posture de parade, intouchable un instant.
+func guard(d: float) -> void:
+	guard_t = d
+	ch.play_once("Block", 1.2)
+
+
+## Bond (ensō) : saut en cloche vers `to`, signal `landed` à l'atterrissage.
+func leap(to: Vector3, d: float) -> void:
+	_leap_from = position
+	_leap_to = Vector3(to.x, 0, to.z)
+	_leap_t = 0.0
+	_leap_dur = d
+	face(_leap_to - position)
+	ch.play_once("Jump_Full_Short", 1.6)
+
+
+## Estoc (crochet) : demi-tour et coup d'estoc.
+func stab(dir: Vector3) -> void:
+	face(dir)
+	snap_facing()
+	ch.play_once("1H_Melee_Attack_Stab", 2.2)
+
+
+## Vrai pendant une technique qui protège (toupie, garde, bond).
+func protected() -> bool:
+	return spinning > 0.0 or guard_t > 0.0 or _leap_t >= 0.0
 
 
 func dash_end() -> Vector3:
@@ -128,6 +170,23 @@ func _process(delta: float) -> void:
 			dashing = false
 			dash_finished.emit()
 
+	# techniques
+	if spinning > 0.0:
+		spinning -= delta
+		body.rotation.y += delta * 26.0
+	if guard_t > 0.0:
+		guard_t -= delta
+	if _leap_t >= 0.0:
+		_leap_t += delta
+		var k := clampf(_leap_t / _leap_dur, 0.0, 1.0)
+		var p := _leap_from.lerp(_leap_to, k)
+		position = Vector3(p.x, 0, p.z)
+		body.position.y = sin(PI * k) * 2.4
+		if k >= 1.0:
+			_leap_t = -1.0
+			body.position.y = 0.0
+			landed.emit()
+
 	if invuln > 0.0 and not dead:
 		invuln -= delta
 		body.visible = dashing or fmod(invuln, 0.16) > 0.07
@@ -139,6 +198,7 @@ func _process(delta: float) -> void:
 
 	# orientation et posture
 	var target_rot := atan2(-facing.x, -facing.z)
-	body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(1.0, delta * (40.0 if dashing else 14.0)))
+	if spinning <= 0.0:
+		body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(1.0, delta * (40.0 if dashing else 14.0)))
 	_lean = lerpf(_lean, 1.0 if dashing else 0.0, minf(1.0, delta * 25.0))
 	body.rotation.x = -0.35 * _lean

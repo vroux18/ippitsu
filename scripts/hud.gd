@@ -31,6 +31,11 @@ var dying := 0.0  # 0..1 : l'écran se délave pendant la mort
 var world_kanji := "波"
 var world_color := Toon.PRUSSIAN
 var combo := 0
+var chain := 0  # ruées réussies d'affilée sans prendre de coup
+var chain_left := 1.0  # temps restant avant extinction (0..1)
+var chain_mult := 1.0
+var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
+var chain_lost := 0
 var enemy_bars: Array = []  # [position écran, ratio de vie]
 var in_play := false
 var show_fps := false  # `?fps` dans l'adresse web
@@ -103,6 +108,7 @@ func _process(delta: float) -> void:
 		_combo_t = 1.2
 	elif _combo_t > 0.0:
 		_combo_t -= real
+	chain_break = maxf(0.0, chain_break - real * 1.6)
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -131,6 +137,7 @@ func _draw() -> void:
 
 	if in_play:
 		_draw_hearts(u)
+		_draw_chain(u)
 		_draw_room(sz, u)
 		_draw_gauge(sz, u)
 		if boss_name != "":
@@ -227,6 +234,38 @@ func _draw_hearts(u: float) -> void:
 			var empty := _heart_pts(c, s)
 			empty.append(empty[0])
 			draw_polyline(empty, Color(Toon.SUMI, 0.3), 1.8 * u, true)
+
+
+## Chaîne : sous les cœurs, nombre, bonus de dégâts et jauge de temps restant ; éclat quand elle se brise.
+func _draw_chain(u: float) -> void:
+	var p := Vector2(14 * u, 70 * u)
+	if chain >= 2:
+		var tier_col := Toon.SUMI
+		if chain >= 20:
+			tier_col = Toon.VERMILION
+		elif chain >= 10:
+			tier_col = Toon.GOLD
+		elif chain >= 5:
+			tier_col = Toon.PRUSSIAN
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(Toon.WASHI, 0.85)
+		sb.set_corner_radius_all(int(8 * u))
+		sb.border_color = tier_col
+		sb.set_border_width_all(int(2 * u))
+		var box := Rect2(p, Vector2(112, 34) * u)
+		draw_style_box(sb, box)
+		draw_string(UI_FONT, p + Vector2(9, 14) * u, "CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), Color(Toon.SUMI, 0.6))
+		draw_string(TITLE_FONT, p + Vector2(9, 30) * u, str(chain), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), tier_col)
+		draw_string(UI_FONT, p + Vector2(58, 27) * u, "+%d %%" % int(round((chain_mult - 1.0) * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.SUMI, 0.8))
+		# temps restant avant que la chaîne s'éteigne
+		draw_rect(Rect2(p + Vector2(8, 31) * u, Vector2(96 * clampf(chain_left, 0.0, 1.0), 2) * u), tier_col)
+	if chain_break > 0.0:
+		var k := 1.0 - chain_break
+		var txt := "CHAÎNE BRISÉE  %d" % chain_lost
+		draw_string(UI_FONT, p + Vector2(4, 28 + 18 * k) * u, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.VERMILION, chain_break))
+		for j in 5:
+			var a := TAU * j / 5.0
+			draw_rect(Rect2(p + Vector2(56, 18) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.SUMI, chain_break))
 
 
 func _draw_room(sz: Vector2, u: float) -> void:
