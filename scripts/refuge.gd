@@ -5,15 +5,13 @@ extends Control
 
 const Toon = preload("res://scripts/toon.gd")
 const Meta = preload("res://scripts/meta.gd")
-const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
-const PAPER := Color("#F3ECDC")
 const WOOD := Color("#2A201B")
 const WOOD_LINE := Color("#3A2D26")
 const ROD := Color("#4A3426")
+# « brush » prend la couleur par défaut, Toon.PRUSSIAN (voir _scroll)
 const LINE_COLORS := {
-	"brush": Color("#1F3A5F"),
 	"ink": Color("#2C2A33"),
 	"paper": Color("#9E2A22"),
 	"breath": Color("#3F6B67"),
@@ -35,16 +33,16 @@ var _back_rect := Rect2()
 var _back_down := false
 var _title := FontVariation.new()
 var _ui := FontVariation.new()
-var _last_ms := 0
+var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
-	_title.base_font = TITLE_FONT
+	_title.base_font = UiKit.TITLE_FONT
 	_title.spacing_glyph = 8
-	_ui.base_font = UI_FONT
+	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 2
 	for i in Meta.ORDER.size():
 		_stamp.append(0.0)
@@ -54,6 +52,7 @@ func _ready() -> void:
 func open() -> void:
 	_t = 0.0
 	_down = -1
+	_back_down = false
 	_bump = 0.0
 	for i in _stamp.size():
 		_stamp[i] = 0.0
@@ -72,7 +71,8 @@ func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		var p: Vector2 = event.position
 		if event.pressed:
-			_back_down = _back_rect.has_point(p)
+			# le toucher qui a ouvert l'atelier ne doit pas le refermer
+			_back_down = _t >= 0.3 and _back_rect.has_point(p)
 			_down = -1 if _back_down or _t < 0.6 else _hit(p)
 		else:
 			if _back_down and _back_rect.has_point(p):
@@ -105,19 +105,13 @@ func _process(_delta: float) -> void:
 	if not visible:
 		return
 	size = get_viewport_rect().size
-	var now := Time.get_ticks_msec()
-	var real := 0.0 if _last_ms == 0 else minf((now - _last_ms) / 1000.0, 0.1)
-	_last_ms = now
+	var real := UiKit.real_delta()
 	_t += real
 	_bump = maxf(0.0, _bump - real * 3.0)
 	for i in _stamp.size():
 		_stamp[i] = maxf(0.0, float(_stamp[i]) - real * 1.6)
 		_shake[i] = maxf(0.0, float(_shake[i]) - real * 2.5)
 	queue_redraw()
-
-
-func _ease(k: float) -> float:
-	return 1.0 - pow(1.0 - clampf(k, 0.0, 1.0), 3.0)
 
 
 # ------------------------------------------------------------------ dessin
@@ -169,7 +163,7 @@ func _draw_room(w: float, h: float, u: float) -> void:
 
 ## Enseigne de bois gravée, suspendue à la poutre.
 func _draw_sign(w: float, u: float) -> void:
-	var a := _ease(_t / 0.5)
+	var a := UiKit.ease_out(_t / 0.5)
 	var sw := 236.0 * u
 	var sh := 62.0 * u
 	var sy := 34.0 * u - 20.0 * u * (1.0 - a)
@@ -178,15 +172,11 @@ func _draw_sign(w: float, u: float) -> void:
 	for side in [-1.0, 1.0]:
 		draw_line(Vector2(w / 2.0 + side * sw * 0.32, 14 * u), Vector2(w / 2.0 + side * sw * 0.32 + sway, sy), Color("#C9B48A", a), 1.5 * u)
 	var plank := Rect2(Vector2(sx + sway, sy), Vector2(sw, sh))
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(Color("#6B4A2E"), a)
-	sb.border_color = Color(Color("#3B281A"), a)
-	sb.set_border_width_all(int(3 * u))
-	sb.set_corner_radius_all(int(4 * u))
-	sb.shadow_color = Color(0, 0, 0, 0.35 * a)
-	sb.shadow_size = int(8 * u)
-	sb.shadow_offset = Vector2(0, 4) * u
-	draw_style_box(sb, plank)
+	UiKit.box(_sb, Color(Color("#6B4A2E"), a), int(4 * u), Color(Color("#3B281A"), a), int(3 * u))
+	_sb.shadow_color = Color(0, 0, 0, 0.35 * a)
+	_sb.shadow_size = int(8 * u)
+	_sb.shadow_offset = Vector2(0, 4) * u
+	draw_style_box(_sb, plank)
 	for k in 4:
 		draw_line(plank.position + Vector2(10 * u, 12 * u + k * 12 * u), plank.position + Vector2(sw - 10 * u, 14 * u + k * 12 * u), Color(Color("#7A5636"), 0.5 * a), 1.0 * u)
 	var fs := int(30 * u)
@@ -199,15 +189,15 @@ func _draw_sign(w: float, u: float) -> void:
 	var seal := Rect2(Vector2(plank.end.x - 34 * u, plank.get_center().y - 11 * u), Vector2(22, 22) * u)
 	draw_rect(seal, Color(Toon.VERMILION, a))
 	var kfs := int(15 * u)
-	var kw := TITLE_FONT.get_string_size("墨", HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
-	draw_string(TITLE_FONT, Vector2(seal.get_center().x - kw / 2.0, seal.get_center().y + kfs * 0.36), "墨", HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Color(Toon.WASHI, a))
+	var kw := UiKit.TITLE_FONT.get_string_size("墨", HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
+	draw_string(UiKit.TITLE_FONT, Vector2(seal.get_center().x - kw / 2.0, seal.get_center().y + kfs * 0.36), "墨", HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Color(Toon.WASHI, a))
 
 
 ## Encre, sceaux, Vues : trois étiquettes de bois.
 func _draw_counters(w: float, u: float) -> void:
 	if meta == null:
 		return
-	var a := _ease((_t - 0.15) / 0.5)
+	var a := UiKit.ease_out((_t - 0.15) / 0.5)
 	var y := 118.0 * u
 	var items := [["ink", str(meta.sumi)], ["seal", str(meta.seals)], ["print", "%d/%d" % [int(meta.prints), Meta.MAX_PRINTS]]]
 	var tw := 100.0 * u
@@ -215,12 +205,7 @@ func _draw_counters(w: float, u: float) -> void:
 	var x0 := (w - (tw * 3 + gap * 2)) / 2.0
 	for i in items.size():
 		var r := Rect2(Vector2(x0 + i * (tw + gap), y), Vector2(tw, 34 * u))
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(PAPER, 0.95 * a)
-		sb.set_corner_radius_all(int(17 * u))
-		sb.border_color = Color(Toon.GOLD, 0.8 * a)
-		sb.set_border_width_all(int(1.5 * u))
-		draw_style_box(sb, r)
+		draw_style_box(UiKit.box(_sb, Color(Toon.PAPER, 0.95 * a), int(17 * u), Color(Toon.GOLD, 0.8 * a), int(1.5 * u)), r)
 		var ic := r.position + Vector2(20 * u, r.size.y / 2.0)
 		match String(items[i][0]):
 			"ink":
@@ -258,7 +243,7 @@ func _draw_scrolls(w: float, h: float, u: float) -> void:
 	for i in Meta.ORDER.size():
 		var col := i % cols
 		var row := i / cols
-		var unroll := _ease((_t - 0.25 - 0.08 * i) / 0.55)
+		var unroll := UiKit.ease_out((_t - 0.25 - 0.08 * i) / 0.55)
 		var r := Rect2(Vector2(gap + col * (sw + gap), top + row * (sh + 22 * u)), Vector2(sw, sh))
 		_rects.append(r)
 		var shake := sin(_t * 60.0) * 4.0 * u * float(_shake[i])
@@ -296,7 +281,7 @@ func _scroll(i: int, r: Rect2, unroll: float, dx: float, u: float) -> void:
 	var pad := 7.0 * u
 	var paper := Rect2(x + pad, y + 16 * u, wdt - pad * 2, maxf(0.0, hgt - 32 * u))
 	if paper.size.y > 2.0:
-		draw_rect(paper, PAPER)
+		draw_rect(paper, Toon.PAPER)
 		# bandes fūtai qui pendent du haut
 		draw_rect(Rect2(x + wdt * 0.3, y, 5 * u, minf(30 * u, hgt * 0.3)), Color(mount.darkened(0.3), 0.9))
 		draw_rect(Rect2(x + wdt * 0.7 - 5 * u, y, 5 * u, minf(30 * u, hgt * 0.3)), Color(mount.darkened(0.3), 0.9))
@@ -310,17 +295,17 @@ func _scroll(i: int, r: Rect2, unroll: float, dx: float, u: float) -> void:
 	# idéogramme au pinceau
 	var kfs := int(44 * u)
 	var kanji := String(line.kanji)
-	var kw := TITLE_FONT.get_string_size(kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
+	var kw := UiKit.TITLE_FONT.get_string_size(kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
 	var ky := paper.position.y + 52 * u
-	draw_string(TITLE_FONT, Vector2(c - kw / 2.0, ky), kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Color(Toon.SUMI, (0.35 if maxed else 1.0) * a))
+	draw_string(UiKit.TITLE_FONT, Vector2(c - kw / 2.0, ky), kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Color(Toon.SUMI, (0.35 if maxed else 1.0) * a))
 	# nom et effet
 	var nfs := int(13 * u)
 	var nm := String(line.name)
-	var nw := TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	draw_string(TITLE_FONT, Vector2(c - nw / 2.0, ky + 24 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(Toon.SUMI, a))
+	var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	draw_string(UiKit.TITLE_FONT, Vector2(c - nw / 2.0, ky + 24 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(Toon.SUMI, a))
 	var efs := int(10 * u)
 	var eff: String = meta.effect_text(id)
-	draw_multiline_string(UI_FONT, Vector2(paper.position.x + 4 * u, ky + 40 * u), eff, HORIZONTAL_ALIGNMENT_CENTER, paper.size.x - 8 * u, efs, 2, Color(Toon.SUMI, 0.65 * a))
+	draw_multiline_string(UiKit.UI_FONT, Vector2(paper.position.x + 4 * u, ky + 40 * u), eff, HORIZONTAL_ALIGNMENT_CENTER, paper.size.x - 8 * u, efs, 2, Color(Toon.SUMI, 0.65 * a))
 	# rang : petits traits d'encre verticaux
 	var dots := maxr
 	var dx0 := c - (dots - 1) * 5.0 * u
@@ -338,10 +323,7 @@ func _scroll(i: int, r: Rect2, unroll: float, dx: float, u: float) -> void:
 		draw_string(_ui, Vector2(c - mw / 2.0, py + 4 * u), "MAX", HORIZONTAL_ALIGNMENT_LEFT, -1, mfs, Color(Toon.GOLD, a))
 	else:
 		var tag := Rect2(Vector2(c - 34 * u, py - 12 * u), Vector2(68 * u, 24 * u))
-		var tb := StyleBoxFlat.new()
-		tb.bg_color = Color(Toon.VERMILION if afford else Color("#9A928A"), a)
-		tb.set_corner_radius_all(int(3 * u))
-		draw_style_box(tb, tag)
+		draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION if afford else Color("#9A928A"), a), int(3 * u)), tag)
 		_stick(tag.position + Vector2(13 * u, tag.size.y / 2.0), 8.0 * u, a, true)
 		var pfs := int(13 * u)
 		draw_string(_ui, tag.position + Vector2(24 * u, tag.size.y / 2.0 + pfs * 0.36), str(cost), HORIZONTAL_ALIGNMENT_LEFT, -1, pfs, Color(Toon.WASHI, a))
@@ -355,8 +337,8 @@ func _scroll(i: int, r: Rect2, unroll: float, dx: float, u: float) -> void:
 		draw_rect(Rect2(sc - Vector2(half, half), Vector2(half, half) * 2.0), Color(Toon.VERMILION, 0.85 * st), false, 4.0 * u)
 		var rfs := int(26 * u * size_k)
 		var rt := str(rank)
-		var rw := TITLE_FONT.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
-		draw_string(TITLE_FONT, Vector2(sc.x - rw / 2.0, sc.y + rfs * 0.36), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(Toon.VERMILION, 0.85 * st))
+		var rw := UiKit.TITLE_FONT.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
+		draw_string(UiKit.TITLE_FONT, Vector2(sc.x - rw / 2.0, sc.y + rfs * 0.36), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(Toon.VERMILION, 0.85 * st))
 
 
 func _rod(p: Vector2, wdt: float, u: float) -> void:
@@ -375,15 +357,13 @@ func _stick(c: Vector2, s: float, a: float, light := false) -> void:
 
 ## Sur le tatami : la pierre à encre (suzuri), son bâton et un pinceau posé.
 func _draw_suzuri(w: float, h: float, u: float) -> void:
-	var a := _ease((_t - 0.4) / 0.5)
+	var a := UiKit.ease_out((_t - 0.4) / 0.5)
 	var c := Vector2(w * 0.5, h * 0.9)
 	var stone := Rect2(c - Vector2(46, 22) * u, Vector2(92, 44) * u)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(Color("#1A1A1F"), a)
-	sb.set_corner_radius_all(int(10 * u))
-	sb.shadow_color = Color(0, 0, 0, 0.3 * a)
-	sb.shadow_size = int(6 * u)
-	draw_style_box(sb, stone)
+	UiKit.box(_sb, Color(Color("#1A1A1F"), a), int(10 * u))
+	_sb.shadow_color = Color(0, 0, 0, 0.3 * a)
+	_sb.shadow_size = int(6 * u)
+	draw_style_box(_sb, stone)
 	# l'encre liquide au fond de la pierre, avec un reflet
 	draw_circle(stone.position + Vector2(24, 22) * u, 14 * u, Color(Color("#05050A"), a))
 	draw_arc(stone.position + Vector2(24, 22) * u, 10 * u, -2.4, -1.4, 8, Color(1, 1, 1, 0.25 * a), 1.5 * u)
@@ -402,8 +382,8 @@ func _draw_back(u: float) -> void:
 	var rad := 22.0 * u
 	_back_rect = Rect2(c - Vector2(rad, rad) * 1.4, Vector2(rad, rad) * 2.8)
 	var k := 0.92 if _back_down else 1.0
-	var a := _ease(_t / 0.4)
-	draw_circle(c, rad * k, Color(PAPER, 0.95 * a))
+	var a := UiKit.ease_out(_t / 0.4)
+	draw_circle(c, rad * k, Color(Toon.PAPER, 0.95 * a))
 	draw_arc(c, rad * k, -PI * 0.35, PI * 1.45, 32, Color(Toon.SUMI, a), 4.5 * u, true)
 	draw_circle(c + Vector2.from_angle(-PI * 0.35) * rad * k, 2.6 * u, Color(Toon.SUMI, a))
 	# flèche vers la gauche, comme un trait de pinceau

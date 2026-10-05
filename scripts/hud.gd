@@ -6,8 +6,8 @@ extends Control
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
-const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
+const UiKit = preload("res://scripts/ui_kit.gd")
+const BAR_N := 24  # segments des barres au pinceau
 
 signal pause_pressed
 
@@ -18,7 +18,7 @@ var elan := 1.0
 var elan_m := 14.0  # longueur max du trait (graduations tous les 2 m)
 var elan_empty := false
 var wave := 1  # salle en cours
-var rooms_total := 9
+var rooms_total := 15
 var wave_index := 1
 var waves_total := 1
 var show_waves := false
@@ -38,6 +38,7 @@ var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
 var chain_lost := 0
 var enemy_bars: Array = []  # [position écran, ratio de vie]
 var in_play := false
+var pause_enabled := true  # main : vrai seulement quand la pause est possible (état « play »)
 var level := 1
 var xp_ratio := 0.0
 var gold := 0
@@ -49,8 +50,6 @@ var _toast := ""
 var _toast_t := -1.0
 var screen_flash := 0.0  # éclair blanc bref à la mise à mort
 var show_fps := false  # `?fps` dans l'adresse web
-# compatibilité (anciens noms encore écrits par main)
-var slow := 0.0
 var game_over := false
 var over_t := 0.0
 var best_wave := 0
@@ -66,6 +65,11 @@ var _banner_t := -1.0
 var _banner_len := 2.0
 var _pause: Control
 var _t := 0.0
+var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
+var _heart := PackedVector2Array()  # cœur unité (rayon 1), puis fermé pour le contour
+var _heart_loop := PackedVector2Array()
+var _bar_th := PackedFloat32Array()  # épaisseur relative du trait le long des barres
+var _bar_pts := PackedVector2Array()
 
 
 func _ready() -> void:
@@ -76,12 +80,23 @@ func _ready() -> void:
 	_pause.icon = "pause"
 	add_child(_pause)
 	_pause.pressed.connect(func(): pause_pressed.emit())
+	# cœur : courbe classique, calculée une fois
+	for i in 28:
+		var t := TAU * float(i) / 28.0
+		var x := 16.0 * pow(sin(t), 3.0)
+		var y := 13.0 * cos(t) - 5.0 * cos(2.0 * t) - 2.0 * cos(3.0 * t) - cos(4.0 * t)
+		_heart.append(Vector2(x, -y) / 16.0)
+	_heart_loop = _heart.duplicate()
+	_heart_loop.append(_heart[0])
+	for i in BAR_N + 1:
+		var k := float(i) / BAR_N
+		_bar_th.append(0.55 + 0.45 * sin(PI * minf(1.0, k * 1.1 + 0.05)))
+	_bar_pts.resize((BAR_N + 1) * 2)
 
 
-## Bandeau d'annonce au centre : début de partie, nouvelle salle, boss…
 ## Les polices réduites n'ont pas les voyelles longues (ō, ū) : on les écrit sans macron.
 static func plain(s: String) -> String:
-	return s.replace("Ō", "O").replace("ō", "o").replace("Ū", "U").replace("ū", "u")
+	return UiKit.plain(s)
 
 
 func is_over_pause(p: Vector2) -> bool:
@@ -94,6 +109,7 @@ func toast(text: String) -> void:
 	_toast_t = 0.0
 
 
+## Bandeau d'annonce au centre : début de partie, nouvelle salle, boss…
 func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_big = plain(big)
 	_banner_small = plain(small)
@@ -102,9 +118,9 @@ func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_len = length
 
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	size = get_viewport_rect().size
-	var real := _real_delta()
+	var real := UiKit.real_delta()
 	_t += real
 	if hurt_flash > 0.0:
 		hurt_flash = maxf(0.0, hurt_flash - real * 2.5)
@@ -115,9 +131,10 @@ func _process(delta: float) -> void:
 		for i in range(hp, _shown_hp):
 			_lost.append([i, 0.0])
 	_shown_hp = hp
-	for l in _lost:
-		l[1] = float(l[1]) + real
-	_lost = _lost.filter(func(l): return float(l[1]) < 0.7)
+	if not _lost.is_empty():
+		for l in _lost:
+			l[1] = float(l[1]) + real
+		_lost = _lost.filter(func(l): return float(l[1]) < 0.7)
 	# combo : reste affiché un moment après la ruée
 	if combo >= 2:
 		_combo_shown = combo
@@ -135,7 +152,7 @@ func _process(delta: float) -> void:
 		if _banner_t > _banner_len:
 			_banner_t = -1.0
 	var u := size.x / 400.0
-	_pause.visible = in_play and dying <= 0.0
+	_pause.visible = in_play and pause_enabled and dying <= 0.0
 	_pause.size = Vector2(40, 40) * u
 	_pause.position = Vector2(size.x - 54 * u, 16 * u)
 	queue_redraw()
@@ -185,13 +202,10 @@ func _draw() -> void:
 	if _toast_t >= 0.0 and in_play:
 		var ta := clampf(minf(_toast_t / 0.15, (1.4 - _toast_t) / 0.3), 0.0, 1.0)
 		var tfs := int(14 * u)
-		var tw := TITLE_FONT.get_string_size(_toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var tw := UiKit.TITLE_FONT.get_string_size(_toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
 		var tp := Vector2(sz.x / 2.0 - tw / 2.0, 100 * u - 6 * u * (1.0 - ta))
-		var tb := StyleBoxFlat.new()
-		tb.bg_color = Color(Toon.SUMI, 0.75 * ta)
-		tb.set_corner_radius_all(999)
-		draw_style_box(tb, Rect2(tp + Vector2(-14 * u, -tfs - 4 * u), Vector2(tw + 28 * u, tfs + 14 * u)))
-		draw_string(TITLE_FONT, tp, _toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.WASHI, ta))
+		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.75 * ta), 999), Rect2(tp + Vector2(-14 * u, -tfs - 4 * u), Vector2(tw + 28 * u, tfs + 14 * u)))
+		draw_string(UiKit.TITLE_FONT, tp, _toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.WASHI, ta))
 
 	if _banner_t >= 0.0:
 		_draw_banner(sz, u)
@@ -210,7 +224,7 @@ func _draw() -> void:
 		draw_colored_polygon(drip, Color(Toon.SUMI, 0.85 * dying))
 
 	if show_fps:
-		draw_string(UI_FONT, Vector2(10 * u, sz.y - 12 * u), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Toon.VERMILION)
+		draw_string(UiKit.UI_FONT, Vector2(10 * u, sz.y - 12 * u), "%d FPS" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Toon.VERMILION)
 
 	# rideau d'encre : un grand coup de pinceau qui balaie l'écran
 	if wipe > 0.001:
@@ -228,15 +242,13 @@ func _draw() -> void:
 
 # ------------------------------------------------------------------ éléments
 
-## Cœur : courbe classique, encre vermillon, reflet, contour sumi.
-func _heart_pts(c: Vector2, s: float) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	for i in 28:
-		var t := TAU * float(i) / 28.0
-		var x := 16.0 * pow(sin(t), 3.0)
-		var y := 13.0 * cos(t) - 5.0 * cos(2.0 * t) - 2.0 * cos(3.0 * t) - cos(4.0 * t)
-		pts.append(c + Vector2(x, -y) * s / 16.0)
-	return pts
+## Cœur : courbe précalculée, placée en c à l'échelle s (fermée pour le contour).
+## On transforme les points plutôt que le canevas : l'épaisseur des contours reste nette.
+func _heart_pts(c: Vector2, s: float, closed := false) -> PackedVector2Array:
+	var xf := Transform2D(0.0, Vector2(s, s), 0.0, c)
+	if closed:
+		return xf * _heart_loop
+	return xf * _heart
 
 
 func _draw_hearts(u: float) -> void:
@@ -250,13 +262,10 @@ func _draw_hearts(u: float) -> void:
 				lost_t = float(l[1])
 		if i < hp:
 			var beat := 1.0 + (0.08 * maxf(0.0, sin(_t * 6.0)) if hp == 1 else 0.0)
-			var pts := _heart_pts(c, s * beat)
 			draw_colored_polygon(_heart_pts(c + Vector2(0, 2.5 * u), s * beat), Color(Toon.SUMI, 0.25))
-			draw_colored_polygon(pts, Toon.VERMILION)
+			draw_colored_polygon(_heart_pts(c, s * beat), Toon.VERMILION)
 			draw_circle(c + Vector2(-4.5, -4.0) * u * beat, 2.6 * u, Color(1, 1, 1, 0.55))
-			var outline := pts.duplicate()
-			outline.append(pts[0])
-			draw_polyline(outline, Toon.SUMI, 2.0 * u, true)
+			draw_polyline(_heart_pts(c, s * beat, true), Toon.SUMI, 2.0 * u, true)
 		elif lost_t >= 0.0:
 			# il vient d'être perdu : il gonfle, se fend et part en éclats
 			var k := lost_t / 0.7
@@ -268,9 +277,7 @@ func _draw_hearts(u: float) -> void:
 				var a := TAU * j / 5.0
 				draw_circle(c + Vector2(cos(a), sin(a)) * (6.0 + 26.0 * k) * u + Vector2(0, 30 * k * k) * u, 2.4 * u * (1.0 - k), Color(Toon.VERMILION, 1.0 - k))
 		else:
-			var empty := _heart_pts(c, s)
-			empty.append(empty[0])
-			draw_polyline(empty, Color(Toon.SUMI, 0.3), 1.8 * u, true)
+			draw_polyline(_heart_pts(c, s, true), Color(Toon.SUMI, 0.3), 1.8 * u, true)
 
 
 ## Chaîne : sous les cœurs, nombre, bonus de dégâts et jauge de temps restant ; éclat quand elle se brise.
@@ -284,22 +291,17 @@ func _draw_chain(u: float) -> void:
 			tier_col = Toon.GOLD
 		elif chain >= 5:
 			tier_col = Toon.PRUSSIAN
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(Toon.WASHI, 0.85)
-		sb.set_corner_radius_all(int(8 * u))
-		sb.border_color = tier_col
-		sb.set_border_width_all(int(2 * u))
 		var box := Rect2(p, Vector2(112, 34) * u)
-		draw_style_box(sb, box)
-		draw_string(UI_FONT, p + Vector2(9, 14) * u, "CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), Color(Toon.SUMI, 0.6))
-		draw_string(TITLE_FONT, p + Vector2(9, 30) * u, str(chain), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), tier_col)
-		draw_string(UI_FONT, p + Vector2(58, 27) * u, "+%d %%" % int(round((chain_mult - 1.0) * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.SUMI, 0.8))
+		draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, 0.85), int(8 * u), tier_col, int(2 * u)), box)
+		draw_string(UiKit.UI_FONT, p + Vector2(9, 14) * u, "CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), Color(Toon.SUMI, 0.6))
+		draw_string(UiKit.TITLE_FONT, p + Vector2(9, 30) * u, str(chain), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), tier_col)
+		draw_string(UiKit.UI_FONT, p + Vector2(58, 27) * u, "+%d %%" % int(round((chain_mult - 1.0) * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.SUMI, 0.8))
 		# temps restant avant que la chaîne s'éteigne
 		draw_rect(Rect2(p + Vector2(8, 31) * u, Vector2(96 * clampf(chain_left, 0.0, 1.0), 2) * u), tier_col)
 	if chain_break > 0.0:
 		var k := 1.0 - chain_break
 		var txt := "CHAÎNE BRISÉE  %d" % chain_lost
-		draw_string(UI_FONT, p + Vector2(4, 28 + 18 * k) * u, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.VERMILION, chain_break))
+		draw_string(UiKit.UI_FONT, p + Vector2(4, 28 + 18 * k) * u, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.VERMILION, chain_break))
 		for j in 5:
 			var a := TAU * j / 5.0
 			draw_rect(Rect2(p + Vector2(56, 18) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.SUMI, chain_break))
@@ -309,7 +311,7 @@ func _draw_chain(u: float) -> void:
 func _draw_xp(u: float) -> void:
 	var p := Vector2(14 * u, 54 * u)
 	var lv := "NIV %d" % level
-	draw_string(UI_FONT, p + Vector2(0, 4 * u), lv, HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Toon.SUMI)
+	draw_string(UiKit.UI_FONT, p + Vector2(0, 4 * u), lv, HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Toon.SUMI)
 	var bx := p.x + 38 * u
 	var bw := 96.0 * u
 	draw_rect(Rect2(Vector2(bx, p.y - 2 * u), Vector2(bw, 6 * u)), Color(Toon.SUMI, 0.55))
@@ -318,7 +320,7 @@ func _draw_xp(u: float) -> void:
 	var gp := Vector2(bx + bw + 14 * u, p.y + 1 * u)
 	draw_circle(gp, 5.5 * u, Toon.GOLD)
 	draw_circle(gp, 3.0 * u, Color("#8C6A2A"))
-	draw_string(UI_FONT, gp + Vector2(9 * u, 4 * u), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Toon.SUMI)
+	draw_string(UiKit.UI_FONT, gp + Vector2(9 * u, 4 * u), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Toon.SUMI)
 
 
 ## Pad tactile : zone où l'on trace, avec le geste en cours en miniature.
@@ -336,12 +338,7 @@ func _draw_pad(u: float) -> void:
 
 
 func _draw_pad_frame(u: float, pa: float) -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(Toon.WASHI, 0.06 * pa)
-	sb.border_color = Color(Toon.WASHI, 0.22 * pa)
-	sb.set_border_width_all(int(1.5 * u))
-	sb.set_corner_radius_all(int(18 * u))
-	draw_style_box(sb, pad)
+	draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, 0.06 * pa), int(18 * u), Color(Toon.WASHI, 0.22 * pa), int(1.5 * u)), pad)
 	if not pad_active:
 		# invitation : un doigt qui trace un petit trait vers le haut
 		var c := pad.get_center()
@@ -352,25 +349,22 @@ func _draw_pad_frame(u: float, pa: float) -> void:
 		draw_circle(p1, 7 * u, Color(Toon.WASHI, 0.4 * pa))
 		var hint := "TRACE ICI"
 		var hf := int(10 * u)
-		var hw := UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf).x
-		draw_string(UI_FONT, Vector2(c.x - hw / 2.0, pad.end.y - 10 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf, Color(Toon.WASHI, 0.45 * pa))
+		var hw := UiKit.UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf).x
+		draw_string(UiKit.UI_FONT, Vector2(c.x - hw / 2.0, pad.end.y - 10 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf, Color(Toon.WASHI, 0.45 * pa))
 
 
 func _draw_room(sz: Vector2, u: float) -> void:
-	# sceau du monde, puis « salle x / 9 » et les vagues de la salle
+	# sceau du monde, puis « salle x / rooms_total » et les vagues de la salle
 	var cx := sz.x / 2.0
 	var seal := Rect2(Vector2(cx - 54 * u, 15 * u), Vector2(36, 36) * u)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = world_color
-	sb.set_corner_radius_all(int(7 * u))
-	draw_style_box(sb, seal)
+	draw_style_box(UiKit.box(_sb, world_color, int(7 * u)), seal)
 	var kfs := int(24 * u)
-	var kw := TITLE_FONT.get_string_size(world_kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
-	draw_string(TITLE_FONT, Vector2(seal.get_center().x - kw / 2.0, seal.get_center().y + kfs * 0.36), world_kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Toon.WASHI)
+	var kw := UiKit.TITLE_FONT.get_string_size(world_kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
+	draw_string(UiKit.TITLE_FONT, Vector2(seal.get_center().x - kw / 2.0, seal.get_center().y + kfs * 0.36), world_kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Toon.WASHI)
 	var tfs := int(22 * u)
-	draw_string(TITLE_FONT, Vector2(cx - 10 * u, 38 * u), str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Toon.SUMI)
-	var nw := TITLE_FONT.get_string_size(str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	draw_string(UI_FONT, Vector2(cx - 8 * u + nw, 38 * u), "/ %d" % rooms_total, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(Toon.SUMI, 0.55))
+	draw_string(UiKit.TITLE_FONT, Vector2(cx - 10 * u, 38 * u), str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Toon.SUMI)
+	var nw := UiKit.TITLE_FONT.get_string_size(str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+	draw_string(UiKit.UI_FONT, Vector2(cx - 8 * u + nw, 38 * u), "/ %d" % rooms_total, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(Toon.SUMI, 0.55))
 	if show_waves and waves_total > 1 and boss_name == "":
 		for i in waves_total:
 			var wp := Vector2(cx - 6 * u + i * 12 * u, 50 * u)
@@ -410,8 +404,8 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 	var by := 84.0 * u
 	var bfs := int(16 * u)
 	var bn := plain(boss_name)
-	var nw := TITLE_FONT.get_string_size(bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	draw_string(TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, by - 7 * u), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
+	var nw := UiKit.TITLE_FONT.get_string_size(bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, by - 7 * u), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
 	# rouleau : deux baguettes et la barre d'encre vermillon
 	draw_rect(Rect2(bx - 6 * u, by - 3 * u, 4 * u, 16 * u), Toon.SUMI)
 	draw_rect(Rect2(bx + bw + 2 * u, by - 3 * u, 4 * u, 16 * u), Toon.SUMI)
@@ -436,8 +430,8 @@ func _draw_combo(sz: Vector2, u: float) -> void:
 	draw_circle(c + Vector2(15, -12) * u, 4 * u, Color(Toon.SUMI, 0.6 * a))
 	var fs := int((20 + 1.5 * mini(_combo_shown, 8)) * u)
 	var txt := "×%d" % _combo_shown
-	var tw := TITLE_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	draw_string(TITLE_FONT, Vector2(c.x - tw / 2.0, c.y + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.VERMILION if _combo_shown >= 4 else Toon.WASHI, a))
+	var tw := UiKit.TITLE_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	draw_string(UiKit.TITLE_FONT, Vector2(c.x - tw / 2.0, c.y + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.VERMILION if _combo_shown >= 4 else Toon.WASHI, a))
 
 
 func _draw_banner(sz: Vector2, u: float) -> void:
@@ -460,38 +454,24 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 		pts.append(Vector2(x, cy + th / 2.0))
 	draw_colored_polygon(pts, Color(_banner_col, 0.92 * a))
 	var fs := int(22 * u)
-	var tw := TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var tw := UiKit.TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var ty := cy + (fs * 0.35 if _banner_small == "" else -fs * 0.05)
-	draw_string(TITLE_FONT, Vector2(sz.x / 2.0 - tw / 2.0, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, a))
+	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - tw / 2.0, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, a))
 	if _banner_small != "":
 		var sfs := int(10 * u)
-		var sw := UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-		draw_string(UI_FONT, Vector2(sz.x / 2.0 - sw / 2.0, cy + 19 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, 0.85 * a))
+		var sw := UiKit.UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+		draw_string(UiKit.UI_FONT, Vector2(sz.x / 2.0 - sw / 2.0, cy + 19 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, 0.85 * a))
 
 
 func _brush_bar(pos: Vector2, w: float, h: float, fill: float, c: Color) -> void:
 	if fill <= 0.001:
 		return
-	var pts := PackedVector2Array()
-	var n := 24
+	# bord haut de gauche à droite, puis bord bas de droite à gauche
 	var fw := w * clampf(fill, 0.0, 1.0)
-	for i in n + 1:
-		var k := float(i) / n
-		var th := h * (0.55 + 0.45 * sin(PI * minf(1.0, k * 1.1 + 0.05)))
-		pts.append(pos + Vector2(fw * k, h / 2.0 - th / 2.0))
-	for i in range(n, -1, -1):
-		var k := float(i) / n
-		var th := h * (0.55 + 0.45 * sin(PI * minf(1.0, k * 1.1 + 0.05)))
-		pts.append(pos + Vector2(fw * k, h / 2.0 + th / 2.0))
-	draw_colored_polygon(pts, c)
-
-
-var _last_ms := 0
-
-
-## Temps réel écoulé (indépendant du ralenti et de la pause).
-func _real_delta() -> float:
-	var now := Time.get_ticks_msec()
-	var d := 0.0 if _last_ms == 0 else (now - _last_ms) / 1000.0
-	_last_ms = now
-	return minf(d, 0.1)
+	var mid := pos.y + h / 2.0
+	for i in BAR_N + 1:
+		var x := pos.x + fw * float(i) / BAR_N
+		var th := h * _bar_th[i] / 2.0
+		_bar_pts[i] = Vector2(x, mid - th)
+		_bar_pts[2 * BAR_N + 1 - i] = Vector2(x, mid + th)
+	draw_colored_polygon(_bar_pts, c)

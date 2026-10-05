@@ -5,10 +5,8 @@ extends Control
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
-const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
-const PAPER := Color("#F6F0E2")
 # teintes du paysage par monde (indice = id - 1) : ciel, plan lointain, premier plan
 const SKY := [Color("#D3DEE6"), Color("#DCE2C8"), Color("#C3CCD6"), Color("#AFC2D0"), Color("#DCCBC4")]
 const FAR := [Color("#7F9BB3"), Color("#93A86C"), Color("#A9BED0"), Color("#9C3B2A"), Color("#6E6A80")]
@@ -27,6 +25,7 @@ signal closed
 var _worlds: Array = []
 var _unlocked := 1
 var _best: Dictionary = {}
+var _rooms := 15  # salles d'une partie (record affiché sur « _rooms » points)
 
 var _t := 0.0  # temps réel depuis l'ouverture
 var _scroll := 0.0  # position du rouleau, en indice de monde (0 = premier)
@@ -73,9 +72,9 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
-	_title.base_font = TITLE_FONT
+	_title.base_font = UiKit.TITLE_FONT
 	_title.spacing_glyph = 2
-	_ui.base_font = UI_FONT
+	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 2
 	_box.anti_aliasing = true
 
@@ -107,11 +106,13 @@ func _ready() -> void:
 
 
 ## worlds : Array de Dictionary {id, name, kanji, subtitle, color} ; unlocked : nombre de mondes ouverts ;
-## best : id -> meilleure salle atteinte ; current : id du monde centré à l'ouverture.
-func open(worlds: Array, unlocked: int, best: Dictionary, current: int) -> void:
+## best : id -> meilleure salle atteinte ; current : id du monde centré à l'ouverture ;
+## rooms : nombre de salles d'une partie.
+func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms := 15) -> void:
 	_worlds = worlds
 	_unlocked = clampi(unlocked, 1, maxi(1, worlds.size()))
 	_best = best
+	_rooms = maxi(1, rooms)
 	var start := 0
 	for i in _worlds.size():
 		if _id(i) == current:
@@ -153,7 +154,7 @@ func _pal(i: int) -> int:
 func _best_of(i: int) -> int:
 	var id := _id(i)
 	var v: Variant = _best.get(id, _best.get(str(id), 0))
-	return clampi(int(v), 0, 15)
+	return clampi(int(v), 0, _rooms)
 
 
 func _sel() -> int:
@@ -271,11 +272,11 @@ func _on_back() -> void:
 
 # --- Boucle ----------------------------------------------------------------------
 
-func _process(delta: float) -> void:
+func _process(_delta: float) -> void:
 	if not visible:
 		return
 	size = get_viewport_rect().size
-	var real := delta / maxf(Engine.time_scale, 0.01)
+	var real := UiKit.real_delta()
 	_t += real
 	_deny = maxf(0.0, _deny - real * 2.5)
 
@@ -300,10 +301,10 @@ func _process(delta: float) -> void:
 				closed.emit()
 			return
 
-	var opening := _ease(clampf((_t - 0.12) / 0.85, 0.0, 1.0))
+	var opening := UiKit.ease_out(clampf((_t - 0.12) / 0.85, 0.0, 1.0))
 	var closing := 1.0
 	if _leaving != 0:
-		closing = 1.0 - _ease(clampf(_leave_t / 0.4, 0.0, 1.0))
+		closing = 1.0 - UiKit.ease_out(clampf(_leave_t / 0.4, 0.0, 1.0))
 	_unroll = opening * closing
 	_fade = closing
 	modulate.a = clampf(closing * 1.8, 0.0, 1.0)
@@ -336,7 +337,7 @@ func _layout() -> void:
 	_arrow_l = Vector2(_cx - _half + 26.0 * u, _py0 + _ph * 0.87)
 	_arrow_r = Vector2(_cx + _half - 26.0 * u, _py0 + _ph * 0.87)
 
-	var appear := _ease(clampf((_t - 0.65) / 0.4, 0.0, 1.0))
+	var appear := UiKit.ease_out(clampf((_t - 0.65) / 0.4, 0.0, 1.0))
 	var bw := minf(w * 0.56, 230.0 * u)
 	var bh := 56.0 * u
 	_go.size = Vector2(bw, bh)
@@ -347,10 +348,6 @@ func _layout() -> void:
 	_back.size = Vector2(46.0, 46.0) * u
 	_back.position = Vector2(14.0, 14.0) * u
 	_back.modulate.a = appear
-
-
-func _ease(k: float) -> float:
-	return 1.0 - pow(1.0 - k, 3.0)
 
 
 func _smooth(k: float) -> float:
@@ -455,7 +452,7 @@ func _draw() -> void:
 	var w := size.x
 	var h := size.y
 	var u := _u
-	var a := _ease(clampf(_t / 0.25, 0.0, 1.0))
+	var a := UiKit.ease_out(clampf(_t / 0.25, 0.0, 1.0))
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.WASHI, a))
 	var wash := Color(Toon.SUMI, 0.035 * a)
 	draw_circle(Vector2(w * 0.12, h * 0.9), 170.0 * u, wash)
@@ -469,7 +466,7 @@ func _draw() -> void:
 		draw_style_box(_box, Rect2(_cx - _half - 14.0 * u, _py0 + 10.0 * u, _half * 2.0 + 28.0 * u, _ph + 8.0 * u))
 
 	# titre et petit sceau 道
-	var ta := _ease(clampf((_t - 0.15) / 0.4, 0.0, 1.0))
+	var ta := UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0))
 	var tfs := maxi(1, int(32.0 * u))
 	var title_txt := "Les Mondes"
 	var tw := _title.get_string_size(title_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
@@ -481,14 +478,14 @@ func _draw() -> void:
 	_box.set_corner_radius_all(int(4.0 * u))
 	_box.bg_color = Color(Toon.VERMILION, ta)
 	draw_style_box(_box, seal)
-	_centered(self, TITLE_FONT, "道", Vector2(seal.get_center().x, seal.get_center().y + 6.5 * u), maxi(1, int(18.0 * u)), Color(Toon.WASHI, ta))
+	_centered(self, UiKit.TITLE_FONT, "道", Vector2(seal.get_center().x, seal.get_center().y + 6.5 * u), maxi(1, int(18.0 * u)), Color(Toon.WASHI, ta))
 	_centered(self, _ui, "GLISSE POUR DÉROULER LE ROULEAU", Vector2(w / 2.0, _py0 - 26.0 * u), maxi(1, int(11.0 * u)), Color(Toon.SUMI, 0.5 * ta))
 
 	var n := _worlds.size()
 	if n == 0:
 		return
 	# repères de position : un losange par monde, une goutte d'encre qui suit le rouleau
-	var ra := _ease(clampf((_t - 0.7) / 0.4, 0.0, 1.0))
+	var ra := UiKit.ease_out(clampf((_t - 0.7) / 0.4, 0.0, 1.0))
 	var dy := _py0 + _ph + 24.0 * u
 	var gap := 18.0 * u
 	for i in n:
@@ -532,7 +529,7 @@ func _rod(ci: Control, x: float, sgn: float) -> void:
 	var bot := _py0 + _ph + 12.0 * u
 	# papier encore roulé : plus épais tant que le rouleau n'est pas ouvert
 	var bulk := (4.0 + 10.0 * (1.0 - _unroll)) * u
-	_box.bg_color = PAPER.darkened(0.07)
+	_box.bg_color = Toon.PAPER.darkened(0.07)
 	_box.border_color = Color(Toon.SUMI, 0.3)
 	_box.set_border_width_all(maxi(1, int(1.0 * u)))
 	_box.set_corner_radius_all(maxi(1, int(bulk * 0.8)))
@@ -593,7 +590,7 @@ func _draw_paper() -> void:
 	var x1 := _cx + _half
 	var top := _py0
 	var bot := _py0 + _ph
-	ci.draw_rect(Rect2(x0, top, x1 - x0, _ph), PAPER)
+	ci.draw_rect(Rect2(x0, top, x1 - x0, _ph), Toon.PAPER)
 	var n := _worlds.size()
 	if n == 0:
 		return
@@ -821,7 +818,7 @@ func _motif_front(ci: Control, i: int, sx: float) -> void:
 				var c := Vector2(fx, fy)
 				var pts := PackedVector2Array([c + Vector2(-r, -r * 0.6).rotated(ang), c + Vector2(r * 0.8, -r * 0.7).rotated(ang),
 					c + Vector2(r, r * 0.5).rotated(ang), c + Vector2(-r * 0.7, r * 0.6).rotated(ang)])
-				ci.draw_colored_polygon(pts, PAPER)
+				ci.draw_colored_polygon(pts, Toon.PAPER)
 				var outline := pts.duplicate()
 				outline.append(pts[0])
 				ci.draw_polyline(outline, Color(Toon.SUMI, 0.6), maxf(1.0, u), true)
@@ -972,9 +969,9 @@ func _station(ci: Control, i: int) -> void:
 	ci.draw_arc(p, r * 0.84, 0.0, TAU, 48, Color(Toon.WASHI, 0.4 if locked else 0.55), maxf(1.0, 1.5 * u * sc), true)
 	ci.draw_arc(p, r - 1.0 * u, 0.0, TAU, 56, Color(Toon.SUMI, 0.9), 3.0 * u * sc, true)
 	var kfs := maxi(1, int(r * 1.05))
-	var asc := TITLE_FONT.get_ascent(kfs)
-	var desc := TITLE_FONT.get_descent(kfs)
-	_centered(ci, TITLE_FONT, kanji, Vector2(p.x, p.y + (asc - desc) / 2.0), kfs, Color(Toon.WASHI, 0.55 if locked else 1.0))
+	var asc := UiKit.TITLE_FONT.get_ascent(kfs)
+	var desc := UiKit.TITLE_FONT.get_descent(kfs)
+	_centered(ci, UiKit.TITLE_FONT, kanji, Vector2(p.x, p.y + (asc - desc) / 2.0), kfs, Color(Toon.WASHI, 0.55 if locked else 1.0))
 	if locked:
 		_barred_seal(ci, p + Vector2(-r * 0.74, -r * 0.74), 20.0 * u * sc)
 		_lock_icon(ci, p + Vector2(r * 0.6, r * 0.55), 14.0 * u * sc)
@@ -989,7 +986,13 @@ func _station(ci: Control, i: int) -> void:
 	var rfs := maxi(1, int(11.0 * u * sc))
 	var nw := _title.get_string_size(wname, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	var sw := _ui.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-	var cw := clampf(maxf(nw, sw) + 24.0 * u * sc, 112.0 * u * sc, _step * 0.98)
+	# record : une perle par salle puis « b / salles » ; la carte s'élargit pour le contenir
+	var b := _best_of(i)
+	var rec_txt := "%d / %d" % [b, _rooms]
+	var rec_tw := _ui.get_string_size(rec_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
+	var dgap_min := 4.0 * u * sc
+	var rec_min := 0.0 if locked else dgap_min * float(_rooms - 1) + 13.0 * u * sc + rec_tw
+	var cw := clampf(maxf(maxf(nw, sw), rec_min) + 24.0 * u * sc, 112.0 * u * sc, _step * 0.98)
 	var ctop := p.y + r + 10.0 * u * sc
 	var y_name := ctop + 8.0 * u * sc + float(nfs) * 0.85
 	var y_sub := y_name + float(sfs) + 5.0 * u * sc
@@ -1000,7 +1003,7 @@ func _station(ci: Control, i: int) -> void:
 	_box.set_border_width_all(0)
 	_box.bg_color = Color(Toon.SUMI, 0.15)
 	ci.draw_style_box(_box, Rect2(cr.position + Vector2(0, 4.0 * u * sc), cr.size))
-	_box.bg_color = Color(PAPER, 0.95)
+	_box.bg_color = Color(Toon.PAPER, 0.95)
 	_box.border_color = Color(Toon.SUMI, 0.8 if not locked else 0.4)
 	_box.set_border_width_all(maxi(1, int(2.0 * u * sc)))
 	ci.draw_style_box(_box, cr)
@@ -1015,21 +1018,22 @@ func _station(ci: Control, i: int) -> void:
 	if locked:
 		_centered(ci, _ui, "VERROUILLÉ", Vector2(p.x, y_rec), rfs, Color(Toon.SUMI, 0.45))
 	else:
-		var b := _best_of(i)
-		var txt := "%d / 9" % b
-		var tw := _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
-		var dgap := 7.0 * u * sc
-		var roww := dgap * 8.0 + 6.0 * u * sc + 8.0 * u * sc + tw
-		var rx := p.x - roww / 2.0 + 3.0 * u * sc
+		# écart des perles : 7 au plus, resserré pour tenir dans la carte
+		var spans := float(maxi(1, _rooms - 1))
+		var dgap := clampf((inner - rec_tw - 13.0 * u * sc) / spans, dgap_min, 7.0 * u * sc)
+		var dr := minf(2.4 * u * sc, dgap * 0.42)
+		var roww := dgap * float(_rooms - 1) + dr * 2.0 + 8.0 * u * sc + rec_tw
+		var rx := p.x - roww / 2.0 + dr
 		var dyc := y_rec - float(rfs) * 0.35
-		for k in 9:
+		for k in _rooms:
 			var dc := Vector2(rx + float(k) * dgap, dyc)
 			if k < b:
-				ci.draw_circle(dc, 2.4 * u * sc, col)
+				ci.draw_circle(dc, dr, col)
 			else:
-				ci.draw_arc(dc, 2.2 * u * sc, 0.0, TAU, 12, Color(Toon.SUMI, 0.3), maxf(1.0, 1.0 * u), true)
-		var rc: Color = Toon.GOLD if b >= 9 else Color(Toon.SUMI, 0.8)
-		ci.draw_string(_ui, Vector2(rx + dgap * 14.0 + 8.0 * u * sc, y_rec), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, rc)
+				ci.draw_arc(dc, dr * 0.92, 0.0, TAU, 12, Color(Toon.SUMI, 0.3), maxf(1.0, 1.0 * u), true)
+		var rc: Color = Toon.GOLD if b >= _rooms else Color(Toon.SUMI, 0.8)
+		var tx := rx + dgap * float(_rooms - 1) + dr + 8.0 * u * sc
+		ci.draw_string(_ui, Vector2(tx, y_rec), rec_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, rc)
 
 	var hit_w := maxf(r * 2.0, cw)
 	var hit_top := p.y - r - 28.0 * u
@@ -1041,7 +1045,7 @@ func _barred_seal(ci: Control, c: Vector2, s: float) -> void:
 	var r := Rect2(c - Vector2(s, s) / 2.0, Vector2(s, s))
 	ci.draw_rect(r, Toon.VERMILION)
 	ci.draw_rect(r.grow(-s * 0.16), Color(Toon.WASHI, 0.75), false, maxf(1.0, s * 0.07))
-	_centered(ci, TITLE_FONT, "界", Vector2(c.x, c.y + s * 0.22), maxi(1, int(s * 0.58)), Color(Toon.WASHI, 0.9))
+	_centered(ci, UiKit.TITLE_FONT, "界", Vector2(c.x, c.y + s * 0.22), maxi(1, int(s * 0.58)), Color(Toon.WASHI, 0.9))
 	ci.draw_line(c + Vector2(-s * 0.75, s * 0.6), c + Vector2(s * 0.75, -s * 0.6), Toon.SUMI, maxf(1.5, s * 0.16), true)
 
 
@@ -1064,9 +1068,7 @@ func _lock_icon(ci: Control, c: Vector2, s: float) -> void:
 # --- Utilitaires ---------------------------------------------------------------------
 
 func _centered(ci: CanvasItem, font: Font, txt: String, at: Vector2, fs: int, c: Color) -> float:
-	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	ci.draw_string(font, Vector2(at.x - tw / 2.0, at.y), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-	return tw
+	return UiKit.text(ci, font, txt, at, fs, c)
 
 
 ## Texte centré qui rétrécit pour tenir dans max_w.

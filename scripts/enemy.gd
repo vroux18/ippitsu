@@ -16,6 +16,8 @@ const SPAWN_TIME := 1.0
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (même valeur que main.HALF)
 const EDGE_IN := 0.4  # funa : distance au bord du ponton
 
+var _steer := Vector3.ZERO
+var _steer_t := 0.0
 var kind := "oni"
 var hp := 1.0
 var speed := 2.0
@@ -262,6 +264,7 @@ func push(v: Vector3) -> void:
 func _cancel_attack() -> void:
 	_state = "recover"
 	_timer = 0.6
+	ch.set_glow(0.0)
 	main.free_token(self)
 	if _zone:
 		_zone.queue_free()
@@ -332,7 +335,12 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 			_face(dir, delta)
 			if dist > reach - 0.3:
 				# chemin : par la passerelle si le héros est sur une autre plateforme
-				var sd: Vector3 = main.steer_dir(position, hero.position)
+				# recalculé 5 fois par seconde seulement (parcours des plateformes)
+				_steer_t -= delta
+				if _steer_t <= 0.0:
+					_steer_t = 0.2
+					_steer = main.steer_dir(position, hero.position)
+				var sd := _steer
 				position += sd * speed * delta
 				if sd != Vector3.ZERO:
 					_face(sd, delta)
@@ -405,6 +413,12 @@ func _shooter(delta: float, dir: Vector3, dist: float) -> void:
 			main.free_token(self)
 			_state = "move"
 			_timer = 2.6 + randf() * 1.2
+	elif _state == "recover":
+		# sort ici quand le tir a été interrompu par un coup
+		_timer -= delta
+		if _timer <= 0.0:
+			_state = "move"
+			_timer = 1.5
 
 
 # ------------------------------------------------------------------ funa

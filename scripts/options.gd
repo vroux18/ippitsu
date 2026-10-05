@@ -3,8 +3,7 @@ extends Control
 ## Carte de papier sur voile d'encre, choix en boutons segmentés. main lit/écrit `values`.
 
 const Toon = preload("res://scripts/toon.gd")
-const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
 signal changed(key: String, value: String)
 signal closed
@@ -15,55 +14,80 @@ const ROWS := [
 	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "AU DÉBUT"], ["never", "JAMAIS"]]},
 	{"key": "sound", "label": "SON", "opts": [["on", "OUI"], ["off", "NON"]]},
 ]
+const INPUT_DELAY := 0.3  # le toucher qui a ouvert la carte ne doit rien choisir
+const NO_TARGET := -2
+const BACK_TARGET := -1
 
 var values := {"control": "pad", "pad_size": "m", "pad_show": "start", "sound": "on"}
 
 var _t := 0.0
 var _hits: Array = []  # [Rect2, clé, valeur]
 var _back := Rect2()
+var _pressed := NO_TARGET  # cible touchée à l'appui (retour, ou indice dans _hits)
 var _ui := FontVariation.new()
 var _title := FontVariation.new()
-var _last_ms := 0
+var _sb := StyleBoxFlat.new()
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
-	_ui.base_font = UI_FONT
+	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 1
-	_title.base_font = TITLE_FONT
+	_title.base_font = UiKit.TITLE_FONT
 	_title.spacing_glyph = 6
 
 
 func open() -> void:
 	_t = 0.0
+	_pressed = NO_TARGET
 	visible = true
 
 
+func _target_at(p: Vector2) -> int:
+	if _back.has_point(p):
+		return BACK_TARGET
+	for i in _hits.size():
+		var r: Rect2 = _hits[i][0]
+		if r.has_point(p):
+			return i
+	return NO_TARGET
+
+
 func _gui_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-		var p: Vector2 = event.position
-		if _back.has_point(p):
-			visible = false
-			closed.emit()
-		for h in _hits:
-			var r: Rect2 = h[0]
-			if r.has_point(p):
-				values[String(h[1])] = String(h[2])
-				changed.emit(String(h[1]), String(h[2]))
-		accept_event()
-	elif event is InputEventMouseButton:
-		accept_event()
+	if not (event is InputEventMouseButton):
+		return
+	accept_event()
+	var mb := event as InputEventMouseButton
+	if mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	if _t < INPUT_DELAY:
+		_pressed = NO_TARGET
+		return
+	var target := _target_at(mb.position)
+	if mb.pressed:
+		_pressed = target
+		return
+	# relâché : on ne choisit que si l'appui et le relâché tombent sur la même cible
+	var start := _pressed
+	_pressed = NO_TARGET
+	if target == NO_TARGET or target != start:
+		return
+	if target == BACK_TARGET:
+		visible = false
+		closed.emit()
+		return
+	var h: Array = _hits[target]
+	values[String(h[1])] = String(h[2])
+	changed.emit(String(h[1]), String(h[2]))
 
 
 func _process(_delta: float) -> void:
 	if not visible:
 		return
 	size = get_viewport_rect().size
-	var now := Time.get_ticks_msec()
-	_t += 0.0 if _last_ms == 0 else minf((now - _last_ms) / 1000.0, 0.1)
-	_last_ms = now
+	_t += UiKit.real_delta()
 	queue_redraw()
 
 
@@ -74,17 +98,13 @@ func _draw() -> void:
 		return
 	var u := w / 400.0
 	var a := clampf(_t / 0.25, 0.0, 1.0)
-	draw_rect(Rect2(Vector2.ZERO, size), Color(Color("#100D10"), 0.85 * a))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
 	var card := Rect2(Vector2(w * 0.06, h * 0.5 - 250 * u), Vector2(w * 0.88, 500 * u))
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(Color("#F4EDDC"), a)
-	sb.set_corner_radius_all(int(18 * u))
-	sb.shadow_color = Color(0, 0, 0, 0.5 * a)
-	sb.shadow_size = int(20 * u)
-	draw_style_box(sb, card)
-	var tfs := int(28 * u)
-	var tw := _title.get_string_size("OPTIONS", HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	draw_string(_title, Vector2(card.get_center().x - tw / 2.0, card.position.y + 52 * u), "OPTIONS", HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.SUMI, a))
+	UiKit.box(_sb, Color(Toon.PAPER, a), int(18 * u))
+	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
+	_sb.shadow_size = int(20 * u)
+	draw_style_box(_sb, card)
+	UiKit.text(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + 52 * u), int(28 * u), Color(Toon.SUMI, a))
 	draw_line(Vector2(card.get_center().x - 30 * u, card.position.y + 66 * u), Vector2(card.get_center().x + 30 * u, card.position.y + 66 * u), Color(Toon.VERMILION, a), 2 * u)
 	# retour : ensō et flèche en haut à gauche de la carte
 	var bc := card.position + Vector2(34, 40) * u
@@ -108,20 +128,15 @@ func _draw() -> void:
 			var o: Array = opts[i]
 			var r := Rect2(Vector2(x0 + i * (bw + 6 * u), y + 10 * u), Vector2(bw, 42 * u))
 			var on := String(values.get(key, "")) == String(o[0])
-			var ob := StyleBoxFlat.new()
-			ob.set_corner_radius_all(int(10 * u))
 			if on:
-				ob.bg_color = Color(Toon.SUMI, a * (0.4 if dim else 1.0))
+				UiKit.box(_sb, Color(Toon.SUMI, a * (0.4 if dim else 1.0)), int(10 * u))
 			else:
-				ob.bg_color = Color(0, 0, 0, 0)
-				ob.border_color = Color(Toon.SUMI, 0.35 * a)
-				ob.set_border_width_all(int(1.5 * u))
-			draw_style_box(ob, r)
+				UiKit.box(_sb, Color(0, 0, 0, 0), int(10 * u), Color(Toon.SUMI, 0.35 * a), int(1.5 * u))
+			draw_style_box(_sb, r)
 			if on and not dim:
 				draw_rect(Rect2(r.position + Vector2(8 * u, r.size.y * 0.3), Vector2(3 * u, r.size.y * 0.4)), Color(Toon.VERMILION, a))
 			var fs := int(12 * u)
-			var lw := _ui.get_string_size(String(o[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			draw_string(_ui, Vector2(r.get_center().x - lw / 2.0, r.get_center().y + fs * 0.36), String(o[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+			UiKit.text(self, _ui, String(o[1]), Vector2(r.get_center().x, r.get_center().y + fs * 0.36), fs,
 				Color(Toon.WASHI if on else Toon.SUMI, a * (0.5 if dim else 1.0)))
 			if not dim:
 				_hits.append([r, key, String(o[0])])

@@ -5,6 +5,7 @@ const Toon = preload("res://scripts/toon.gd")
 
 const WIDTH := 0.3
 const STEP := 0.18
+const DRY := Color("#6E6A66")
 
 var points := PackedVector3Array()
 var jitter := PackedFloat32Array()
@@ -73,7 +74,11 @@ func extend_to(target: Vector3, budget: float) -> float:
 
 
 func start_drying() -> void:
+	if drying:
+		return
 	drying = true
+	_rebuild()  # une seule fois : ensuite le séchage ne touche qu'à la matière
+	_mat.albedo_color = Color(Toon.SUMI.r * Toon.SUMI.r, Toon.SUMI.g * Toon.SUMI.g, Toon.SUMI.b * Toon.SUMI.b, 1.0)
 	if _tip:
 		_tip.visible = false
 		_ring.visible = false
@@ -95,7 +100,10 @@ func _process(delta: float) -> void:
 	if _dry_t > 1.6:
 		queue_free()
 	else:
-		_rebuild()
+		# l'encre fraîche est noire, elle pâlit et s'efface en séchant
+		var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0)
+		var tint := Toon.SUMI.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
+		_mat.albedo_color = Color(Toon.SUMI.r * tint.r, Toon.SUMI.g * tint.g, Toon.SUMI.b * tint.b, fade)
 
 
 func _rebuild() -> void:
@@ -103,9 +111,8 @@ func _rebuild() -> void:
 	var n := points.size()
 	if n < 2:
 		return
-	# l'encre fraîche est noire, elle pâlit et s'efface en séchant
-	var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0) if drying else 1.0
-	var tint := Toon.SUMI.lerp(Color("#6E6A66"), clampf(_dry_t / 0.8, 0.0, 1.0)) if drying else Toon.SUMI
+	# en séchant, la teinte passe par la matière (voir _process) : sommets blancs
+	var tint := Color.WHITE if drying else Toon.SUMI
 	_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	var s := 0.0
 	for i in n:
@@ -123,7 +130,7 @@ func _rebuild() -> void:
 		var u := s / maxf(length, 0.001)
 		# attaque franche du pinceau, puis s'effile en fin de trait
 		var w := WIDTH * jitter[i] * clampf(s / 0.25 + 0.45, 0.0, 1.0) * lerpf(1.0, 0.3, u * u)
-		var c := Color(tint, fade * (0.95 - 0.25 * u))
+		var c := Color(tint, 0.95 - 0.25 * u)
 		_imesh.surface_set_color(c)
 		_imesh.surface_add_vertex(Vector3(p.x, _y, p.z) + side * w)
 		_imesh.surface_set_color(c)

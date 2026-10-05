@@ -4,7 +4,7 @@ extends Node3D
 ## grâce au halo (glow) de l'environnement, sans délaver le reste de l'image.
 
 const Toon = preload("res://scripts/toon.gd")
-const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
 const TRAIL_LIFE := 0.28
 
@@ -12,8 +12,15 @@ var main: Node
 var _fx: Array = []  # {node, t, life, kind, ...}
 var _trail_pts: Array = []  # [position, âge]
 var _trail_mesh := ImmediateMesh.new()
+var _trail_live := false  # la traînée a des surfaces à effacer
 var _trail_mat: StandardMaterial3D
 var _glow_mats := {}
+# maillages partagés par tous les impacts (forme constante ; l'échelle se fait sur le nœud)
+var _star_quad: QuadMesh
+var _arc_mesh: ArrayMesh
+var _ring_torus: TorusMesh
+var _spark_boxes := {}  # couleur -> BoxMesh (matériau lumineux de cette couleur)
+var _confetti: QuadMesh
 
 
 func _ready() -> void:
@@ -55,13 +62,20 @@ func trail_point(p: Vector3) -> void:
 
 
 func _update_trail(dt: float) -> void:
+	if _trail_pts.is_empty():
+		if _trail_live:
+			_trail_mesh.clear_surfaces()
+			_trail_live = false
+		return
 	for tp in _trail_pts:
 		tp[1] = float(tp[1]) + dt
 	_trail_pts = _trail_pts.filter(func(tp): return float(tp[1]) < TRAIL_LIFE)
 	_trail_mesh.clear_surfaces()
+	_trail_live = false
 	var n := _trail_pts.size()
 	if n < 2:
 		return
+	_trail_live = true
 	_trail_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	for i in n:
 		var p: Vector3 = _trail_pts[i][0]
@@ -94,11 +108,12 @@ func impact(pos: Vector3, dir: Vector3, strong := false) -> void:
 	var star := Node3D.new()
 	add_child(star)
 	star.position = p
-	var q := QuadMesh.new()
-	q.size = Vector2(1.0, 0.18)
+	if _star_quad == null:
+		_star_quad = QuadMesh.new()
+		_star_quad.size = Vector2(1.0, 0.18)
 	for r in [0.0, PI / 2.0, PI / 4.0, -PI / 4.0]:
 		var mi := MeshInstance3D.new()
-		mi.mesh = q
+		mi.mesh = _star_quad
 		mi.material_override = glow_mat(Color(1, 0.95, 0.8), 4.0)
 		mi.rotation.z = r
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -111,6 +126,27 @@ func impact(pos: Vector3, dir: Vector3, strong := false) -> void:
 
 ## Arc de sabre : un croissant lumineux tracé dans le sens du coup.
 func arc(pos: Vector3, dir: Vector3, strong := false) -> void:
+	if _arc_mesh == null:
+		_arc_mesh = _make_arc_mesh()
+	var node := Node3D.new()
+	add_child(node)
+	node.position = pos
+	var d := dir
+	d.y = 0
+	if d.length_squared() < 0.001:
+		d = Vector3.FORWARD
+	node.rotation.y = atan2(-d.x, -d.z)
+	node.rotation.z = randf_range(-0.5, 0.5)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _arc_mesh
+	mi.material_override = glow_mat(Color(1.0, 0.95, 0.85) if not strong else Toon.VERMILION, 3.0)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(mi)
+	_fx.append({"node": node, "t": 0.0, "life": 0.26, "kind": "arc", "s": 1.6 if strong else 1.2})
+
+
+## Croissant de l'arc de sabre (forme fixe, construite une fois).
+func _make_arc_mesh() -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n := 14
@@ -129,21 +165,7 @@ func arc(pos: Vector3, dir: Vector3, strong := false) -> void:
 		st.add_vertex(o0)
 		st.add_vertex(i1)
 		st.add_vertex(i0)
-	var node := Node3D.new()
-	add_child(node)
-	node.position = pos
-	var d := dir
-	d.y = 0
-	if d.length_squared() < 0.001:
-		d = Vector3.FORWARD
-	node.rotation.y = atan2(-d.x, -d.z)
-	node.rotation.z = randf_range(-0.5, 0.5)
-	var mi := MeshInstance3D.new()
-	mi.mesh = st.commit()
-	mi.material_override = glow_mat(Color(1.0, 0.95, 0.85) if not strong else Toon.VERMILION, 3.0)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	node.add_child(mi)
-	_fx.append({"node": node, "t": 0.0, "life": 0.26, "kind": "arc", "s": 1.6 if strong else 1.2})
+	return st.commit()
 
 
 ## Anneau de choc qui s'étend au sol.
@@ -151,13 +173,14 @@ func ring(pos: Vector3, c: Color, r: float) -> void:
 	var n := Node3D.new()
 	add_child(n)
 	n.position = pos
-	var tor := TorusMesh.new()
-	tor.inner_radius = 0.88
-	tor.outer_radius = 1.0
-	tor.rings = 24
-	tor.ring_segments = 4
+	if _ring_torus == null:
+		_ring_torus = TorusMesh.new()
+		_ring_torus.inner_radius = 0.88
+		_ring_torus.outer_radius = 1.0
+		_ring_torus.rings = 24
+		_ring_torus.ring_segments = 4
 	var mi := MeshInstance3D.new()
-	mi.mesh = tor
+	mi.mesh = _ring_torus
 	mi.scale = Vector3(1, 0.05, 1)
 	mi.material_override = glow_mat(c, 2.5)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -168,10 +191,13 @@ func ring(pos: Vector3, c: Color, r: float) -> void:
 ## Étincelles lumineuses projetées dans la direction du coup.
 func sparks(pos: Vector3, dir: Vector3, amount: int, c: Color) -> void:
 	var p := CPUParticles3D.new()
-	var m := BoxMesh.new()
-	m.size = Vector3(0.07, 0.07, 0.36)
-	m.material = glow_mat(c, 3.5)
-	p.mesh = m
+	var key := c.to_html()
+	if not _spark_boxes.has(key):
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.07, 0.07, 0.36)
+		bm.material = glow_mat(c, 3.5)
+		_spark_boxes[key] = bm
+	p.mesh = _spark_boxes[key]
 	p.amount = amount
 	p.lifetime = 0.6
 	p.one_shot = true
@@ -197,14 +223,15 @@ func kill_burst(pos: Vector3, dir: Vector3) -> void:
 	sparks(pos + Vector3(0, 0.9, 0), -dir, 10, Toon.VERMILION)
 	# confettis de washi
 	var p := CPUParticles3D.new()
-	var m := QuadMesh.new()
-	m.size = Vector2(0.14, 0.1)
-	var pm := StandardMaterial3D.new()
-	pm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	pm.albedo_color = Toon.WASHI
-	pm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	m.material = pm
-	p.mesh = m
+	if _confetti == null:
+		_confetti = QuadMesh.new()
+		_confetti.size = Vector2(0.14, 0.1)
+		var pm := StandardMaterial3D.new()
+		pm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		pm.albedo_color = Toon.WASHI
+		pm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_confetti.material = pm
+	p.mesh = _confetti
 	p.amount = 16
 	p.lifetime = 1.1
 	p.one_shot = true
@@ -225,7 +252,7 @@ func kill_burst(pos: Vector3, dir: Vector3) -> void:
 	_fx.append({"node": p, "t": 0.0, "life": 1.4, "kind": "none"})
 	# grand idéogramme au pinceau
 	var l := Label3D.new()
-	l.font = KANJI_FONT
+	l.font = UiKit.TITLE_FONT
 	l.text = "斬"
 	l.font_size = 220
 	l.pixel_size = 0.006
@@ -241,7 +268,7 @@ func kill_burst(pos: Vector3, dir: Vector3) -> void:
 
 func _process(delta: float) -> void:
 	# temps réel : les effets ne ralentissent pas avec le jeu
-	var dt := minf(delta / maxf(Engine.time_scale, 0.05), 0.05)
+	var dt := UiKit.unscaled(delta, 0.05)
 	if main and main.hero and is_instance_valid(main.hero) and main.hero.dashing:
 		trail_point(main.hero.position)
 	_update_trail(dt)

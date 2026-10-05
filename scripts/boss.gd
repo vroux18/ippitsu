@@ -4,7 +4,7 @@ extends Node3D
 ##            Tranché dans le dos, sa coupelle se renverse : dégâts ×3 et étourdi 3 s.
 ##  uwabami — Uwabami, serpent de mer (60 PV) : ne prend des dégâts que si on le tranche
 ##            dans sa longueur (au moins 4 segments d'un même trait).
-## main appelle : check_dash(), take_hit(), end_stroke(), danger_zone(), touching_hero().
+## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
@@ -14,6 +14,8 @@ const SEGMENTS := 12
 const SPACING := 0.9
 const SEG_R := 0.55
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
+const BOWL_WATER := Color("#7FB2C8")
+const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 
 var kind := "okappa"
 var main: Node
@@ -41,13 +43,15 @@ var _summoned := false
 # Ō-Kappa
 var body: Node3D
 var ch: Node3D
+var _anim_lock := 0.0  # laisse finir une animation jouée une fois
+var _death_played := false
 
 # Uwabami
 var _segs: Array = []  # Node3D, la tête en premier
 var _trail: Array = []  # positions passées de la tête (la plus récente en premier)
 var _path: Array = []  # chemin prévu de la traversée
 var _path_i := 0
-var _hits := {}  # stroke_id -> {index: true}
+var _hits := {}  # segments tranchés depuis le dernier end_stroke : {index: true}
 var _marks: Node3D
 var _depth := -1.6  # profondeur du corps (0 = en surface)
 var _burst := 0
@@ -88,7 +92,7 @@ func _build_okappa() -> void:
 	# la coupelle d'eau sur le crâne : son point faible, visible de dos
 	var bowl := Toon.part(body, Toon.cyl(0.42, 0.3, 0.12, 20), Toon.mat(Toon.GOLD), Vector3(0, 2.62, 0.05))
 	bowl.name = "bowl"
-	Toon.part(body, Toon.cyl(0.34, 0.34, 0.02, 20), Toon.mat(Color("#7FB2C8"), false), Vector3(0, 2.69, 0.05))
+	Toon.part(body, Toon.cyl(0.34, 0.34, 0.02, 20), Toon.mat(BOWL_WATER, false), Vector3(0, 2.69, 0.05))
 	Toon.disc(self, 1.0, Color(0, 0, 0, 0.14))
 	body.scale = Vector3.ONE * 0.01
 	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 1.2, 0.0)
@@ -134,12 +138,9 @@ func _build_uwabami() -> void:
 
 # ------------------------------------------------------------------ interface avec main
 
-func alive() -> bool:
-	return not dead
-
-
 ## Vrai si la ruée a..b touche le boss pour la première fois de ce trait (dégâts gérés par main).
-## Pour Uwabami, les segments touchés sont notés : les dégâts tombent à la fin du trait.
+## Pour Uwabami, les segments touchés sont notés : les dégâts tombent à la fin du trait
+## (ruées enchaînées comprises : tout ce qui suit le dernier end_stroke forme un seul tracé).
 func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead:
 		return false
@@ -152,15 +153,13 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		return false
 	if _depth < -0.4:
 		return false
-	var hit_set: Dictionary = _hits.get(stroke_id, {})
 	for i in SEGMENTS:
-		if hit_set.has(i):
+		if _hits.has(i):
 			continue
 		var s: Node3D = _segs[i]
 		if _seg_dist(s.position, a, b) < SEG_R + 0.5:
-			hit_set[i] = true
+			_hits[i] = true
 			main.small_hit(s.position)
-	_hits[stroke_id] = hit_set
 	return false
 
 
@@ -178,17 +177,16 @@ func take_hit(dmg: float, dir: Vector3) -> void:
 			_cancel()
 			_state = "stun"
 			main.float_text(position + Vector3(0, 1.2, 0), "×3", Toon.GOLD)
-			main.splash(position + Vector3(0, 2.2, 0), Color("#7FB2C8"), 20)
+			main.splash(position + Vector3(0, 2.2, 0), BOWL_WATER, 20)
 	_damage(out)
 
 
 ## Fin du trait : Uwabami encaisse selon la plus longue suite de segments tranchés.
-func end_stroke(stroke_id: int) -> void:
-	if kind != "uwabami" or dead or not _hits.has(stroke_id):
-		_hits.erase(stroke_id)
+func end_stroke(_stroke_id: int) -> void:
+	var hit_set: Dictionary = _hits
+	_hits = {}
+	if kind != "uwabami" or dead or hit_set.is_empty():
 		return
-	var hit_set: Dictionary = _hits[stroke_id]
-	_hits.erase(stroke_id)
 	var best := 0
 	var run := 0
 	for i in SEGMENTS:
@@ -202,7 +200,8 @@ func end_stroke(stroke_id: int) -> void:
 	var dmg := 0.0
 	if best >= SEGMENTS:
 		dmg = 20.0
-		_stun = 2.0
+		if _state == "rest":
+			_stun = 2.0
 	elif best >= 8:
 		dmg = 10.0
 	elif best >= 4:
@@ -218,11 +217,45 @@ func end_stroke(stroke_id: int) -> void:
 	_damage(dmg)
 
 
-## Zone d'attaque en préparation : [centre, rayon, temps restant], ou [].
-func danger_zone() -> Array:
-	if _zone != null:
-		return [_zone_center, _zone_r, _timer]
-	return []
+## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes (ou en cours).
+func danger_at(p: Vector3, eta: float) -> bool:
+	if dead:
+		return false
+	var lim := eta + DANGER_MARGIN
+	if _zone != null and _timer < lim:
+		if Vector2(p.x - _zone_center.x, p.z - _zone_center.z).length() < _zone_r + DANGER_MARGIN:
+			return true
+	if kind != "uwabami" or (_state != "telegraph" and _state != "undulate"):
+		return false
+	# traversée d'Uwabami : la tête suit _path, le corps passe ensuite pendant body_t
+	var reach := SEG_R + 0.35 + DANGER_MARGIN
+	var speed := 6.5 if hp > max_hp * 0.5 else 8.0
+	var body_t := float(SEGMENTS) * SPACING / speed
+	var acc := 0.0
+	var i0 := 0
+	var prev := Vector3.ZERO
+	if _state == "telegraph":
+		if _path.is_empty():
+			return false
+		acc = maxf(_timer, 0.0)
+		prev = _path[0]
+	else:
+		if eta < body_t + DANGER_MARGIN:
+			for s in _segs:
+				var sp: Vector3 = s.position
+				if Vector2(p.x - sp.x, p.z - sp.z).length() < reach:
+					return true
+		i0 = _path_i
+		prev = _trail[0]
+	for i in range(i0, _path.size()):
+		var q: Vector3 = _path[i]
+		acc += prev.distance_to(q) / speed
+		prev = q
+		if acc > lim:
+			break
+		if acc + body_t > eta - DANGER_MARGIN and Vector2(p.x - q.x, p.z - q.z).length() < reach:
+			return true
+	return false
 
 
 func touching_hero(p: Vector3) -> bool:
@@ -254,8 +287,11 @@ func _damage(d: float) -> void:
 	hp -= d
 	_flash = 0.15
 	if hp <= 0.0:
+		hp = 0.0
 		dead = true
 		_cancel()
+		if kind == "uwabami":
+			_clear_marks()
 		_timer = 0.0
 		_state = "dying"
 		main.boss_killed(self)
@@ -310,6 +346,8 @@ func _okappa(delta: float) -> void:
 	to.y = 0
 	var dist := to.length()
 	var dir := to / maxf(dist, 0.001)
+	if _anim_lock > 0.0:
+		_anim_lock -= delta
 	if _state != "dying" and _state != "stun":
 		body.rotation.y = lerp_angle(body.rotation.y, atan2(-dir.x, -dir.z), minf(1.0, delta * 5.0))
 	match _state:
@@ -326,7 +364,8 @@ func _okappa(delta: float) -> void:
 			var want := -1.0 if dist < 4.0 else (1.0 if dist > 6.5 else 0.0)
 			position += (dir * want + side * 0.7) * 1.3 * delta
 			main.clamp_to_arena(self, radius)
-			ch.play("Walking_B", 0.7)
+			if _anim_lock <= 0.0:
+				ch.play("Walking_B", 0.7)
 			_timer -= delta
 			if _timer <= 0.0:
 				_cycle += 1
@@ -339,10 +378,12 @@ func _okappa(delta: float) -> void:
 					_timer = 0.8
 					ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / 0.8)
 		"fan":
-			ch.set_glow(0.55 * (1.0 - _timer / 0.8))
+			if _flash <= 0.0:
+				ch.set_glow(0.55 * (1.0 - _timer / 0.8))
 			_timer -= delta
 			if _timer <= 0.0:
-				ch.set_glow(0.0)
+				if _flash <= 0.0:
+					ch.set_glow(0.0)
 				for i in 5:
 					var a := deg_to_rad(-30.0 + 15.0 * i)
 					var d := dir.rotated(Vector3.UP, a)
@@ -366,6 +407,7 @@ func _okappa(delta: float) -> void:
 				body.position.y = 0.0
 				ch.idle = "Idle_Combat"
 				ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 0.5, 0.0)
+				_anim_lock = 0.5
 				_state = "idle"
 				_timer = 1.4
 		"stun":
@@ -377,7 +419,8 @@ func _okappa(delta: float) -> void:
 				_timer = 0.8
 		"dying":
 			_timer += delta
-			if _timer < 0.05:
+			if not _death_played:
+				_death_played = true
 				ch.hold()
 				ch.play_once("Death_C_Skeletons", 1.2, 0.05)
 			if _timer > 1.4:

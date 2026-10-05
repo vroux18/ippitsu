@@ -8,7 +8,7 @@ extends Node3D
 ##  Le reste du temps, la roche basalte renvoie les coups (×0).
 ## Attaques : poing (carré 3×3, 1.3 s), pluie de cendres (6–8 zones r0.8, ~1.1 s),
 ##  crachat de lave (boules lentes, 0.9 s de lueur), souffle (cône 45° 8 m, 1.0 s) sous 30 %.
-## main appelle : check_dash(), take_hit(), end_stroke(), danger_zone(), touching_hero().
+## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -19,6 +19,8 @@ const LAVA := Color("#C49A45")  # fissures de lave or
 const EMBER := Color("#E0602A")  # yeux de braise
 const BRAISE := Color("#8E2A1E")
 const ASH := Color("#5A5550")
+const ROCK_FLASH := Color("#7A6A62")  # roche éclaircie au coup reçu
+const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 const CORE_HIT := 0.75  # distance trait-noyau pour le toucher
 const CORE_DMG := 30.0
 const OPEN_TIME := 4.5
@@ -34,7 +36,6 @@ var title := "Daidarabotchi"
 var hp := 110.0
 var max_hp := 110.0
 var dead := false
-var radius := 2.2
 var max_hp_mult := 1.0  # difficulté du monde
 
 var _state := "spawn"
@@ -61,7 +62,7 @@ var _cores: Array = []  # {node, orb, mat, p, oy}
 var _layout_id := 0
 var _core_side := -1  # main qui porte un noyau (-1 : aucune)
 var _cores_lock := 0.0
-var _run := {}  # trait en cours : {id, layout, order, bad, body}
+var _run := {}  # trait en cours : {layout, order, bad, body}
 var _last_body_stroke := -1
 
 # attaques
@@ -77,11 +78,9 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	title = "Daidarabotchi"
 	if position.is_zero_approx():
 		position = Vector3(0, 0, -7.5)  # au fond de l'arène
 	hp = 110.0
-	radius = POOL_R
 	hp *= max_hp_mult
 	max_hp = hp
 	_build()
@@ -409,10 +408,6 @@ func _animate_cores(delta: float) -> void:
 
 # ------------------------------------------------------------------ interface avec main
 
-func alive() -> bool:
-	return not dead
-
-
 ## Vrai seulement quand la carapace est ouverte (après un noyau brisé) : main applique le coup.
 ## Sinon on note les noyaux touchés (dans l'ordre du trait) : le verdict tombe à end_stroke.
 ## Les ruées enchaînées (nouvel id avant la fin de la ruée) prolongent le même tracé.
@@ -420,8 +415,7 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead or _state == "spawn" or not hero.dashing:
 		return false
 	if _run.is_empty() or int(_run["layout"]) != _layout_id:
-		_run = {"id": stroke_id, "layout": _layout_id, "order": [], "bad": false, "body": false}
-	_run["id"] = stroke_id
+		_run = {"layout": _layout_id, "order": [], "bad": false, "body": false}
 	if _cores_lock <= 0.0 and _state == "fight":
 		var order: Array = _run["order"]
 		var found: Array = []
@@ -507,19 +501,34 @@ func end_stroke(_stroke_id: int) -> void:
 		_reset_core_colors()
 
 
-## Zone d'attaque en préparation la plus proche du héros : [centre, rayon, temps restant], ou [].
-func danger_zone() -> Array:
-	if dead or _zones.is_empty():
-		return []
-	var best: Dictionary = {}
-	var bd := INF
+## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes
+## (toutes les zones vivantes, avec leur vraie forme : carré du poing, disques, cône du souffle).
+func danger_at(p: Vector3, eta: float) -> bool:
+	if dead:
+		return false
+	var lim := eta + DANGER_MARGIN
 	for z in _zones:
-		var zc := _zone_center(z)
-		var d := Vector2(hero.position.x - zc.x, hero.position.z - zc.z).length()
-		if d < bd:
-			bd = d
-			best = z
-	return [_zone_center(best), _zone_radius(best), float(best["t"])]
+		if float(z["t"]) >= lim:
+			continue
+		var c: Vector3 = z["c"]
+		var r := float(z["r"])
+		var v := Vector3(p.x - c.x, 0, p.z - c.z)
+		match String(z["kind"]):
+			"breath":
+				var dir: Vector3 = z["dir"]
+				var along := v.dot(dir)
+				if along > -DANGER_MARGIN and v.length() < r + DANGER_MARGIN:
+					var side := (v - dir * along).length()
+					if side < maxf(along, 0.0) * tan(deg_to_rad(22.5)) + DANGER_MARGIN:
+						return true
+			"fist":
+				# carré annoncé 3×3, frappe en disque de rayon r
+				if v.length() < r + DANGER_MARGIN or (absf(v.x) < 1.5 + DANGER_MARGIN and absf(v.z) < 1.5 + DANGER_MARGIN):
+					return true
+			_:
+				if v.length() < r + DANGER_MARGIN:
+					return true
+	return false
 
 
 ## Contact : le bassin de lave à ses pieds.
@@ -624,20 +633,6 @@ func _make_zone(k: String, c: Vector3, r: float, total: float, dir := Vector3.ZE
 	var z := {"kind": k, "node": node, "fill": fill, "c": Vector3(c.x, 0, c.z), "r": r, "t": total, "total": total, "dir": dir, "rock": rock, "done": false}
 	_zones.append(z)
 	return z
-
-
-func _zone_center(z: Dictionary) -> Vector3:
-	var c: Vector3 = z["c"]
-	if z["kind"] == "breath":
-		var d: Vector3 = z["dir"]
-		return c + d * 4.5
-	return c
-
-
-func _zone_radius(z: Dictionary) -> float:
-	if z["kind"] == "breath":
-		return 3.0
-	return float(z["r"])
 
 
 func _update_zones(delta: float) -> void:
@@ -866,7 +861,7 @@ func _process(delta: float) -> void:
 		_cores_lock -= delta
 	if _flash > 0.0:
 		_flash -= delta
-		_rock_mat.albedo_color = Color("#7A6A62") if _flash > 0.0 else BASALT
+		_rock_mat.albedo_color = ROCK_FLASH if _flash > 0.0 else BASALT
 	_update_zones(delta)
 	_update_fist(delta)
 	_animate_cores(delta)

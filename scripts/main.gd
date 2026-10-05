@@ -1,5 +1,5 @@
 extends Node3D
-## Boucle de jeu : on trace, on lâche = ruée qui tranche. 9 salles, un rouleau à choisir entre chaque.
+## Boucle de jeu : on trace, on lâche = ruée qui tranche. 15 salles par monde, vagues d'ennemis, boss au bout.
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -8,7 +8,6 @@ const InkStroke = preload("res://scripts/ink_stroke.gd")
 const Sfx = preload("res://scripts/sfx.gd")
 const Hud = preload("res://scripts/hud.gd")
 const Menu = preload("res://scripts/menu.gd")
-const Decor = preload("res://scripts/decor.gd")
 const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
@@ -28,7 +27,7 @@ const Worlds = preload("res://scripts/worlds.gd")
 const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
-# malédictions du sanctuaire (après les salles 3 et 7) : un malus pour toute la partie, une récompense tout de suite
+# malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus"},
 	"oni_eye": {"name": "Œil d'oni", "text": "Ennemis +50 % de vie  ·  2 rouleaux en plus"},
@@ -46,8 +45,7 @@ const UNLOCK_ALL := true  # prototype : tous les mondes ouverts pour les tester
 const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
-const REL := 1.0  # amplification du petit coup de doigt (esquive)
-const SLOW := 0.1
+const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 
 const ELAN_MAX := 14.0  # longueur de trait maximale
 const ELAN_REGEN := 9.0  # par seconde réelle, hors tracé
@@ -77,23 +75,23 @@ var combo := 0
 var origin := Vector3.ZERO
 var _prev_hero := Vector3.ZERO
 
-var hitstop := 0.0
 var shake := 0.0
-var wave := 0
 var wave_wait := 1.0
 var safety_left := 1  # pas de côté automatiques restants dans la salle
-var attack_tokens := 2  # ennemis autorisés à préparer une attaque en même temps
+const ATTACK_TOKENS := 2  # ennemis autorisés à préparer une attaque en même temps
 var _attackers: Array = []
 var game_over := false
 var _ticks := 0
 var _cam_base := Transform3D()
 
-var state := "menu"  # menu | intro | play | over
+var state := "menu"  # menu | worlds | intro | play | pick | transit | paused | dying | over | tuto
 var menu: Control
 var record := 0
 var _state_t := 0.0
 var _menu_slash := 3.0
 var _env: Environment
+var _light_mode := false  # rendu allégé (téléphone)
+var _fx_cache := {}  # maillages et matières d'effets réutilisés
 var _sun: DirectionalLight3D
 var arena: Node3D
 var current_world := 1
@@ -138,7 +136,7 @@ var level := 1
 var run_gold := 0
 var _pending_levels := 0
 var _pick_context := "room"  # room | level
-var max_combo := 0
+var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
 var _spin_tick := 0.0
 # chaîne : ruées réussies d'affilée sans prendre de coup (bonus de dégâts)
@@ -242,24 +240,24 @@ func _ready() -> void:
 		var fails: Array = StrokeShapes.self_test()
 		if not fails.is_empty():
 			print("SCRIPT ERROR: formes de trait : ", fails)
-	if OS.has_feature("web"):
-		autoplay = autoplay or "autoplay" in str(JavaScriptBridge.eval("location.search", true))
-	_set_state("play" if autoplay else "menu")
-	# `?pick` (web) : ouvre directement le choix de rouleau, pour vérifier l'écran
-	# `?room=N` (web) : commence directement à la salle N (tests des boss : 5 et 9)
-	var search := str(JavaScriptBridge.eval("location.search", true)) if OS.has_feature("web") else ""
-	var rm := search.find("room=")
+	autoplay = autoplay or "autoplay" in wsearch
+	# `?room=N` (web) : commence directement à la salle N (tests des boss : 8 et 15)
+	var rm := wsearch.find("room=")
 	if rm >= 0:
-		_set_state("play")
-		room = clampi(int(search.substr(rm + 5).get_slice("&", 0)), 1, ROOMS) - 1
-		arena.build_room(room + 1, ROOMS, randi())
+		room = clampi(int(wsearch.substr(rm + 5).get_slice("&", 0)), 1, ROOMS) - 1
+		arena.build_room(room + 1, ROOMS, randi(), MINI_ROOM)
 		hero.position = arena.start
 		_prev_hero = hero.position
-		_begin_room()
-	if OS.has_feature("web") and "pick" in str(JavaScriptBridge.eval("location.search", true)):
 		_set_state("play")
-		room = 1
-		_room_cleared()
+		music.play_world(current_world)
+		_begin_room()
+	else:
+		_set_state("play" if autoplay else "menu")
+	# `?pick` (web) : ouvre directement le choix de rouleau, pour vérifier l'écran
+	if "pick" in wsearch:
+		_pick_context = "room"
+		_set_state("pick")
+		_open_upgrades()
 	if "atelier" in wsearch:
 		_on_atelier()
 	if "tuto" in wsearch:
@@ -276,7 +274,8 @@ func _ready() -> void:
 func _warmup() -> void:
 	var w := Node3D.new()
 	add_child(w)
-	w.position = hero.position + Vector3(0, -2.6, -2.0)
+	# dans le champ de la caméra d'accueil mais sous le sol : rendus (donc compilés) sans être vus
+	w.position = hero.position + Vector3(0, -0.7, -3.0)
 	var x := -3.0
 	for k in ["oni", "kappa", "brute", "tate", "funa"]:
 		var e := Enemy.new()
@@ -293,12 +292,19 @@ func _warmup() -> void:
 	st.extend_to(Vector3(2, 0, 0), 3.0)
 	var l := Label3D.new()
 	l.font = KANJI_FONT
-	l.text = "12 ×3 渦"
+	l.text = "0123456789.× 渦雷返一円鉤"
+	l.font_size = 120  # mêmes tailles que les textes de combat : glyphes prêts d'avance
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = false
 	w.add_child(l)
+	var l2 := l.duplicate() as Label3D
+	l2.font_size = 110
+	w.add_child(l2)
 	_splash(w.position, Toon.VERMILION, 8)
+	_blot(w.position, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(w.position, Vector3.FORWARD)
+	vfx.impact(w.position, Vector3.FORWARD, true)
+	vfx.kill_burst(w.position, Vector3.FORWARD)
 	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
 
 
@@ -330,7 +336,7 @@ func _save() -> void:
 func _set_state(s: String) -> void:
 	state = s
 	_state_t = 0.0
-	hud.visible = s != "menu"
+	hud.visible = s != "menu" and s != "worlds"
 	match s:
 		"menu":
 			menu.show_mode("home")
@@ -349,6 +355,8 @@ func _set_state(s: String) -> void:
 				hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":
 			menu.show_mode("over")
+		"worlds":
+			menu.show_mode("hidden")
 
 
 func _on_play() -> void:
@@ -364,16 +372,10 @@ func _on_play() -> void:
 
 
 func _open_worlds() -> void:
-	if true:
-		# choix du monde sur le rouleau
-		menu.show_mode("hidden")
-		state = "worlds"
-		var unlocked: int = 5 if UNLOCK_ALL else int(meta.unlocked)
-		worldmap.open(Worlds.WORLDS, unlocked, meta.world_best, current_world)
-
-
-func _on_world_chosen_music(id: int) -> void:
-	music.prepare(id)
+	# choix du monde sur le rouleau
+	_set_state("worlds")
+	var unlocked: int = 5 if UNLOCK_ALL else int(meta.unlocked)
+	worldmap.open(Worlds.WORLDS, unlocked, meta.world_best, current_world, ROOMS)
 
 
 func _on_world_chosen(id: int) -> void:
@@ -387,18 +389,27 @@ func _on_world_chosen(id: int) -> void:
 func _on_pause() -> void:
 	if state != "play":
 		return
-	if touching and stroke:
-		stroke.queue_free()
-		stroke = null
-	touching = false
+	_cancel_stroke()
 	var w: Dictionary = Worlds.world(current_world)
 	menu.world_kanji = String(w.kanji)
 	menu.world_color = w.color
 	menu.stat_room = maxi(room, 1)
 	menu.stat_combo = chain
 	menu.stat_time = run_time
+	hud.pause_enabled = false
 	state = "paused"
 	menu.show_mode("pause")
+
+
+## Téléphone : bouton Retour ou appli mise en arrière-plan -> pause (au lieu de quitter en pleine partie).
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		if menu == null or hud == null:
+			return
+		if what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
+			get_tree().quit()  # Retour depuis l'accueil : on quitte, comme toute appli
+		else:
+			_on_pause()
 
 
 ## Tutoriel guidé : arène calme, mannequins, héros intouchable, élan illimité.
@@ -454,8 +465,8 @@ func _on_atelier() -> void:
 
 func _on_refuge_closed() -> void:
 	menu.sumi = meta.sumi
-	_set_state("menu")
 	_start()
+	_set_state("menu")
 
 
 func _on_home() -> void:
@@ -544,12 +555,20 @@ func _build_world() -> void:
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
-	# contre-jour froid, sans ombre, pour détacher les silhouettes
-	var fill := DirectionalLight3D.new()
-	fill.rotation = Vector3(deg_to_rad(-25), deg_to_rad(150), 0)
-	fill.light_energy = 0.22
-	fill.light_color = Color(0.7, 0.8, 1.0)
-	add_child(fill)
+	var light := OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
+	if light:
+		# téléphone : chaque lumière refait un passage sur chaque objet -> une seule, ombres plus proches,
+		# 3D rendue un peu en dessous de la résolution native (l'interface reste nette)
+		sun.directional_shadow_max_distance = 26.0
+		_light_mode = true
+		get_viewport().scaling_3d_scale = 0.8
+	else:
+		# contre-jour froid, sans ombre, pour détacher les silhouettes
+		var fill := DirectionalLight3D.new()
+		fill.rotation = Vector3(deg_to_rad(-25), deg_to_rad(150), 0)
+		fill.light_energy = 0.22
+		fill.light_color = Color(0.7, 0.8, 1.0)
+		add_child(fill)
 
 	cam = Camera3D.new()
 	cam.fov = 38.0
@@ -572,7 +591,8 @@ func apply_world(id: int) -> void:
 	_env.fog_light_color = w.fog
 	_env.fog_density = float(w.fog_density)
 	_env.ambient_light_color = w.ambient_color
-	_env.ambient_light_energy = float(w.ambient_energy)
+	# sans contre-jour (téléphone), un peu plus de lumière ambiante compense
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.0)
 	_sun.light_color = w.sun_color
 	_sun.light_energy = float(w.sun_energy)
 	arena.set_world(id)
@@ -641,15 +661,19 @@ func _start() -> void:
 	bullets.clear()
 	if hero:
 		hero.queue_free()
-	arena.build_room(1, ROOMS, randi())
+	arena.build_room(1, ROOMS, randi(), MINI_ROOM)
 	hero = Hero.new()
 	add_child(hero)
 	hero.position = arena.start
 	hero.dash_finished.connect(_on_dash_finished)
 	hero.landed.connect(_on_hero_landed)
 	_prev_hero = hero.position
-	elan = elan_max()
-	wave = 0
+	_cancel_stroke()
+	if is_instance_valid(dash_stroke):
+		dash_stroke.queue_free()
+	dash_stroke = null
+	_reset_stroke_state(true)
+	_pick_context = "room"
 	wave_wait = 0.8
 	room = 0
 	_room_queue = []
@@ -658,12 +682,12 @@ func _start() -> void:
 	powers.reset()
 	hazards.clear()
 	curses.clear()
+	elan = elan_max()  # après la remise à zéro des pouvoirs et malédictions
 	_extra_picks = 0
 	picker.rerolls = meta.rerolls()
 	kills = 0
 	boss_kills = 0
 	mini_kills = 0
-	max_combo = 0
 	run_time = 0.0
 	xp = 0
 	level = 1
@@ -680,7 +704,6 @@ func _start() -> void:
 	touching = false
 	hud.game_over = false
 	hud.over_t = 0.0
-	hitstop = 0.0
 	shake = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
@@ -693,10 +716,9 @@ func elan_max() -> float:
 ## Salle suivante : 3 vagues d'ennemis à tuer, tirées selon le monde, budget croissant.
 func _begin_room() -> void:
 	room += 1
-	wave = room
 	_room_done = false
 	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
-	hazards.begin_room(room, hero.position)
+	hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
 	var w: Dictionary = Worlds.world(current_world)
 	var weights: Dictionary = w.enemies
 	var budget := 5 + 2 * room
@@ -771,17 +793,17 @@ func spawn_minions(list: Array) -> void:
 	_spawn_list(list)
 
 
-func boss_killed(_b: Node3D) -> void:
-	pickups.drop(_b.position, "xp", 8)
-	pickups.drop(_b.position, "coin", 10)
-	if _b.kind == "okappa":
+func boss_killed(b: Node3D) -> void:
+	pickups.drop(b.position, "xp", 8)
+	pickups.drop(b.position, "coin", 10)
+	if b.kind == "okappa":
 		mini_kills += 1
 	else:
 		boss_kills += 1
 	shake = 0.7
 	sfx.play("kill", 0.6)
-	_splash(_b.position, Toon.VERMILION, 30)
-	_splash(_b.position, Toon.GOLD, 20)
+	_splash(b.position, Toon.VERMILION, 30)
+	_splash(b.position, Toon.GOLD, 20)
 
 
 func small_hit(pos: Vector3) -> void:
@@ -854,10 +876,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 
 
 func _room_cleared() -> void:
-	if touching and stroke:
-		stroke.queue_free()
-		stroke = null
-	touching = false
+	_cancel_stroke()
 	for b in bullets:
 		b.node.queue_free()
 	bullets.clear()
@@ -941,10 +960,8 @@ func _on_picked(id: String) -> void:
 func _transit() -> void:
 	_set_state("transit")
 	_rebuilt = false
-	if touching and stroke:
-		stroke.queue_free()
-		stroke = null
-	touching = false
+	_cancel_stroke()
+	_reset_stroke_state(true)  # pas de technique (ensō, iai…) qui déborde sur la salle suivante
 	hero.stop_dash()
 	sfx.play("whoosh", 0.6)
 
@@ -956,6 +973,7 @@ func _rebuild_room() -> void:
 			e.node.queue_free()
 	effects.clear()
 	arena.build_room(room + 1, ROOMS, randi(), MINI_ROOM)
+	hero.cancel_moves()
 	hero.position = arena.start
 	_prev_hero = hero.position
 	hero.face(Vector3(0, 0, -1))
@@ -1005,19 +1023,6 @@ func _land_safe() -> void:
 	hero.position = Vector3(safe.x, 0, safe.z)
 	_prev_hero = hero.position
 	sfx.play("empty", 0.7)
-
-
-## Chute dans un trou du ponton : 1 dégât et retour au dernier point sûr.
-func _fall() -> void:
-	_splash(hero.position, Toon.PRUSSIAN, 18)
-	_splash(hero.position, Toon.FOAM, 10)
-	sfx.play("strike", 1.4)
-	var back := _safe_point
-	if hazards.is_hole(back, -0.4):
-		back = arena.start
-	hero.position = back
-	_prev_hero = back
-	_hurt_hero()
 
 
 func drown(e: Node3D) -> void:
@@ -1268,8 +1273,9 @@ func _dmg_text(pos: Vector3, dmg: float, killed: bool) -> void:
 	var l := Label3D.new()
 	l.font = KANJI_FONT
 	l.text = txt
-	l.font_size = int(90 + 14 * minf(dmg, 6.0))
-	l.pixel_size = 0.006
+	# taille de police fixe (les glyphes ne sont rendus qu'une fois), on grossit par pixel_size
+	l.font_size = 120
+	l.pixel_size = 0.006 * (90.0 + 14.0 * minf(dmg, 6.0)) / 120.0
 	l.modulate = Toon.VERMILION if killed or combo >= 3 else Color(1, 1, 1)
 	l.outline_modulate = Toon.SUMI
 	l.outline_size = 24
@@ -1282,7 +1288,9 @@ func _dmg_text(pos: Vector3, dmg: float, killed: bool) -> void:
 
 func float_text(pos: Vector3, text: String, color: Color) -> void:
 	var l := Label3D.new()
-	l.text = text
+	# police du jeu (le web n'a pas de police de secours) : symboles et macrons ramenés à ce qu'elle contient
+	l.font = KANJI_FONT
+	l.text = Hud.plain(text.replace("✕", "×").replace("○", "O"))
 	l.font_size = 110
 	l.pixel_size = 0.006
 	l.modulate = color
@@ -1294,7 +1302,7 @@ func float_text(pos: Vector3, text: String, color: Color) -> void:
 	add_child(l)
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
-## Direction de marche d'un ennemi vers 	o, en passant par les passerelles si besoin.
+## Direction de marche d'un ennemi vers `to`, en passant par les passerelles si besoin.
 func steer_dir(from: Vector3, to: Vector3) -> Vector3:
 	var t: Vector3 = arena.steer(from, to)
 	var d := t - from
@@ -1305,12 +1313,6 @@ func steer_dir(from: Vector3, to: Vector3) -> Vector3:
 func clamp_to_arena(n: Node3D, r: float) -> void:
 	var cp: Vector3 = arena.clamp_walk(n.position, r)
 	n.position = Vector3(cp.x, n.position.y, cp.z)
-	return
-
-
-func _clamp_to_bounds(n: Node3D, r: float) -> void:
-	n.position.x = clampf(n.position.x, -HALF.x + r, HALF.x - r)
-	n.position.z = clampf(n.position.z, -HALF.y + r, HALF.y - r)
 
 
 func _clamp_point(p: Vector3) -> Vector3:
@@ -1321,7 +1323,7 @@ func _clamp_point(p: Vector3) -> Vector3:
 
 func _input(event: InputEvent) -> void:
 	# tactile (téléphone) et souris (ordinateur) ; la souris émulée depuis le tactile sert aux boutons du menu
-	if state != "play" and state != "intro" and state != "tuto":
+	if state != "play" and state != "tuto":
 		return
 	if event is InputEventMouse and event.device == InputEvent.DEVICE_ID_EMULATION:
 		return
@@ -1395,7 +1397,6 @@ func _touch_move(sp: Vector2) -> void:
 	var was_empty: bool = stroke.exhausted
 	var used: float = stroke.extend_to(target, elan)
 	elan -= used
-	stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
@@ -1446,6 +1447,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_stroke_hit = false
 	_prev_hero = hero.position
 	hero.speed_mult = powers.dash_mult()
+	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
 	_shape = StrokeShapes.detect(s.points) if s.length >= 2.0 else {}
@@ -1463,6 +1465,9 @@ func _launch(s: MeshInstance3D) -> void:
 
 
 func _on_dash_finished() -> void:
+	if _auto_step:
+		_auto_step = false
+		return
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = null
@@ -1479,6 +1484,7 @@ func _on_dash_finished() -> void:
 	powers.on_dash_end(hero.position, _stroke_kills)
 	if combo >= 3:
 		elan = elan_max()
+	_reset_stroke_state()
 
 
 # ------------------------------------------------------------------ combat
@@ -1487,9 +1493,12 @@ func spawn_bullet(pos: Vector3, dir: Vector3) -> void:
 	var n := Node3D.new()
 	add_child(n)
 	n.position = pos
-	Toon.part(n, Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Vector3.ZERO)
-	Toon.part(n, Toon.sphere(0.13), Toon.mat(Toon.WASHI, false), Vector3(0, 0.12, -0.12))
-	var shadow := Toon.disc(n, 0.26, Color(0, 0, 0, 0.2))
+	if not _fx_cache.has("bullet"):
+		_fx_cache["bullet"] = [Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Toon.sphere(0.13), Toon.mat(Toon.WASHI, false), Toon.flat(Color(0, 0, 0, 0.2))]
+	var bc: Array = _fx_cache["bullet"]
+	Toon.part(n, bc[0], bc[1], Vector3.ZERO)
+	Toon.part(n, bc[2], bc[3], Vector3(0, 0.12, -0.12))
+	var shadow := _disc(n, 0.26, bc[4])
 	shadow.position.y = -pos.y + 0.012
 	bullets.append({"node": n, "vel": dir * 3.4, "life": 7.0})
 	sfx.play("shot", randf_range(0.9, 1.1), -6.0)
@@ -1501,7 +1510,7 @@ func take_token(e: Node) -> bool:
 			_attackers.remove_at(i)
 	if e in _attackers:
 		return true
-	if _attackers.size() >= attack_tokens:
+	if _attackers.size() >= ATTACK_TOKENS:
 		return false
 	_attackers.append(e)
 	return true
@@ -1509,6 +1518,25 @@ func take_token(e: Node) -> bool:
 
 func free_token(e: Node) -> void:
 	_attackers.erase(e)
+
+
+## Annule le trait en train d'être tracé (pause, fin de salle, mort…).
+func _cancel_stroke() -> void:
+	if is_instance_valid(stroke):
+		stroke.queue_free()
+	stroke = null
+	touching = false
+
+
+## Oublie la ruée finie : touches et forme reconnue. `all` annule aussi la coupe iai en attente.
+func _reset_stroke_state(all := false) -> void:
+	combo = 0
+	_stroke_kills = 0
+	_stroke_hit = false
+	_shape = {}
+	if all:
+		_iai_t = 0.0
+		_iai_points = PackedVector3Array()
 
 
 ## Vrai si finir en `p` dans `eta` secondes tombe dans une attaque (zone qui frappe ou boule qui passe).
@@ -1524,13 +1552,9 @@ func is_danger(p: Vector3, eta: float) -> bool:
 			if Vector2(p.x - c.x, p.z - c.z).length() < float(z[1]) + 0.35 and float(z[2]) < eta + 0.35:
 				return true
 	for bo in bosses:
-		if not is_instance_valid(bo):
-			continue
-		var bz: Array = bo.danger_zone()
-		if bz.size() == 3:
-			var bc: Vector3 = bz[0]
-			if Vector2(p.x - bc.x, p.z - bc.z).length() < float(bz[1]) + 0.35 and float(bz[2]) < eta + 0.35:
-				return true
+		# chaque boss teste toutes ses zones annoncées, avec leur vraie forme
+		if is_instance_valid(bo) and bo.danger_at(p, eta):
+			return true
 	for b in bullets:
 		var n: Node3D = b.node
 		for k in 4:
@@ -1587,13 +1611,14 @@ func _hurt_hero() -> void:
 		_ending_victory = false
 		_set_state("dying")
 		sfx.play("kill", 0.5)
-		touching = false
-		if stroke:
-			stroke.queue_free()
-			stroke = null
+		_cancel_stroke()
 
 
 func _check_slashes() -> void:
+	if _auto_step:
+		# pas de côté automatique : ce n'est pas un coup
+		_prev_hero = hero.position
+		return
 	var a := _prev_hero
 	var b := hero.position
 	_prev_hero = b
@@ -1634,7 +1659,6 @@ func _check_slashes() -> void:
 				_on_enemy_killed(e)
 				vfx.kill_burst(p, dir)
 				hud.screen_flash = maxf(hud.screen_flash, 0.35)
-			max_combo = maxi(max_combo, combo)
 			if killed:
 				kills += 1
 				_stroke_kills += 1
@@ -1685,6 +1709,7 @@ func _update_bullets(dt: float) -> void:
 				side = -side
 			safety_left -= 1
 			var step := PackedVector3Array([hero.position, _clamp_point(hero.position + side * 1.3)])
+			_auto_step = true
 			hero.start_dash(step)
 		if b.get("friendly", false):
 			for o in nearest_enemies(hp, 0.8, 1, null):
@@ -1704,12 +1729,18 @@ func _update_bullets(dt: float) -> void:
 
 func _splash(pos: Vector3, color: Color, amount: int) -> void:
 	var p := CPUParticles3D.new()
-	var m := Toon.sphere(0.07)
-	var mt := StandardMaterial3D.new()
-	mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mt.albedo_color = color
-	m.material = mt
-	p.mesh = m
+	# gouttes : un maillage par couleur, partagé (pas de nouvelle ressource à chaque coup)
+	var key := "drop" + color.to_html()
+	if not _fx_cache.has(key):
+		var m := Toon.sphere(0.07)
+		m.radial_segments = 8
+		m.rings = 4
+		var mt := StandardMaterial3D.new()
+		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mt.albedo_color = color
+		m.material = mt
+		_fx_cache[key] = m
+	p.mesh = _fx_cache[key]
 	p.amount = amount
 	p.lifetime = 0.55
 	p.one_shot = true
@@ -1731,16 +1762,25 @@ func _blot(pos: Vector3, color: Color, r: float, life: float) -> void:
 	var n := Node3D.new()
 	add_child(n)
 	n.position = Vector3(pos.x, 0, pos.z)
-	var main_disc := Toon.disc(n, r, color, 0.015)
-	main_disc.scale = Vector3(1.0, 1, randf_range(0.7, 1.0))
+	# disque unité partagé, mis à l'échelle ; une seule matière par tache (elle s'efface d'un bloc)
+	var mt := Toon.flat(color)
+	var main_disc := _disc(n, r, mt, 0.015)
+	main_disc.scale = Vector3(r, 1, r * randf_range(0.7, 1.0))
 	main_disc.rotation.y = randf() * TAU
-	var mats: Array = [main_disc.material_override]
 	for i in 4:
 		var a := randf() * TAU
-		var dd := Toon.disc(n, r * randf_range(0.12, 0.25), color, 0.016)
+		var dd := _disc(n, r * randf_range(0.12, 0.25), mt, 0.016)
 		dd.position += Vector3(cos(a), 0, sin(a)) * r * randf_range(1.1, 1.8)
-		mats.append(dd.material_override)
-	effects.append({"node": n, "t": 0.0, "life": life, "kind": "fade", "mats": mats, "alpha": color.a})
+	effects.append({"node": n, "t": 0.0, "life": life, "kind": "fade", "mats": [mt], "alpha": color.a})
+
+
+## Disque plat au sol de rayon `r`, sur un maillage unité partagé.
+func _disc(parent: Node3D, r: float, material: Material, y := 0.01) -> MeshInstance3D:
+	if not _fx_cache.has("disc"):
+		_fx_cache["disc"] = Toon.cyl(1.0, 1.0, 0.004, 24)
+	var d := Toon.part(parent, _fx_cache["disc"], material, Vector3(0, y, 0), Vector3(r, 1, r))
+	d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return d
 
 
 func _slash_mark(pos: Vector3, dir: Vector3) -> void:
@@ -1750,7 +1790,9 @@ func _slash_mark(pos: Vector3, dir: Vector3) -> void:
 	n.position = pos + Vector3(0, 0.7, 0)
 	var d := dir.normalized()
 	n.rotation.y = atan2(-d.x, -d.z) + randf_range(-0.5, 0.5)
-	var bar := Toon.part(n, Toon.box(Vector3(0.09, 0.03, 2.2)), Toon.flat(Color(1, 1, 1, 0.95)), Vector3.ZERO)
+	if not _fx_cache.has("slash"):
+		_fx_cache["slash"] = Toon.box(Vector3(0.09, 0.03, 2.2))
+	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(1, 1, 1, 0.95)), Vector3.ZERO)
 	bar.rotation.x = randf_range(-0.4, 0.4)
 	effects.append({"node": n, "t": 0.0, "life": 0.18, "kind": "slash", "mats": [bar.material_override], "alpha": 0.95})
 
@@ -1758,8 +1800,9 @@ func _slash_mark(pos: Vector3, dir: Vector3) -> void:
 func _combo_label(pos: Vector3, n: int) -> void:
 	var l := Label3D.new()
 	l.text = "×%d" % n
-	l.font_size = 70 + 6 * mini(n, 6)
-	l.pixel_size = 0.006
+	l.font = KANJI_FONT
+	l.font_size = 110
+	l.pixel_size = 0.006 * (70.0 + 6.0 * mini(n, 6)) / 110.0
 	l.modulate = Toon.VERMILION
 	l.outline_modulate = Toon.SUMI
 	l.outline_size = 22
@@ -1808,16 +1851,13 @@ func _process(_delta: float) -> void:
 		Engine.time_scale = 0.0
 		return
 
-	# temps : arrêt sur image > fin de partie au ralenti > normal
+	# temps : fin de partie au ralenti, sinon normal
 	var target := 1.0
-	if hitstop > 0.0:
-		hitstop -= real
-		target = 0.02
-	elif state == "dying":
+	if state == "dying":
 		target = 0.25 if not _ending_victory else 0.6
 	elif game_over:
 		target = 0.35
-	if target < Engine.time_scale and target != 0.02:
+	if target < Engine.time_scale:
 		Engine.time_scale = lerpf(Engine.time_scale, target, minf(1.0, real * 18.0))
 	else:
 		Engine.time_scale = target
@@ -1917,6 +1957,8 @@ func _process(_delta: float) -> void:
 		cam.global_transform = _menu_transform().interpolate_with(_cam_base, k)
 		if k >= 1.0:
 			_set_state("play")
+	elif state == "worlds":
+		cam.global_transform = _menu_transform()
 	elif shake > 0.0:
 		shake = maxf(0.0, shake - real * 1.6)
 		var s := shake * shake * 1.2
@@ -1928,10 +1970,13 @@ func _process(_delta: float) -> void:
 	hud.pad_active = touching
 	var show_pad := pad_show == "always" or (pad_show == "start" and (state == "tuto" or _strokes_done < 12))
 	hud.pad_alpha = move_toward(hud.pad_alpha, 1.0 if show_pad else 0.0, real * 1.5)
-	hud.in_play = state in ["play", "transit", "dying", "pick", "tuto"]
-	hud.world_kanji = String(Worlds.world(current_world).kanji)
-	hud.world_color = Worlds.world(current_world).color
+	hud.in_play = state in IN_PLAY_STATES
+	hud.pause_enabled = state == "play"  # le bouton pause n'apparaît que là où il agit
+	var wd: Dictionary = Worlds.world(current_world)
+	hud.world_kanji = String(wd.kanji)
+	hud.world_color = wd.color
 	hud.rooms_total = ROOMS
+	menu.rooms_total = ROOMS
 	hud.elan_m = elan_max()
 	hud.combo = combo if hero.dashing else 0
 	hud.chain = chain if state != "tuto" else 0
@@ -1954,12 +1999,11 @@ func _process(_delta: float) -> void:
 	if touching and stroke != null:
 		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
-	hud.wave = maxi(wave, 1)
+	hud.wave = maxi(room, 1)
 	hud.wave_index = wave_index
 	hud.waves_total = waves_total
 	hud.show_waves = state == "play" and room > 0 and not _room_done
 	hud.gate_hint = arena.gate_open and state == "play"
-	hud.slow = 0.0
 	hud.game_over = game_over
 	hud.boss_name = ""
 	for bo in bosses:

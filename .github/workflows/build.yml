@@ -78,7 +78,7 @@ jobs:
         run: |
           godot --headless --path . --script tools/bake_music.gd
           which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -c:a libvorbis -q:a 3 "${f%.wav}.ogg"; rm "$f"; done
+          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           ls -la assets/music
 
       - name: Import du projet
@@ -91,14 +91,20 @@ jobs:
           ! grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" run.log
 
       - name: Export APK
+        # build release (arm64 seul), signé avec la MÊME clé fixe que les builds debug précédents :
+        # même signature, l'APK continue de s'installer par-dessus la version déjà installée
         env:
+          GODOT_ANDROID_KEYSTORE_RELEASE_PATH: ${{ github.workspace }}/tools/debug.keystore
+          GODOT_ANDROID_KEYSTORE_RELEASE_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD: android
           GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ github.workspace }}/tools/debug.keystore
           GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
           GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
           mkdir -p build
-          godot --headless --path . --export-debug "Android" build/Ippitsu.apk
+          godot --headless --path . --export-release "Android" build/Ippitsu.apk
           test -s build/Ippitsu.apk
+          ls -la build/Ippitsu.apk
 
       - name: Export web
         run: |

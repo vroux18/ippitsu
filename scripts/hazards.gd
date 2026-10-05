@@ -1,5 +1,5 @@
 extends Node3D
-## Dangers d'arène du monde 1 (design/UNIVERS.md) :
+## Dangers d'arène, dans tous les mondes (hors salles de boss) :
 ##  trous   — planches pourries : on peut tracer au-dessus, pas finir dedans (chute, 1 dégât).
 ##            Les ennemis projetés dedans tombent à l'eau (sauf les costauds).
 ##  vague   — déferlante : bande transversale annoncée 1.3 s, qui balaie et repousse.
@@ -23,10 +23,10 @@ var _crest: Node3D
 var _crest_t := -1.0
 
 
-func begin_room(room: int, hero_pos: Vector3) -> void:
+func begin_room(room: int, hero_pos: Vector3, boss := false) -> void:
 	clear()
-	# trous à partir de la salle 2, plus nombreux ensuite
-	var n := 0 if room < 2 else mini(1 + room / 3, 3)
+	# trous à partir de la salle 2, plus nombreux ensuite ; rien dans une salle de boss (il a ses propres attaques)
+	var n := 0 if room < 2 or boss else mini(1 + room / 3, 3)
 	for i in n:
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)
@@ -40,7 +40,7 @@ func begin_room(room: int, hero_pos: Vector3) -> void:
 				holes.append([c, r])
 				_make_hole(c, r)
 				break
-	_wave_on = room >= 4
+	_wave_on = room >= 4 and not boss
 	_wave_t = randf_range(6.0, 8.0)
 
 
@@ -52,6 +52,10 @@ func clear() -> void:
 	holes.clear()
 	_wave_on = false
 	_end_band()
+	if is_instance_valid(_crest):
+		_crest.queue_free()
+	_crest = null
+	_crest_t = -1.0
 
 
 func _make_hole(c: Vector3, r: float) -> void:

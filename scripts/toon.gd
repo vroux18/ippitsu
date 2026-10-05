@@ -9,6 +9,8 @@ const FOAM := Color("#E9EEF0")
 const GOLD := Color("#C49A45")
 const SKIN := Color("#F2D7B6")
 const WOOD := Color("#CDB78E")
+const PAPER := Color("#F5EEDD")  # cartes et feuilles de l'interface
+const VEIL := Color("#110E11")  # voile d'encre derrière les fenêtres
 
 
 static func mat(color: Color, outline := true, outline_size := 0.035) -> StandardMaterial3D:

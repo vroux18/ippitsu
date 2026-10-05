@@ -8,7 +8,7 @@ extends Node3D
 ##            incluses : 2 dmg par queue ; toutes éteintes = étourdi 3 s (vulnérable).
 ##  Phase 3 (≤ 25 %) — Fuite en zigzag à 6 m/s le long d'une route annoncée ;
 ##            un trait qui coupe la route devant lui le fait trébucher (3 dmg + étourdi 2.2 s).
-## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_zone(), touching_hero().
+## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -25,6 +25,8 @@ const TAIL_ANNOUNCE := 1.0  # annonce des tirs de queue (≥ 0.9 s)
 const TAIL_PERIOD := 4.0
 const ROUTE_ANNOUNCE := 1.0
 const RUN_SPEED := 6.0
+const LOOP_PTS := 120  # points mémorisés pour l'Ensō (_find_loop est quadratique)
+const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 
 var kind := "kyubi"
 var main: Node
@@ -71,7 +73,7 @@ var _zone_total := 1.0
 var _tails: Array = []  # Dictionary par queue
 var _tail_rise := 0.0
 var _relight := 12.0
-var _pts := {}  # stroke_id -> Array de Vector2 (positions de la ruée)
+var _pts: Array = []  # Vector2 de la ruée depuis le dernier end_stroke (ruées enchaînées comprises)
 var _shift_from := Vector3.ZERO
 
 # phase 3 : fuite
@@ -90,7 +92,6 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	title = "Kyūbi"
 	hp = 70.0
 	radius = 0.9
 	hp *= max_hp_mult
@@ -234,17 +235,13 @@ func _clear_ground_tails() -> void:
 
 # ------------------------------------------------------------------ interface avec main
 
-func alive() -> bool:
-	return not dead
-
-
 ## Vrai si la ruée a..b touche le vrai Kyūbi pour la première fois de ce trait (dégâts gérés par main).
 ## Enregistre aussi les positions de la ruée (détection de l'Ensō en fin de trait).
 func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead:
 		return false
 	if _phase == 2:
-		_record(a, b, stroke_id)
+		_record(a, b)
 	match _state:
 		"p1":
 			if _fade < 0.6:
@@ -300,11 +297,9 @@ func take_hit(dmg: float, dir: Vector3) -> void:
 
 
 ## Fin du trait : en phase 2, cherche une boucle fermée (Ensō) qui entoure Kyūbi.
-func end_stroke(stroke_id: int) -> void:
-	var pts: Array = _pts.get(stroke_id, [])
-	for k in _pts.keys():
-		if int(k) <= stroke_id:
-			_pts.erase(k)
+func end_stroke(_stroke_id: int) -> void:
+	var pts: Array = _pts
+	_pts = []
 	if dead or _phase != 2 or _state != "p2" or pts.size() < 6:
 		return
 	var c := Vector2(position.x, position.z)
@@ -332,11 +327,39 @@ func end_stroke(stroke_id: int) -> void:
 		_sync_body_tails()
 
 
-## Zone d'attaque en préparation : [centre, rayon, temps restant], ou [].
-func danger_zone() -> Array:
-	if _zone != null:
-		return [_zone_center, _zone_r, _zone_t]
-	return []
+## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes
+## (pilier, bandes de tir des queues, route de fuite annoncée).
+func danger_at(p: Vector3, eta: float) -> bool:
+	if dead:
+		return false
+	var lim := eta + DANGER_MARGIN
+	if _zone != null and _zone_t < lim:
+		if Vector2(p.x - _zone_center.x, p.z - _zone_center.z).length() < _zone_r + DANGER_MARGIN:
+			return true
+	for t in _tails:
+		if not t["lit"] or t["band"] == null or float(t["fire"]) >= lim:
+			continue
+		var tp: Vector3 = t["pos"]
+		var d: Vector3 = t["dir"]
+		var v := Vector3(p.x - tp.x, 0, p.z - tp.z)
+		var along := v.dot(d)
+		if along > -DANGER_MARGIN and along < BAND_LEN + DANGER_MARGIN and (v - d * along).length() < 0.35 + DANGER_MARGIN:
+			return true
+	if (_state == "p3_tele" or _state == "p3_run") and _route_i < _route.size():
+		# le renard fonce le long de la route : danger quand il passe au moment de l'arrivée
+		var acc := 0.0
+		if _state == "p3_tele":
+			acc = maxf(_timer, 0.0)
+		var prev := Vector3(position.x, 0, position.z)
+		for i in range(_route_i, _route.size()):
+			var q: Vector3 = _route[i]
+			acc += prev.distance_to(q) / RUN_SPEED
+			prev = q
+			if acc > lim:
+				break
+			if acc > eta - DANGER_MARGIN and Vector2(p.x - q.x, p.z - q.z).length() < 0.85 + DANGER_MARGIN:
+				return true
+	return false
 
 
 func touching_hero(p: Vector3) -> bool:
@@ -416,6 +439,7 @@ func _damage(d: float) -> void:
 
 
 func _die() -> void:
+	hp = 0.0
 	dead = true
 	_cancel()
 	for t in _tails:
@@ -468,15 +492,13 @@ func _update_zone(delta: float) -> void:
 
 # ------------------------------------------------------------------ Ensō
 
-func _record(a: Vector3, b: Vector3, stroke_id: int) -> void:
-	var arr: Array = _pts.get(stroke_id, [])
-	if arr.is_empty():
-		arr.append(Vector2(a.x, a.z))
-	var last: Vector2 = arr[arr.size() - 1]
+func _record(a: Vector3, b: Vector3) -> void:
+	if _pts.is_empty():
+		_pts.append(Vector2(a.x, a.z))
+	var last: Vector2 = _pts[_pts.size() - 1]
 	var bb := Vector2(b.x, b.z)
-	if last.distance_to(bb) >= 0.3 and arr.size() < 400:
-		arr.append(bb)
-	_pts[stroke_id] = arr
+	if last.distance_to(bb) >= 0.3 and _pts.size() < LOOP_PTS:
+		_pts.append(bb)
 
 
 ## Plus grande boucle fermée du tracé qui contient c (auto-croisement, ou extrémité revenue à ≤ 1.4 m).

@@ -7,7 +7,7 @@ extends Node3D
 ##  vers l'avant (annoncé), la colonne forme 9 vertèbres lumineuses (queue → crâne).
 ##  Un trait qui en passe ≥ 6 dans l'ordre = 25 dégâts, sinon 1 par vertèbre. Mains repoussent (60 %).
 ##  Phase ≤ 40 % : pluie de stèles (5 zones r1.0 décalées de 0.3 s).
-## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_zone(), touching_hero().
+## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 ## Tous les visuels vivent sous `_rig` (top_level) : `position` du nœud racine sert seulement de
 ## point d'impact pour les effets de main.gd (déplacé sur la main / le crâne touchés).
 
@@ -42,6 +42,7 @@ const COLLAPSE_TELE := 1.0
 const FALL_TIME := 0.35
 const DOWN_TIME := 8.0
 const REGROW_TIME := 1.4
+const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 
 var kind := "gashadokuro"
 var main: Node
@@ -50,13 +51,13 @@ var title := "Gashadokuro"
 var hp := 90.0
 var max_hp := 90.0
 var dead := false
-var radius := 1.2
 var max_hp_mult := 1.0  # difficulté du monde
 
 var _state := "rise"
 var _timer := 0.0
 var _t := 0.0
 var _cycle := 0
+var _slam_n := 0  # alternance des mains pour les écrasements
 var _phase2 := false
 var _summoned := false
 var _flash := 0.0
@@ -93,10 +94,11 @@ var _stele_queue: Array = []  # [délai, centre]
 var _steles: Array = []
 
 # trait sur la colonne
-var _spine_order := {}  # stroke_id -> Array d'indices dans l'ordre de passage
-var _spine_seen := {}  # stroke_id -> {indice: true}
+# (ruées enchaînées comprises : tout ce qui suit le dernier end_stroke forme un seul tracé)
+var _spine_order: Array = []  # indices dans l'ordre de passage
+var _spine_seen := {}  # {indice: true}
 var _lit := {}
-var _clanged := {}
+var _clanged := false
 
 
 func setup(k: String, m: Node) -> void:
@@ -106,9 +108,7 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	title = "Gashadokuro"
 	hp = 90.0
-	radius = 1.2
 	hp *= max_hp_mult
 	max_hp = hp
 	_hand_hp_max = HAND_HP * max_hp_mult
@@ -285,17 +285,13 @@ func _make_stele(c: Vector3) -> Node3D:
 
 # ------------------------------------------------------------------ interface avec main
 
-func alive() -> bool:
-	return not dead
-
-
 ## Vrai si la ruée a..b touche une main au sol pour la 1re fois de ce trait (dégâts gérés par main).
 ## Effondré : les vertèbres touchées sont notées, les dégâts tombent à la fin du trait.
 func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead:
 		return false
 	if _state == "down":
-		_spine_touch(a, b, stroke_id)
+		_spine_touch(a, b)
 		return false
 	if _state == "slam_down" and _active >= 0:
 		var h: Dictionary = _hands[_active]
@@ -304,7 +300,7 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 			_pending = _active
 			position = Vector3(_slam_target.x, 0, _slam_target.z)
 			return true
-	_clang_check(a, b, stroke_id)
+	_clang_check(a, b)
 	return false
 
 
@@ -330,16 +326,15 @@ func take_hit(dmg: float, _dir: Vector3) -> void:
 
 
 ## Fin du trait : la colonne encaisse selon la plus longue suite de vertèbres prises dans l'ordre.
-func end_stroke(stroke_id: int) -> void:
-	_clanged.erase(stroke_id)
-	if not _spine_order.has(stroke_id):
-		_spine_seen.erase(stroke_id)
+func end_stroke(_stroke_id: int) -> void:
+	_clanged = false
+	var order: Array = _spine_order
+	_spine_order = []
+	_spine_seen = {}
+	if order.is_empty():
 		return
-	var order: Array = _spine_order[stroke_id]
-	_spine_order.erase(stroke_id)
-	_spine_seen.erase(stroke_id)
 	_lit.clear()
-	if dead or _state != "down" or order.is_empty():
+	if dead or _state != "down":
 		return
 	var sp := _skull.global_position
 	var at := Vector3(sp.x, 0, sp.z)
@@ -363,27 +358,31 @@ func end_stroke(stroke_id: int) -> void:
 		_damage(d2)
 
 
-## Zone d'attaque en préparation (la plus proche de frapper) : [centre, rayon, temps restant], ou [].
-func danger_zone() -> Array:
-	var best: Dictionary = {}
-	var bt := INF
+## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes
+## (toutes les zones vivantes, stèles en attente comprises).
+func danger_at(p: Vector3, eta: float) -> bool:
+	if dead:
+		return false
+	var lim := eta + DANGER_MARGIN
 	for z in _zones:
-		if float(z["t"]) < bt:
-			bt = float(z["t"])
-			best = z
-	if best.is_empty():
-		return []
-	var c: Vector3 = best["c"]
-	var hx := float(best["hx"])
-	var hz := float(best["hz"])
-	if best["shape"] == "disc":
-		return [c, hx, bt]
-	if maxf(hx, hz) <= 2.0 * minf(hx, hz):
-		return [c, maxf(hx, hz), bt]
-	# bande allongée : on renvoie le morceau le plus proche du héros
-	var p: Vector3 = hero.position
-	var q := Vector3(clampf(p.x, c.x - hx, c.x + hx), 0, clampf(p.z, c.z - hz, c.z + hz))
-	return [q, minf(hx, hz), bt]
+		if float(z["t"]) >= lim:
+			continue
+		var c: Vector3 = z["c"]
+		var hx := float(z["hx"])
+		var hz := float(z["hz"])
+		if z["shape"] == "disc":
+			if Vector2(p.x - c.x, p.z - c.z).length() < hx + DANGER_MARGIN:
+				return true
+		elif absf(p.x - c.x) < hx + DANGER_MARGIN and absf(p.z - c.z) < hz + DANGER_MARGIN:
+			return true
+	for q in _stele_queue:
+		var sq: Array = q
+		if float(sq[0]) + STELE_TELE >= lim:
+			continue
+		var sc: Vector3 = sq[1]
+		if Vector2(p.x - sc.x, p.z - sc.z).length() < 1.0 + DANGER_MARGIN:
+			return true
+	return false
 
 
 ## Contact : le pied du buste quand il est debout.
@@ -450,7 +449,7 @@ func _flat_rect(parent: Node3D, hx: float, hz: float, color: Color, y: float) ->
 	return r
 
 
-func _add_zone(shape: String, c: Vector3, hx: float, hz: float, total: float, side: float, zkind: String) -> Dictionary:
+func _add_zone(shape: String, c: Vector3, hx: float, hz: float, total: float, side: float) -> Dictionary:
 	var n := Node3D.new()
 	_rig.add_child(n)
 	n.position = Vector3(c.x, 0, c.z)
@@ -463,7 +462,7 @@ func _add_zone(shape: String, c: Vector3, hx: float, hz: float, total: float, si
 		fill = _flat_rect(n, hx, hz, Color(Toon.VERMILION, 0.45), 0.035)
 	fill.scale = Vector3(0.01, 1, 0.01)
 	var z := {"node": n, "fill": fill, "shape": shape, "c": Vector3(c.x, 0, c.z), "hx": hx, "hz": hz,
-		"t": total, "total": total, "side": side, "kind": zkind}
+		"t": total, "total": total, "side": side}
 	_zones.append(z)
 	return z
 
@@ -543,9 +542,9 @@ func _break_hand(i: int) -> void:
 		_start_collapse()
 
 
-func _clang_check(a: Vector3, b: Vector3, sid: int) -> void:
+func _clang_check(a: Vector3, b: Vector3) -> void:
 	# la lame ricoche sur les os invulnérables : retour lisible
-	if _clanged.has(sid) or _state in ["rise", "fall", "down", "dying"]:
+	if _clanged or _state in ["rise", "fall", "down", "dying"]:
 		return
 	var pts: Array = []
 	if _fall_k < 0.1:
@@ -562,18 +561,16 @@ func _clang_check(a: Vector3, b: Vector3, sid: int) -> void:
 	for p in pts:
 		var q: Vector3 = p
 		if _seg_dist(q, a, b) < 1.2:
-			_clanged[sid] = true
+			_clanged = true
 			main.clang(Vector3(q.x, 0.5, q.z))
 			return
 
 
-func _spine_touch(a: Vector3, b: Vector3, sid: int) -> void:
-	var seen: Dictionary = _spine_seen.get(sid, {})
-	var order: Array = _spine_order.get(sid, [])
+func _spine_touch(a: Vector3, b: Vector3) -> void:
 	var seg := b - a
 	var found: Array = []
 	for i in VERTS:
-		if seen.has(i):
+		if _spine_seen.has(i):
 			continue
 		var lamp: Node3D = _vert_lamps[i]
 		var p := lamp.global_position
@@ -586,13 +583,11 @@ func _spine_touch(a: Vector3, b: Vector3, sid: int) -> void:
 	found.sort_custom(func(x, y): return x[0] < y[0])
 	for f in found:
 		var idx := int(f[1])
-		seen[idx] = true
-		order.append(idx)
+		_spine_seen[idx] = true
+		_spine_order.append(idx)
 		_lit[idx] = true
 		var lamp2: Node3D = _vert_lamps[idx]
 		main.small_hit(lamp2.global_position)
-	_spine_seen[sid] = seen
-	_spine_order[sid] = order
 
 
 # ------------------------------------------------------------------ déroulé du combat
@@ -616,18 +611,21 @@ func _next_attack() -> void:
 	if _phase2 and _cycle % 4 == 0:
 		_start_steles()
 		return
-	_active = int(live[_cycle % live.size()])
 	var sweep: bool = (_cycle % 4 == 2) if _phase2 else (_cycle % 3 == 0)
 	if sweep:
+		_active = int(live[_cycle % live.size()])
 		var h2: Dictionary = _hands[_active]
 		_sweep_side = float(h2["side"])
 		_sweep_z = clampf(hero.position.z, -4.0, HALF.y - 1.3)
-		_add_zone("rect", Vector3(0, 0, _sweep_z), HALF.x, 1.3, SWEEP_TELE, _sweep_side, "sweep")
+		_add_zone("rect", Vector3(0, 0, _sweep_z), HALF.x, 1.3, SWEEP_TELE, _sweep_side)
 		_state = "sweep_tele"
 		_timer = SWEEP_TELE
 	else:
+		# compteur à part : en phase 2, _cycle n'est jamais pair pour un écrasement
+		_slam_n += 1
+		_active = int(live[_slam_n % live.size()])
 		_slam_target = _clamp_floor(hero.position, 1.0, 1.5)
-		_add_zone("rect", _slam_target, 1.0, 1.5, SLAM_TELE, 0.0, "slam")
+		_add_zone("rect", _slam_target, 1.0, 1.5, SLAM_TELE, 0.0)
 		_state = "slam_tele"
 		_timer = SLAM_TELE
 
@@ -649,7 +647,7 @@ func _start_collapse() -> void:
 	_state = "totter"
 	_active = -1
 	_timer = COLLAPSE_TELE
-	_add_zone("rect", Vector3(0, 0, -3.0), 1.3, 3.3, COLLAPSE_TELE + FALL_TIME, 0.0, "collapse")
+	_add_zone("rect", Vector3(0, 0, -3.0), 1.3, 3.3, COLLAPSE_TELE + FALL_TIME, 0.0)
 
 
 func _impact() -> void:
@@ -816,7 +814,7 @@ func _update_stele_queue(delta: float) -> void:
 		q[0] = float(q[0]) - delta
 		if float(q[0]) <= 0.0:
 			var c: Vector3 = q[1]
-			var z := _add_zone("disc", c, 1.0, 1.0, STELE_TELE, 0.0, "stele")
+			var z := _add_zone("disc", c, 1.0, 1.0, STELE_TELE, 0.0)
 			z["stele"] = _make_stele(c)
 			_stele_queue.remove_at(i)
 

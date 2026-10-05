@@ -27,6 +27,8 @@ const LANE_X := [-3.07, 0.0, 3.07]
 const LANE_W := 2.9
 const ENSO_R := 2.5
 const EYE_R := 0.8
+const MAX_PTS := 900  # au-delà, la ruée n'est plus enregistrée
+const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 
 var kind := "kuronami"
 var main: Node
@@ -35,7 +37,6 @@ var title := "Kuro-Nami"
 var hp := 150.0
 var max_hp := 150.0
 var dead := false
-var radius := 1.0
 var max_hp_mult := 1.0  # difficulté du monde
 
 var _phase := 0
@@ -72,8 +73,6 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	title = "Kuro-Nami"
-	radius = 1.0
 	hp = 150.0
 	hp *= max_hp_mult
 	max_hp = hp
@@ -205,19 +204,14 @@ func _make_lane_wave(x: float) -> Node3D:
 
 # ------------------------------------------------------------------ interface avec main
 
-func alive() -> bool:
-	return not dead
-
-
 ## Enregistre la ruée ; les dégâts sont calculés à la fin du trait (toujours false).
 func check_dash(a: Vector3, b: Vector3, _stroke_id: int) -> bool:
 	if dead or not hero.dashing:
 		return false
 	if _pts.is_empty():
 		_pts.append(Vector3(a.x, 0, a.z))
-	_pts.append(Vector3(b.x, 0, b.z))
-	if _pts.size() > 900:
-		_pts.pop_front()
+	if _pts.size() < MAX_PTS:
+		_pts.append(Vector3(b.x, 0, b.z))
 	if _state == "p1":
 		# petit retour quand la lame touche un doigt posé
 		for f: Dictionary in _fingers:
@@ -244,38 +238,61 @@ func end_stroke(_stroke_id: int) -> void:
 	if not _pts.is_empty():
 		_pts.append(Vector3(hero.position.x, 0, hero.position.z))
 	if _pts.size() >= 2:
-		var samples := _resample(0.2)
 		match _state:
 			"p1":
-				_check_claws(samples)
+				_check_claws(_resample(0.2))
 			"p2":
 				_check_kaeshi()
 			"p3":
-				_check_enso(samples)
+				_check_enso(_resample(0.2))
 	_pts.clear()
 	for f: Dictionary in _fingers:
 		f["touched"] = false
 
 
-## Annonce la plus proche de frapper : [centre, rayon, temps restant], ou [].
-func danger_zone() -> Array:
-	if dead or _zones.is_empty():
-		return []
-	var best: Dictionary = {}
-	var bt := 999.0
+## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes,
+## ou dans une attaque en cours (griffe qui vient de s'abattre, vague qui dévale).
+func danger_at(p: Vector3, eta: float) -> bool:
+	if dead:
+		return false
+	var lim := eta + DANGER_MARGIN
 	for z: Dictionary in _zones:
 		var t: float = z["t"]
-		if t < bt:
-			bt = t
-			best = z
-	if best.is_empty():
-		return []
-	if String(best["kind"]) == "band":
-		var a: Vector3 = best["a"]
-		var b: Vector3 = best["b"]
-		return [_closest(hero.position, a, b), float(best["r"]), maxf(bt, 0.0)]
-	var c: Vector3 = best["c"]
-	return [c, float(best["r"]), maxf(bt, 0.0)]
+		if t >= lim:
+			continue
+		var r: float = z["r"]
+		var q: Vector3
+		if String(z["kind"]) == "band":
+			var a: Vector3 = z["a"]
+			var b: Vector3 = z["b"]
+			q = _closest(p, a, b)
+		else:
+			q = z["c"]
+		if _flat_dist(p, q) < r + DANGER_MARGIN:
+			return true
+	if _state == "p1":
+		for f: Dictionary in _fingers:
+			var h: float = f["hurt"]
+			if h <= 0.0 or eta > h + DANGER_MARGIN:
+				continue
+			var fa: Vector3 = f["a"]
+			var fb: Vector3 = f["b"]
+			if _flat_dist(p, _closest(p, fa, fb)) < FINGER_W * 0.5 + 0.2 + DANGER_MARGIN:
+				return true
+	elif _state == "p2":
+		# vague qui roule : elle couvre [z - 0.55, z + 0.55] et avance à vitesse constante
+		var speed := 4.0 + 1.6 * _phase_prog()
+		var t0 := maxf(eta - DANGER_MARGIN, 0.0)
+		for w: Dictionary in _waves:
+			if String(w["state"]) != "roll":
+				continue
+			var x: float = w["x"]
+			var wz: float = w["z"]
+			if absf(p.x - x) > LANE_W * 0.5 + 0.2 + DANGER_MARGIN:
+				continue
+			if p.z > wz + speed * t0 - 0.55 - DANGER_MARGIN and p.z < wz + speed * lim + 0.55 + DANGER_MARGIN:
+				return true
+	return false
 
 
 func touching_hero(p: Vector3) -> bool:

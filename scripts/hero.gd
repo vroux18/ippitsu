@@ -10,7 +10,6 @@ signal landed  # fin d'un bond (ensō)
 
 const DASH_SPEED := 34.0
 const RADIUS := 0.35
-const INK := Color("#34333D")
 
 var max_hp := 5
 var speed_mult := 1.0  # bonus de vitesse de ruée (pouvoirs)
@@ -31,7 +30,6 @@ var facing := Vector3(0, 0, -1)
 
 var body: Node3D
 var ch: Node3D
-var _t := 0.0
 var _lean := 0.0
 var _flash := 0.0
 
@@ -142,14 +140,15 @@ func hurt() -> void:
 		ch.play_once("Hit_A", 1.4)
 
 
-func reset_pose() -> void:
-	dead = false
-	ch.idle = "Idle"
-	ch.play("Idle")
+## Annule toupie, garde et bond (changement de salle).
+func cancel_moves() -> void:
+	spinning = 0.0
+	guard_t = 0.0
+	_leap_t = -1.0
+	body.position.y = 0.0
 
 
 func _process(delta: float) -> void:
-	_t += delta
 	if dashing:
 		var move := DASH_SPEED * speed_mult * delta
 		while move > 0.0 and path_i < path.size():

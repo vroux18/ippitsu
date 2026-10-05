@@ -5,8 +5,7 @@ extends Control
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
-const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
 signal finished
 
@@ -28,14 +27,14 @@ var _ring: Node3D
 var _skip: Control
 var _quit: Control
 var _ui := FontVariation.new()
-var _last_ms := 0
+var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = false
-	_ui.base_font = UI_FONT
+	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 2
 	_skip = InkButton.new()
 	_skip.text = "PASSER"
@@ -147,9 +146,7 @@ func _process(_delta: float) -> void:
 	if not visible:
 		return
 	size = get_viewport_rect().size
-	var now := Time.get_ticks_msec()
-	var real := 0.0 if _last_ms == 0 else minf((now - _last_ms) / 1000.0, 0.1)
-	_last_ms = now
+	var real := UiKit.real_delta()
 	_t += real
 	if _done_t >= 0.0:
 		_done_t += real
@@ -187,24 +184,19 @@ func _draw() -> void:
 	var s: Dictionary = STEPS[step]
 	var card := _card_rect()
 	var a := clampf(_t / 0.3, 0.0, 1.0)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(Color("#F4EDDC"), 0.96 * a)
-	sb.set_corner_radius_all(int(14 * u))
-	sb.shadow_color = Color(0, 0, 0, 0.3 * a)
-	sb.shadow_size = int(12 * u)
-	draw_style_box(sb, card)
+	UiKit.box(_sb, Color(Toon.PAPER, 0.96 * a), int(14 * u))
+	_sb.shadow_color = Color(0, 0, 0, 0.3 * a)
+	_sb.shadow_size = int(12 * u)
+	draw_style_box(_sb, card)
 	# démonstration du geste à droite
 	var demo := Rect2(Vector2(card.end.x - 92 * u, card.position.y + 8 * u), Vector2(84, 88) * u)
-	var db := StyleBoxFlat.new()
-	db.bg_color = Color(Toon.SUMI, 0.9 * a)
-	db.set_corner_radius_all(int(10 * u))
-	draw_style_box(db, demo)
+	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.9 * a), int(10 * u)), demo)
 	_draw_gesture(String(s.gesture), demo.grow(-12 * u), u, a)
 	# texte
 	var tx := card.position.x + 16 * u
 	draw_string(_ui, Vector2(tx, card.position.y + 24 * u), "ÉTAPE %d / %d" % [step + 1, STEPS.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Color(Toon.VERMILION, a))
-	draw_string(TITLE_FONT, Vector2(tx, card.position.y + 46 * u), String(s.title), HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.SUMI, a))
-	draw_multiline_string(UI_FONT, Vector2(tx, card.position.y + 64 * u), String(s.hint), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 124 * u, int(11 * u), 3, Color(Toon.SUMI, 0.75 * a))
+	draw_string(UiKit.TITLE_FONT, Vector2(tx, card.position.y + 46 * u), UiKit.plain(String(s.title)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.SUMI, a))
+	draw_multiline_string(UiKit.UI_FONT, Vector2(tx, card.position.y + 64 * u), UiKit.plain(String(s.hint)), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 124 * u, int(11 * u), 3, Color(Toon.SUMI, 0.75 * a))
 	# progression
 	for i in STEPS.size():
 		var c := Vector2(tx + i * 12 * u + 3 * u, card.end.y - 10 * u)
