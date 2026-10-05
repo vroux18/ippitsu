@@ -126,7 +126,7 @@ func _lp_sphere(r: float) -> SphereMesh:
 
 
 ## Renard low-poly (regarde vers -Z). Renvoie {node, body, shadow, tails, cones, stars, alive, anchor}.
-func _build_fox(root: Node3D, real: bool) -> Dictionary:
+func _build_fox(root: Node3D, is_real: bool) -> Dictionary:
 	var body := Node3D.new()
 	root.add_child(body)
 	body.scale = Vector3.ONE * FOX_SCALE
@@ -157,7 +157,7 @@ func _build_fox(root: Node3D, real: bool) -> Dictionary:
 		var mk := Toon.part(body, Toon.box(Vector3(0.06, 0.02, 0.13)), red, Vector3(sx * 0.1, 1.47, -0.86))
 		mk.rotation = Vector3(-0.4, 0, sx * 0.5)
 		# yeux : or pour le vrai, fentes d'encre pour les illusions
-		if real:
+		if is_real:
 			Toon.part(body, _lp_sphere(0.06), Toon.flat(Toon.GOLD), Vector3(sx * 0.11, 1.37, -0.95))
 		else:
 			var slit := Toon.part(body, Toon.box(Vector3(0.11, 0.025, 0.03)), Toon.flat(Toon.SUMI), Vector3(sx * 0.11, 1.37, -0.95))
@@ -189,7 +189,7 @@ func _build_fox(root: Node3D, real: bool) -> Dictionary:
 	body.add_child(stars)
 	stars.position = Vector3(0, 1.9, -0.6)
 	stars.visible = false
-	if real:
+	if is_real:
 		for k in 3:
 			var a := TAU * float(k) / 3.0
 			Toon.part(stars, _lp_sphere(0.07), Toon.flat(Toon.GOLD), Vector3(cos(a) * 0.3, 0, sin(a) * 0.3))
