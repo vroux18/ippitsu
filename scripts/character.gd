@@ -64,6 +64,7 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 				tint = look[1]
 				amount = look[2]
 				break
+		print("[ch] ", mi.name, " surfaces=", mi.mesh.get_surface_count(), " amount=", amount, " override=", mi.material_override, " active=", mi.get_active_material(0))
 		for i in mi.mesh.get_surface_count():
 			var src := mi.get_active_material(i)
 			var m := ShaderMaterial.new()

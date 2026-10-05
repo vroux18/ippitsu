@@ -96,7 +96,7 @@ jobs:
           mkdir -p build/web
           # noms de fichiers uniques à chaque build : pas de mélange de versions dans le cache du téléphone
           # (passer en --export-debug pour voir les erreurs de script dans la console du navigateur)
-          godot --headless --path . --export-release "Web" build/web/ippitsu-${{ github.run_number }}.html
+          godot --headless --path . --export-debug "Web" build/web/ippitsu-${{ github.run_number }}.html
           cp build/web/ippitsu-${{ github.run_number }}.html build/web/index.html
           test -s build/web/index.html
 
