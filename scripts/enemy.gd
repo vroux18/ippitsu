@@ -277,7 +277,12 @@ func _process(delta: float) -> void:
 			ch.set_glow(0.35, FUNA_TINT)
 
 	if dead:
-		# s'effondre, puis s'enfonce dans le ponton
+		# projeté en tournoyant, puis s'effondre et s'enfonce dans le ponton
+		if _timer < 0.35:
+			body.rotation.y += delta * 22.0
+			body.position.y = sin(_timer / 0.35 * PI) * 0.9
+		elif body.position.y > 0.0 and _timer < 1.1:
+			body.position.y = 0.0
 		position += _knock * delta
 		_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 8.0))
 		_timer += delta

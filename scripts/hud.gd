@@ -38,6 +38,7 @@ var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
 var chain_lost := 0
 var enemy_bars: Array = []  # [position écran, ratio de vie]
 var in_play := false
+var screen_flash := 0.0  # éclair blanc bref à la mise à mort
 var show_fps := false  # `?fps` dans l'adresse web
 # compatibilité (anciens noms encore écrits par main)
 var slow := 0.0
@@ -109,6 +110,7 @@ func _process(delta: float) -> void:
 	elif _combo_t > 0.0:
 		_combo_t -= real
 	chain_break = maxf(0.0, chain_break - real * 1.6)
+	screen_flash = maxf(0.0, screen_flash - real * 4.0)
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -146,6 +148,9 @@ func _draw() -> void:
 			_draw_gate_hint(sz, u)
 		if _combo_t > 0.0 and _combo_shown >= 2:
 			_draw_combo(sz, u)
+
+	if screen_flash > 0.0:
+		draw_rect(Rect2(Vector2.ZERO, sz), Color(1.0, 0.97, 0.9, screen_flash * 0.5))
 
 	# coup reçu : liseré vermillon et coins d'encre
 	if hurt_flash > 0.0:

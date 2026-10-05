@@ -15,6 +15,7 @@ const Boss = preload("res://scripts/boss.gd")
 const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashadokuro": preload("res://scripts/boss_gasha.gd"),
 	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
+const Vfx = preload("res://scripts/vfx.gd")
 const Tutorial = preload("res://scripts/tutorial.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
@@ -120,6 +121,7 @@ var _ending_victory := false
 var _final_boss: Node3D
 var music: Node
 var tuto: Control
+var vfx: Node3D
 var max_combo := 0
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -168,6 +170,9 @@ func _ready() -> void:
 	menu.resume_pressed.connect(_on_resume)
 	menu.restart_pressed.connect(_on_restart)
 	hud.pause_pressed.connect(_on_pause)
+	vfx = Vfx.new()
+	vfx.main = self
+	add_child(vfx)
 	music = Music.new()
 	add_child(music)
 	hazards = Hazards.new()
@@ -454,6 +459,12 @@ func _build_world() -> void:
 	e.adjustment_saturation = 1.15
 	e.adjustment_contrast = 1.12
 	e.adjustment_brightness = 0.97
+	e.glow_enabled = true
+	e.glow_intensity = 0.9
+	e.glow_strength = 1.1
+	e.glow_bloom = 0.0
+	e.glow_hdr_threshold = 1.05
+	e.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
 	# brume d'estampe : le lointain (Fuji, îlots) se fond dans le papier
 	e.fog_enabled = true
 	e.fog_light_color = Toon.WASHI
@@ -1488,6 +1499,10 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
 			_dmg_text(p, dmg, killed)
+			vfx.impact(p, dir, killed or combo >= 3)
+			if killed:
+				vfx.kill_burst(p, dir)
+				hud.screen_flash = maxf(hud.screen_flash, 0.35)
 			max_combo = maxi(max_combo, combo)
 			if killed:
 				kills += 1
@@ -1516,6 +1531,7 @@ func _check_slashes() -> void:
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
 			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 12)
 			_slash_mark(bo.position, bdir)
+			vfx.impact(bo.position, bdir, true)
 
 
 func _update_bullets(dt: float) -> void:
