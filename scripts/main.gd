@@ -105,6 +105,11 @@ func _ready() -> void:
 	if OS.has_feature("web"):
 		autoplay = autoplay or "autoplay" in str(JavaScriptBridge.eval("location.search", true))
 	_set_state("play" if autoplay else "menu")
+	# `?pick` (web) : ouvre directement le choix de rouleau, pour vérifier l'écran
+	if OS.has_feature("web") and "pick" in str(JavaScriptBridge.eval("location.search", true)):
+		_set_state("play")
+		room = 1
+		_room_cleared()
 	_ticks = Time.get_ticks_usec()
 
 
