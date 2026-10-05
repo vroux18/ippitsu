@@ -622,7 +622,6 @@ func boss_killed(_b: Node3D) -> void:
 		mini_kills += 1
 	else:
 		boss_kills += 1
-	hitstop = 0.3
 	shake = 0.7
 	sfx.play("kill", 0.6)
 	_splash(_b.position, Toon.VERMILION, 30)
@@ -635,7 +634,6 @@ func small_hit(pos: Vector3) -> void:
 
 
 func big_hit(pos: Vector3) -> void:
-	hitstop = maxf(hitstop, 0.12)
 	shake = maxf(shake, 0.35)
 	sfx.play("kill", 0.9)
 	_splash(pos, Toon.VERMILION, 24)
@@ -1238,7 +1236,6 @@ func _hurt_hero() -> void:
 	hero.hurt()
 	hud.hurt_flash = 1.0
 	shake = 0.45
-	hitstop = 0.12
 	sfx.play("hurt")
 	_splash(hero.position, Toon.SUMI, 14)
 	if hero.hp <= 0:
@@ -1291,8 +1288,7 @@ func _check_slashes() -> void:
 				_stroke_kills += 1
 				powers.on_kill(e)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
-			hitstop = maxf(hitstop, 0.085 if killed else 0.06)
-			shake = maxf(shake, 0.28 if killed else 0.18)
+			shake = maxf(shake, 0.16 if killed else 0.08)
 			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
 			_splash(p, Toon.VERMILION, 18 if killed else 10)
 			_blot(p, Toon.VERMILION, randf_range(0.35, 0.6) * (1.6 if e.kind == "brute" else 1.0), 2.5)
@@ -1308,7 +1304,6 @@ func _check_slashes() -> void:
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(bd, bdir)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
-			hitstop = maxf(hitstop, 0.07)
 			shake = maxf(shake, 0.22)
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
 			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 12)
