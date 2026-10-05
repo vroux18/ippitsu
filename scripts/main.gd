@@ -16,6 +16,8 @@ const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashado
 	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
 const Vfx = preload("res://scripts/vfx.gd")
+const Pickups = preload("res://scripts/pickups.gd")
+const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
@@ -122,6 +124,13 @@ var _final_boss: Node3D
 var music: Node
 var tuto: Control
 var vfx: Node3D
+var pickups: Node3D
+# expérience et or ramassés au sol : la barre pleine fait monter de niveau (un rouleau à choisir)
+var xp := 0
+var level := 1
+var run_gold := 0
+var _pending_levels := 0
+var _pick_context := "room"  # room | level
 var max_combo := 0
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -136,6 +145,7 @@ var _iai_t := 0.0
 var _iai_points := PackedVector3Array()
 var _enso_center := Vector3.ZERO
 var _enso_r := 2.0
+var _pad_start := Vector2.ZERO
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 
@@ -170,6 +180,9 @@ func _ready() -> void:
 	menu.resume_pressed.connect(_on_resume)
 	menu.restart_pressed.connect(_on_restart)
 	hud.pause_pressed.connect(_on_pause)
+	pickups = Pickups.new()
+	pickups.main = self
+	add_child(pickups)
 	vfx = Vfx.new()
 	vfx.main = self
 	add_child(vfx)
@@ -528,7 +541,7 @@ func _fit_camera() -> void:
 		Vector3(-HALF.x - 0.6, 0, HALF.y + 0.6), Vector3(HALF.x + 0.6, 0, HALF.y + 0.6),
 		Vector3(0, 3.4, -HALF.y - 0.7)]
 	var top := vs.y * 0.085
-	var bottom := vs.y * 0.9
+	var bottom := vs.y * 0.68  # sous l'arène : le pad tactile
 	var best := Transform3D()
 	var found := false
 	var dist := 12.0
@@ -605,6 +618,11 @@ func _start() -> void:
 	mini_kills = 0
 	max_combo = 0
 	run_time = 0.0
+	xp = 0
+	level = 1
+	run_gold = 0
+	_pending_levels = 0
+	pickups.clear()
 	chain = 0
 	max_chain = 0
 	_chain_t = 0.0
@@ -673,7 +691,7 @@ func _begin_room() -> void:
 	elif room == ROOMS and _final_boss != null:
 		hud.banner(String(_final_boss.title).to_upper(), "GARDIEN DU MONDE", Toon.VERMILION, 2.4)
 	elif room > 1:
-		hud.banner("SALLE %d" % room, "", Toon.SUMI, 1.3)
+		hud.toast("SALLE %d" % room)
 	_spawn_list(first)
 	sfx.play("strike", 0.7, -2.0)
 
@@ -707,6 +725,8 @@ func spawn_minions(list: Array) -> void:
 
 
 func boss_killed(_b: Node3D) -> void:
+	pickups.drop(_b.position, "xp", 8)
+	pickups.drop(_b.position, "coin", 10)
 	if _b.kind == "okappa":
 		mini_kills += 1
 	else:
@@ -759,6 +779,32 @@ func _spawn_list(list: Array) -> void:
 		enemies.append(e)
 
 
+func xp_need() -> int:
+	return 3 + 2 * level
+
+
+## Butin ramassé (appelé par pickups.gd).
+func collect(kind: String, value: int) -> void:
+	if kind == "xp":
+		xp += value
+		sfx.play("shot", 1.8 + randf() * 0.2, -14.0)
+		while xp >= xp_need():
+			xp -= xp_need()
+			level += 1
+			_pending_levels += 1
+	else:
+		run_gold += value
+		sfx.play("empty", 2.0, -10.0)
+
+
+## Un ennemi tombe : il lâche de l'expérience et parfois de l'or.
+func _on_enemy_killed(e: Node3D) -> void:
+	var k := String(e.kind)
+	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
+	if randf() < (0.8 if k == "brute" else 0.4):
+		pickups.drop(e.position, "coin", 2 if k == "brute" else 1)
+
+
 func _room_cleared() -> void:
 	if touching and stroke:
 		stroke.queue_free()
@@ -767,14 +813,23 @@ func _room_cleared() -> void:
 	for b in bullets:
 		b.node.queue_free()
 	bullets.clear()
+	pickups.gather()
 	if room >= ROOMS:
 		_victory()
 		return
-	_set_state("pick")
 	if room in SANCTUARIES:
+		_pick_context = "room"
+		_set_state("pick")
 		_open_sanctuary()
 	else:
-		_open_upgrades()
+		_open_gate()
+
+
+func _open_gate() -> void:
+	elan = elan_max()
+	_set_state("play")
+	arena.open_gate()
+	sfx.play("shot", 1.4, -4.0)
 
 
 func _open_upgrades() -> void:
@@ -816,7 +871,11 @@ func _on_picked(id: String) -> void:
 	if _pick_mode == "curse":
 		if id != "refuse":
 			_take_curse(id)
-		_open_upgrades()
+		if _extra_picks > 0:
+			_extra_picks -= 1
+			_open_upgrades()
+		else:
+			_open_gate()
 		return
 	powers.add(id)
 	sfx.play("slash", 1.2, -4.0)
@@ -824,10 +883,10 @@ func _on_picked(id: String) -> void:
 		_extra_picks -= 1
 		_open_upgrades()
 		return
-	elan = elan_max()
-	_set_state("play")
-	arena.open_gate()
-	sfx.play("shot", 1.4, -4.0)
+	if _pick_context == "level":
+		_set_state("play")
+	else:
+		_open_gate()
 
 
 ## Passage du torii : un coup de pinceau couvre l'écran, la salle suivante apparaît derrière.
@@ -860,7 +919,11 @@ func _award(victory: bool) -> void:
 	var cleared := room if victory else room - 1
 	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills)
 	meta.record_world(current_world, room, victory)
-	menu.gain_sumi = int(g.get("sumi", 0))
+	# l'or ramassé devient de l'encre (2 pièces = 1 encre)
+	var bonus := run_gold / 2
+	meta.sumi += bonus
+	meta.save_data()
+	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
 	menu.gain_seals = int(g.get("seals", 0))
 	menu.sumi = meta.sumi
 
@@ -960,6 +1023,7 @@ func damage_enemy(e: Node3D, dmg: float, fx := true) -> void:
 	if killed:
 		kills += 1
 		powers.on_kill(e)
+		_on_enemy_killed(e)
 		sfx.play("kill", randf_range(1.1, 1.3), -6.0)
 		_splash(e.position, Toon.VERMILION, 14)
 		_blot(e.position, Toon.VERMILION, 0.45, 2.5)
@@ -1246,24 +1310,37 @@ func _touch_down(sp: Vector2) -> void:
 	if hud.is_over_pause(sp) or tuto.is_over_ui(sp):
 		return
 	if game_over:
-		if hud.over_t > 1.0:
-			_start()
+		return
+	# on trace dans le pad du bas : le trait part du héros et reproduit le geste du doigt, en plus grand
+	if not pad_rect().has_point(sp):
 		return
 	touching = true
-	touch_start = _ground(sp)
+	_pad_start = sp
+	hud.pad_trail = PackedVector2Array([sp])
 	origin = hero.dash_end()
 	stroke_layer += 1
 	stroke = InkStroke.new(origin, stroke_layer)
 	add_child(stroke)
-	# le trait part du héros et rejoint directement le doigt
-	_touch_move(sp)
+
+
+## Zone du pad tactile, en bas de l'écran (coordonnées de la vue).
+func pad_rect() -> Rect2:
+	var vs := get_viewport().get_visible_rect().size
+	return Rect2(Vector2(vs.x * 0.05, vs.y * 0.71), Vector2(vs.x * 0.9, vs.y * 0.2))
+
+
+## Geste dans le pad -> déplacement au sol : la largeur du pad couvre ~11 m (haut de l'écran = vers le fond).
+func _pad_to_world(d: Vector2) -> Vector3:
+	var k := 11.0 / maxf(pad_rect().size.x, 1.0)
+	return Vector3(d.x, 0, d.y) * k
 
 
 func _touch_move(sp: Vector2) -> void:
 	if not touching or stroke == null:
 		return
-	# le trait suit exactement le doigt (là où il touche le sol), sans amplification
-	var target := _clamp_point(_ground(sp))
+	var target := _clamp_point(origin + _pad_to_world(sp - _pad_start))
+	if hud.pad_trail.size() == 0 or hud.pad_trail[hud.pad_trail.size() - 1].distance_to(sp) > 4.0:
+		hud.pad_trail.append(sp)
 	var was_empty: bool = stroke.exhausted
 	var used: float = stroke.extend_to(target, elan)
 	elan -= used
@@ -1276,13 +1353,14 @@ func _touch_up(sp: Vector2) -> void:
 	if not touching:
 		return
 	touching = false
+	hud.pad_trail = PackedVector2Array()
 	if stroke == null:
 		return
 	if stroke.length >= 0.7:
 		_launch(stroke)
 	else:
 		# petit coup de doigt : bond d'esquive
-		var flick := (_ground(sp) - touch_start) * REL
+		var flick := _pad_to_world(sp - _pad_start)
 		flick.y = 0
 		if flick.length() > 0.12 and elan >= powers.dodge_cost(DODGE_COST):
 			var s: MeshInstance3D = stroke
@@ -1501,6 +1579,7 @@ func _check_slashes() -> void:
 			_dmg_text(p, dmg, killed)
 			vfx.impact(p, dir, killed or combo >= 3)
 			if killed:
+				_on_enemy_killed(e)
 				vfx.kill_burst(p, dir)
 				hud.screen_flash = maxf(hud.screen_flash, 0.35)
 			max_combo = maxi(max_combo, combo)
@@ -1624,7 +1703,7 @@ func _slash_mark(pos: Vector3, dir: Vector3) -> void:
 func _combo_label(pos: Vector3, n: int) -> void:
 	var l := Label3D.new()
 	l.text = "×%d" % n
-	l.font_size = 120 + 12 * mini(n, 6)
+	l.font_size = 70 + 6 * mini(n, 6)
 	l.pixel_size = 0.006
 	l.modulate = Toon.VERMILION
 	l.outline_modulate = Toon.SUMI
@@ -1670,7 +1749,7 @@ func _process(_delta: float) -> void:
 	_ticks = now
 
 	# pause : tout est figé, seul l'écran de pause vit
-	if state == "paused":
+	if state == "paused" or (state == "pick" and _pick_context == "level"):
 		Engine.time_scale = 0.0
 		return
 
@@ -1715,6 +1794,13 @@ func _process(_delta: float) -> void:
 	if state == "tuto":
 		elan = elan_max()
 		_update_moves(dt)
+	if state == "play" and _pending_levels > 0 and not hero.dashing and not touching:
+		_pending_levels -= 1
+		_pick_context = "level"
+		hud.toast("NIVEAU %d" % level)
+		vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 2.2)
+		_set_state("pick")
+		_open_upgrades()
 	if state == "play":
 		run_time += real
 		if chain > 0:
@@ -1736,7 +1822,7 @@ func _process(_delta: float) -> void:
 			_spawn_list(_waves_left.pop_front())
 			wave_index += 1
 			sfx.play("strike", 0.8, -4.0)
-			hud.banner("VAGUE %d" % wave_index, "", Toon.SUMI, 1.0)
+			hud.toast("VAGUE %d / %d" % [wave_index, waves_total])
 		elif room == 0:
 			wave_wait -= real
 			if wave_wait <= 0.0:
@@ -1783,13 +1869,18 @@ func _process(_delta: float) -> void:
 	else:
 		cam.global_transform = _cam_base
 
+	hud.pad = pad_rect()
+	hud.pad_active = touching
 	hud.in_play = state in ["play", "transit", "dying", "pick", "tuto"]
 	hud.world_kanji = String(Worlds.world(current_world).kanji)
 	hud.world_color = Worlds.world(current_world).color
 	hud.rooms_total = ROOMS
 	hud.elan_m = elan_max()
 	hud.combo = combo if hero.dashing else 0
-	hud.chain = chain
+	hud.chain = chain if state != "tuto" else 0
+	hud.level = level
+	hud.xp_ratio = float(xp) / float(xp_need())
+	hud.gold = run_gold
 	hud.chain_left = 1.0 - _chain_t / CHAIN_TIMEOUT
 	hud.chain_mult = chain_mult()
 	var bars: Array = []

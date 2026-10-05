@@ -38,6 +38,14 @@ var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
 var chain_lost := 0
 var enemy_bars: Array = []  # [position écran, ratio de vie]
 var in_play := false
+var level := 1
+var xp_ratio := 0.0
+var gold := 0
+var pad := Rect2()  # pad tactile du bas (coordonnées écran)
+var pad_active := false
+var pad_trail := PackedVector2Array()
+var _toast := ""
+var _toast_t := -1.0
 var screen_flash := 0.0  # éclair blanc bref à la mise à mort
 var show_fps := false  # `?fps` dans l'adresse web
 # compatibilité (anciens noms encore écrits par main)
@@ -79,6 +87,12 @@ func is_over_pause(p: Vector2) -> bool:
 	return _pause != null and _pause.visible and Rect2(_pause.position, _pause.size).grow(8.0).has_point(p)
 
 
+## Petite annonce discrète (vague suivante, salle…) sous le haut de l'écran.
+func toast(text: String) -> void:
+	_toast = plain(text)
+	_toast_t = 0.0
+
+
 func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_big = plain(big)
 	_banner_small = plain(small)
@@ -111,6 +125,10 @@ func _process(delta: float) -> void:
 		_combo_t -= real
 	chain_break = maxf(0.0, chain_break - real * 1.6)
 	screen_flash = maxf(0.0, screen_flash - real * 4.0)
+	if _toast_t >= 0.0:
+		_toast_t += real
+		if _toast_t > 1.4:
+			_toast_t = -1.0
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -138,7 +156,9 @@ func _draw() -> void:
 		draw_rect(Rect2(rect.position, Vector2(bw * clampf(r, 0.0, 1.0), rect.size.y)), Toon.VERMILION)
 
 	if in_play:
+		_draw_pad(u)
 		_draw_hearts(u)
+		_draw_xp(u)
 		_draw_chain(u)
 		_draw_room(sz, u)
 		_draw_gauge(sz, u)
@@ -160,6 +180,17 @@ func _draw() -> void:
 		draw_rect(Rect2(0, sz.y - hb, sz.x, hb), hc)
 		draw_rect(Rect2(0, 0, hb, sz.y), hc)
 		draw_rect(Rect2(sz.x - hb, 0, hb, sz.y), hc)
+
+	if _toast_t >= 0.0 and in_play:
+		var ta := clampf(minf(_toast_t / 0.15, (1.4 - _toast_t) / 0.3), 0.0, 1.0)
+		var tfs := int(14 * u)
+		var tw := TITLE_FONT.get_string_size(_toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var tp := Vector2(sz.x / 2.0 - tw / 2.0, 100 * u - 6 * u * (1.0 - ta))
+		var tb := StyleBoxFlat.new()
+		tb.bg_color = Color(Toon.SUMI, 0.75 * ta)
+		tb.set_corner_radius_all(999)
+		draw_style_box(tb, Rect2(tp + Vector2(-14 * u, -tfs - 4 * u), Vector2(tw + 28 * u, tfs + 14 * u)))
+		draw_string(TITLE_FONT, tp, _toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.WASHI, ta))
 
 	if _banner_t >= 0.0:
 		_draw_banner(sz, u)
@@ -243,7 +274,7 @@ func _draw_hearts(u: float) -> void:
 
 ## Chaîne : sous les cœurs, nombre, bonus de dégâts et jauge de temps restant ; éclat quand elle se brise.
 func _draw_chain(u: float) -> void:
-	var p := Vector2(14 * u, 70 * u)
+	var p := Vector2(14 * u, 68 * u)
 	if chain >= 2:
 		var tier_col := Toon.SUMI
 		if chain >= 20:
@@ -271,6 +302,51 @@ func _draw_chain(u: float) -> void:
 		for j in 5:
 			var a := TAU * j / 5.0
 			draw_rect(Rect2(p + Vector2(56, 18) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.SUMI, chain_break))
+
+
+## Niveau, barre d'expérience (jade) et or ramassé, sous les cœurs.
+func _draw_xp(u: float) -> void:
+	var p := Vector2(14 * u, 54 * u)
+	var lv := "NIV %d" % level
+	draw_string(UI_FONT, p + Vector2(0, 4 * u), lv, HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Toon.SUMI)
+	var bx := p.x + 38 * u
+	var bw := 96.0 * u
+	draw_rect(Rect2(Vector2(bx, p.y - 2 * u), Vector2(bw, 6 * u)), Color(Toon.SUMI, 0.55))
+	draw_rect(Rect2(Vector2(bx + 1 * u, p.y - 1 * u), Vector2((bw - 2 * u) * clampf(xp_ratio, 0.0, 1.0), 4 * u)), Color("#3FD1B2"))
+	# or
+	var gp := Vector2(bx + bw + 14 * u, p.y + 1 * u)
+	draw_circle(gp, 5.5 * u, Toon.GOLD)
+	draw_circle(gp, 3.0 * u, Color("#8C6A2A"))
+	draw_string(UI_FONT, gp + Vector2(9 * u, 4 * u), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Toon.SUMI)
+
+
+## Pad tactile : zone où l'on trace, avec le geste en cours en miniature.
+func _draw_pad(u: float) -> void:
+	if pad.size.x < 10.0:
+		return
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(Toon.WASHI, 0.16 if pad_active else 0.1)
+	sb.border_color = Color(Toon.WASHI, 0.55 if pad_active else 0.3)
+	sb.set_border_width_all(int(1.5 * u))
+	sb.set_corner_radius_all(int(18 * u))
+	draw_style_box(sb, pad)
+	if pad_active and pad_trail.size() > 0:
+		draw_circle(pad_trail[0], 6 * u, Color(Toon.VERMILION, 0.9))
+		if pad_trail.size() > 1:
+			draw_polyline(pad_trail, Color(Toon.WASHI, 0.9), 4 * u, true)
+		draw_circle(pad_trail[pad_trail.size() - 1], 9 * u, Color(Toon.WASHI, 0.35))
+	else:
+		# invitation : un doigt qui trace un petit trait vers le haut
+		var c := pad.get_center()
+		var k := fmod(_t, 1.6) / 1.6
+		var p0 := c + Vector2(0, 18 * u)
+		var p1 := p0 + Vector2(0, -36 * u * minf(k * 1.4, 1.0))
+		draw_line(p0, p1, Color(Toon.WASHI, 0.35), 3 * u, true)
+		draw_circle(p1, 7 * u, Color(Toon.WASHI, 0.4))
+		var hint := "TRACE ICI"
+		var hf := int(10 * u)
+		var hw := UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf).x
+		draw_string(UI_FONT, Vector2(c.x - hw / 2.0, pad.end.y - 10 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf, Color(Toon.WASHI, 0.45))
 
 
 func _draw_room(sz: Vector2, u: float) -> void:
@@ -347,12 +423,11 @@ func _draw_gate_hint(sz: Vector2, u: float) -> void:
 
 func _draw_combo(sz: Vector2, u: float) -> void:
 	var a := clampf(_combo_t / 0.4, 0.0, 1.0)
-	var c := Vector2(sz.x - 62 * u, sz.y * 0.36)
-	# tache d'encre derrière le nombre
-	draw_circle(c, 34 * u, Color(Toon.SUMI, 0.85 * a))
-	draw_circle(c + Vector2(22, -18) * u, 7 * u, Color(Toon.SUMI, 0.7 * a))
-	draw_circle(c + Vector2(-26, 20) * u, 4 * u, Color(Toon.SUMI, 0.6 * a))
-	var fs := int((34 + 3 * mini(_combo_shown, 8)) * u)
+	var c := Vector2(sz.x - 40 * u, sz.y * 0.32)
+	# petite tache d'encre derrière le nombre
+	draw_circle(c, 21 * u, Color(Toon.SUMI, 0.8 * a))
+	draw_circle(c + Vector2(15, -12) * u, 4 * u, Color(Toon.SUMI, 0.6 * a))
+	var fs := int((20 + 1.5 * mini(_combo_shown, 8)) * u)
 	var txt := "×%d" % _combo_shown
 	var tw := TITLE_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	draw_string(TITLE_FONT, Vector2(c.x - tw / 2.0, c.y + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.VERMILION if _combo_shown >= 4 else Toon.WASHI, a))

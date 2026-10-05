@@ -11,7 +11,7 @@ const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
 signal finished
 
 const STEPS := [
-	{"title": "Se déplacer", "hint": "Pose le doigt, glisse jusqu'au cercle doré, lâche.", "gesture": "line", "goal": "ring"},
+	{"title": "Se déplacer", "hint": "Glisse le doigt dans le pad en bas : ton trait part du héros. Atteins le cercle doré.", "gesture": "line", "goal": "ring"},
 	{"title": "Trancher", "hint": "Trace un trait qui traverse le squelette.", "gesture": "line", "goal": "kill1"},
 	{"title": "Enchaîner", "hint": "Deux squelettes d'un seul trait : dégâts ×1,5.", "gesture": "diag", "goal": "kill2"},
 	{"title": "Boucle", "hint": "Fais une petite boucle dans ton trait : le héros tourne en toupie.", "gesture": "loop", "goal": "loop"},
@@ -100,7 +100,7 @@ func _next() -> void:
 		"ring":
 			_ring = Node3D.new()
 			main.add_child(_ring)
-			_ring.position = Vector3(hp.x, 0, hp.z - 6.0)
+			_ring.position = Vector3(hp.x, 0, hp.z - 4.5)
 			Toon.disc(_ring, 1.15, Color(Toon.SUMI, 0.8), 0.03)
 			Toon.disc(_ring, 1.0, Color(Toon.GOLD, 0.95), 0.035)
 			Toon.disc(_ring, 0.7, Color(Toon.WASHI, 0.9), 0.04)
@@ -109,18 +109,18 @@ func _next() -> void:
 			_respawn_dummies()
 		_:
 			# quelques mannequins pour essayer la forme sur quelque chose
-			main.spawn_dummy(Vector3(-2.0, 0, -2.0))
-			main.spawn_dummy(Vector3(2.0, 0, -4.0))
+			main.spawn_dummy(Vector3(-2.0, 0, 1.5))
+			main.spawn_dummy(Vector3(2.0, 0, 0.0))
 
 
 func _respawn_dummies() -> void:
 	_clear_dummies()
 	var goal := String(STEPS[step].goal)
 	if goal == "kill1":
-		main.spawn_dummy(Vector3(0, 0, -2.5))
+		main.spawn_dummy(Vector3(0, 0, 2.0))
 	else:
-		main.spawn_dummy(Vector3(-1.6, 0, -0.5))
-		main.spawn_dummy(Vector3(1.6, 0, -4.5))
+		main.spawn_dummy(Vector3(-1.4, 0, 3.0))
+		main.spawn_dummy(Vector3(1.4, 0, 0.0))
 
 
 func _clear_dummies() -> void:
@@ -177,7 +177,7 @@ func _process(_delta: float) -> void:
 
 func _card_rect() -> Rect2:
 	var u := size.x / 400.0
-	return Rect2(Vector2(size.x * 0.05, 92 * u), Vector2(size.x * 0.9, 118 * u))
+	return Rect2(Vector2(size.x * 0.05, 64 * u), Vector2(size.x * 0.9, 104 * u))
 
 
 func _draw() -> void:
@@ -194,7 +194,7 @@ func _draw() -> void:
 	sb.shadow_size = int(12 * u)
 	draw_style_box(sb, card)
 	# démonstration du geste à droite
-	var demo := Rect2(Vector2(card.end.x - 104 * u, card.position.y + 10 * u), Vector2(94, 98) * u)
+	var demo := Rect2(Vector2(card.end.x - 92 * u, card.position.y + 8 * u), Vector2(84, 88) * u)
 	var db := StyleBoxFlat.new()
 	db.bg_color = Color(Toon.SUMI, 0.9 * a)
 	db.set_corner_radius_all(int(10 * u))
@@ -203,8 +203,8 @@ func _draw() -> void:
 	# texte
 	var tx := card.position.x + 16 * u
 	draw_string(_ui, Vector2(tx, card.position.y + 24 * u), "ÉTAPE %d / %d" % [step + 1, STEPS.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Color(Toon.VERMILION, a))
-	draw_string(TITLE_FONT, Vector2(tx, card.position.y + 50 * u), String(s.title), HORIZONTAL_ALIGNMENT_LEFT, -1, int(21 * u), Color(Toon.SUMI, a))
-	draw_multiline_string(UI_FONT, Vector2(tx, card.position.y + 72 * u), String(s.hint), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 140 * u, int(12 * u), 3, Color(Toon.SUMI, 0.75 * a))
+	draw_string(TITLE_FONT, Vector2(tx, card.position.y + 46 * u), String(s.title), HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.SUMI, a))
+	draw_multiline_string(UI_FONT, Vector2(tx, card.position.y + 64 * u), String(s.hint), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 124 * u, int(11 * u), 3, Color(Toon.SUMI, 0.75 * a))
 	# progression
 	for i in STEPS.size():
 		var c := Vector2(tx + i * 12 * u + 3 * u, card.end.y - 10 * u)
