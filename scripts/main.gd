@@ -236,7 +236,6 @@ func _warmup() -> void:
 	l.no_depth_test = false
 	w.add_child(l)
 	_splash(w.position, Toon.VERMILION, 8)
-	_blot(w.position, Toon.VERMILION, 0.5, 1.5)
 	_slash_mark(w.position, Vector3.FORWARD)
 	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
 
