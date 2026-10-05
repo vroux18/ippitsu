@@ -83,7 +83,10 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_fit_camera)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
-	_set_state("play" if "--autoplay" in OS.get_cmdline_user_args() else "menu")
+	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
+	if OS.has_feature("web"):
+		autoplay = autoplay or "autoplay" in str(JavaScriptBridge.eval("location.search", true))
+	_set_state("play" if autoplay else "menu")
 	_ticks = Time.get_ticks_usec()
 
 
