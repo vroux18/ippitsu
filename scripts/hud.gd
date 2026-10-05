@@ -21,6 +21,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	size = get_viewport_rect().size
 	if hurt_flash > 0.0:
 		hurt_flash = maxf(0.0, hurt_flash - delta * 2.5)
 	if game_over:
