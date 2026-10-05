@@ -643,11 +643,25 @@ func _process(delta: float) -> void:
 
 # ------------------------------------------------------------------ géométrie
 
+## Vrai si un disque de rayon `margin` centré en `p` tient sur la terre ferme (union des plateformes).
+## On teste le centre et 8 points du bord dans l'union : une jonction étroite entre deux plateformes
+## reste franchissable (rétrécir chaque plateforme séparément y créait une bande infranchissable).
 func walkable(p: Vector3, margin := 0.0) -> bool:
+	if not _in_union(p.x, p.z):
+		return false
+	if margin <= 0.0:
+		return true
+	var d := margin * 0.7071
+	return _in_union(p.x + margin, p.z) and _in_union(p.x - margin, p.z) \
+		and _in_union(p.x, p.z + margin) and _in_union(p.x, p.z - margin) \
+		and _in_union(p.x + d, p.z + d) and _in_union(p.x - d, p.z + d) \
+		and _in_union(p.x + d, p.z - d) and _in_union(p.x - d, p.z - d)
+
+
+func _in_union(x: float, z: float) -> bool:
 	for r in rects:
-		var rr: Rect2 = (r as Rect2).grow(-margin)
-		# plateforme plus étroite que la marge : rien de praticable dessus
-		if rr.size.x > 0.0 and rr.size.y > 0.0 and rr.has_point(Vector2(p.x, p.z)):
+		var rr: Rect2 = r
+		if x >= rr.position.x and x <= rr.end.x and z >= rr.position.y and z <= rr.end.y:
 			return true
 	return false
 

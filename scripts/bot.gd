@@ -20,6 +20,8 @@ var _picks := 0
 var _death_test := false
 var _hits_taken := 0
 var _last_hp := -1
+var _still := {}  # id ennemi -> [dernière position, temps immobile]
+var _stuck_seen := {}
 
 
 func begin(m: Node) -> void:
@@ -94,6 +96,7 @@ func _play(dt: float) -> void:
 			main.hero.hp = 1
 		print("BOT monde %d salle %d (%s)" % [world, main.room, String(main.arena.layout)])
 	_room_t += dt
+	_check_stuck(dt)
 	if _room_t > ROOM_TIMEOUT:
 		var who: Array = []
 		for e in main.enemies:
@@ -152,6 +155,29 @@ func _play(dt: float) -> void:
 		else:
 			return
 	_stroke(Vector3(target.x, 0, target.z))
+
+
+## Ennemi immobile 8 s loin du héros (hors attaque) : coincé quelque part -> alerte.
+func _check_stuck(dt: float) -> void:
+	for e in main.enemies:
+		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa":
+			continue
+		var id: int = e.get_instance_id()
+		var p: Vector3 = e.position
+		if not _still.has(id):
+			_still[id] = [p, 0.0]
+			continue
+		var st: Array = _still[id]
+		var lp: Vector3 = st[0]
+		if lp.distance_to(p) > 0.25 or p.distance_to(main.hero.position) < 3.0:
+			_still[id] = [p, 0.0]
+			continue
+		st[1] = float(st[1]) + dt
+		if float(st[1]) > 8.0 and not _stuck_seen.has(id):
+			_stuck_seen[id] = true
+			var msg := "monde %d salle %d (%s) : %s coincé en %s (héros en %s)" % [world, main.room, String(main.arena.layout), e.kind, str(p.snapped(Vector3(0.1, 0.1, 0.1))), str(main.hero.position.snapped(Vector3(0.1, 0.1, 0.1)))]
+			alerts.append(msg)
+			print("BOT ALERTE ", msg)
 
 
 func _stroke_points(pts: PackedVector3Array) -> void:
