@@ -24,7 +24,6 @@ func _ready() -> void:
 	_trail_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_trail_mat.vertex_color_use_as_albedo = true
 	_trail_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_trail_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_trail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mi.material_override = _trail_mat
 	add_child(mi)
@@ -40,10 +39,10 @@ func glow_mat(c: Color, energy := 3.0) -> StandardMaterial3D:
 	m.emission_enabled = true
 	m.emission = c
 	m.emission_energy_multiplier = energy
+	# mélange normal (pas additif) : les couleurs restent franches même sur un sol clair
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = Color(c.r * energy * 0.5, c.g * energy * 0.5, c.b * energy * 0.5, 1)
+	m.albedo_color = Color(minf(c.r * 1.15, 1.0), minf(c.g * 1.15, 1.0), minf(c.b * 1.15, 1.0), 1)
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	_glow_mats[key] = m
 	return m
@@ -104,9 +103,47 @@ func impact(pos: Vector3, dir: Vector3, strong := false) -> void:
 		mi.rotation.z = r
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		star.add_child(mi)
-	_fx.append({"node": star, "t": 0.0, "life": 0.18, "kind": "star", "s": 2.6 if strong else 1.8})
-	ring(Vector3(pos.x, 0.05, pos.z), Toon.VERMILION if not strong else Toon.GOLD, 1.6 if strong else 1.1)
-	sparks(p, dir, 14 if strong else 8, Toon.GOLD)
+	_fx.append({"node": star, "t": 0.0, "life": 0.3, "kind": "star", "s": 3.6 if strong else 2.6})
+	ring(Vector3(pos.x, 0.06, pos.z), Toon.VERMILION if not strong else Toon.GOLD, 2.0 if strong else 1.4)
+	sparks(p, dir, 22 if strong else 14, Toon.GOLD)
+	arc(p, dir, strong)
+
+
+## Arc de sabre : un croissant lumineux tracé dans le sens du coup.
+func arc(pos: Vector3, dir: Vector3, strong := false) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 14
+	for i in n:
+		var a0 := lerpf(-1.2, 1.2, float(i) / n)
+		var a1 := lerpf(-1.2, 1.2, float(i + 1) / n)
+		var w0 := 0.28 * sin(PI * float(i) / n) + 0.02
+		var w1 := 0.28 * sin(PI * float(i + 1) / n) + 0.02
+		var o0 := Vector3(sin(a0), 0, -cos(a0)) * 1.2
+		var o1 := Vector3(sin(a1), 0, -cos(a1)) * 1.2
+		var i0 := Vector3(sin(a0), 0, -cos(a0)) * (1.2 - w0)
+		var i1 := Vector3(sin(a1), 0, -cos(a1)) * (1.2 - w1)
+		st.add_vertex(o0)
+		st.add_vertex(o1)
+		st.add_vertex(i1)
+		st.add_vertex(o0)
+		st.add_vertex(i1)
+		st.add_vertex(i0)
+	var node := Node3D.new()
+	add_child(node)
+	node.position = pos
+	var d := dir
+	d.y = 0
+	if d.length_squared() < 0.001:
+		d = Vector3.FORWARD
+	node.rotation.y = atan2(-d.x, -d.z)
+	node.rotation.z = randf_range(-0.5, 0.5)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = glow_mat(Color(1.0, 0.95, 0.85) if not strong else Toon.VERMILION, 3.0)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(mi)
+	_fx.append({"node": node, "t": 0.0, "life": 0.26, "kind": "arc", "s": 1.6 if strong else 1.2})
 
 
 ## Anneau de choc qui s'étend au sol.
@@ -132,11 +169,11 @@ func ring(pos: Vector3, c: Color, r: float) -> void:
 func sparks(pos: Vector3, dir: Vector3, amount: int, c: Color) -> void:
 	var p := CPUParticles3D.new()
 	var m := BoxMesh.new()
-	m.size = Vector3(0.05, 0.05, 0.28)
+	m.size = Vector3(0.07, 0.07, 0.36)
 	m.material = glow_mat(c, 3.5)
 	p.mesh = m
 	p.amount = amount
-	p.lifetime = 0.4
+	p.lifetime = 0.6
 	p.one_shot = true
 	p.explosiveness = 1.0
 	var d := dir.normalized() if dir.length_squared() > 0.001 else Vector3.UP
@@ -221,6 +258,10 @@ func _process(delta: float) -> void:
 					node.look_at(main.cam.global_position, Vector3.UP)
 				for ch in node.get_children():
 					(ch as Node3D).visible = k < 0.9
+			"arc":
+				var sa: float = fx.s
+				node.scale = Vector3.ONE * sa * (0.8 + 0.5 * k)
+				node.visible = k < 0.85
 			"ring":
 				var r: float = fx.r
 				node.scale = Vector3.ONE * r * (0.3 + 1.2 * k)

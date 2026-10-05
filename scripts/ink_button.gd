@@ -122,6 +122,12 @@ func _icon(c: Vector2, s: float) -> void:
 			draw_rect(Rect2(c + Vector2(-s * 0.8, -s * 0.55), Vector2(s * 1.6, s * 1.1)), Color(ink, 0.25))
 			draw_rect(Rect2(c + Vector2(-s * 0.95, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
 			draw_rect(Rect2(c + Vector2(s * 0.7, -s * 0.7), Vector2(s * 0.25, s * 1.4)), ink)
+		"gear":
+			for k in 8:
+				var ang := TAU * k / 8.0
+				draw_line(c + Vector2.from_angle(ang) * s * 0.55, c + Vector2.from_angle(ang) * s * 0.95, ink, s * 0.32, true)
+			draw_circle(c, s * 0.62, ink)
+			draw_circle(c, s * 0.26, Toon.WASHI)
 		"help":
 			if font:
 				var fs := int(s * 2.0)

@@ -43,6 +43,7 @@ var xp_ratio := 0.0
 var gold := 0
 var pad := Rect2()  # pad tactile du bas (coordonnées écran)
 var pad_active := false
+var pad_alpha := 1.0  # le pad s'efface après les premiers traits (option)
 var pad_trail := PackedVector2Array()
 var _toast := ""
 var _toast_t := -1.0
@@ -324,29 +325,35 @@ func _draw_xp(u: float) -> void:
 func _draw_pad(u: float) -> void:
 	if pad.size.x < 10.0:
 		return
+	var pa := maxf(pad_alpha, 0.35 if pad_active else 0.0)
+	if pa > 0.01:
+		_draw_pad_frame(u, pa)
+	if pad_active and pad_trail.size() > 0:
+		draw_circle(pad_trail[0], 6 * u, Color(Toon.VERMILION, 0.8))
+		if pad_trail.size() > 1:
+			draw_polyline(pad_trail, Color(Toon.WASHI, 0.75), 4 * u, true)
+		draw_circle(pad_trail[pad_trail.size() - 1], 9 * u, Color(Toon.WASHI, 0.3))
+
+
+func _draw_pad_frame(u: float, pa: float) -> void:
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(Toon.WASHI, 0.16 if pad_active else 0.1)
-	sb.border_color = Color(Toon.WASHI, 0.55 if pad_active else 0.3)
+	sb.bg_color = Color(Toon.WASHI, 0.06 * pa)
+	sb.border_color = Color(Toon.WASHI, 0.22 * pa)
 	sb.set_border_width_all(int(1.5 * u))
 	sb.set_corner_radius_all(int(18 * u))
 	draw_style_box(sb, pad)
-	if pad_active and pad_trail.size() > 0:
-		draw_circle(pad_trail[0], 6 * u, Color(Toon.VERMILION, 0.9))
-		if pad_trail.size() > 1:
-			draw_polyline(pad_trail, Color(Toon.WASHI, 0.9), 4 * u, true)
-		draw_circle(pad_trail[pad_trail.size() - 1], 9 * u, Color(Toon.WASHI, 0.35))
-	else:
+	if not pad_active:
 		# invitation : un doigt qui trace un petit trait vers le haut
 		var c := pad.get_center()
 		var k := fmod(_t, 1.6) / 1.6
 		var p0 := c + Vector2(0, 18 * u)
 		var p1 := p0 + Vector2(0, -36 * u * minf(k * 1.4, 1.0))
-		draw_line(p0, p1, Color(Toon.WASHI, 0.35), 3 * u, true)
-		draw_circle(p1, 7 * u, Color(Toon.WASHI, 0.4))
+		draw_line(p0, p1, Color(Toon.WASHI, 0.35 * pa), 3 * u, true)
+		draw_circle(p1, 7 * u, Color(Toon.WASHI, 0.4 * pa))
 		var hint := "TRACE ICI"
 		var hf := int(10 * u)
 		var hw := UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf).x
-		draw_string(UI_FONT, Vector2(c.x - hw / 2.0, pad.end.y - 10 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf, Color(Toon.WASHI, 0.45))
+		draw_string(UI_FONT, Vector2(c.x - hw / 2.0, pad.end.y - 10 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf, Color(Toon.WASHI, 0.45 * pa))
 
 
 func _draw_room(sz: Vector2, u: float) -> void:

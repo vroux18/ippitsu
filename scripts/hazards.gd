@@ -58,19 +58,77 @@ func _make_hole(c: Vector3, r: float) -> void:
 	var n := Node3D.new()
 	add_child(n)
 	n.position = c
-	# l'eau sombre sous les planches cassées, bord éclaté
-	var water := Toon.disc(n, r, Color("#0E1A2E"), 0.012)
-	water.scale = Vector3(1.0, 1, 0.85)
-	var rim := Toon.disc(n, r + 0.12, Color("#5B4630"), 0.008)
-	rim.scale = Vector3(1.0, 1, 0.85)
-	var splinter := Toon.mat(Color("#A88452"))
-	for i in 7:
-		var a := TAU * i / 7.0 + randf_range(-0.2, 0.2)
-		var p := Toon.part(n, Toon.box(Vector3(0.08, 0.05, randf_range(0.25, 0.45))), splinter,
-			Vector3(cos(a) * r, 0.03, sin(a) * r * 0.85))
-		p.rotation = Vector3(randf_range(-0.3, 0.3), -a, 0)
+	# contour déchiqueté : un rayon différent par angle
+	var count := 18
+	var radii: Array = []
+	for i in count:
+		radii.append(r * randf_range(0.78, 1.1) * (0.85 if i % 2 == 0 else 1.0))
+	# bois noirci autour de la cassure, puis l'eau sombre, puis un liseré d'écume
+	_ring_mesh(n, radii, 1.0, 1.22, Color("#3A2A1D"), 0.008)
+	_fan_mesh(n, radii, 1.0, Color("#0A1524"), 0.012)
+	_fan_mesh(n, radii, 0.72, Color("#123050"), 0.014)
+	_ring_mesh(n, radii, 0.86, 1.0, Color(Toon.FOAM, 0.55), 0.016)
+	# planches cassées qui pointent vers le trou, esquilles relevées
+	var woods := [Toon.mat(Color("#A88452")), Toon.mat(Color("#8E6B3E")), Toon.mat(Color("#B8935F"))]
+	for i in 10:
+		var a := TAU * i / 10.0 + randf_range(-0.15, 0.15)
+		var rr: float = radii[int(a / TAU * count) % count]
+		var l := randf_range(0.3, 0.6)
+		var p := Toon.part(n, Toon.box(Vector3(randf_range(0.07, 0.12), 0.05, l)), woods[i % 3],
+			Vector3(cos(a), 0, sin(a) * 0.85) * (rr + 0.05) + Vector3(0, 0.04, 0))
+		p.rotation = Vector3(randf_range(0.25, 0.6), -a - PI / 2.0, randf_range(-0.2, 0.2))
+	# deux débris qui flottent dans l'eau
+	for i in 2:
+		var d := Toon.part(n, Toon.box(Vector3(0.28, 0.04, 0.09)), woods[i], Vector3(randf_range(-0.3, 0.3) * r, 0.02, randf_range(-0.25, 0.25) * r))
+		d.rotation.y = randf() * PI
 	_hole_nodes.append(n)
 
+
+## Disque irrégulier plein (eau).
+func _fan_mesh(parent: Node3D, radii: Array, k: float, col: Color, y: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var count := radii.size()
+	for i in count:
+		var a0 := TAU * i / count
+		var a1 := TAU * (i + 1) / count
+		var r0: float = radii[i]
+		var r1: float = radii[(i + 1) % count]
+		st.add_vertex(Vector3(0, y, 0))
+		st.add_vertex(Vector3(cos(a0) * r0 * k, y, sin(a0) * r0 * k * 0.85))
+		st.add_vertex(Vector3(cos(a1) * r1 * k, y, sin(a1) * r1 * k * 0.85))
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = Toon.flat(col)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+
+
+## Anneau irrégulier entre deux échelles du contour (bord, écume).
+func _ring_mesh(parent: Node3D, radii: Array, k0: float, k1: float, col: Color, y: float) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var count := radii.size()
+	for i in count:
+		var a0 := TAU * i / count
+		var a1 := TAU * (i + 1) / count
+		var r0: float = radii[i]
+		var r1: float = radii[(i + 1) % count]
+		var p00 := Vector3(cos(a0) * r0 * k0, y, sin(a0) * r0 * k0 * 0.85)
+		var p01 := Vector3(cos(a0) * r0 * k1, y, sin(a0) * r0 * k1 * 0.85)
+		var p10 := Vector3(cos(a1) * r1 * k0, y, sin(a1) * r1 * k0 * 0.85)
+		var p11 := Vector3(cos(a1) * r1 * k1, y, sin(a1) * r1 * k1 * 0.85)
+		st.add_vertex(p00)
+		st.add_vertex(p01)
+		st.add_vertex(p11)
+		st.add_vertex(p00)
+		st.add_vertex(p11)
+		st.add_vertex(p10)
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	mi.material_override = Toon.flat(col)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
 
 func is_hole(p: Vector3, margin := 0.0) -> bool:
 	# le vide autour des plateformes compte comme un trou

@@ -14,6 +14,7 @@ signal worlds_pressed
 signal resume_pressed
 signal restart_pressed
 signal tuto_pressed
+signal options_pressed
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -46,6 +47,7 @@ var _resume: Control
 var _quit: Control
 var _restart: Control
 var _help: Control
+var _gear: Control
 
 
 func _ready() -> void:
@@ -82,6 +84,9 @@ func _ready() -> void:
 	_help = _button("", "round")
 	_help.icon = "help"
 	_help.pressed.connect(func(): tuto_pressed.emit())
+	_gear = _button("", "round")
+	_gear.icon = "gear"
+	_gear.pressed.connect(func(): options_pressed.emit())
 	_replay.lead_icon = "replay"
 	show_mode("home")
 
@@ -123,6 +128,9 @@ func _process(delta: float) -> void:
 	_sound.visible = mode == "home" or mode == "pause"
 	_atelier.visible = mode == "home"
 	_help.visible = mode == "home"
+	_gear.visible = mode == "home" or mode == "pause"
+	_gear.size = Vector2(40, 40) * u
+	_gear.position = Vector2(w - 106 * u, 24 * u) if mode == "home" else Vector2(_pause_card().position.x + 16 * u, _pause_card().position.y + 14 * u)
 	_help.size = Vector2(40, 40) * u
 	_help.position = Vector2(16 * u, 58 * u)
 	_sound.icon = "sound_off" if muted else "sound_on"

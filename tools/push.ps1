@@ -1,7 +1,8 @@
 # Pousse le dossier du projet sur main via l'API GitHub (git n'est pas installé).
-param([string]$Message, [string]$Root = "C:\Users\Administrator\Documents\Ippitsu", [string]$Repo = "vroux18/ippitsu")
+param([string]$Message, [string]$Root = "C:\Users\Administrator\Documents\Ippitsu", [string]$Repo = "vroux18/ippitsu", [string]$Skip = "")
 $ErrorActionPreference = "Stop"
 $exclude = '^(\.godot|build)[\\/]|^HANDOFF\.md$|\.import$'
+if ($Skip) { $exclude += '|' + $Skip }  # fichiers en cours d'écriture à ne pas pousser
 
 function Api($method, $path, $body) {
   $tmp = [IO.Path]::GetTempFileName()

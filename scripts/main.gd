@@ -16,6 +16,7 @@ const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashado
 	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
 const Vfx = preload("res://scripts/vfx.gd")
+const Options = preload("res://scripts/options.gd")
 const Pickups = preload("res://scripts/pickups.gd")
 const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")
@@ -124,6 +125,12 @@ var _final_boss: Node3D
 var music: Node
 var tuto: Control
 var vfx: Node3D
+var options: Control
+var ctrl_mode := "pad"  # pad | screen
+var pad_size := "m"  # s | m | l
+var pad_show := "start"  # always | start | never
+var _strokes_done := 0
+var _options_from := "menu"
 var pickups: Node3D
 # expérience et or ramassés au sol : la barre pleine fait monter de niveau (un rouleau à choisir)
 var xp := 0
@@ -201,6 +208,14 @@ func _ready() -> void:
 	pick_layer.add_child(picker)
 	picker.picked.connect(_on_picked)
 	picker.reroll.connect(_on_reroll)
+	var opt_layer := CanvasLayer.new()
+	opt_layer.layer = 5
+	add_child(opt_layer)
+	options = Options.new()
+	opt_layer.add_child(options)
+	options.changed.connect(_on_option)
+	options.closed.connect(_on_options_closed)
+	menu.options_pressed.connect(_open_options)
 	tuto = Tutorial.new()
 	tuto.main = self
 	pick_layer.add_child(tuto)
@@ -294,6 +309,9 @@ func _load() -> void:
 	if cfg.load(SAVE_PATH) == OK:
 		record = int(cfg.get_value("game", "best", 0))
 		menu.muted = bool(cfg.get_value("game", "muted", false))
+		ctrl_mode = String(cfg.get_value("settings", "control", "pad"))
+		pad_size = String(cfg.get_value("settings", "pad_size", "m"))
+		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
 	menu.best = record
 	menu.sumi = meta.sumi
 	AudioServer.set_bus_mute(0, menu.muted)
@@ -303,6 +321,9 @@ func _save() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("game", "best", record)
 	cfg.set_value("game", "muted", menu.muted)
+	cfg.set_value("settings", "control", ctrl_mode)
+	cfg.set_value("settings", "pad_size", pad_size)
+	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.save(SAVE_PATH)
 
 
@@ -440,6 +461,32 @@ func _on_refuge_closed() -> void:
 func _on_home() -> void:
 	_start()
 	_set_state("menu")
+
+
+func _open_options() -> void:
+	_options_from = "pause" if state == "paused" else "menu"
+	options.values = {"control": ctrl_mode, "pad_size": pad_size, "pad_show": pad_show, "sound": "off" if menu.muted else "on"}
+	menu.show_mode("hidden")
+	options.open()
+
+
+func _on_option(key: String, value: String) -> void:
+	match key:
+		"control":
+			ctrl_mode = value
+		"pad_size":
+			pad_size = value
+		"pad_show":
+			pad_show = value
+		"sound":
+			menu.muted = value == "off"
+			AudioServer.set_bus_mute(0, menu.muted)
+	sfx.play("empty", 1.4, -6.0)
+	_save()
+
+
+func _on_options_closed() -> void:
+	menu.show_mode("pause" if _options_from == "pause" else "home")
 
 
 func _on_sound(muted: bool) -> void:
@@ -1312,8 +1359,9 @@ func _touch_down(sp: Vector2) -> void:
 	if game_over:
 		return
 	# on trace dans le pad du bas : le trait part du héros et reproduit le geste du doigt, en plus grand
-	if not pad_rect().has_point(sp):
+	if ctrl_mode == "pad" and not pad_rect().has_point(sp):
 		return
+	_strokes_done += 1
 	touching = true
 	_pad_start = sp
 	hud.pad_trail = PackedVector2Array([sp])
@@ -1326,7 +1374,9 @@ func _touch_down(sp: Vector2) -> void:
 ## Zone du pad tactile, en bas de l'écran (coordonnées de la vue).
 func pad_rect() -> Rect2:
 	var vs := get_viewport().get_visible_rect().size
-	return Rect2(Vector2(vs.x * 0.05, vs.y * 0.71), Vector2(vs.x * 0.9, vs.y * 0.2))
+	var hk := 0.2 if pad_size == "s" else (0.27 if pad_size == "m" else 0.34)
+	var wk := 0.8 if pad_size == "s" else (0.92 if pad_size == "m" else 0.96)
+	return Rect2(Vector2(vs.x * (1.0 - wk) / 2.0, vs.y * (0.955 - hk)), Vector2(vs.x * wk, vs.y * hk))
 
 
 ## Geste dans le pad -> déplacement au sol : la largeur du pad couvre ~15 m (haut de l'écran = vers le fond).
@@ -1338,7 +1388,7 @@ func _pad_to_world(d: Vector2) -> Vector3:
 func _touch_move(sp: Vector2) -> void:
 	if not touching or stroke == null:
 		return
-	var target := _clamp_point(origin + _pad_to_world(sp - _pad_start))
+	var target := _clamp_point(_ground(sp)) if ctrl_mode == "screen" else _clamp_point(origin + _pad_to_world(sp - _pad_start))
 	if hud.pad_trail.size() == 0 or hud.pad_trail[hud.pad_trail.size() - 1].distance_to(sp) > 4.0:
 		hud.pad_trail.append(sp)
 	var was_empty: bool = stroke.exhausted
@@ -1360,7 +1410,7 @@ func _touch_up(sp: Vector2) -> void:
 		_launch(stroke)
 	else:
 		# petit coup de doigt : bond d'esquive
-		var flick := _pad_to_world(sp - _pad_start)
+		var flick := (_ground(sp) - _ground(_pad_start)) if ctrl_mode == "screen" else _pad_to_world(sp - _pad_start)
 		flick.y = 0
 		if flick.length() > 0.12 and elan >= powers.dodge_cost(DODGE_COST):
 			var s: MeshInstance3D = stroke
@@ -1591,7 +1641,10 @@ func _check_slashes() -> void:
 			shake = maxf(shake, 0.16 if killed else 0.08)
 			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
 			_splash(p, Toon.VERMILION, 18 if killed else 10)
-			_blot(p, Toon.VERMILION, randf_range(0.35, 0.6) * (1.6 if e.kind == "brute" else 1.0), 2.5)
+			# éclaboussure d'encre : tache noire et gouttes vermillon
+			_blot(p, Color(Toon.SUMI, 0.7), randf_range(0.25, 0.42) * (1.5 if e.kind == "brute" else 1.0), 2.2)
+			if killed:
+				_blot(p + Vector3(randf_range(-0.3, 0.3), 0, randf_range(-0.3, 0.3)), Color(Toon.VERMILION, 0.85), 0.18, 2.2)
 			_slash_mark(p, dir)
 			if combo >= 2:
 				_combo_label(p, combo)
@@ -1869,8 +1922,10 @@ func _process(_delta: float) -> void:
 	else:
 		cam.global_transform = _cam_base
 
-	hud.pad = pad_rect()
+	hud.pad = pad_rect() if ctrl_mode == "pad" else Rect2()
 	hud.pad_active = touching
+	var show_pad := pad_show == "always" or (pad_show == "start" and (state == "tuto" or _strokes_done < 12))
+	hud.pad_alpha = move_toward(hud.pad_alpha, 1.0 if show_pad else 0.0, real * 1.5)
 	hud.in_play = state in ["play", "transit", "dying", "pick", "tuto"]
 	hud.world_kanji = String(Worlds.world(current_world).kanji)
 	hud.world_color = Worlds.world(current_world).color
