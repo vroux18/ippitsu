@@ -386,6 +386,24 @@ func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 			draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
 
+## Colonne des sceaux de pouvoirs (même géométrie que _draw_seals) : la toucher ouvre le récapitulatif.
+func is_over_seals(p: Vector2) -> bool:
+	if power_seals.is_empty() or not in_play or dying > 0.0:
+		return false
+	var u := size.x / 400.0
+	var r := 11.0 * u
+	var step := 2.0 * r + 12.0 * u
+	var per_col := int(floor((size.y * 0.6 - 84.0 * u) / step)) + 1
+	var n := power_seals.size()
+	var cols := int(ceil(float(n) / float(maxi(per_col, 1))))
+	var rows := mini(n, per_col)
+	var right := size.x - 26.0 * u + r + 6.0 * u
+	var left := size.x - 26.0 * u - float(cols - 1) * (2.0 * r + 10.0 * u) - r - 6.0 * u
+	var top := 84.0 * u - r - 6.0 * u
+	var bottom := 84.0 * u + float(rows - 1) * step + r + 10.0 * u
+	return Rect2(left, top, right - left, bottom - top).has_point(p)
+
+
 ## Pouvoirs possédés : colonne de petits sceaux sous le bouton pause (école, niveau, liseré de rareté).
 func _draw_seals(sz: Vector2, u: float) -> void:
 	var r := 11.0 * u

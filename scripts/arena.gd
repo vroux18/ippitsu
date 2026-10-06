@@ -81,6 +81,7 @@ var _gate_ring: MeshInstance3D
 var _void_mat: StandardMaterial3D
 var _t := 0.0
 var _batches := {}  # matériau -> transformations des tuiles du sol
+var _pits := {}  # état d'animation des fosses (Worlds.build_pits)
 
 
 func _ready() -> void:
@@ -177,6 +178,8 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> v
 	var high: Rect2 = ends[3]
 	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
 	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed)
+	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
+	_pits = Worlds.build_pits(world_id, _room_root, rects, void_rects(rects), rng_seed)
 	_build_gate(w)
 
 
@@ -538,6 +541,40 @@ static func _decompose(rs: Array) -> Dictionary:
 		for i in nx:
 			var p := Vector2((float(xs[i]) + float(xs[i + 1])) / 2.0, (float(zs[j]) + float(zs[j + 1])) / 2.0)
 			kinds.append(_cell_kind(rs, p))
+	return {"xs": xs, "zs": zs, "kinds": kinds, "pieces": _merge_cells(xs, zs, kinds)}
+
+
+## Vides intérieurs de l'arène (cadre HALF moins les plateformes ; le dessous des ponts compte comme vide),
+## en rectangles disjoints : worlds.gd y creuse les fosses.
+static func void_rects(rs: Array) -> Array:
+	var xs: Array = [-HALF.x, HALF.x]
+	var zs: Array = [-HALF.y, HALF.y]
+	for r in rs:
+		var rr: Rect2 = r
+		_add_coord(xs, clampf(rr.position.x, -HALF.x, HALF.x))
+		_add_coord(xs, clampf(rr.end.x, -HALF.x, HALF.x))
+		_add_coord(zs, clampf(rr.position.y, -HALF.y, HALF.y))
+		_add_coord(zs, clampf(rr.end.y, -HALF.y, HALF.y))
+	xs.sort()
+	zs.sort()
+	var nx := xs.size() - 1
+	var nz := zs.size() - 1
+	var kinds: Array = []
+	for j in nz:
+		for i in nx:
+			var p := Vector2((float(xs[i]) + float(xs[i + 1])) / 2.0, (float(zs[j]) + float(zs[j + 1])) / 2.0)
+			kinds.append(0 if _cell_kind(rs, p) == 1 else 1)
+	var out: Array = []
+	for pc in _merge_cells(xs, zs, kinds):
+		var a: Array = pc
+		out.append(a[0])
+	return out
+
+
+## Fusion des cellules de la grille de même type (≠ 0) en grands rectangles disjoints : [[Rect2, type 2 ?], …].
+static func _merge_cells(xs: Array, zs: Array, kinds: Array) -> Array:
+	var nx := xs.size() - 1
+	var nz := zs.size() - 1
 	# fusion : séries horizontales, prolongées vers le bas tant que la série suivante est identique
 	var open: Array = []  # [i0, i1, type, j0, j1]
 	var done: Array = []
@@ -581,7 +618,7 @@ static func _decompose(rs: Array) -> Dictionary:
 		var z0 := float(zs[int(a[3])])
 		var z1 := float(zs[int(a[4])])
 		out.append([Rect2(x0, z0, x1 - x0, z1 - z0), int(a[2]) == 2])
-	return {"xs": xs, "zs": zs, "kinds": kinds, "pieces": out}
+	return out
 
 
 ## Une tuile du sol (planche, dalle…) : on les regroupe par matériau, dessinées d'un seul coup.
@@ -633,6 +670,8 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _void_mat and _void_mat.normal_enabled:
 		_void_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * delta
+	if not _pits.is_empty():
+		Worlds.animate_pits(_pits, _t)
 	if _gate_ring and is_instance_valid(_gate_ring):
 		var m := _gate_ring.material_override as StandardMaterial3D
 		var a := (0.35 + 0.25 * sin(_t * 4.0)) if gate_open else 0.0
@@ -647,9 +686,16 @@ func _process(delta: float) -> void:
 ## On teste le centre et 8 points du bord dans l'union : une jonction étroite entre deux plateformes
 ## reste franchissable (rétrécir chaque plateforme séparément y créait une bande infranchissable).
 func walkable(p: Vector3, margin := 0.0) -> bool:
+	if margin < 0.0:
+		# marge négative : tolérance, on accepte un point à moins de |margin| de la terre ferme
+		var m := -margin
+		var e := m * 0.7071
+		return _in_union(p.x, p.z) or _in_union(p.x + m, p.z) or _in_union(p.x - m, p.z) \
+			or _in_union(p.x, p.z + m) or _in_union(p.x, p.z - m) or _in_union(p.x + e, p.z + e) \
+			or _in_union(p.x - e, p.z + e) or _in_union(p.x + e, p.z - e) or _in_union(p.x - e, p.z - e)
 	if not _in_union(p.x, p.z):
 		return false
-	if margin <= 0.0:
+	if margin == 0.0:
 		return true
 	var d := margin * 0.7071
 	return _in_union(p.x + margin, p.z) and _in_union(p.x - margin, p.z) \

@@ -1,7 +1,8 @@
 extends Control
 ## Choix d'un rouleau parmi trois (pouvoirs) ou d'une malédiction au sanctuaire.
-## Cartes en bandeau empilées, lisibles au pouce : bande d'école avec l'idéogramme, ruban de rareté,
-## niveaux, effet, affinité d'école et synergie. Épique : liseré qui pulse et reflet qui passe.
+## Cartes en bandeau empilées, lisibles au pouce : bande d'école (idéogramme, niveau), ruban de rareté,
+## pastille « quand », nom et sous-titre, effet en clair, valeur « avant → après », bonus d'école et synergie.
+## Épique : liseré qui pulse et reflet qui passe.
 ## Légendaire : carte noire et or, arrive face cachée (ensō doré) puis se retourne dans une gerbe d'or.
 
 const Toon = preload("res://scripts/toon.gd")
@@ -14,6 +15,7 @@ const LEG_BAND := Color("#2C2632")
 const CURSE_BODY := Color("#2A0E0B")
 const REVEAL_AT := 0.6  # le légendaire se retourne à cet instant (s)
 const REVEAL_DUR := 0.34
+const GLUE := [":", ";", "!", "?", "%", "→", "·"]  # jamais en début de ligne
 
 signal picked(id: String)
 signal reroll
@@ -290,6 +292,8 @@ func _face(r: Rect2, info: Dictionary, u: float, a: float, i: int, chosen: bool)
 	var radius := int(14 * u)
 	var bw := maxf(1.0, (3.0 if rank >= 2 else 2.0) * u)
 	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
+	# échelle du contenu : la carte peut être plus basse que prévu sur un écran court
+	var s := minf(u, r.size.y / 172.0)
 
 	# lueur extérieure (épique, légendaire) et halo de la carte choisie
 	if rank >= 2:
@@ -315,132 +319,233 @@ func _face(r: Rect2, info: Dictionary, u: float, a: float, i: int, chosen: bool)
 	_sb.corner_radius_bottom_left = maxi(0, radius - int(bw))
 	draw_style_box(_sb, band)
 	var bc := band.get_center()
+	var k_up: float = 8.0 * s if rank >= 0 else 0.0  # l'idéogramme remonte un peu pour laisser place au niveau
 	if leg:
 		# rayons d'or qui tournent derrière l'idéogramme
-		draw_circle(bc + Vector2(0, -8 * u), band_w * 0.36, Color(GOLD_HI, 0.16 * a))
+		var kc := bc + Vector2(0, -8 * s - k_up)
+		draw_circle(kc, band_w * 0.36, Color(GOLD_HI, 0.16 * a))
 		for ray in 12:
 			var ang := _t * 0.5 + TAU * float(ray) / 12.0
 			var d := Vector2(cos(ang), sin(ang))
-			draw_line(bc + Vector2(0, -8 * u) + d * band_w * 0.22, bc + Vector2(0, -8 * u) + d * band_w * 0.46, Color(GOLD_HI, 0.3 * a), 2.0 * u)
+			draw_line(kc + d * band_w * 0.22, kc + d * band_w * 0.46, Color(GOLD_HI, 0.3 * a), 2.0 * u)
 	else:
 		# vagues discrètes au bas de la bande
 		for k in 3:
 			var yy := band.end.y - (8 + k * 9) * u
 			draw_arc(Vector2(band.position.x + band_w * 0.3, yy + 10 * u), 10 * u, PI, TAU, 10, Color(1, 1, 1, 0.08 * a), 1.5 * u)
 			draw_arc(Vector2(band.position.x + band_w * 0.75, yy + 10 * u), 10 * u, PI, TAU, 10, Color(1, 1, 1, 0.08 * a), 1.5 * u)
-	var kfs := int((58.0 if leg else 50.0) * u)
+	var kfs := int((58.0 if leg else 50.0) * s)
 	var kcol: Color = GOLD_HI if leg else Toon.WASHI
-	UiKit.text(self, UiKit.TITLE_FONT, kanji, Vector2(bc.x, bc.y + kfs * 0.3 - 8 * u), kfs, Color(kcol, a))
+	UiKit.text(self, UiKit.TITLE_FONT, kanji, Vector2(bc.x, bc.y + kfs * 0.3 - 8 * s - k_up), kfs, Color(kcol, a))
 	# nom d'école sous l'idéogramme (avec l'idéogramme d'école si celui de la carte est propre au pouvoir)
 	var school := String(info.get("school_name", SCHOOL_NAMES.get(kanji, "")))
 	var sk := String(info.get("school_kanji", kanji))
 	if school != "":
 		var label := school if sk == kanji else sk + " " + school
-		UiKit.text(self, _ui, _p(label), Vector2(bc.x, band.end.y - 12 * u), int(9.5 * u), Color(kcol, 0.85 * a))
+		UiKit.text(self, _ui, _p(label), Vector2(bc.x, band.end.y - 11 * s), int(9.5 * s), Color(kcol, 0.85 * a))
+	if rank >= 0:
+		_band_level(band, info, s, a, pulse, leg)
 
 	# contenu
-	var cx := band.end.x + 13 * u
-	var cr := r.end.x - 12 * u
+	var cx := band.end.x + 13 * s
+	var cr := r.end.x - 12 * s
 	var cwid := cr - cx
-	var y := r.position.y + 12 * u
-	var tag_h := 17.0 * u
-	var tfs := int(9.5 * u)
+	var y := r.position.y + 12 * s
+	if rank < 0:
+		_curse_body(Vector2(cx, y), cwid, info, s, a, ink, is_curse)
+		return
+	var tag_h := 16.0 * s
 	# ruban de rareté (en haut à droite)
-	if rank >= 0:
-		var rname := String(info.get("rarity_name", ""))
-		var rw := _ui.get_string_size(rname, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x + 16 * u
-		var pill := Rect2(Vector2(cr - rw, y), Vector2(rw, tag_h))
-		draw_style_box(UiKit.box(_sb, Color(rc, a), 999), pill)
-		UiKit.text(self, _ui, rname, Vector2(pill.get_center().x, pill.position.y + tag_h * 0.5 + tfs * 0.36), tfs, Color(LEG_BODY if leg else Toon.WASHI, a))
-	# nouveauté / niveau + losanges
-	var lvl := int(info.get("level", -1))
-	if lvl >= 0:
-		var mx := int(info.get("max_level", 3))
-		var is_new := bool(info.get("is_new", true))
-		var tag := "UNIQUE" if mx <= 1 else ("NOUVEAU" if is_new else "NIVEAU %d" % lvl)
-		var tcol: Color = GOLD_HI if (leg or is_new) else ink
-		var tw := UiKit.text(self, _ui, tag, Vector2(cx + _ui.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x / 2.0, y + tag_h * 0.5 + tfs * 0.36), tfs, Color(tcol, (1.0 if is_new or leg else 0.6) * a))
-		if mx > 1:
-			for k in mx:
-				var dc := Vector2(cx + tw + 12 * u + k * 13 * u, y + tag_h * 0.5)
-				var s := 4.5 * u
-				if k == lvl - 1:
-					s *= 1.0 + 0.25 * pulse
-				var dia := PackedVector2Array([dc + Vector2(0, -s), dc + Vector2(s, 0), dc + Vector2(0, s), dc + Vector2(-s, 0)])
-				if k < lvl:
-					draw_colored_polygon(dia, Color(rc if rank >= 1 else col, a) if k == lvl - 1 else Color(col, a))
-				else:
-					var dd := dia.duplicate()
-					dd.append(dia[0])
-					draw_polyline(dd, Color(ink, 0.3 * a), 1.2 * u, true)
-	y += tag_h + 6 * u
-	# nom
-	var nfs := int(20 * u)
+	var pfs := int(9.5 * s)
+	var rname := String(info.get("rarity_name", ""))
+	var rw := _ui.get_string_size(rname, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 16 * s
+	var pill := Rect2(Vector2(cr - rw, y), Vector2(rw, tag_h))
+	draw_style_box(UiKit.box(_sb, Color(rc, a), 999), pill)
+	UiKit.text(self, _ui, rname, Vector2(pill.get_center().x, pill.position.y + tag_h * 0.5 + pfs * 0.36), pfs, Color(LEG_BODY if leg else Toon.WASHI, a))
+	# déclencheur : pastille d'encre en haut à gauche (« quand » l'effet se produit)
+	var when := _p(String(info.get("when", "")))
+	if when != "":
+		var wfs := int(8.5 * s)
+		var room := cwid - rw - 6 * s
+		var ww := _ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x
+		while wfs > 6 and ww + 18 * s > room:
+			wfs -= 1
+			ww = _ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x
+		var chip := Rect2(Vector2(cx, y), Vector2(ww + 18 * s, tag_h))
+		draw_style_box(UiKit.box(_sb, Color(GOLD_HI if leg else Toon.SUMI, a), 999), chip)
+		# petit point vermillon : l'instant où l'effet part
+		draw_circle(Vector2(chip.position.x + 7 * s, chip.get_center().y), 2.2 * s, Color(LEG_BODY if leg else Toon.VERMILION, a))
+		draw_string(_ui, Vector2(chip.position.x + 12 * s, chip.position.y + tag_h * 0.5 + wfs * 0.36), when,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, wfs, Color(LEG_BODY if leg else Toon.WASHI, a))
+	y += tag_h + 6 * s
+	# nom (japonais) et sous-titre (français)
+	var nfs := int(19 * s)
 	var name_col: Color = GOLD_HI if leg else ink
-	draw_string(UiKit.TITLE_FONT, Vector2(cx, y + nfs * 0.85), _p(String(info.get("name", ""))), HORIZONTAL_ALIGNMENT_LEFT, cwid, nfs, Color(name_col, a))
-	y += nfs + 10 * u
-	# effet ; pour une malédiction : malus en rouge, récompense en or
-	var efs := int(12.5 * u)
-	var text := _p(String(info.get("text", "")))
-	var footer_y := r.end.y - 40 * u
-	if text.contains("·"):
-		var parts := text.split("·")
-		draw_multiline_string(_ui, Vector2(cx, y + efs * 0.4), "- " + parts[0].strip_edges(), HORIZONTAL_ALIGNMENT_LEFT, cwid, efs, 2, Color(Color("#FF8A7A") if is_curse else Toon.VERMILION, a))
-		draw_multiline_string(_ui, Vector2(cx, y + efs * 0.4 + efs * 2.6), "+ " + parts[1].strip_edges(), HORIZONTAL_ALIGNMENT_LEFT, cwid, efs, 2, Color(Toon.GOLD.lightened(0.2), a))
-	else:
-		var lines := 3 if rank >= 0 else 4
-		draw_multiline_string(_ui, Vector2(cx, y + efs * 0.4), text, HORIZONTAL_ALIGNMENT_LEFT, cwid, efs, lines, Color(ink, 0.85 * a))
-	if rank >= 0:
-		_footer(Rect2(Vector2(cx, footer_y), Vector2(cwid, r.end.y - footer_y)), info, u, a, ink, col, pulse, dark)
+	var nb := y + nfs * 0.85
+	draw_string(UiKit.TITLE_FONT, Vector2(cx, nb), _p(String(info.get("name", ""))), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(name_col, a))
+	var sub := _p(String(info.get("sub", "")))
+	if sub != "":
+		nb += 14 * s
+		draw_string(_ui, Vector2(cx, nb), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, int(10.5 * s), Color(ink, 0.55 * a))
+	# effet en clair (2 lignes, 3 au plus)
+	var efs := int(11 * s)
+	var lh := 14.0 * s
+	var ty := nb + 16 * s
+	var lines := _wrap(_ui, _p(String(info.get("text", ""))), efs, cwid)
+	var nl := mini(lines.size(), 3)
+	for k in nl:
+		draw_string(_ui, Vector2(cx, ty + k * lh), lines[k], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(ink, 0.82 * a))
+	# valeur chiffrée, en gras : « niveau actuel → niveau suivant »
+	var accent: Color = GOLD_HI if dark else Toon.VERMILION.darkened(0.12)
+	var sy := ty + float(maxi(nl, 1) - 1) * lh + 17 * s
+	var stat := _p(String(info.get("stat", "")))
+	if stat != "":
+		_bold_fit(stat, Vector2(cx, sy), cwid, int(12 * s), Color(accent, a))
+	var footer_y := r.end.y - 38 * s
+	# synergie active (si la place le permet ; un pouvoir sans école l'affiche dans le pied)
+	var syn := _p(String(info.get("synergy", "")))
+	if syn != "" and bool(info.get("synergy_on", false)) and int(info.get("aff_goal", 0)) > 0 and sy + 15 * s < footer_y - 3 * s:
+		_line_fit("+ " + syn, Vector2(cx, sy + 15 * s), cwid, int(9.5 * s), Color(GOLD_HI if dark else Color("#9A6B12"), a))
+	_footer(Rect2(Vector2(cx, footer_y), Vector2(cwid, r.end.y - footer_y)), info, s, a, ink, col, pulse, dark)
 	# reflet qui traverse la carte (épique, légendaire)
 	if rank >= 2:
 		_shine(r, u, a, i, Color(GOLD_HI, 0.2) if leg else Color(1, 1, 1, 0.16))
 
 
-## Pied de carte : affinité d'école (jauge et bonus) puis synergie.
-func _footer(f: Rect2, info: Dictionary, u: float, a: float, ink: Color, col: Color, pulse: float, dark: bool) -> void:
-	var fs := int(10.5 * u)
-	draw_line(f.position, Vector2(f.end.x, f.position.y), Color(ink, 0.15 * a), 1.0 * u)
-	var y1 := f.position.y + 15 * u
-	var y2 := y1 + 16 * u
-	var goal := int(info.get("aff_goal", 0))
-	var syn := _p(String(info.get("synergy", "")))
-	var syn_on := bool(info.get("synergy_on", false))
-	var accent: Color = GOLD_HI if dark else Color("#9A6B12")
-	if goal > 0:
-		var nxt := int(info.get("aff_next", 0))
-		var now := int(info.get("aff", 0))
-		var hit := bool(info.get("aff_hit", false))
-		var label := "AFFINITÉ %s" % String(info.get("school_name", ""))
-		var lw := _ui.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		draw_string(_ui, Vector2(f.position.x, y1), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, 0.7 * a))
-		# jauge : un cran par pouvoir de l'école, jusqu'au palier visé
-		var gx := f.position.x + lw + 8 * u
-		var cell := 9.0 * u
-		for k in goal:
-			var cr := Rect2(Vector2(gx + k * (cell + 3 * u), y1 - cell + 1 * u), Vector2(cell, cell * 0.8))
-			var c := Color(ink, 0.18 * a)
-			if k < now:
-				c = Color(col.lightened(0.25) if dark else col, a)
-			elif k < nxt:
-				c = Color(accent, a * (0.6 + 0.4 * pulse))
-			draw_rect(cr, c)
-		var count := "%d/%d" % [mini(nxt, 99), goal]
-		draw_string(_ui, Vector2(gx + goal * (cell + 3 * u) + 4 * u, y1), count, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, 0.7 * a))
-		var bonus := _p(String(info.get("aff_text", "")))
-		if hit:
-			draw_multiline_string(_ui, Vector2(f.position.x, y2), "Bonus : " + bonus, HORIZONTAL_ALIGNMENT_LEFT, f.size.x, fs, 1, Color(accent, a))
-		elif syn != "" and syn_on:
-			draw_multiline_string(_ui, Vector2(f.position.x, y2), "+ " + syn, HORIZONTAL_ALIGNMENT_LEFT, f.size.x, fs, 1, Color(accent, a))
-		elif nxt >= goal and goal >= 4:
-			draw_multiline_string(_ui, Vector2(f.position.x, y2), "Complète : " + bonus, HORIZONTAL_ALIGNMENT_LEFT, f.size.x, fs, 1, Color(ink, 0.55 * a))
+## Bas de la bande d'école : « NOUVEAU » / « NIVEAU n » / « UNIQUE » et losanges de niveau.
+func _band_level(band: Rect2, info: Dictionary, s: float, a: float, pulse: float, leg: bool) -> void:
+	var lv := int(info.get("level", 1))
+	var mx := int(info.get("max_level", 3))
+	var is_new := bool(info.get("is_new", true))
+	var tag := "UNIQUE" if mx <= 1 else ("NOUVEAU" if is_new else "NIVEAU %d" % lv)
+	var lfs := int(8.5 * s)
+	var cxb := band.get_center().x
+	var ty := band.end.y - (32.0 if mx <= 1 else 40.0) * s
+	var tw := _ui.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
+	var tr := Rect2(Vector2(cxb - tw / 2.0 - 6 * s, ty - lfs * 0.95), Vector2(tw + 12 * s, lfs * 1.45))
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.28 * a), 999), tr)
+	UiKit.text(self, _ui, tag, Vector2(cxb, ty), lfs, Color(GOLD_HI if leg else Toon.WASHI, a))
+	if mx <= 1:
+		return
+	for k in mx:
+		var dc := Vector2(cxb + (float(k) - float(mx - 1) / 2.0) * 13 * s, band.end.y - 27.5 * s)
+		var sz := 4.5 * s
+		if k == lv - 1:
+			sz *= 1.0 + 0.3 * pulse
+		var dia := PackedVector2Array([dc + Vector2(0, -sz), dc + Vector2(sz, 0), dc + Vector2(0, sz), dc + Vector2(-sz, 0)])
+		if k < lv:
+			draw_colored_polygon(dia, Color(Toon.WASHI, a * (0.75 + 0.25 * pulse if k == lv - 1 else 1.0)))
 		else:
-			draw_multiline_string(_ui, Vector2(f.position.x, y2), "À %d : %s" % [goal, bonus], HORIZONTAL_ALIGNMENT_LEFT, f.size.x, fs, 1, Color(ink, 0.5 * a))
+			var dd := dia.duplicate()
+			dd.append(dia[0])
+			draw_polyline(dd, Color(Toon.WASHI, 0.45 * a), 1.2 * s, true)
+
+
+## Malédiction (sanctuaire) ou « Passer » : nom, puis malus en rouge et récompense en or.
+func _curse_body(p: Vector2, cwid: float, info: Dictionary, s: float, a: float, ink: Color, is_curse: bool) -> void:
+	var y := p.y + 23 * s
+	var nfs := int(20 * s)
+	draw_string(UiKit.TITLE_FONT, Vector2(p.x, y + nfs * 0.85), _p(String(info.get("name", ""))), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(ink, a))
+	y += nfs + 10 * s
+	var efs := int(12.5 * s)
+	var lh := efs * 1.3
+	var text := _p(String(info.get("text", "")))
+	var base := y + efs * 0.9
+	if text.contains("·"):
+		var parts := text.split("·")
+		var l1 := _wrap(_ui, "- " + parts[0].strip_edges(), efs, cwid)
+		for k in mini(l1.size(), 2):
+			draw_string(_ui, Vector2(p.x, base + k * lh), l1[k], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(Color("#FF8A7A") if is_curse else Toon.VERMILION, a))
+		var l2 := _wrap(_ui, "+ " + parts[1].strip_edges(), efs, cwid)
+		for k in mini(l2.size(), 2):
+			draw_string(_ui, Vector2(p.x, base + efs * 2.6 + k * lh), l2[k], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(Toon.GOLD.lightened(0.2), a))
 	else:
-		# pouvoir sans école : seulement la synergie, ou rien
-		draw_string(_ui, Vector2(f.position.x, y1), "SANS ÉCOLE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, 0.5 * a))
+		var ls := _wrap(_ui, text, efs, cwid)
+		for k in mini(ls.size(), 4):
+			draw_string(_ui, Vector2(p.x, base + k * lh), ls[k], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(ink, 0.85 * a))
+
+
+## Pied de carte : bonus d'école en clair (jauge, ce qu'il manque, le bonus visé ou gagné).
+## Pouvoir sans école : sa synergie, ou rien.
+func _footer(f: Rect2, info: Dictionary, s: float, a: float, ink: Color, col: Color, pulse: float, dark: bool) -> void:
+	var fs := int(9.5 * s)
+	draw_line(f.position, Vector2(f.end.x, f.position.y), Color(ink, 0.15 * a), 1.0)
+	var y1 := f.position.y + 14 * s
+	var y2 := f.position.y + 28 * s
+	var goal := int(info.get("aff_goal", 0))
+	var accent: Color = GOLD_HI if dark else Color("#9A6B12")
+	if goal <= 0:
+		_line_fit("SANS ÉCOLE · ne compte pour aucun bonus", Vector2(f.position.x, y1), f.size.x, fs, Color(ink, 0.5 * a))
+		var syn := _p(String(info.get("synergy", "")))
 		if syn != "":
-			draw_multiline_string(_ui, Vector2(f.position.x, y2), "+ " + syn, HORIZONTAL_ALIGNMENT_LEFT, f.size.x, fs, 1, Color(accent if syn_on else ink, (1.0 if syn_on else 0.5) * a))
+			var on := bool(info.get("synergy_on", false))
+			_line_fit(("+ " if on else "") + syn, Vector2(f.position.x, y2), f.size.x, fs, Color(accent if on else ink, (1.0 if on else 0.5) * a))
+		return
+	var nxt := mini(int(info.get("aff_next", 0)), goal)
+	var now := mini(int(info.get("aff", 0)), goal)
+	var hit := bool(info.get("aff_hit", false))
+	var done := bool(info.get("aff_done", false))
+	# ligne 1 : école, jauge (un cran par pouvoir de l'école), compte, puis ce qu'il manque
+	var x := f.position.x
+	var label := String(info.get("school_name", ""))
+	draw_string(_ui, Vector2(x, y1), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, 0.75 * a))
+	x += _ui.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 6 * s
+	var cell := 8.0 * s
+	for k in goal:
+		var cr := Rect2(Vector2(x + k * (cell + 3 * s), y1 - cell + 1 * s), Vector2(cell, cell * 0.8))
+		var c := Color(ink, 0.18 * a)
+		if k < now:
+			c = Color(col.lightened(0.25) if dark else col, a)
+		elif k < nxt:
+			c = Color(accent, a * (0.6 + 0.4 * pulse))
+		draw_rect(cr, c)
+	x += goal * (cell + 3 * s) + 3 * s
+	var count := "%d/%d" % [nxt, goal]
+	draw_string(_ui, Vector2(x, y1), count, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, 0.75 * a))
+	x += _ui.get_string_size(count, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 6 * s
+	var tail := _p(String(info.get("aff_tail", "")))
+	var avail := f.end.x - x
+	if _ui.get_string_size(tail, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > avail:
+		tail = _p(String(info.get("aff_tail_short", tail)))
+	_line_fit(tail, Vector2(x, y1), avail, fs, Color(accent if hit else ink, (1.0 if hit else 0.6) * a))
+	# ligne 2 : le bonus (en or s'il est gagné)
+	var bonus := _p(String(info.get("aff_text", "")))
+	var on2 := hit or done
+	_line_fit(bonus, Vector2(f.position.x, y2), f.size.x, fs, Color(accent if on2 else ink, (1.0 if on2 else 0.6) * a))
+
+
+## Coupe un texte en lignes qui tiennent dans `width` (mots entiers ; la ponctuation reste collée au mot).
+func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	var cur := ""
+	for word in txt.split(" ", false):
+		var wd := String(word)
+		var trial: String = wd if cur == "" else cur + " " + wd
+		if cur != "" and not (wd in GLUE) and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
+			out.append(cur)
+			cur = wd
+		else:
+			cur = trial
+	if cur != "":
+		out.append(cur)
+	return out
+
+
+## Une ligne qui rétrécit (un peu) si elle déborde.
+func _line_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> void:
+	var f := fs
+	while f > 6 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
+		f -= 1
+	draw_string(_ui, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
+
+
+## Valeur en gras (deux passes décalées), rétrécie si elle déborde.
+func _bold_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> void:
+	var f := fs
+	while f > 6 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x + 1.0 > maxw:
+		f -= 1
+	draw_string(_ui, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
+	draw_string(_ui, pos + Vector2(0.7, 0), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
 
 
 ## Reflet en biais qui passe sur la carte toutes les ~2.5 s (découpé au rectangle de la carte).

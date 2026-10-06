@@ -3109,3 +3109,743 @@ static func _gull_mesh() -> ArrayMesh:
 	mesh.surface_set_material(0, _pmat(false, false))
 	_meshes["gull"] = mesh
 	return mesh
+
+
+# ------------------------------------------------------------------ fosses (vides intérieurs de l'arène)
+# Les vides entre plateformes, dans le cadre de l'arène, deviennent des fosses : paroi visible sous
+# les bords qui font face à la caméra, gouffre sombre, fond lointain à peine éclairé, bord propre au
+# monde (planches cassées, pierres ébréchées, neige, braise, papier déchiré). Tout est plat et bas
+# (jamais au-dessus du sol), hors des plateformes. ~3-5 draw calls : 1 nappe à couleurs de sommets,
+# 1 nappe additive (reflets / lave), 1 matériau de bord (+ contour), braises du monde 4.
+
+const PIT_HALF := Vector2(4.6, 8.6)  # cadre de l'arène (HALF de arena.gd)
+const PIT_Y := VOID_Y + 0.008  # juste au-dessus du plan du vide
+const PIT_FADE := 0.7  # fondu vers la mer là où une fosse touche le bord de l'arène
+const PIT_WALL_N := 0.75  # hauteur apparente de la paroi sous un bord nord (face à la caméra)
+const PIT_BRIDGE_W := 2.7  # comme arena.gd : un rectangle plus étroit est une passerelle
+
+## Couleurs des fosses : haut de paroi, bas de paroi, gouffre, fond lointain, lignes, reflets.
+static func _pit_style(wid: int) -> Dictionary:
+	match wid:
+		1:
+			return {"wall": Color("#6A4E36"), "low": Color("#2B1F16"), "deep": Color("#03070D"), "floor": Color("#0D2036"),
+				"line": Color("#2E2116"), "glint": Color(0.72, 0.86, 1.0)}
+		2:
+			return {"wall": Color("#5C5E54"), "low": Color("#24271F"), "deep": Color("#020606"), "floor": Color("#0A221E"),
+				"line": Color("#23241F"), "glint": Color(1.0, 0.9, 0.62)}
+		3:
+			return {"wall": Color("#B4CADA"), "low": Color("#4A6278"), "deep": Color("#060C16"), "floor": Color("#13253C"),
+				"line": Color("#7E98AE"), "glint": Color(0.82, 0.93, 1.0)}
+		4:
+			return {"wall": Color("#4A3A34"), "low": Color("#1E1210"), "deep": Color("#0A0302"), "floor": Color("#2E0C05"),
+				"line": Color("#1A1110"), "glint": Color(1.0, 0.5, 0.15)}
+		_:
+			return {"wall": Color("#8C8270"), "low": Color("#2A2622"), "deep": Color("#010204"), "floor": Color("#08101E"),
+				"line": Color("#3A342C"), "glint": Toon.WASHI}
+
+
+## Fosses de la salle dans les vides intérieurs `voids` (Rect2, cf. arena.gd void_rects).
+## Renvoie l'état à passer à animate_pits() à chaque image (vide si rien à animer).
+static func build_pits(world_id: int, parent: Node3D, rects: Array, voids: Array, rng_seed: int) -> Dictionary:
+	var state := {}
+	if voids.is_empty():
+		return state
+	var wid := clampi(world_id, 1, 5)
+	var rng := _rng(rng_seed * 23 + wid * 5 + 1)
+	var sty := _pit_style(wid)
+	var wide: Array = []
+	var narrow: Array = []
+	for r in rects:
+		var rr: Rect2 = r
+		if minf(rr.size.x, rr.size.y) < PIT_BRIDGE_W:
+			narrow.append(rr)
+		else:
+			wide.append(rr)
+	var segs := _pit_segments(voids, wide, rng)
+	var root := Node3D.new()
+	root.name = "Pits"
+	parent.add_child(root)
+	var st := _vc_begin()
+	var gl := _vc_begin()
+	for v in voids:
+		var vr: Rect2 = v
+		_pit_grid(st, vr, segs, wide, sty)
+	var ctx := {"rng": rng, "voids": voids, "segs": segs, "wide": wide, "narrow": narrow, "sty": sty,
+		"st": st, "gl": gl, "glow": 0, "bs": {}, "embers": []}
+	_pit_details(wid, ctx)
+	_pit_flush(root, st, _wmat("pit", -3, false), "PitDepth")
+	var n_glow: int = ctx["glow"]
+	if n_glow > 0:
+		var gm := _wmat("pit_glow_%d" % wid, -2, true)
+		_pit_flush(root, gl, gm, "PitGlow")
+		state["glow"] = gm
+		state["pulse"] = 1.6 if wid == 4 else 0.8
+	var bs: Dictionary = ctx["bs"]
+	_flush(bs, root, false)
+	var embers: Array = ctx["embers"]
+	if not embers.is_empty():
+		_pit_embers(root, embers)
+	return state
+
+
+## Pouls des lueurs des fosses (reflets qui scintillent, lave qui respire) : un paramètre de matériau.
+static func animate_pits(state: Dictionary, t: float) -> void:
+	if not state.has("glow"):
+		return
+	var m: StandardMaterial3D = state["glow"]
+	var k: float = state["pulse"]
+	m.albedo_color = Color(1, 1, 1, 0.7 + 0.22 * sin(t * k) + 0.08 * sin(t * k * 2.7 + 1.3))
+
+
+## Aplat sans lumière à couleurs de sommets avec alpha (fosses) ; `prio` ordonne les nappes transparentes.
+static func _wmat(key: String, prio: int, additive: bool) -> StandardMaterial3D:
+	if _mats.has(key):
+		var cached: StandardMaterial3D = _mats[key]
+		return cached
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.render_priority = prio
+	if additive:
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	_mats[key] = m
+	return m
+
+
+static func _pit_flush(root: Node3D, st: SurfaceTool, mat: Material, nm: String) -> void:
+	var mi := MeshInstance3D.new()
+	mi.name = nm
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(mi)
+
+
+## Bords plateforme / fosse : [a, b, côté, hauteur de paroi visible, phase] ; côté 0 = plateforme au nord,
+## 1 = au sud (paroi cachée), 2 = à l'ouest, 3 = à l'est (paroi visible seulement si elle regarde la caméra).
+static func _pit_segments(voids: Array, wide: Array, rng: RandomNumberGenerator) -> Array:
+	var out: Array = []
+	for v in voids:
+		var vr: Rect2 = v
+		for r in wide:
+			var rr: Rect2 = r
+			var x0 := maxf(vr.position.x, rr.position.x)
+			var x1 := minf(vr.end.x, rr.end.x)
+			if x1 - x0 > 0.02:
+				if absf(rr.end.y - vr.position.y) < 0.01:
+					_seg_add(out, Vector2(x0, vr.position.y), Vector2(x1, vr.position.y), 0)
+				elif absf(rr.position.y - vr.end.y) < 0.01:
+					_seg_add(out, Vector2(x0, vr.end.y), Vector2(x1, vr.end.y), 1)
+			var z0 := maxf(vr.position.y, rr.position.y)
+			var z1 := minf(vr.end.y, rr.end.y)
+			if z1 - z0 > 0.02:
+				if absf(rr.end.x - vr.position.x) < 0.01:
+					_seg_add(out, Vector2(vr.position.x, z0), Vector2(vr.position.x, z1), 2)
+				elif absf(rr.position.x - vr.end.x) < 0.01:
+					_seg_add(out, Vector2(vr.end.x, z0), Vector2(vr.end.x, z1), 3)
+	for s in out:
+		var sg: Array = s
+		var a: Vector2 = sg[0]
+		var kind: int = sg[2]
+		var band := 0.0
+		if kind == 0:
+			band = PIT_WALL_N
+		elif kind == 2 and a.x < -0.2:
+			band = 0.08 + 0.07 * -a.x
+		elif kind == 3 and a.x > 0.2:
+			band = 0.08 + 0.07 * a.x
+		sg.append(band)
+		sg.append(rng.randf() * TAU)
+	return out
+
+
+## Ajoute un bord, fusionné avec un bord colinéaire du même côté qui le chevauche (plateformes superposées).
+static func _seg_add(out: Array, a: Vector2, b: Vector2, kind: int) -> void:
+	var horiz := kind < 2
+	for s in out:
+		var sg: Array = s
+		var k: int = sg[2]
+		if k != kind:
+			continue
+		var sa: Vector2 = sg[0]
+		var sb: Vector2 = sg[1]
+		if horiz and absf(sa.y - a.y) < 0.01 and a.x <= sb.x + 0.01 and b.x >= sa.x - 0.01:
+			sg[0] = Vector2(minf(sa.x, a.x), a.y)
+			sg[1] = Vector2(maxf(sb.x, b.x), a.y)
+			return
+		if not horiz and absf(sa.x - a.x) < 0.01 and a.y <= sb.y + 0.01 and b.y >= sa.y - 0.01:
+			sg[0] = Vector2(a.x, minf(sa.y, a.y))
+			sg[1] = Vector2(a.x, maxf(sb.y, b.y))
+			return
+	out.append([a, b, kind])
+
+
+## Normale d'un bord, dirigée vers la fosse.
+static func _seg_n(kind: int) -> Vector2:
+	match kind:
+		0:
+			return Vector2(0, 1)
+		1:
+			return Vector2(0, -1)
+		2:
+			return Vector2(1, 0)
+	return Vector2(-1, 0)
+
+
+## Hauteur de paroi le long du bord : bas de paroi irrégulier (roche, terre, glace).
+static func _band_at(band: float, along: float, ph: float) -> float:
+	return band * (1.0 + 0.16 * sin(along * 8.3 + ph) + 0.08 * sin(along * 21.0 + ph * 0.5))
+
+
+## 1 en haut d'une paroi visible, 0 à son pied (ou hors paroi).
+static func _pit_wall(p: Vector2, segs: Array) -> float:
+	var w := 0.0
+	for s in segs:
+		var sg: Array = s
+		var band: float = sg[3]
+		if band <= 0.0:
+			continue
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var kind: int = sg[2]
+		var d := -1.0
+		var along := 0.0
+		if kind == 0:
+			if p.x >= a.x - 0.02 and p.x <= b.x + 0.02:
+				d = p.y - a.y
+				along = p.x
+		elif kind == 2:
+			if p.y >= a.y - 0.02 and p.y <= b.y + 0.02:
+				d = p.x - a.x
+				along = p.y
+		else:
+			if p.y >= a.y - 0.02 and p.y <= b.y + 0.02:
+				d = a.x - p.x
+				along = p.y
+		if d < -0.001:
+			continue
+		var ph: float = sg[4]
+		w = maxf(w, 1.0 - d / _band_at(band, along, ph))
+	return clampf(w, 0.0, 1.0)
+
+
+static func _rect_dist(r: Rect2, p: Vector2) -> float:
+	var dx := maxf(maxf(r.position.x - p.x, p.x - r.end.x), 0.0)
+	var dz := maxf(maxf(r.position.y - p.y, p.y - r.end.y), 0.0)
+	return sqrt(dx * dx + dz * dz)
+
+
+static func _plat_dist(wide: Array, p: Vector2) -> float:
+	var d := 99.0
+	for r in wide:
+		var rr: Rect2 = r
+		d = minf(d, _rect_dist(rr, p))
+	return d
+
+
+## Couleur d'un point de fosse : paroi (haut clair -> pied sombre), gouffre près des bords,
+## fond lointain un peu plus clair au large, fondu vers la mer aux bords ouverts de l'arène.
+static func _pit_col(p: Vector2, segs: Array, wide: Array, sty: Dictionary) -> Color:
+	var deep: Color = sty["deep"]
+	var flo: Color = sty["floor"]
+	var col := deep.lerp(flo, smoothstep(0.4, 2.0, _plat_dist(wide, p)) * 0.9)
+	var w := _pit_wall(p, segs)
+	if w > 0.0:
+		var low: Color = sty["low"]
+		var top: Color = sty["wall"]
+		var cw := deep.lerp(low, w * 2.0)
+		if w >= 0.5:
+			cw = low.lerp(top, (w - 0.5) * 2.0)
+		col = col.lerp(cw, clampf(w * 3.0, 0.0, 1.0))
+	var s := minf(PIT_HALF.x - absf(p.x), PIT_HALF.y - absf(p.y))
+	col.a = 0.95 * clampf((s + PIT_FADE) / (PIT_FADE + 0.45), 0.0, 1.0)
+	return col
+
+
+## Abscisses de la grille d'une fosse : pas de 0.22, resserré près des bords (dégradé de paroi),
+## prolongé de PIT_FADE hors du cadre de l'arène là où la fosse est ouverte sur la mer.
+static func _pit_axis(lo: float, hi: float, ext_lo: bool, ext_hi: bool) -> PackedFloat32Array:
+	var vals: Array = []
+	var a := lo - (PIT_FADE if ext_lo else 0.0)
+	var b := hi + (PIT_FADE if ext_hi else 0.0)
+	var x := a
+	while x < b - 0.001:
+		vals.append(x)
+		x += 0.22
+	vals.append(b)
+	vals.append(lo)
+	vals.append(hi)
+	for o in [0.05, 0.11, 0.18, 0.27, 0.38, 0.5, 0.64, 0.8]:
+		var of := float(o)
+		if lo + of < hi:
+			vals.append(lo + of)
+		if hi - of > lo:
+			vals.append(hi - of)
+	vals.sort()
+	var out := PackedFloat32Array()
+	for v in vals:
+		var f := float(v)
+		if out.is_empty() or f - out[out.size() - 1] > 0.02:
+			out.append(f)
+	return out
+
+
+static func _pit_grid(st: SurfaceTool, v: Rect2, segs: Array, wide: Array, sty: Dictionary) -> void:
+	var xs := _pit_axis(v.position.x, v.end.x, v.position.x <= -PIT_HALF.x + 0.01, v.end.x >= PIT_HALF.x - 0.01)
+	var zs := _pit_axis(v.position.y, v.end.y, v.position.y <= -PIT_HALF.y + 0.01, v.end.y >= PIT_HALF.y - 0.01)
+	var nx := xs.size()
+	var nz := zs.size()
+	var cols: Array = []
+	for j in nz:
+		for i in nx:
+			cols.append(_pit_col(Vector2(xs[i], zs[j]), segs, wide, sty))
+	for j in nz - 1:
+		for i in nx - 1:
+			var c00: Color = cols[j * nx + i]
+			var c10: Color = cols[j * nx + i + 1]
+			var c11: Color = cols[(j + 1) * nx + i + 1]
+			var c01: Color = cols[(j + 1) * nx + i]
+			_vquad(st, Vector3(xs[i], PIT_Y, zs[j]), Vector3(xs[i + 1], PIT_Y, zs[j]),
+				Vector3(xs[i + 1], PIT_Y, zs[j + 1]), Vector3(xs[i], PIT_Y, zs[j + 1]), c00, c10, c11, c01)
+
+
+## Fuseau plat le long de `pts` (plan XZ, hauteur y) : largeur w0 -> w1 (+ `belly` au milieu),
+## couleur c0 -> c1 ; `fade` : extrémités fondues.
+static func _wribbon(st: SurfaceTool, pts: PackedVector2Array, y: float, w0: float, w1: float, c0: Color, c1: Color, belly := 0.0, fade := false) -> void:
+	var n := pts.size()
+	if n < 2:
+		return
+	var pl := Vector3.ZERO
+	var pr := Vector3.ZERO
+	var pc := c0
+	for i in n:
+		var t := float(i) / float(n - 1)
+		var d := pts[mini(i + 1, n - 1)] - pts[maxi(i - 1, 0)]
+		var nr := Vector2(-d.y, d.x).normalized() * (0.5 * (lerpf(w0, w1, t) + belly * sin(PI * t)))
+		var col := c0.lerp(c1, t)
+		if fade:
+			col.a *= clampf(sin(PI * t) * 2.5, 0.0, 1.0)
+		var l := Vector3(pts[i].x + nr.x, y, pts[i].y + nr.y)
+		var r := Vector3(pts[i].x - nr.x, y, pts[i].y - nr.y)
+		if i > 0:
+			_vquad(st, pl, l, r, pr, pc, col, col, pc)
+		pl = l
+		pr = r
+		pc = col
+
+
+## Disque irrégulier (éventail) de couleur c_in au centre vers c_out au bord.
+static func _wblob(st: SurfaceTool, rng: RandomNumberGenerator, c: Vector2, rx: float, rz: float, y: float, c_in: Color, c_out: Color, seg := 10) -> void:
+	var rot := rng.randf() * TAU
+	var cc := Vector3(c.x, y, c.y)
+	var pts: Array[Vector3] = []
+	for i in seg:
+		var a := TAU * float(i) / float(seg)
+		var k := rng.randf_range(0.85, 1.12)
+		var q := Vector2(cos(a) * rx * k, sin(a) * rz * k).rotated(rot)
+		pts.append(Vector3(c.x + q.x, y, c.y + q.y))
+	for i in seg:
+		_vtri(st, cc, pts[i], pts[(i + 1) % seg], c_in, c_out, c_out)
+
+
+## Reflet en étoile à quatre branches effilées.
+static func _sparkle(st: SurfaceTool, c: Vector2, s: float, y: float, col: Color) -> void:
+	var clear := Color(col, 0.0)
+	for k in 4:
+		var d := Vector2.from_angle(PI * 0.5 * k) * s * (1.0 if k % 2 == 0 else 0.55)
+		var side := Vector2(-d.y, d.x).normalized() * s * 0.15
+		_vtri(st, Vector3(c.x + side.x, y, c.y + side.y), Vector3(c.x - side.x, y, c.y - side.y), Vector3(c.x + d.x, y, c.y + d.y), col, col, clear)
+
+
+static func _pick_rect(rs: Array, rng: RandomNumberGenerator) -> Rect2:
+	var total := 0.0
+	for r in rs:
+		var rr: Rect2 = r
+		total += rr.get_area()
+	var x := rng.randf() * total
+	for r in rs:
+		var rr: Rect2 = r
+		x -= rr.get_area()
+		if x <= 0.0:
+			return rr
+	var last: Rect2 = rs[rs.size() - 1]
+	return last
+
+
+## Point du fond de la fosse, à `dmin` des plateformes et hors des parois (NONE2 si rien).
+static func _pit_pt(ctx: Dictionary, dmin: float) -> Vector2:
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var voids: Array = ctx["voids"]
+	var wide: Array = ctx["wide"]
+	var segs: Array = ctx["segs"]
+	for attempt in 10:
+		var v := _pick_rect(voids, rng)
+		var p := Vector2(rng.randf_range(v.position.x, v.end.x), rng.randf_range(v.position.y, v.end.y))
+		if _plat_dist(wide, p) >= dmin and _pit_wall(p, segs) < 0.05:
+			return p
+	return NONE2
+
+
+## Points le long des bords plateforme / fosse (hors des bouts de passerelle) : [point, normale, côté].
+static func _pit_edge_pts(ctx: Dictionary, spacing: float, hidden_ok: bool) -> Array:
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var segs: Array = ctx["segs"]
+	var narrow: Array = ctx["narrow"]
+	var out: Array = []
+	for s in segs:
+		var sg: Array = s
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var kind: int = sg[2]
+		if kind == 1 and not hidden_ok:
+			continue
+		var n := _seg_n(kind)
+		var ln := a.distance_to(b)
+		var t := rng.randf_range(0.15, 0.6) * spacing
+		while t < ln - 0.12:
+			var q := a.lerp(b, t / ln)
+			var free := true
+			for r in narrow:
+				var rr: Rect2 = r
+				if rr.grow(0.15).has_point(q + n * 0.1):
+					free = false
+					break
+			if free:
+				out.append([q, n, kind])
+			t += spacing * rng.randf_range(0.6, 1.4)
+	return out
+
+
+## Point d'une paroi visible : à `frac` de sa hauteur, en `t` (0..1) le long du bord.
+static func _wall_pt(sg: Array, t: float, frac: float) -> Vector2:
+	var a: Vector2 = sg[0]
+	var b: Vector2 = sg[1]
+	var kind: int = sg[2]
+	var band: float = sg[3]
+	var ph: float = sg[4]
+	var q := a.lerp(b, t)
+	var along: float = q.x if kind == 0 else q.y
+	return q + _seg_n(kind) * _band_at(band, along, ph) * frac
+
+
+## Lignes parallèles au bord dans les parois visibles (strates, assises de pierre…), à `frac` de la hauteur.
+static func _pit_lines(ctx: Dictionary, frac: float, w: float, col: Color) -> void:
+	var st: SurfaceTool = ctx["st"]
+	var segs: Array = ctx["segs"]
+	for s in segs:
+		var sg: Array = s
+		var band: float = sg[3]
+		if band < 0.14:
+			continue
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var steps := maxi(int(a.distance_to(b) / 0.1), 2)
+		var pts := PackedVector2Array()
+		for i in steps + 1:
+			pts.append(_wall_pt(sg, float(i) / steps, frac))
+		_wribbon(st, pts, PIT_Y + 0.002, w, w, col, col, 0.0, true)
+
+
+## Coulures le long des parois visibles : glaçons (fins pointus), encre (gouttes), mousse, fissures.
+## `fn` : 0 = glaçon, 1 = coulure d'encre, 2 = mousse, 3 = fissure de braise (nappe additive).
+static func _pit_drips(ctx: Dictionary, spacing: float, fn: int, col: Color) -> void:
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var segs: Array = ctx["segs"]
+	var st: SurfaceTool = ctx["st"]
+	var gl: SurfaceTool = ctx["gl"]
+	for s in segs:
+		var sg: Array = s
+		var band: float = sg[3]
+		if band < 0.14:
+			continue
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var ln := a.distance_to(b)
+		var tg := (b - a).normalized()
+		var t := rng.randf_range(0.1, 0.5) * spacing
+		while t < ln - 0.08:
+			var u := t / ln
+			var q := _wall_pt(sg, u, 0.0)
+			var y := PIT_Y + 0.003
+			match fn:
+				0:
+					var tip := _wall_pt(sg, u, rng.randf_range(0.2, 0.65))
+					var hw := rng.randf_range(0.025, 0.055)
+					_vtri(st, Vector3(q.x + tg.x * hw, y, q.y + tg.y * hw), Vector3(q.x - tg.x * hw, y, q.y - tg.y * hw),
+						Vector3(tip.x, y, tip.y), col, col, Color(col, col.a * 0.3))
+				1:
+					var tip := _wall_pt(sg, u, rng.randf_range(0.25, 0.8))
+					_wribbon(st, PackedVector2Array([q, q.lerp(tip, 0.5) + tg * rng.randf_range(-0.02, 0.02), tip]), y,
+						rng.randf_range(0.03, 0.05), 0.014, col, Color(col, col.a * 0.7))
+					_wblob(st, rng, tip, 0.022, 0.03, y, col, Color(col, col.a * 0.6), 6)
+				2:
+					var c := _wall_pt(sg, u, rng.randf_range(0.03, 0.2))
+					_wblob(st, rng, c, rng.randf_range(0.06, 0.14), rng.randf_range(0.04, 0.08), y, col, Color(col, 0.0), 7)
+				_:
+					var pts := PackedVector2Array([q])
+					var fr := 0.0
+					var side := 0.0
+					while fr < 0.85:
+						fr += rng.randf_range(0.12, 0.22)
+						side += rng.randf_range(-0.05, 0.05)
+						pts.append(_wall_pt(sg, u, minf(fr, 0.95)) + tg * side)
+					_wribbon(gl, pts, PIT_Y + 0.004, 0.035, 0.006, col, Color(col, 0.0))
+					ctx["glow"] = int(ctx["glow"]) + 1
+			t += spacing * rng.randf_range(0.6, 1.5)
+
+
+## Reflets lointains au fond de la fosse (nappe additive, scintillent avec animate_pits).
+static func _pit_glints(ctx: Dictionary, per_m2: float, smin: float, smax: float) -> void:
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var gl: SurfaceTool = ctx["gl"]
+	var sty: Dictionary = ctx["sty"]
+	var col: Color = sty["glint"]
+	for i in int(_pit_area(ctx) * per_m2):
+		var p := _pit_pt(ctx, 0.7)
+		if p == NONE2:
+			continue
+		_sparkle(gl, p, rng.randf_range(smin, smax), PIT_Y + 0.004, Color(col, rng.randf_range(0.25, 0.6)))
+		ctx["glow"] = int(ctx["glow"]) + 1
+
+
+static func _pit_area(ctx: Dictionary) -> float:
+	var voids: Array = ctx["voids"]
+	var a := 0.0
+	for v in voids:
+		var vr: Rect2 = v
+		a += vr.get_area()
+	return a
+
+
+## Pièce de bord qui dépasse dans la fosse : part du bord (point q, normale n), penche vers le bas.
+static func _stub_xf(q: Vector2, n: Vector2, y: float, l: float, tilt: float, yaw_off: float) -> Transform3D:
+	var bas := Basis(Vector3.UP, atan2(n.x, n.y) + yaw_off) * Basis(Vector3.RIGHT, tilt)
+	var dir := bas * Vector3(0, 0, 1)
+	return Transform3D(bas, Vector3(q.x, y, q.y) + dir * (l * 0.5 - 0.03))
+
+
+## Détails propres au monde : lignes et coulures des parois, reflets ou lave au fond, bord cassé.
+static func _pit_details(wid: int, ctx: Dictionary) -> void:
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var st: SurfaceTool = ctx["st"]
+	var gl: SurfaceTool = ctx["gl"]
+	var bs: Dictionary = ctx["bs"]
+	var sty: Dictionary = ctx["sty"]
+	var line: Color = sty["line"]
+	var area := _pit_area(ctx)
+	match wid:
+		1:
+			# strates de terre, épaves au fond, reflets de l'eau tout en bas ; planches arrachées au bord
+			_pit_lines(ctx, 0.3, 0.03, Color(line, 0.6))
+			_pit_lines(ctx, 0.58, 0.022, Color(line, 0.45))
+			for i in int(area / 3.0):
+				var p := _pit_pt(ctx, 0.6)
+				if p == NONE2:
+					continue
+				var d := Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(0.1, 0.16)
+				_wribbon(st, PackedVector2Array([p - d, p + d]), PIT_Y + 0.003, 0.05, 0.04, Color(Color("#2A2018"), 0.65), Color(Color("#2A2018"), 0.65))
+			_pit_glints(ctx, 0.7, 0.05, 0.1)
+			var wood := _toon(Color("#8E6B3E"), true, 0.012)
+			for e in _pit_edge_pts(ctx, 0.42, true):
+				var ea: Array = e
+				var q: Vector2 = ea[0]
+				var n: Vector2 = ea[1]
+				if rng.randf() < 0.65:
+					var l := rng.randf_range(0.16, 0.42)
+					_add(bs, wood, _box(Vector3(rng.randf_range(0.07, 0.12), 0.045, l)),
+						_stub_xf(q, n, -0.035, l, rng.randf_range(0.15, 0.55), rng.randf_range(-0.18, 0.18)))
+				if rng.randf() < 0.45:
+					var l2 := rng.randf_range(0.1, 0.2)
+					var tg := Vector2(-n.y, n.x) * rng.randf_range(-0.08, 0.08)
+					_add(bs, wood, _box(Vector3(0.025, 0.02, l2)),
+						_stub_xf(q + tg, n, -0.03, l2, rng.randf_range(-0.25, 0.45), rng.randf_range(-0.7, 0.7)))
+		2:
+			# paroi maçonnée (assises et joints), mousse qui pend, reflets d'étoiles ; dalles ébréchées
+			_pit_lines(ctx, 0.33, 0.026, Color(line, 0.7))
+			_pit_lines(ctx, 0.66, 0.026, Color(line, 0.6))
+			_pit_joints(ctx, Color(line, 0.6))
+			_pit_drips(ctx, 0.5, 2, Color(Color("#3E5A3A"), 0.75))
+			_pit_glints(ctx, 0.9, 0.04, 0.09)
+			var stone := _toon(Color("#6E6A60"), true, 0.015)
+			for e in _pit_edge_pts(ctx, 0.5, true):
+				if rng.randf() < 0.4:
+					continue
+				var ea: Array = e
+				var q: Vector2 = ea[0]
+				var n: Vector2 = ea[1]
+				var l := rng.randf_range(0.12, 0.2)
+				_add(bs, stone, _box(Vector3(rng.randf_range(0.16, 0.28), 0.07, l)),
+					_stub_xf(q, n, -0.06, l, rng.randf_range(0.1, 0.4), rng.randf_range(-0.25, 0.25)))
+		3:
+			# paroi de glace : glaçons, fissures claires, fond bleu nuit ; bourrelets de neige au bord
+			_pit_lines(ctx, 0.45, 0.018, Color(line, 0.55))
+			_pit_drips(ctx, 0.16, 0, Color(Color("#E8F2F8"), 0.85))
+			_pit_cracks(ctx, Color(Color("#E6F0F6"), 0.5))
+			_pit_glints(ctx, 0.6, 0.04, 0.08)
+			var snow := _toon(SNOW, false)
+			for e in _pit_edge_pts(ctx, 0.3, true):
+				var ea: Array = e
+				var q: Vector2 = ea[0]
+				var n: Vector2 = ea[1]
+				var r := rng.randf_range(0.08, 0.16)
+				var tg := Vector2(-n.y, n.x) * rng.randf_range(-0.06, 0.06)
+				var c := q + tg + n * r * 0.35
+				_add(bs, snow, _ball(r, r * 0.55, 7, 3), _at(Vector3(c.x, -0.025, c.y), Vector3(0, rng.randf() * TAU, 0)))
+		4:
+			# basalte veiné de braise, lave qui respire au fond, liseré incandescent ; éclats noirs au bord
+			_pit_lines(ctx, 0.4, 0.024, Color(line, 0.7))
+			_pit_drips(ctx, 0.55, 3, Color(1.0, 0.45, 0.12, 0.8))
+			_pit_rim_glow(ctx)
+			var embers: Array = ctx["embers"]
+			for i in int(area / 1.6) + 1:
+				var p := _pit_pt(ctx, 0.45)
+				if p == NONE2:
+					continue
+				var r := minf(_plat_dist(ctx["wide"], p) - 0.25, rng.randf_range(0.4, 0.9))
+				_wblob(gl, rng, p, r, r * rng.randf_range(0.6, 0.9), PIT_Y + 0.003, Color(1.0, 0.42, 0.1, 0.5), Color(0.9, 0.2, 0.04, 0.0), 12)
+				_wblob(gl, rng, p, r * 0.35, r * 0.25, PIT_Y + 0.005, Color(1.0, 0.75, 0.35, 0.45), Color(1.0, 0.45, 0.1, 0.0), 8)
+				ctx["glow"] = int(ctx["glow"]) + 1
+				embers.append(Vector3(p.x, PIT_Y + 0.05, p.y))
+			var basalt := _toon(BASALT, true, 0.015)
+			for e in _pit_edge_pts(ctx, 0.45, true):
+				if rng.randf() < 0.35:
+					continue
+				var ea: Array = e
+				var q: Vector2 = ea[0]
+				var n: Vector2 = ea[1]
+				var l := rng.randf_range(0.12, 0.28)
+				_add(bs, basalt, _box(Vector3(rng.randf_range(0.08, 0.14), 0.06, l)),
+					_stub_xf(q, n, -0.05, l, rng.randf_range(0.3, 0.7), rng.randf_range(-0.3, 0.3)))
+		_:
+			# encre : coulures sur la paroi de papier, lavis pâles au fond ; bord de papier déchiré
+			_pit_lines(ctx, 0.5, 0.02, Color(line, 0.5))
+			_pit_drips(ctx, 0.3, 1, Color(Toon.SUMI, 0.85))
+			for i in int(area / 4.0):
+				var p := _pit_pt(ctx, 0.8)
+				if p == NONE2:
+					continue
+				var d := Vector2.from_angle(rng.randf_range(-0.4, 0.4))
+				var l := minf(_plat_dist(ctx["wide"], p) - 0.2, rng.randf_range(0.5, 1.1))
+				var pts := PackedVector2Array()
+				for k in 7:
+					var u := float(k) / 6.0 - 0.5
+					pts.append(p + d * u * l * 2.0 + Vector2(-d.y, d.x) * sin(u * 5.0) * 0.06)
+				_wribbon(gl, pts, PIT_Y + 0.004, 0.02, 0.01, Color(Toon.WASHI, 0.14), Color(Toon.WASHI, 0.1), 0.06, true)
+				ctx["glow"] = int(ctx["glow"]) + 1
+			_pit_glints(ctx, 0.35, 0.03, 0.06)
+			var paper := _toon(Color("#E9DFC9"), false)
+			for e in _pit_edge_pts(ctx, 0.3, true):
+				if rng.randf() < 0.3:
+					continue
+				var ea: Array = e
+				var q: Vector2 = ea[0]
+				var n: Vector2 = ea[1]
+				var l := rng.randf_range(0.08, 0.2)
+				_add(bs, paper, _box(Vector3(rng.randf_range(0.1, 0.2), 0.012, l)),
+					_stub_xf(q, n, -0.012, l, rng.randf_range(0.2, 0.6), rng.randf_range(-0.4, 0.4)))
+
+
+## Joints verticaux entre les assises de pierre (décalés d'une assise à l'autre).
+static func _pit_joints(ctx: Dictionary, col: Color) -> void:
+	var st: SurfaceTool = ctx["st"]
+	var segs: Array = ctx["segs"]
+	for s in segs:
+		var sg: Array = s
+		var band: float = sg[3]
+		if band < 0.3:
+			continue
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var ln := a.distance_to(b)
+		for row in 3:
+			var off: float = 0.0 if row % 2 == 0 else 0.25
+			var x := 0.2 + off
+			while x < ln - 0.1:
+				var u := x / ln
+				var p0 := _wall_pt(sg, u, row * 0.33 + 0.02)
+				var p1 := _wall_pt(sg, u, row * 0.33 + 0.31)
+				_wribbon(st, PackedVector2Array([p0, p1]), PIT_Y + 0.002, 0.022, 0.022, col, col)
+				x += 0.5
+
+
+## Fissures claires qui partent du haut des parois de glace.
+static func _pit_cracks(ctx: Dictionary, col: Color) -> void:
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var st: SurfaceTool = ctx["st"]
+	var segs: Array = ctx["segs"]
+	for s in segs:
+		var sg: Array = s
+		var band: float = sg[3]
+		if band < 0.3:
+			continue
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var ln := a.distance_to(b)
+		var tg := (b - a).normalized()
+		var t := rng.randf_range(0.2, 0.8)
+		while t < ln - 0.2:
+			var u := t / ln
+			var pts := PackedVector2Array([_wall_pt(sg, u, 0.02)])
+			var side := 0.0
+			for k in 4:
+				side += rng.randf_range(-0.08, 0.08)
+				pts.append(_wall_pt(sg, u, 0.15 + k * 0.17) + tg * side)
+			_wribbon(st, pts, PIT_Y + 0.003, 0.02, 0.006, col, Color(col, 0.1))
+			t += rng.randf_range(0.6, 1.3)
+
+
+## Liseré de braise le long des bords (sauf ceux cachés par la plateforme) + halo plus large.
+static func _pit_rim_glow(ctx: Dictionary) -> void:
+	var gl: SurfaceTool = ctx["gl"]
+	var segs: Array = ctx["segs"]
+	for s in segs:
+		var sg: Array = s
+		var kind: int = sg[2]
+		if kind == 1:
+			continue
+		var a: Vector2 = sg[0]
+		var b: Vector2 = sg[1]
+		var n := _seg_n(kind)
+		var steps := maxi(int(a.distance_to(b) / 0.15), 2)
+		var p1 := PackedVector2Array()
+		var p2 := PackedVector2Array()
+		for i in steps + 1:
+			var q := a.lerp(b, float(i) / steps)
+			var wob := 0.015 * sin(q.x * 13.0 + q.y * 11.0)
+			p1.append(q + n * (0.04 + wob))
+			p2.append(q + n * 0.12)
+		_wribbon(gl, p2, PIT_Y + 0.003, 0.2, 0.2, Color(1.0, 0.35, 0.08, 0.28), Color(1.0, 0.35, 0.08, 0.28), 0.0, true)
+		_wribbon(gl, p1, PIT_Y + 0.005, 0.035, 0.035, Color(1.0, 0.62, 0.22, 0.85), Color(1.0, 0.62, 0.22, 0.85), 0.0, true)
+		ctx["glow"] = int(ctx["glow"]) + 1
+
+
+## Braises qui montent du fond des fosses de lave.
+static func _pit_embers(root: Node3D, pts: Array) -> void:
+	var p := CPUParticles3D.new()
+	p.name = "PitEmbers"
+	root.add_child(p)
+	p.local_coords = false
+	p.amount = clampi(pts.size() * 4, 6, 20)
+	p.lifetime = 1.8
+	p.preprocess = 1.8
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
+	p.emission_points = PackedVector3Array(pts)
+	p.mesh = _quad_mesh("ember", Vector2(0.07, 0.07), true)
+	p.direction = Vector3.UP
+	p.spread = 20.0
+	p.gravity = Vector3(0.05, 0.12, 0.0)
+	p.initial_velocity_min = 0.3
+	p.initial_velocity_max = 0.6
+	p.angle_min = 0.0
+	p.angle_max = 360.0
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 1.2
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.15, 0.6, 1.0])
+	g.colors = PackedColorArray([Color(1.0, 0.85, 0.5, 0.0), Color(1.0, 0.8, 0.45, 1.0), Color(1.0, 0.45, 0.15, 0.8), Color(0.5, 0.1, 0.05, 0.0)])
+	p.color_ramp = g
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	p.emitting = true

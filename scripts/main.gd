@@ -28,6 +28,7 @@ const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
 const Bot = preload("res://scripts/bot.gd")
+const PowersRecap = preload("res://scripts/powers_recap.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
@@ -147,6 +148,8 @@ var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
 var _bot: Node = null  # robot testeur (CI)
 var _last_offer: Array = []  # derniers rouleaux proposés (pour le robot)
+var recap: Control
+var _recap_from := "pause"
 var _shrine: Node3D = null  # autel du sanctuaire (facultatif)
 var in_hub := false  # sanctuaire de départ (avant la salle 1)
 var _hub_t := 0.0
@@ -227,6 +230,10 @@ func _ready() -> void:
 	opt_layer.add_child(options)
 	options.changed.connect(_on_option)
 	options.closed.connect(_on_options_closed)
+	recap = PowersRecap.new()
+	opt_layer.add_child(recap)
+	recap.closed.connect(_on_recap_closed)
+	menu.powers_pressed.connect(_open_recap)
 	menu.options_pressed.connect(_open_options)
 	tuto = Tutorial.new()
 	tuto.main = self
@@ -433,7 +440,10 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		if menu == null or hud == null:
 			return
-		if what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
+		if what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
+			recap.visible = false
+			_on_recap_closed()
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
 			get_tree().quit()  # Retour depuis l'accueil : on quitte, comme toute appli
 		else:
 			_on_pause()
@@ -521,6 +531,29 @@ func _on_option(key: String, value: String) -> void:
 			AudioServer.set_bus_mute(0, menu.muted)
 	sfx.play("empty", 1.4, -6.0)
 	_save()
+
+
+## Récapitulatif des pouvoirs : depuis la pause, ou en touchant les sceaux du HUD (met le jeu en pause).
+func _open_recap() -> void:
+	if state == "play":
+		_cancel_stroke()
+		hud.pause_enabled = false
+		state = "paused"
+		_recap_from = "play"
+	elif state == "paused":
+		_recap_from = "pause"
+	else:
+		return
+	menu.show_mode("hidden")
+	sfx.play("whoosh", 1.1, -6.0)
+	recap.open(powers)
+
+
+func _on_recap_closed() -> void:
+	if _recap_from == "play":
+		state = "play"
+	else:
+		menu.show_mode("pause")
 
 
 func _on_options_closed() -> void:
@@ -682,7 +715,7 @@ func _fit_camera() -> void:
 		return
 	_cam_pad = _frame(vs, 0.68)
 	_cam_full = _frame(vs, 0.9)
-	var k := hud.pad_alpha if hud != null and ctrl_mode == "pad" else 0.0
+	var k: float = hud.pad_alpha if hud != null and ctrl_mode == "pad" else 0.0
 	_cam_base = _cam_full.interpolate_with(_cam_pad, k)
 	cam.global_transform = _cam_base
 
@@ -1568,6 +1601,9 @@ func _ground(sp: Vector2) -> Vector3:
 
 func _touch_down(sp: Vector2) -> void:
 	if hud.is_over_pause(sp) or tuto.is_over_ui(sp):
+		return
+	if state == "play" and ctrl_mode == "pad" and hud.is_over_seals(sp):
+		_open_recap()
 		return
 	if game_over:
 		return

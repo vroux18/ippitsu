@@ -165,7 +165,7 @@ jobs:
 
       - name: Partie complète des 5 mondes
         run: |
-          godot --headless --path . --fixed-fps 30 -- --bot > bot.log 2>&1 || true
+          timeout 1200 godot --headless --path . --fixed-fps 30 -- --bot > bot.log 2>&1 || true
           grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" bot.log | head -400
           # (sous bash -e, « ! cmd » ne fait pas échouer l'étape : on teste explicitement)
           fail=0

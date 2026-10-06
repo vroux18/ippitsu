@@ -426,49 +426,111 @@ func _bias(id: String) -> float:
 	return b
 
 
-# ------------------------------------------------------------------ description (cartes)
+# ------------------------------------------------------------------ description (cartes, récapitulatif)
 
+## Carte de rouleau : textes en clair, valeurs « niveau actuel → niveau suivant », affinité et synergie.
 func describe(id: String) -> Dictionary:
 	var d: Dictionary = Data.POWERS[id]
 	var cur := lvl(id)
 	var mx := max_level(id)
 	var next := mini(cur + 1, mx)
-	var txt := String(d["text"])
-	var vs: Array = d["v"]
-	txt = txt.replace("{v}", _num(vs[mini(next, vs.size()) - 1]))
-	if d.has("w"):
-		var ws: Array = d["w"]
-		txt = txt.replace("{w}", _num(ws[mini(next, ws.size()) - 1]))
 	var school := String(d["school"])
 	var sd: Dictionary = Data.SCHOOLS[school]
 	var rar := String(d["rarity"])
 	var rd: Dictionary = Data.RARITIES[rar]
-	# affinité : avant / après ce choix, palier visé et son bonus
+	# affinité : avant / après ce choix, palier visé (ou atteint) et son bonus, en clair
 	var aff := 0
 	var aff_next := 0
 	var aff_goal := 0
 	var aff_hit := false
 	var aff_text := ""
+	var aff_tail := ""
+	var aff_tail_short := ""
+	var aff_done := false
 	if Data.AFFINITY.has(school):
 		aff = affinity(school)
 		aff_next = _aff_count(school, 1) if cur == 0 else aff
 		var bonus: Array = Data.AFFINITY[school]
-		for k in Data.AFF_TIERS.size():
-			var th := int(Data.AFF_TIERS[k])
+		var tiers: Array = Data.AFF_TIERS
+		var k_hit := -1
+		var k_goal := -1
+		for k in tiers.size():
+			var th := int(tiers[k])
 			if aff < th and aff_next >= th:
-				aff_hit = true
-				aff_text = String(bonus[k])
-			if aff_goal == 0 and aff_next <= th:
-				aff_goal = th
-				if not aff_hit:
-					aff_text = String(bonus[k])
-		if aff_goal == 0:
-			aff_goal = int(Data.AFF_TIERS[Data.AFF_TIERS.size() - 1])
-			if not aff_hit:
-				aff_text = String(bonus[bonus.size() - 1])
-	# synergie : la première active (partenaire déjà pris), sinon une piste
+				k_hit = k
+			if k_goal < 0 and aff_next < th:
+				k_goal = k
+		if k_hit >= 0:
+			aff_hit = true
+			aff_goal = int(tiers[k_hit])
+			aff_text = String(bonus[k_hit])
+			aff_tail = "BONUS ACTIF :"
+			aff_tail_short = "BONUS :"
+		elif k_goal >= 0:
+			aff_goal = int(tiers[k_goal])
+			aff_text = String(bonus[k_goal])
+			var need := aff_goal - aff_next
+			aff_tail = "encore %d pouvoir%s %s :" % [need, "s" if need > 1 else "", String(sd["word"])]
+			aff_tail_short = "encore %d :" % need
+		else:
+			aff_done = true
+			aff_goal = int(tiers[tiers.size() - 1])
+			aff_text = String(bonus[bonus.size() - 1])
+			aff_tail = "école complète :"
+			aff_tail_short = "complète :"
+	var syn := _synergy(id)
+	return {"name": d["name"], "sub": String(d.get("sub", "")),
+		"when": _fill(id, String(d.get("when", "")), next, next),
+		"text": _fill(id, String(d.get("text", "")), next, next),
+		"stat": _fill(id, String(d.get("stat", "")), cur, next),
+		"level": next, "kanji": String(d.get("kanji", sd["kanji"])),
+		"color": sd["color"], "school": school, "school_name": sd["name"], "school_kanji": sd["kanji"],
+		"rarity": rar, "rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),
+		"is_new": cur == 0, "cur_level": cur, "max_level": mx,
+		"aff": aff, "aff_next": aff_next, "aff_goal": aff_goal, "aff_hit": aff_hit, "aff_text": aff_text,
+		"aff_tail": aff_tail, "aff_tail_short": aff_tail_short, "aff_done": aff_done,
+		"synergy": syn[0], "synergy_on": syn[1]}
+
+
+## Pouvoir possédé (récapitulatif) : textes avec les valeurs du niveau actuel.
+func recap_info(id: String) -> Dictionary:
+	var d: Dictionary = Data.POWERS[id]
+	var cur := maxi(1, lvl(id))
+	var school := String(d["school"])
+	var sd: Dictionary = Data.SCHOOLS[school]
+	var rd: Dictionary = Data.RARITIES[String(d["rarity"])]
+	var syn := _synergy(id)
+	return {"id": id, "name": d["name"], "sub": String(d.get("sub", "")),
+		"when": _fill(id, String(d.get("when", "")), cur, cur),
+		"text": _fill(id, String(d.get("text", "")), cur, cur),
+		"stat": _fill(id, String(d.get("stat", "")), cur, cur),
+		"level": cur, "max_level": max_level(id), "kanji": String(d.get("kanji", sd["kanji"])),
+		"color": sd["color"], "school": school, "school_name": sd["name"],
+		"rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),
+		"synergy": syn[0] if bool(syn[1]) else ""}
+
+
+## Bonus d'une école (récapitulatif) : nombre de pouvoirs, palier, bonus actif et prochain bonus.
+func school_status(school: String) -> Dictionary:
+	var n := affinity(school)
+	var tiers: Array = Data.AFF_TIERS
+	var bonus: Array = Data.AFFINITY.get(school, [])
+	var tier := _tier_for(n)
+	var out := {"count": n, "tier": tier, "goal": int(tiers[mini(tier, tiers.size() - 1)]),
+		"active": "", "next": "", "next_at": 0}
+	if bonus.is_empty():
+		return out
+	if tier > 0:
+		out["active"] = String(bonus[tier - 1])
+	if tier < tiers.size():
+		out["next"] = String(bonus[tier])
+		out["next_at"] = int(tiers[tier])
+	return out
+
+
+## Synergie du pouvoir : [texte « Avec <partenaire> : <effet> », active ?] (la première active, sinon une piste).
+func _synergy(id: String) -> Array:
 	var syn := ""
-	var syn_on := false
 	for s in Data.SYNERGIES:
 		var a := String(s[0])
 		var b := String(s[1])
@@ -477,20 +539,37 @@ func describe(id: String) -> Dictionary:
 			partner = b
 		elif b == id:
 			partner = a
-		if partner == "":
+		if partner == "" or not Data.POWERS.has(partner):
 			continue
+		var pd: Dictionary = Data.POWERS[partner]
+		var line := "Avec %s : %s" % [String(pd["name"]), String(s[2])]
 		if lvl(partner) > 0:
-			syn = String(s[2])
-			syn_on = true
-			break
+			return [line, true]
 		if syn == "":
-			syn = String(s[2])
-	return {"name": d["name"], "text": txt, "level": next, "kanji": String(d.get("kanji", sd["kanji"])),
-		"color": sd["color"], "school": school, "school_name": sd["name"], "school_kanji": sd["kanji"],
-		"rarity": rar, "rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),
-		"is_new": cur == 0, "cur_level": cur, "max_level": mx,
-		"aff": aff, "aff_next": aff_next, "aff_goal": aff_goal, "aff_hit": aff_hit, "aff_text": aff_text,
-		"synergy": syn, "synergy_on": syn_on}
+			syn = line
+	return [syn, false]
+
+
+## Remplace {v} / {w} : une seule valeur, ou « avant → après » si elle change entre les niveaux a et b.
+func _fill(id: String, s: String, a: int, b: int) -> String:
+	var out := s
+	for key in ["v", "w"]:
+		var tag := "{%s}" % key
+		if not out.contains(tag):
+			continue
+		var after := _fr(_level_value(id, key, b))
+		var txt := after
+		if a > 0 and a != b:
+			var before := _fr(_level_value(id, key, a))
+			if before != after:
+				txt = before + " → " + after
+		out = out.replace(tag, txt)
+	return out
+
+
+## Nombre à la française (virgule décimale).
+func _fr(v) -> String:
+	return _num(v).replace(".", ",")
 
 
 func _num(v) -> String:

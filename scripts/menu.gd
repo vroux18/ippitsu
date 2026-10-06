@@ -14,6 +14,7 @@ signal resume_pressed
 signal restart_pressed
 signal tuto_pressed
 signal options_pressed
+signal powers_pressed
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -46,6 +47,7 @@ var _worlds: Control
 var _resume: Control
 var _quit: Control
 var _restart: Control
+var _powers_btn: Control
 var _help: Control
 var _gear: Control
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
@@ -78,6 +80,8 @@ func _ready() -> void:
 	_restart = _button("RECOMMENCER", "ghost")
 	_restart.lead_icon = "replay"
 	_restart.pressed.connect(func(): restart_pressed.emit())
+	_powers_btn = _button("MES POUVOIRS", "ghost")
+	_powers_btn.pressed.connect(func(): powers_pressed.emit())
 	_quit = _button("QUITTER", "ghost")
 	_quit.lead_icon = "home"
 	_quit.pressed.connect(func(): home_pressed.emit())
@@ -128,6 +132,7 @@ func _process(_delta: float) -> void:
 	_resume.visible = mode == "pause"
 	_quit.visible = mode == "pause"
 	_restart.visible = mode == "pause"
+	_powers_btn.visible = mode == "pause"
 	_sound.visible = mode == "home" or mode == "pause"
 	_atelier.visible = mode == "home"
 	_help.visible = mode == "home"
@@ -171,11 +176,14 @@ func _process(_delta: float) -> void:
 	_resume.size = Vector2(pw, 58 * u)
 	_resume.position = Vector2(px, pc.position.y + 206 * u)
 	_resume.font_size = int(20 * u)
+	_powers_btn.size = Vector2(pw, 48 * u)
+	_powers_btn.position = Vector2(px, pc.position.y + 276 * u)
+	_powers_btn.font_size = int(15 * u)
 	_restart.size = Vector2(pw, 48 * u)
-	_restart.position = Vector2(px, pc.position.y + 278 * u)
+	_restart.position = Vector2(px, pc.position.y + 334 * u)
 	_restart.font_size = int(15 * u)
 	_quit.size = Vector2(pw, 48 * u)
-	_quit.position = Vector2(px, pc.position.y + 338 * u)
+	_quit.position = Vector2(px, pc.position.y + 392 * u)
 	_quit.font_size = int(15 * u)
 
 	_sound.size = Vector2(44, 44) * u
@@ -304,7 +312,7 @@ func _pause_card() -> Rect2:
 	var h := size.y
 	var u := w / 400.0
 	var cw := minf(w * 0.86, 360.0 * u)
-	return Rect2(Vector2((w - cw) / 2.0, h * 0.5 - 205 * u), Vector2(cw, 410 * u))
+	return Rect2(Vector2((w - cw) / 2.0, h * 0.5 - 235 * u), Vector2(cw, 470 * u))
 
 
 ## Pause : voile d'encre, carte de papier avec le sceau du monde, la partie en cours et les boutons.
