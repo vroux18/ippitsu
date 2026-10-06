@@ -19,6 +19,7 @@ const Options = preload("res://scripts/options.gd")
 const Pickups = preload("res://scripts/pickups.gd")
 const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")
+const Intro = preload("res://scripts/intro.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
@@ -131,6 +132,7 @@ var _ending_victory := false
 var _final_boss: Node3D
 var music: Node
 var tuto: Control
+var intro: Control  # planches illustrées : premier JOUER, ou bouton « ? » de l'accueil
 var vfx: Node3D
 var options: Control
 var ctrl_mode := "pad"  # pad | screen
@@ -239,7 +241,10 @@ func _ready() -> void:
 	tuto.main = self
 	pick_layer.add_child(tuto)
 	tuto.finished.connect(_on_tuto_finished)
-	menu.tuto_pressed.connect(_start_tutorial)
+	intro = Intro.new()
+	opt_layer.add_child(intro)
+	intro.finished.connect(_on_intro_finished)
+	menu.tuto_pressed.connect(_open_intro.bind(true))
 	var map_layer := CanvasLayer.new()
 	map_layer.layer = 4
 	add_child(map_layer)
@@ -286,6 +291,9 @@ func _ready() -> void:
 		_on_atelier()
 	if "tuto" in wsearch:
 		_start_tutorial()
+	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
+	if "intro" in wsearch:
+		_open_intro(false)
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
@@ -398,6 +406,9 @@ func _on_play() -> void:
 	if state == "over":
 		_start()
 		_set_state("play")
+	elif not meta.intro_done:
+		# tout premier lancement : les planches d'abord, puis le tutoriel
+		_open_intro(false)
 	elif not meta.tuto_done:
 		# toute première partie : on apprend d'abord à tracer
 		_start_tutorial()
@@ -443,6 +454,8 @@ func _notification(what: int) -> void:
 		if what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
 			recap.visible = false
 			_on_recap_closed()
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and intro != null and intro.visible:
+			intro.close()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
 			get_tree().quit()  # Retour depuis l'accueil : on quitte, comme toute appli
 		else:
@@ -459,6 +472,29 @@ func _start_tutorial() -> void:
 	hero.guard_t = 99999.0
 	hud.banner("TUTORIEL", "APPRENDS À TRACER", Toon.PRUSSIAN, 1.8)
 	tuto.begin()
+
+
+## Intro illustrée, sur l'accueil (la barque continue de tanguer derrière).
+func _open_intro(from_help: bool) -> void:
+	sfx.play("whoosh", 1.1, -6.0)
+	menu.show_mode("hidden")
+	intro.open(from_help)
+
+
+## "done" : fin des planches au premier lancement -> tutoriel (ou le large) ; "tuto" : depuis le « ? » ;
+## "back" : retour à l'accueil.
+func _on_intro_finished(action: String) -> void:
+	if action == "tuto":
+		_start_tutorial()
+	elif action == "done":
+		meta.intro_done = true
+		meta.save_data()
+		if not meta.tuto_done:
+			_start_tutorial()
+		else:
+			_set_state("sail")
+	else:
+		menu.show_mode("home")
 
 
 func _on_tuto_finished() -> void:

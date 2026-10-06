@@ -33,6 +33,7 @@ var wins := 0  # victoires (la première rapporte +2 sceaux)
 var ranks := {}  # id de ligne -> rang acheté
 var unlocked := 1  # mondes débloqués (1..5)
 var tuto_done := false  # tutoriel déjà fait (sinon il se lance au premier JOUER)
+var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var world_best := {}  # monde -> meilleure salle atteinte
 
 
@@ -55,6 +56,8 @@ func load_data() -> void:
 	wins = maxi(0, int(cf.get_value("meta", "wins", 0)))
 	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, 5)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
+	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
+	intro_done = bool(cf.get_value("meta", "intro_done", tuto_done))
 	for wid in range(1, 6):
 		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
 	for id in ORDER:
@@ -71,6 +74,7 @@ func save_data() -> void:
 	cf.set_value("meta", "wins", wins)
 	cf.set_value("meta", "unlocked", unlocked)
 	cf.set_value("meta", "tuto_done", tuto_done)
+	cf.set_value("meta", "intro_done", intro_done)
 	for wid in world_best.keys():
 		cf.set_value("worlds", str(wid), int(world_best[wid]))
 	for id in ORDER:
