@@ -569,8 +569,8 @@ func _on_sound(muted: bool) -> void:
 func _menu_transform() -> Transform3D:
 	var bp := menu_boat.position if menu_boat != null else MENU_BOAT
 	bp.y = 0.0
-	var pos := bp + Vector3(0.55, 1.55, 3.6)
-	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.2, 1.75, -9.0), Vector3.UP)
+	var pos := bp + Vector3(0.95, 1.95, 4.1)
+	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.15, 1.15, -7.0), Vector3.UP)
 
 
 ## Barque de l'accueil (au large, derrière l'arène) : coque, pont, lanterne, sillage d'écume.
@@ -589,13 +589,13 @@ func _build_menu_boat() -> void:
 	Toon.part(menu_boat, Toon.box(Vector3(0.98, 0.04, 2.9)), deck, Vector3(0, -0.26, 0.05))
 	for sx in [-1.0, 1.0]:
 		Toon.part(menu_boat, Toon.box(Vector3(0.07, 0.1, 3.3)), dark, Vector3(0.57 * sx, -0.24, 0))
-	# perche et lanterne à la poupe
-	Toon.part(menu_boat, Toon.cyl(0.025, 0.03, 1.5), dark, Vector3(0.38, 0.5, 1.45))
+	# perche et lanterne à la proue (hors du champ entre la caméra et le héros)
+	Toon.part(menu_boat, Toon.cyl(0.025, 0.03, 1.5), dark, Vector3(-0.4, 0.5, -1.55))
 	var lan := Toon.mat(Color("#F4C97A"), true, 0.02)
 	lan.emission_enabled = true
 	lan.emission = Color("#FFB35A")
 	lan.emission_energy_multiplier = 1.6
-	Toon.part(menu_boat, Toon.sphere(0.13), lan, Vector3(0.38, 1.18, 1.45), Vector3(1, 1.35, 1))
+	Toon.part(menu_boat, Toon.sphere(0.13), lan, Vector3(-0.4, 1.18, -1.55), Vector3(1, 1.35, 1))
 	# sillage d'écume autour de la coque
 	var foam := _disc(menu_boat, 1.0, Toon.flat(Color(Toon.FOAM, 0.55)), -0.53)
 	foam.scale = Vector3(0.95, 1, 2.1)
