@@ -68,6 +68,12 @@ var _banner_small := ""
 var _banner_col := Toon.SUMI
 var _banner_t := -1.0
 var _banner_len := 2.0
+var cine := 0.0  # bandes de cinéma (0..1) pendant l'entrée d'un boss
+var _card: Array = []  # carton titre de boss : [kanji, nom, épithète, sous-titre]
+var _card_mini := false
+var _card_kanji := false  # la police contient-elle ces kanji ?
+var _card_t := -1.0
+var _card_len := 2.0
 var _pause: Control
 var _t := 0.0
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
@@ -114,6 +120,25 @@ func toast(text: String) -> void:
 	_toast_t = 0.0
 
 
+## Carton titre d'un boss qui entre : kanji estampillé, nom au pinceau, épithète.
+func boss_card(kanji: String, title: String, epithet: String, sub: String, small: bool, length: float) -> void:
+	_card = [kanji, plain(title), plain(epithet), plain(sub)]
+	_card_mini = small
+	_card_t = 0.0
+	_card_len = length
+	# police réduite aux caractères du jeu : sans ses kanji, on ne les montre pas
+	_card_kanji = kanji != ""
+	for i in kanji.length():
+		if not UiKit.TITLE_FONT.has_char(kanji.unicode_at(i)):
+			_card_kanji = false
+
+
+## Le carton s'efface vite (entrée passée d'un toucher, ou finie).
+func end_boss_card(fade := 0.25) -> void:
+	if _card_t >= 0.0:
+		_card_len = minf(_card_len, _card_t + fade)
+
+
 ## Bandeau d'annonce au centre : début de partie, nouvelle salle, boss…
 func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_big = plain(big)
@@ -158,6 +183,10 @@ func _process(_delta: float) -> void:
 		_banner_t += real
 		if _banner_t > _banner_len:
 			_banner_t = -1.0
+	if _card_t >= 0.0:
+		_card_t += real
+		if _card_t > _card_len:
+			_card_t = -1.0
 	var u := size.x / 400.0
 	_pause.visible = in_play and pause_enabled and dying <= 0.0
 	_pause.size = Vector2(40, 40) * u
@@ -222,6 +251,11 @@ func _draw() -> void:
 		var tp := Vector2(sz.x / 2.0 - tw / 2.0, 100 * u - 6 * u * (1.0 - ta))
 		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.75 * ta), 999), Rect2(tp + Vector2(-14 * u, -tfs - 4 * u), Vector2(tw + 28 * u, tfs + 14 * u)))
 		draw_string(UiKit.TITLE_FONT, tp, _toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.WASHI, ta))
+
+	if cine > 0.001:
+		_draw_cine(sz, u)
+	if _card_t >= 0.0 and _card.size() == 4:
+		_draw_card(sz, u)
 
 	if _banner_t >= 0.0:
 		_draw_banner(sz, u)
@@ -629,3 +663,73 @@ func _brush_bar(pos: Vector2, w: float, h: float, fill: float, c: Color) -> void
 		_bar_pts[i] = Vector2(x, mid - th)
 		_bar_pts[2 * BAR_N + 1 - i] = Vector2(x, mid + th)
 	draw_colored_polygon(_bar_pts, c)
+
+
+## Bandes noires du cinéma, bord inférieur/supérieur taché d'encre.
+func _draw_cine(sz: Vector2, u: float) -> void:
+	var h := sz.y * 0.1 * cine
+	if h < 1.0:
+		return
+	draw_rect(Rect2(0, 0, sz.x, h), Toon.SUMI)
+	draw_rect(Rect2(0, sz.y - h, sz.x, h), Toon.SUMI)
+	var n := 9
+	for i in n + 1:
+		var x := sz.x * float(i) / n
+		var r := (5.0 + 3.0 * sin(float(i) * 2.3)) * u * cine
+		draw_circle(Vector2(x, h), r, Toon.SUMI)
+		draw_circle(Vector2(x + sz.x * 0.5 / n, sz.y - h), (5.0 + 3.0 * sin(float(i) * 1.7 + 1.0)) * u * cine, Toon.SUMI)
+
+
+## Carton titre : coup de pinceau qui traverse l'écran sous le boss, kanji estampillé au-dessus.
+func _draw_card(sz: Vector2, u: float) -> void:
+	var sc := 0.8 if _card_mini else 1.0
+	var k_in := clampf(_card_t / 0.35, 0.0, 1.0)
+	var a := minf(k_in, clampf((_card_len - _card_t) / 0.3, 0.0, 1.0))
+	var cy := sz.y * 0.7
+	var h := 66.0 * u * sc
+	var reach := sz.x * (0.1 + 0.9 * UiKit.ease_out(k_in))
+	var pts := PackedVector2Array()
+	var n := 20
+	for i in n + 1:
+		var x := reach * float(i) / n
+		var th := h * (0.75 + 0.25 * sin(float(i) * 1.1)) * (0.8 + 0.2 * sin(PI * float(i) / n))
+		pts.append(Vector2(x, cy - th / 2.0))
+	for i in range(n, -1, -1):
+		var x := reach * float(i) / n
+		var th := h * (0.75 + 0.25 * sin(float(i) * 0.8 + 2.0)) * (0.8 + 0.2 * sin(PI * float(i) / n))
+		pts.append(Vector2(x, cy + th / 2.0))
+	draw_colored_polygon(pts, Color(Toon.SUMI, 0.92 * a))
+	var kanji: String = _card[0]
+	var nm: String = _card[1]
+	var ep: String = _card[2]
+	var sub: String = _card[3]
+	# nom romanisé, puis l'épithète
+	var fs := int(26 * u * sc)
+	var tw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - tw / 2.0, cy + fs * 0.12), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, a))
+	if ep != "":
+		var et := "— " + ep + " —"
+		var efs := int(11 * u * sc)
+		var ew := UiKit.UI_FONT.get_string_size(et, HORIZONTAL_ALIGNMENT_LEFT, -1, efs).x
+		draw_string(UiKit.UI_FONT, Vector2(sz.x / 2.0 - ew / 2.0, cy + 20 * u * sc), et, HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(Toon.WASHI, 0.82 * a))
+	# sous-titre dans un sceau vermillon, sous le trait
+	if sub != "":
+		var sfs := int(10 * u * sc)
+		var sw := UiKit.UI_FONT.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+		var sp := Vector2(sz.x / 2.0 - sw / 2.0, cy + h / 2.0 + 20 * u * sc)
+		draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, 0.92 * a), 999), Rect2(sp + Vector2(-10 * u, -sfs - 3 * u), Vector2(sw + 20 * u, sfs + 10 * u)))
+		draw_string(UiKit.UI_FONT, sp, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, a))
+	# kanji : tombe comme un tampon, un peu après le trait
+	if _card_kanji:
+		var ks := clampf((_card_t - 0.12) / 0.2, 0.0, 1.0)
+		if ks > 0.0:
+			var kfs := int(46 * u * sc)
+			var kw := UiKit.TITLE_FONT.get_string_size(kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
+			var kc := Vector2(sz.x / 2.0, cy - h / 2.0 - kfs * 0.45)
+			var z := lerpf(1.7, 1.0, UiKit.ease_out(ks))
+			var ka := a * ks
+			draw_set_transform(kc, 0.0, Vector2(z, z))
+			var kp := Vector2(-kw / 2.0, kfs * 0.36)
+			draw_string_outline(UiKit.TITLE_FONT, kp, kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, int(7 * u), Color(Toon.WASHI, ka))
+			draw_string(UiKit.TITLE_FONT, kp, kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Color(Toon.VERMILION, ka))
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)

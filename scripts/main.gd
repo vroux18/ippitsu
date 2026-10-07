@@ -100,7 +100,7 @@ var _cam_base := Transform3D()
 var _cam_pad := Transform3D()
 var _cam_full := Transform3D()
 
-var state := "menu"  # menu | worlds | intro | play | pick | transit | paused | dying | over | tuto
+var state := "menu"  # menu | worlds | intro | play | boss_intro | pick | transit | paused | dying | over | tuto
 var menu: Control
 var record := 0
 var _state_t := 0.0
@@ -171,6 +171,7 @@ const CHAIN_TIMEOUT := 6.0
 const CHAIN_TIERS := {5: "FLUIDE", 10: "TRANCHANT", 20: "MAÎTRE"}
 var chain := 0
 var max_chain := 0
+var shape_counts := {}  # figures réalisées pendant la partie (forme -> nombre)
 var _chain_t := 0.0
 var _stroke_hit := false
 var _iai_t := 0.0
@@ -363,6 +364,7 @@ func _load() -> void:
 		ctrl_mode = String(cfg.get_value("settings", "control", "pad"))
 		pad_size = String(cfg.get_value("settings", "pad_size", "m"))
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
+		sfx.haptics = String(cfg.get_value("settings", "vibration", "on")) == "on"
 	menu.best = record
 	menu.sumi = meta.sumi
 	AudioServer.set_bus_mute(0, menu.muted)
@@ -375,6 +377,7 @@ func _save() -> void:
 	cfg.set_value("settings", "control", ctrl_mode)
 	cfg.set_value("settings", "pad_size", pad_size)
 	cfg.set_value("settings", "pad_show", pad_show)
+	cfg.set_value("settings", "vibration", "on" if sfx.haptics else "off")
 	cfg.save(SAVE_PATH)
 
 
@@ -557,7 +560,7 @@ func _on_home() -> void:
 
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
-	options.values = {"control": ctrl_mode, "pad_size": pad_size, "pad_show": pad_show, "sound": "off" if menu.muted else "on"}
+	options.values = {"control": ctrl_mode, "pad_size": pad_size, "pad_show": pad_show, "sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off"}
 	menu.show_mode("hidden")
 	options.open()
 
@@ -573,7 +576,10 @@ func _on_option(key: String, value: String) -> void:
 		"sound":
 			menu.muted = value == "off"
 			AudioServer.set_bus_mute(0, menu.muted)
+		"vibration":
+			sfx.haptics = value == "on"
 	sfx.play("empty", 1.4, -6.0)
+	feel("kill")
 	_save()
 
 
@@ -866,6 +872,7 @@ func _start(hub := true) -> void:
 	pickups.clear()
 	chain = 0
 	max_chain = 0
+	shape_counts = {}
 	_chain_t = 0.0
 	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
@@ -933,10 +940,9 @@ func _begin_room() -> void:
 		list.append(k)
 		budget -= cost
 	list.shuffle()
-	var mini_boss: Node3D = null
 	if room == MINI_ROOM:
 		list = ["oni", "oni", "oni"]
-		mini_boss = _spawn_boss(String(MINI_BOSS.get(current_world, "okappa")))
+		_spawn_boss(String(MINI_BOSS.get(current_world, "okappa")))
 	elif room == ROOMS:
 		list = []
 		_final_boss = _spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
@@ -952,13 +958,14 @@ func _begin_room() -> void:
 		_waves_left.append(list.slice(b))
 	waves_total = 1 + _waves_left.size()
 	wave_index = 1
-	if room == MINI_ROOM and mini_boss != null:
-		hud.banner(String(mini_boss.title).to_upper(), "GARDIEN DE LA SALLE %d" % MINI_ROOM, Toon.VERMILION, 2.2)
-	elif room == ROOMS and _final_boss != null:
-		hud.banner(String(_final_boss.title).to_upper(), "GARDIEN DU MONDE", Toon.VERMILION, 2.4)
+	var boss_room := (room == MINI_ROOM or room == ROOMS) and is_instance_valid(_intro_boss)
+	if boss_room:
+		# salle de boss : carton titre et première vague à la fin de son entrée (_start_boss_intro)
+		_intro_wave = first
 	elif room > 1:
 		hud.toast("SALLE %d" % room)
-	_spawn_list(first)
+	if not boss_room:
+		_spawn_list(first)
 	sfx.play("strike", 0.7, -2.0)
 
 
@@ -979,12 +986,126 @@ func _spawn_boss(k: String) -> Node3D:
 	if is_mini_boss(k):
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
 	b.max_hp_mult = float(Worlds.world(current_world).hp_mult)
+	# figé jusqu'à son entrée en scène, une fois le torii passé (_start_boss_intro)
+	b.process_mode = Node.PROCESS_MODE_DISABLED
+	_intro_boss = b
 	add_child(b)
 	bosses.append(b)
 	music.play_boss(current_world, is_mini_boss(k))
 	sfx.play("strike", 0.5)
 	shake = 0.4
 	return b
+
+
+# ------------------------------------------------------------------ entrée des boss
+
+## Carton titre de chaque boss : kanji, nom, épithète.
+const BOSS_CARDS := {
+	"okappa": ["大河童", "Ō-KAPPA", "le seigneur des eaux dormantes"],
+	"tsuchigumo": ["土蜘蛛", "TSUCHIGUMO", "l'araignée des terres"],
+	"yukionna": ["雪女", "YUKI-ONNA", "la dame des neiges"],
+	"ibaraki": ["茨木童子", "IBARAKI-DŌJI", "l'oni au bras tranché"],
+	"bakekujira": ["化鯨", "BAKEKUJIRA", "la baleine fantôme"],
+	"uwabami": ["蟒蛇", "UWABAMI", "le serpent qui avale les barques"],
+	"kyubi": ["九尾", "KYŪBI", "le renard aux neuf queues"],
+	"gashadokuro": ["餓者髑髏", "GASHADOKURO", "le squelette des affamés"],
+	"daidara": ["大太法師", "DAIDARABOTCHI", "le géant qui façonne les monts"],
+	"kuronami": ["黒波", "KURO-NAMI", "la vague noire"],
+}
+var _intro_boss: Node3D = null  # boss qui attend son entrée en scène (figé)
+var _intro_wave: Array = []  # première vague, lâchée à la fin de l'entrée
+var _intro_len := 2.0
+var _intro_w := 0.0  # poids du plan rapproché (0 = cadrage de l'arène)
+var _intro_roar := false
+var _intro_pose := ""  # état d'apparition du boss : il se fige dès qu'il en sort
+var _intro_mini := false
+
+
+## Le boss entre : caméra sur lui, bandes noires, carton titre. Le robot (CI) passe tout.
+func _start_boss_intro() -> void:
+	var b := _intro_boss
+	if not is_instance_valid(b):
+		_intro_boss = null
+		_intro_wave = []
+		return
+	_intro_mini = is_mini_boss(String(b.kind))
+	var sub := ("GARDIEN DE LA SALLE %d" % MINI_ROOM) if _intro_mini else "GARDIEN DU MONDE"
+	if _bot != null:
+		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
+		_end_boss_intro()
+		return
+	var card: Array = BOSS_CARDS.get(String(b.kind), ["", String(b.title).to_upper(), ""])
+	_cancel_stroke()
+	_reset_stroke_state(true)
+	hero.stop_dash()
+	hud.pad_trail = PackedVector2Array()
+	_intro_len = 1.6 if _intro_mini else 2.0
+	_intro_w = 0.0
+	_intro_roar = false
+	_intro_pose = str(b.get("_state"))
+	# il joue sa propre apparition (jamais d'attaque : voir _update_boss_intro)
+	b.process_mode = Node.PROCESS_MODE_INHERIT
+	hud.boss_card(String(card[0]), String(card[1]), String(card[2]), sub, _intro_mini, _intro_len - 0.3)
+	_set_state("boss_intro")
+
+
+func _update_boss_intro(real: float) -> void:
+	var b := _intro_boss
+	if not is_instance_valid(b):
+		_end_boss_intro()
+		return
+	# sorti de son apparition, il attendrait d'attaquer : on le fige jusqu'au combat
+	if b.process_mode != Node.PROCESS_MODE_DISABLED and str(b.get("_state")) != _intro_pose:
+		b.process_mode = Node.PROCESS_MODE_DISABLED
+	if not _intro_roar and _state_t >= 0.3:
+		# rugissement : grondement grave, coup sourd, secousse
+		_intro_roar = true
+		shake = 0.5 if _intro_mini else 0.65
+		sfx.play("hurt", 0.4, 1.0)
+		sfx.play("strike", 0.42, 2.0)
+		sfx.play("whoosh", 0.5, -2.0)
+	var target := 1.0 if _state_t < _intro_len - 0.45 else 0.0
+	_intro_w = move_toward(_intro_w, target, real / (0.5 if target > 0.5 else 0.4))
+	hud.cine = _intro_w * _intro_w * (3.0 - 2.0 * _intro_w)
+	if _state_t >= _intro_len:
+		_end_boss_intro()
+
+
+func _end_boss_intro() -> void:
+	var b := _intro_boss
+	_intro_boss = null
+	_intro_w = 0.0
+	hud.cine = 0.0
+	hud.end_boss_card(0.2)
+	if is_instance_valid(b):
+		b.process_mode = Node.PROCESS_MODE_INHERIT
+	if not _intro_wave.is_empty():
+		_spawn_list(_intro_wave)
+	_intro_wave = []
+	_set_state("play")
+
+
+## Un toucher passe l'entrée (après 0,5 s) : la caméra revient en douceur.
+func _boss_intro_tap(event: InputEvent) -> void:
+	var pressed := false
+	if event is InputEventScreenTouch or event is InputEventMouseButton:
+		pressed = event.pressed
+	if pressed and _state_t >= 0.5 and _intro_len > _state_t + 0.4:
+		_intro_len = _state_t + 0.4
+		hud.end_boss_card(0.25)
+
+
+## Plan rapproché sur le boss, mêlé au cadrage de l'arène selon _intro_w.
+func _boss_intro_cam() -> Transform3D:
+	if not is_instance_valid(_intro_boss):
+		return _cam_base
+	var p := _intro_boss.global_position
+	var f := Vector3(clampf(p.x, -HALF.x, HALF.x), 0.0, clampf(p.z, -HALF.y + 1.5, HALF.y - 1.5))
+	var look := f + Vector3(0, 1.3 if _intro_mini else 2.6, 0)
+	var eye := f + (Vector3(0, 6.0, 7.5) if _intro_mini else Vector3(0, 9.0, 12.0))
+	var close := Transform3D(Basis(), eye).looking_at(look, Vector3.UP)
+	var w := _intro_w * _intro_w * (3.0 - 2.0 * _intro_w)
+	return _cam_base.interpolate_with(close, w * (0.7 if _intro_mini else 0.55))
 
 
 func spawn_minions(list: Array) -> void:
@@ -1008,8 +1129,14 @@ func boss_killed(b: Node3D) -> void:
 		music.end_boss(false)  # le jingle de victoire suit
 	shake = 0.7
 	sfx.play("kill", 0.6)
+	feel("boss_death")
 	_splash(b.position, Toon.VERMILION, 30)
 	_splash(b.position, Toon.GOLD, 20)
+
+
+## Retour haptique nommé (motifs dans sfx.gd) : sans effet hors mobile ou si l'option est coupée.
+func feel(kind: String) -> void:
+	sfx.haptic(kind)
 
 
 func small_hit(pos: Vector3) -> void:
@@ -1020,6 +1147,7 @@ func small_hit(pos: Vector3) -> void:
 func big_hit(pos: Vector3) -> void:
 	shake = maxf(shake, 0.35)
 	sfx.play("kill", 0.9)
+	feel("heavy")
 	_splash(pos, Toon.VERMILION, 24)
 	_blot(pos, Toon.VERMILION, 0.9, 2.5)
 
@@ -1027,6 +1155,7 @@ func big_hit(pos: Vector3) -> void:
 func clang(pos: Vector3) -> void:
 	shake = maxf(shake, 0.15)
 	sfx.play("empty", 0.5)
+	feel("clang")
 	_splash(pos, Toon.FOAM, 10)
 
 
@@ -1063,15 +1192,17 @@ func xp_need() -> int:
 func collect(kind: String, value: int) -> void:
 	if kind == "xp":
 		xp += value
-		sfx.play("shot", 1.8 + randf() * 0.2, -14.0)
+		sfx.play("xp", 1.0 + randf() * 0.15, -10.0)
 		while xp >= xp_need():
 			xp -= xp_need()
 			level += 1
 			_pending_levels += 1
 			hud.toast("NIVEAU %d  ·  ROULEAU EN FIN DE SALLE" % level)
+			sfx.play("levelup", 1.0, -3.0)
+			feel("level")
 	else:
 		run_gold += value
-		sfx.play("empty", 2.0, -10.0)
+		sfx.play("coin", 1.0, -8.0)
 
 
 ## Un ennemi tombe : il lâche de l'expérience et parfois de l'or.
@@ -1111,6 +1242,8 @@ func _open_gate() -> void:
 		vfx.ring(Vector3(gp.x, 0.08, gp.z), Toon.GOLD, 1.6)
 		_splash(gp + Vector3(0, 0.6, 0), Toon.GOLD, 18)
 		shake = maxf(shake, 0.12)
+		sfx.play("torii", 1.0, -3.0)
+		feel("clear")
 	sfx.play("shot", 1.4, -4.0)
 	sfx.play("whoosh", 0.7, -6.0)
 
@@ -1147,6 +1280,7 @@ func _spawn_shrine() -> void:
 	l.position = Vector3(0, 1.45, 0)
 	_shrine.add_child(l)
 	hud.banner("UN SANCTUAIRE", "TOUCHE-LE POUR UN PACTE  ·  OU PASSE LE TORII", Color("#7A1F1A"), 2.6)
+	sfx.play("shrine", 1.0, -4.0)
 
 
 func _open_upgrades() -> void:
@@ -1176,6 +1310,7 @@ func _open_sanctuary() -> void:
 	infos.append({"name": "Passer", "text": "Continuer sans malédiction", "level": -1, "kanji": "道", "color": Color("#8C8FA8")})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
+	sfx.play("pact", 1.0, -4.0)
 
 
 func _on_reroll() -> void:
@@ -1255,12 +1390,17 @@ func _award(victory: bool) -> void:
 	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
 	menu.gain_seals = int(g.get("seals", 0))
 	menu.sumi = meta.sumi
+	# nouvelles Vues (ids de meta.PRINTS) pour la feuille de résultats
+	var np: Array = g.get("prints", [])
+	menu.new_prints = np.duplicate()
 
 
 func _take_curse(id: String) -> void:
 	curses.append(id)
 	shake = 0.4
 	sfx.play("strike", 0.5)
+	sfx.play("pact", 0.8, -2.0)
+	feel("heavy")
 	match id:
 		"dry", "oni_eye":
 			_extra_picks += 2
@@ -1326,6 +1466,32 @@ func _finish_run() -> void:
 	menu.world_name = String(w.name)
 	menu.world_kanji = String(w.kanji)
 	menu.world_color = w.color
+	# le build et les figures, figés avant la remise à zéro de la partie suivante
+	menu.stat_shapes = shape_counts.duplicate()
+	menu.build = powers.levels.duplicate()
+	menu.affinities = powers.affinities()
+	# coup fatal : le boss ou l'ennemi le plus proche du héros à sa chute
+	menu.killer_kind = ""
+	menu.killer_name = ""
+	if not won:
+		var best_d := 1.0e9
+		for bo in bosses:
+			if not is_instance_valid(bo) or bo.dead:
+				continue
+			var bd: float = Vector2(bo.position.x - hero.position.x, bo.position.z - hero.position.z).length() - 3.0
+			if bd < best_d:
+				best_d = bd
+				var tl = bo.get("title")
+				menu.killer_name = String(tl) if tl is String and String(tl) != "" else "le gardien"
+				menu.killer_kind = ""
+		for e in enemies:
+			if not is_instance_valid(e) or e.dead or e.dummy or e.is_harmless():
+				continue
+			var ed: float = Vector2(e.position.x - hero.position.x, e.position.z - hero.position.z).length()
+			if ed < best_d:
+				best_d = ed
+				menu.killer_name = ""
+				menu.killer_kind = String(e.kind)
 	_set_state("over")
 
 
@@ -1342,6 +1508,7 @@ func damage_enemy(e: Node3D, dmg: float, fx := true) -> void:
 		powers.on_kill(e)
 		_on_enemy_killed(e)
 		sfx.play("kill", randf_range(1.1, 1.3), -6.0)
+		feel("hit")
 		_splash(e.position, Toon.VERMILION, 14)
 		_blot(e.position, Toon.VERMILION, 0.45, 2.5)
 
@@ -1432,8 +1599,11 @@ func _apply_shape() -> void:
 		return
 	var sh: Dictionary = _shape
 	_shape = {}
+	shape_counts[String(sh.shape)] = int(shape_counts.get(String(sh.shape), 0)) + 1
 	powers.on_shape(String(sh.shape), sh)
 	hud.shape_pop(String(sh.shape), String(SHAPE_NAMES.get(String(sh.shape), "")))
+	sfx.play("tech_" + String(sh.shape), 1.0, -3.0)
+	feel("figure")
 	match String(sh.shape):
 		"loop":
 			# Uzu : toupie sabre tendu, aspire et lacère tout autour pendant ~1 s
@@ -1489,6 +1659,7 @@ func _apply_shape() -> void:
 func _on_hero_landed() -> void:
 	shake = maxf(shake, 0.5)
 	sfx.play("strike", 0.7)
+	feel("heavy")
 	_blot(hero.position, Color(Toon.VERMILION, 0.3), _enso_r, 1.2)
 	_splash(hero.position, Toon.SUMI, 24)
 	ink_wave(hero.position, _enso_r * 0.6)
@@ -1522,6 +1693,7 @@ func _update_moves(dt: float) -> void:
 			_iai_line(a, b)
 			shake = maxf(shake, 0.4)
 			sfx.play("kill", 1.3)
+			feel("figure")
 			for e in enemies:
 				if is_instance_valid(e) and not e.dead and powers._near_line(e.position, _iai_points, 0.9 + float(e.radius)):
 					damage_enemy(e, 2.0)
@@ -1621,6 +1793,9 @@ func _clamp_point(p: Vector3) -> Vector3:
 
 func _input(event: InputEvent) -> void:
 	# tactile (téléphone) et souris (ordinateur) ; la souris émulée depuis le tactile sert aux boutons du menu
+	if state == "boss_intro":
+		_boss_intro_tap(event)
+		return
 	if state != "play" and state != "tuto":
 		return
 	if event is InputEventMouse and event.device == InputEvent.DEVICE_ID_EMULATION:
@@ -1724,6 +1899,8 @@ func _touch_up(sp: Vector2) -> void:
 			hero.invuln = maxf(hero.invuln, powers.val("shadow_step"))
 			_launch(s)
 			powers.on_dodge(origin, end)
+			if state == "tuto":
+				tuto.on_dodge()
 		else:
 			elan = minf(elan_max(), elan + stroke.length)
 			stroke.queue_free()
@@ -1765,6 +1942,7 @@ func _launch(s: MeshInstance3D) -> void:
 		elif _shape.shape == "return":
 			_reflect_bullets(s.points)
 	sfx.play("whoosh", randf_range(0.9, 1.1))
+	feel("dash")
 
 
 func _on_dash_finished() -> void:
@@ -1892,6 +2070,7 @@ func _add_chain(n: int) -> void:
 			# petite annonce plutôt qu'un bandeau : on ne cache pas l'action en plein combat
 			hud.toast("%s  ·  DÉGÂTS +%d %%" % [String(CHAIN_TIERS[tier]), int(round((chain_mult() - 1.0) * 100.0))])
 			sfx.play("shot", 1.5, -2.0)
+			feel("multi")
 
 
 func _break_chain() -> void:
@@ -1919,6 +2098,7 @@ func _hurt_hero() -> void:
 	hud.hurt_flash = 1.0
 	shake = 0.45
 	sfx.play("hurt")
+	feel("hurt")
 	_splash(hero.position, Toon.SUMI, 14)
 	if hero.hp <= 0:
 		game_over = true
@@ -1926,6 +2106,7 @@ func _hurt_hero() -> void:
 		_set_state("dying")
 		music.play_defeat()
 		sfx.play("kill", 0.5)
+		feel("death")
 		_cancel_stroke()
 
 
@@ -1986,6 +2167,7 @@ func _check_slashes() -> void:
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			shake = maxf(shake, 0.11 if killed else 0.05)
 			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
+			feel("multi" if killed and _stroke_kills == 3 else ("kill" if killed else "hit"))
 			_splash(p, Toon.VERMILION, 8 if killed else 4)
 			# tache d'encre au sol seulement à la mise à mort
 			if killed:
@@ -2007,6 +2189,7 @@ func _check_slashes() -> void:
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			shake = maxf(shake, 0.22)
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
+			feel("boss_hit")
 			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 6)
 			_slash_mark(bo.position, bdir)
 			vfx.impact(bo.position, bdir, false)
@@ -2215,6 +2398,9 @@ func _process(_delta: float) -> void:
 	if state == "tuto":
 		elan = elan_max()
 		_update_moves(dt)
+	# un boss vient d'apparaître : son entrée en scène avant le combat
+	if state == "play" and _intro_boss != null:
+		_start_boss_intro()
 	# rouleaux de niveau : seulement une fois la salle nettoyée (jamais en plein combat)
 	if state == "play" and _pending_levels > 0 and _room_done and not hero.dashing and not touching:
 		_pending_levels -= 1
@@ -2281,6 +2467,8 @@ func _process(_delta: float) -> void:
 			if is_instance_valid(e) and e.kind == "funa" and not e.dead:
 				var cp: Vector3 = arena.clamp_walk(e.position, 0.45)
 				e.position = Vector3(cp.x, e.position.y, cp.z)
+	elif state == "boss_intro":
+		_update_boss_intro(real)
 	elif state == "transit":
 		hud.wipe = clampf(_state_t / 0.35, 0.0, 1.0) if _state_t < 0.45 else clampf(1.0 - (_state_t - 0.45) / 0.35, 0.0, 1.0)
 		if _state_t >= 0.4 and not _rebuilt:
@@ -2313,6 +2501,10 @@ func _process(_delta: float) -> void:
 		menu_boat.position.z -= real * 0.6  # elle glisse encore doucement derrière la carte
 		_rock_boat()
 		cam.global_transform = _menu_transform()
+	elif state == "boss_intro":
+		shake = maxf(0.0, shake - real * 1.6)
+		var si := shake * shake * 1.2
+		cam.global_transform = _boss_intro_cam().translated(Vector3(randf_range(-si, si), randf_range(-si, si) * 0.5, randf_range(-si, si)))
 	elif shake > 0.0:
 		shake = maxf(0.0, shake - real * 1.6)
 		var s := shake * shake * 1.2
@@ -2324,7 +2516,7 @@ func _process(_delta: float) -> void:
 	hud.pad_active = touching
 	var show_pad := pad_show == "always" or (pad_show == "start" and (state == "tuto" or _strokes_done < 12))
 	hud.pad_alpha = move_toward(hud.pad_alpha, 1.0 if show_pad else 0.0, real * 1.5)
-	if state in ["play", "transit", "pick", "tuto", "paused"]:
+	if state in ["play", "transit", "pick", "tuto", "paused", "boss_intro"]:
 		# l'arène descend quand le pad s'efface (plus de grande bande d'eau vide en bas)
 		var kp: float = hud.pad_alpha if ctrl_mode == "pad" else 0.0
 		_cam_base = _cam_full.interpolate_with(_cam_pad, kp * kp * (3.0 - 2.0 * kp))

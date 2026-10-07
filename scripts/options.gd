@@ -1,5 +1,5 @@
 extends Control
-## Options : contrôles (pad en bas ou directement sur l'écran), taille et affichage du pad, son.
+## Options : contrôles (pad en bas ou directement sur l'écran), taille et affichage du pad, son, vibrations.
 ## Carte de papier sur voile d'encre, choix en boutons segmentés. main lit/écrit `values`.
 
 const Toon = preload("res://scripts/toon.gd")
@@ -13,12 +13,13 @@ const ROWS := [
 	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "PETIT"], ["m", "MOYEN"], ["l", "GRAND"]]},
 	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "AU DÉBUT"], ["never", "JAMAIS"]]},
 	{"key": "sound", "label": "SON", "opts": [["on", "OUI"], ["off", "NON"]]},
+	{"key": "vibration", "label": "VIBRATIONS", "opts": [["on", "OUI"], ["off", "NON"]]},
 ]
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert la carte ne doit rien choisir
 const NO_TARGET := -2
 const BACK_TARGET := -1
 
-var values := {"control": "pad", "pad_size": "m", "pad_show": "start", "sound": "on"}
+var values := {"control": "pad", "pad_size": "m", "pad_show": "start", "sound": "on", "vibration": "on"}
 
 var _t := 0.0
 var _hits: Array = []  # [Rect2, clé, valeur]
@@ -96,10 +97,12 @@ func _draw() -> void:
 	var h := size.y
 	if w < 10.0:
 		return
-	var u := w / 400.0
+	# la carte grandit avec le nombre de lignes ; sur écran trop bas, tout rétrécit pour tenir
+	var card_h := 184.0 + (ROWS.size() - 1) * 92.0
+	var u := minf(w / 400.0, h / (card_h + 40.0))
 	var a := clampf(_t / 0.25, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
-	var card := Rect2(Vector2(w * 0.06, h * 0.5 - 250 * u), Vector2(w * 0.88, 500 * u))
+	var card := Rect2(Vector2(w * 0.06, h * 0.5 - card_h * 0.5 * u), Vector2(w * 0.88, card_h * u))
 	UiKit.box(_sb, Color(Toon.PAPER, a), int(18 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
 	_sb.shadow_size = int(20 * u)

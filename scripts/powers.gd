@@ -672,6 +672,7 @@ func _crit(pos: Vector3) -> float:
 	if randf() < (0.1 if t == 1 else 0.25):
 		# critique d'ombre : bouffée violette
 		main.vfx.smoke(pos, 0.3, 5)
+		main.sfx.play("puff", randf_range(1.1, 1.3), -6.0)
 		main.splash(pos, Vfx.SHADOW, 6)
 		return 2.0 if t == 1 else 2.5
 	return 1.0
@@ -701,6 +702,7 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		out += val("bolt_thunder") * _bolt_mult()
 		_stun(e)
 		main.vfx.sparks(e.position + Vector3(0, 0.9, 0), Vector3.UP, 4, Vfx.BOLT)
+		main.sfx.play("zap", 1.3, -6.0)
 	# Kaishaku : sous le seuil, le coup achève
 	if lvl("shadow_execute") > 0:
 		var th := val("shadow_execute") + (10.0 if lvl("shadow_back") > 0 else 0.0)
@@ -747,6 +749,7 @@ func on_boss_hit(pos: Vector3, _dmg: float = 1.0) -> void:
 			_boss_burn.remove_at(0)
 		_boss_burn.append([pos, 3.0, burn])
 		main.vfx.flames(pos, 0.35, 5)
+		main.sfx.play("crackle", 1.2, -8.0)
 	if lvl("bolt_arc") > 0:
 		for o in main.nearest_enemies(pos, 3.0, int(val("bolt_arc")), null):
 			main.zap(pos, o.position)
@@ -775,6 +778,7 @@ func _common_hit(pos: Vector3) -> void:
 		_slow(val("shadow_stolen"), 0.3)
 		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Vfx.SHADOW, 2.0)
 		main.vfx.smoke(pos, 0.6, 7)
+		main.sfx.play("puff", 0.8, -3.0)
 		main.vfx.school_kanji(pos, "shadow")
 
 
@@ -834,6 +838,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 	if lvl("shadow_veil") > 0 and kills >= 2:
 		main.hero.invuln = maxf(float(main.hero.invuln), val("shadow_veil"))
 		main.vfx.smoke(pos, 0.5, 6)
+		main.sfx.play("puff", 0.9, -5.0)
 	if lvl("water_tide") > 0:
 		var td := val("water_tide") * _wave_mult()
 		main.vfx.water_burst(pos, 1.75)
@@ -1370,6 +1375,7 @@ func _add_inkring(p: Vector3, r: float) -> void:
 	ring.position.y = 0.05
 	_zones.append({"kind": "ink", "pos": Vector3(p.x, 0, p.z), "t": 4.0, "tick": 0.0, "r": r,
 		"dps": 1.2, "node": node, "spin": spin})
+	main.sfx.play("ink", 0.8, -4.0)
 
 
 func _trim_zones(kind: String, keep: int) -> void:
@@ -1455,6 +1461,7 @@ func _add_wave(points: PackedVector3Array) -> void:
 	_sweeps.append(_sweep(points, "wave", node, 22.0, 0.0, 1.3, dmg))
 	main.shape_text(points[0], "波")
 	main.sfx.play("whoosh", 0.5)
+	main.sfx.play("splash", 0.7, -2.0)
 	main.shake = maxf(float(main.shake), 0.35)
 
 
@@ -1501,6 +1508,7 @@ func _update_sweeps(dt: float) -> void:
 				node.visible = true
 				if kind == "clone":
 					main.vfx.smoke(node.position, 0.35, 5)
+					main.sfx.play("puff", 1.0, -6.0)
 				if kind == "clone" and lvl("fire_trail") > 0:
 					_add_trail(s["pts"], 2.5, val("fire_trail"))
 			continue
@@ -1530,6 +1538,7 @@ func _update_sweeps(dt: float) -> void:
 				else:
 					main.damage_enemy(e, dmg * _global_mult())
 					main.vfx.smoke(e.position, 0.25, 4)
+					main.sfx.play("stab", randf_range(1.1, 1.3), -8.0)
 		if not bool(s["boss_done"]):
 			var bh: Array = main.damage_bosses(b, r + 0.3, dmg)
 			if not bh.is_empty():
@@ -1639,7 +1648,7 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(h):
 		return
 	# hors partie (accueil, résultats) : les visuels des pouvoirs se cachent
-	_root.visible = String(main.state) in ["play", "transit", "pick", "dying", "tuto", "paused"]
+	_root.visible = String(main.state) in ["play", "transit", "pick", "dying", "tuto", "paused", "boss_intro"]
 	var hp: Vector3 = h.position
 	if is_instance_valid(_halo):
 		_halo.position = Vector3(hp.x, 0, hp.z)
@@ -1723,6 +1732,7 @@ func _shell(p: Vector3) -> void:
 	head.position = Vector3(0, 1.42, 0)
 	_fx.append({"node": node, "t": 0.0, "life": 0.7, "kind": "shell"})
 	main.vfx.smoke(p, 0.5, 8)
+	main.sfx.play("puff", 0.9, -4.0)
 
 
 func _part(parent: Node3D, mesh: Mesh, mat: Material) -> MeshInstance3D:

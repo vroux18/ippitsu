@@ -607,6 +607,8 @@ func bolt(a: Vector3, b: Vector3, sparks_n := 3) -> void:
 	mi.transform = _seg_xform(a, b)
 	_fx.append({"node": mi, "t": 0.0, "life": 0.2, "kind": "bolt", "alt": _bolt_mesh(bucket, (v + 1) % 3), "swap": false})
 	_pop(b, BOLT_CORE, 0.55)
+	if main:
+		main.sfx.play("zap", randf_range(0.9, 1.15), -5.0)
 	if sparks_n > 0:
 		sparks(b, b - a, sparks_n, BOLT)
 
@@ -618,6 +620,8 @@ func sky_bolt(p: Vector3, big := false) -> void:
 	ring(Vector3(p.x, 0.07, p.z), BOLT, 1.0 if big else 0.7)
 	sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 6 if big else 4, BOLT)
 	scorch(p, 0.35 if big else 0.25, 0.8)
+	if main:
+		main.sfx.play("thunder", randf_range(0.85, 0.95) if big else randf_range(1.0, 1.15), -3.0 if big else -7.0)
 
 
 func _bolt_mats() -> Array:
@@ -808,6 +812,8 @@ func fire_burst(pos: Vector3, r: float) -> void:
 	ring(Vector3(pos.x, 0.07, pos.z), FIRE, r)
 	embers(pos, r * 0.5, 5)
 	scorch(pos, r * 0.6, 1.0)
+	if main:
+		main.sfx.play("fire", randf_range(0.9, 1.1), -4.0)
 
 
 ## Flammes le long d'un trait (sillage) : un seul émetteur sur des points, plus une traînée de suie.
@@ -832,6 +838,8 @@ func fire_trail(points: PackedVector3Array, dur: float) -> void:
 	add_child(p)
 	p.emitting = true
 	_fx.append({"node": p, "t": 0.0, "life": dur + 0.6, "kind": "emit", "stop": dur, "game": true})
+	if main:
+		main.sfx.play("crackle", randf_range(0.9, 1.1), -6.0)
 	# suie : ruban au sol, propre à ce trait (il s'efface d'un bloc)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -869,10 +877,14 @@ func wave_arc(pos: Vector3, dir: Vector3, s := 1.0) -> void:
 	foam.scale = Vector3(0.8, 1, 0.8)
 	foam.position.y = 0.02
 	_fx.append({"node": node, "t": 0.0, "life": 0.3, "kind": "arc", "s": s})
+	if main:
+		main.sfx.play("splash", randf_range(1.2, 1.4), -10.0)
 
 
 ## Éclat d'eau : anneau bleu, anneau d'écume, croissants de vague, gouttes.
 func water_burst(pos: Vector3, r: float) -> void:
+	if main:
+		main.sfx.play("splash", randf_range(0.9, 1.1), -4.0)
 	ring(Vector3(pos.x, 0.07, pos.z), WATER, r)
 	ring(Vector3(pos.x, 0.09, pos.z), WATER_FOAM, r * 0.6)
 	var a0 := randf() * TAU
@@ -903,6 +915,8 @@ func wind_slash(pos: Vector3, dir: Vector3, s := 0.9) -> void:
 	var core := _mi(node, _arc_mesh, glow_mat(WIND_PALE, 2.0))
 	core.scale = Vector3(0.88, 1, 0.88)
 	_fx.append({"node": node, "t": 0.0, "life": 0.22, "kind": "spinarc", "s": s})
+	if main:
+		main.sfx.play("swish", randf_range(0.9, 1.15), -6.0)
 
 
 func _swirl_mesh() -> Mesh:
@@ -941,6 +955,8 @@ func swirl(pos: Vector3, r: float) -> void:
 	inner.rotation.y = PI / 2.0
 	inner.position.y = 0.15
 	_fx.append({"node": node, "t": 0.0, "life": 0.45, "kind": "swirl", "r": r})
+	if main:
+		main.sfx.play("gust", randf_range(0.9, 1.1), -5.0)
 
 
 ## Spirale persistante (zones des pouvoirs) : l'appelant la fait tourner et la libère.
@@ -1007,6 +1023,8 @@ func shadow_stab(a: Vector3, b: Vector3) -> void:
 	core.position.z = -0.5
 	_fx.append({"node": node, "t": 0.0, "life": 0.2, "kind": "stab"})
 	smoke(b, 0.3, 5)
+	if main:
+		main.sfx.play("stab", randf_range(0.9, 1.1), -4.0)
 
 
 # ------------------------------------------------------------------ encre (墨) : onde, coupe
@@ -1017,6 +1035,7 @@ func ink_wave(pos: Vector3, r: float) -> void:
 	ring(Vector3(pos.x, 0.07, pos.z), Toon.WASHI, r * 1.08)
 	if main:
 		main.splash(pos, INK, 10)
+		main.sfx.play("ink", randf_range(0.9, 1.1), -4.0)
 
 
 func _blade_mesh() -> ArrayMesh:
@@ -1052,6 +1071,7 @@ func slash_line(a: Vector3, b: Vector3) -> void:
 	_fx.append({"node": node, "t": 0.0, "life": 0.3, "kind": "iai", "l": l})
 	if main:
 		main.splash(b, INK, 6)
+		main.sfx.play("iai", randf_range(0.95, 1.05), -3.0)
 
 
 # ------------------------------------------------------------------ idéogramme d'école
