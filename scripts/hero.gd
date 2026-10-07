@@ -8,7 +8,7 @@ const MODEL = preload("res://assets/kaykit/Rogue_Hooded.glb")
 signal dash_finished
 signal landed  # fin d'un bond (ensō)
 
-const DASH_SPEED := 34.0
+const DASH_SPEED := 28.0  # ruée un peu moins fulgurante : on voit mieux le ronin trancher
 const RADIUS := 0.35
 
 var max_hp := 5

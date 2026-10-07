@@ -17,6 +17,7 @@ const WAVE := [Vector2(-70, 0), Vector2(-55, -28), Vector2(-38, -58), Vector2(-1
 	Vector2(24, -86), Vector2(38, -74), Vector2(42, -60), Vector2(34, -50), Vector2(24, -56),
 	Vector2(16, -62), Vector2(6, -58), Vector2(0, -44), Vector2(2, -24), Vector2(10, 0)]
 const WAVE_FOAM := [Vector2(-56, -14), Vector2(-42, -40), Vector2(-24, -62), Vector2(-2, -76), Vector2(18, -76), Vector2(30, -66)]
+const MINI_ROOM := 4  # étape du gardien (main.STAGE_PLAN : 8 étapes, la 4e est son arène)
 const WAVE_CLAWS := [Vector2(6, -93), Vector2(16, -93), Vector2(27, -89), Vector2(36, -81), Vector2(43, -70), Vector2(45, -59), Vector2(40, -52)]
 
 signal world_chosen(id: int)
@@ -25,7 +26,10 @@ signal closed
 var _worlds: Array = []
 var _unlocked := 1
 var _best: Dictionary = {}
-var _rooms := 15  # salles d'une partie (record affiché sur « _rooms » points)
+var _rooms := 8  # étapes d'une partie (record affiché sur « _rooms » points)
+var _wins: Dictionary = {}  # Vues gagnées ("w4_win", "w4_mini"...) ou id -> true
+var _stamp_at: Dictionary = {}  # id -> instant (_t) où le sceau ACCOMPLI frappe
+static var _stamps_seen := {}  # sceaux déjà frappés pendant la session (pas de nouvelle animation)
 
 var _t := 0.0  # temps réel depuis l'ouverture
 var _scroll := 0.0  # position du rouleau, en indice de monde (0 = premier)
@@ -107,12 +111,15 @@ func _ready() -> void:
 
 ## worlds : Array de Dictionary {id, name, kanji, subtitle, color} ; unlocked : nombre de mondes ouverts ;
 ## best : id -> meilleure salle atteinte ; current : id du monde centré à l'ouverture ;
-## rooms : nombre de salles d'une partie.
-func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms := 15) -> void:
+## rooms : nombre de salles d'une partie ; wins : Vues possédées (meta.owned_prints : "w<id>_win",
+## "w<id>_mini") ou id -> true. Vide : un monde compte comme fini dès que son record atteint « rooms ».
+func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms := 8, wins := {}) -> void:
 	_worlds = worlds
 	_unlocked = clampi(unlocked, 1, maxi(1, worlds.size()))
 	_best = best
 	_rooms = maxi(1, rooms)
+	_wins = wins
+	_stamp_at.clear()
 	var start := 0
 	for i in _worlds.size():
 		if _id(i) == current:
@@ -155,6 +162,27 @@ func _best_of(i: int) -> int:
 	var id := _id(i)
 	var v: Variant = _best.get(id, _best.get(str(id), 0))
 	return clampi(int(v), 0, _rooms)
+
+
+func _flag(id: int, kind: String) -> bool:
+	if bool(_wins.get("w%d_%s" % [id, kind], false)):
+		return true
+	if kind == "win":
+		return bool(_wins.get(id, false)) or bool(_wins.get(str(id), false))
+	return false
+
+
+## Monde accompli : boss vaincu (Vue « w<id>_win »), à défaut record sur toutes les salles.
+func _won(i: int) -> bool:
+	if _locked(i):
+		return false
+	if _flag(_id(i), "win"):
+		return true
+	return _wins.is_empty() and _best_of(i) >= _rooms
+
+
+func _mini_done(i: int) -> bool:
+	return _won(i) or _flag(_id(i), "mini") or _best_of(i) > MINI_ROOM
 
 
 func _sel() -> int:
@@ -492,6 +520,8 @@ func _draw() -> void:
 		var c := Vector2(_cx + (float(i) - float(n - 1) / 2.0) * gap, dy)
 		if _locked(i):
 			_diamond(self, c, 3.0 * u, Color(Toon.SUMI, 0.25 * ra), false)
+		elif _won(i):
+			_diamond(self, c, 4.5 * u, Color(Toon.GOLD, ra), true)
 		else:
 			_diamond(self, c, 4.0 * u, Color(Toon.SUMI, 0.7 * ra), false)
 	var mc := Vector2(_cx + (clampf(_scroll, 0.0, float(n - 1)) - float(n - 1) / 2.0) * gap, dy)
@@ -939,35 +969,54 @@ func _path(ci: Control, x0: float, x1: float) -> void:
 			ci.draw_line(p0, p1, col, 3.0 * u, true)
 
 
-## Une étape : sceau rond à l'idéogramme du monde et cartouche (nom, sous-titre, record).
+## Une étape : sceau rond à l'idéogramme du monde et cartouche (nom, sous-titre, chemin des salles, record).
+## Loin du centre, la cartouche se resserre et reste épinglée au bord du papier pour rester lisible.
 func _station(ci: Control, i: int) -> void:
 	var u := _u
 	var d: Dictionary = _worlds[i]
-	var focus := _smooth(1.0 - absf(float(i) - _scroll))
+	var dd := float(i) - _scroll
+	var focus := _smooth(1.0 - absf(dd))
 	var sc := 0.88 + 0.27 * focus
 	var p := _anchor(i)
 	if i == _sel() and _deny > 0.0:
 		p.x += sin(_deny * 30.0) * 6.0 * u * _deny
 	var r := 42.0 * u * sc
 	var locked := _locked(i)
+	var won := _won(i)
+	var b := _rooms if won else _best_of(i)
+	var fresh := not locked and not won and b == 0
 	var col: Color = d.get("color", Color(0.5, 0.5, 0.5))
 	var kanji := str(d.get("kanji", "道"))
-	var wname := str(d.get("name", ""))
-	var sub := str(d.get("subtitle", ""))
+	var wname := UiKit.plain(str(d.get("name", "")))
+	var sub := UiKit.plain(str(d.get("subtitle", "")))
+	var a_full := _smooth((focus - 0.3) / 0.45)  # cartouche complète (monde centré)
+	var a_comp := 1.0 - a_full  # cartouche resserrée (voisins)
+	var gold_ink: Color = Toon.GOLD.darkened(0.3)
 
-	# ensō qui tourne autour du monde centré
+	# ensō qui tourne autour du monde centré (doré s'il est accompli)
 	if focus > 0.05:
 		var st := -PI * 0.5 + 0.4 + _t * 0.35
 		var ring := r + 8.0 * u * sc
-		ci.draw_arc(p, ring, st, st + TAU - 0.55, 56, Color(Toon.SUMI, 0.75 * focus), 3.2 * u, true)
-		ci.draw_arc(p, ring + 2.0 * u, st + 0.6, st + TAU - 1.4, 48, Color(Toon.SUMI, 0.3 * focus), 1.5 * u, true)
+		var ec: Color = Toon.GOLD if won else Toon.SUMI
+		ci.draw_arc(p, ring, st, st + TAU - 0.55, 56, Color(ec, 0.85 * focus), 3.2 * u, true)
+		ci.draw_arc(p, ring + 2.0 * u, st + 0.6, st + TAU - 1.4, 48, Color(ec, 0.35 * focus), 1.5 * u, true)
 
 	# sceau
 	ci.draw_circle(p + Vector2(0, 4.0 * u * sc), r, Color(Toon.SUMI, 0.22))
 	var fill := Color(0.66, 0.64, 0.6) if locked else col
 	ci.draw_circle(p, r, fill)
-	ci.draw_arc(p, r * 0.84, 0.0, TAU, 48, Color(Toon.WASHI, 0.4 if locked else 0.55), maxf(1.0, 1.5 * u * sc), true)
-	ci.draw_arc(p, r - 1.0 * u, 0.0, TAU, 56, Color(Toon.SUMI, 0.9), 3.0 * u * sc, true)
+	if won:
+		# anneau entièrement doré
+		ci.draw_arc(p, r * 0.84, 0.0, TAU, 48, Color(Toon.GOLD, 0.9), maxf(1.0, 2.0 * u * sc), true)
+		ci.draw_arc(p, r - 2.5 * u * sc, 0.0, TAU, 56, Toon.GOLD, 5.0 * u * sc, true)
+		ci.draw_arc(p, r, 0.0, TAU, 56, Color(Toon.SUMI, 0.85), maxf(1.0, 1.5 * u * sc), true)
+	else:
+		ci.draw_arc(p, r * 0.84, 0.0, TAU, 48, Color(Toon.WASHI, 0.4 if locked else 0.55), maxf(1.0, 1.5 * u * sc), true)
+		ci.draw_arc(p, r - 1.0 * u, 0.0, TAU, 56, Color(Toon.SUMI, 0.9), 3.0 * u * sc, true)
+		if b > 0 and not locked:
+			# avancée dorée sur l'anneau, depuis le haut
+			var frac := float(b) / float(_rooms)
+			ci.draw_arc(p, r - 1.0 * u, -PI * 0.5, -PI * 0.5 + TAU * frac, maxi(4, int(56.0 * frac)), Toon.GOLD, 3.0 * u * sc, true)
 	var kfs := maxi(1, int(r * 1.05))
 	var asc := UiKit.TITLE_FONT.get_ascent(kfs)
 	var desc := UiKit.TITLE_FONT.get_descent(kfs)
@@ -977,67 +1026,280 @@ func _station(ci: Control, i: int) -> void:
 		_lock_icon(ci, p + Vector2(r * 0.6, r * 0.55), 14.0 * u * sc)
 
 	# numéro du monde au-dessus du sceau
-	_centered(ci, _ui, "MONDE %d" % _id(i), Vector2(p.x, p.y - r - 16.0 * u * sc), maxi(1, int(10.0 * u * sc)),
-		Color(Toon.SUMI, 0.4 if locked else 0.6))
+	var mc := Color(Toon.SUMI, 0.4 if locked else 0.6)
+	if won:
+		mc = gold_ink
+	_centered(ci, _ui, "MONDE %d" % _id(i), Vector2(p.x, p.y - r - 16.0 * u * sc), maxi(1, int(10.0 * u * sc)), mc)
 
-	# cartouche
+	# cartouche : sa largeur passe de la version resserrée à la complète
 	var nfs := maxi(1, int(18.0 * u * sc))
 	var sfs := maxi(1, int(10.5 * u * sc))
 	var rfs := maxi(1, int(11.0 * u * sc))
 	var nw := _title.get_string_size(wname, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	var sw := _ui.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-	# record : une perle par salle puis « b / salles » ; la carte s'élargit pour le contenir
-	var b := _best_of(i)
-	var rec_txt := "%d / %d" % [b, _rooms]
-	var rec_tw := _ui.get_string_size(rec_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
-	var dgap_min := 4.0 * u * sc
-	var rec_min := 0.0 if locked else dgap_min * float(_rooms - 1) + 13.0 * u * sc + rec_tw
-	var cw := clampf(maxf(maxf(nw, sw), rec_min) + 24.0 * u * sc, 112.0 * u * sc, _step * 0.98)
+	var path_min := 0.0 if locked else 9.0 * u * sc * float(_rooms)
+	var cw_full := clampf(maxf(nw, path_min) + 24.0 * u * sc, 120.0 * u * sc, _step * 0.86)
+	var cw := lerpf(74.0 * u, cw_full, a_full)
 	var ctop := p.y + r + 10.0 * u * sc
 	var y_name := ctop + 8.0 * u * sc + float(nfs) * 0.85
 	var y_sub := y_name + float(sfs) + 5.0 * u * sc
-	var y_rec := y_sub + float(rfs) + 9.0 * u * sc
+	var y_path := y_sub + 13.0 * u * sc
+	var y_rec := y_path + 9.0 * u * sc + float(rfs) * 0.85
 	var cbot := y_rec + 8.0 * u * sc
-	var cr := Rect2(p.x - cw / 2.0, ctop, cw, cbot - ctop)
-	_box.set_corner_radius_all(maxi(1, int(6.0 * u * sc)))
-	_box.set_border_width_all(0)
-	_box.bg_color = Color(Toon.SUMI, 0.15)
+	# épinglée au bord du papier tant que le monde est voisin du centre
+	var pin := 1.0 - _smooth((absf(dd) - 1.0) * 2.0)
+	var lim_l := _cx - _half + cw / 2.0 + 6.0 * u
+	var lim_r := _cx + _half - cw / 2.0 - 6.0 * u
+	var kx := p.x
+	if lim_l < lim_r:
+		kx = clampf(p.x, lim_l, lim_r)
+	var card_x := lerpf(p.x, kx, pin)
+	var cr := Rect2(card_x - cw / 2.0, ctop, cw, cbot - ctop)
+	var rad := maxi(1, int(6.0 * u * sc))
+	UiKit.box(_box, Color(Toon.SUMI, 0.15), rad)
 	ci.draw_style_box(_box, Rect2(cr.position + Vector2(0, 4.0 * u * sc), cr.size))
-	_box.bg_color = Color(Toon.PAPER, 0.95)
-	_box.border_color = Color(Toon.SUMI, 0.8 if not locked else 0.4)
-	_box.set_border_width_all(maxi(1, int(2.0 * u * sc)))
+	var frame := Color(Toon.SUMI, 0.4 if locked else 0.8)
+	var bw := maxi(1, int(2.0 * u * sc))
+	var bg := Color(Toon.PAPER, 0.95)
+	if won:
+		frame = Toon.GOLD
+		bw = maxi(2, int(3.5 * u * sc))
+		bg = Color(Toon.PAPER.lerp(Toon.GOLD, 0.1), 0.97)
+	elif fresh:
+		frame = Color(Toon.SUMI, 0.5)
+	UiKit.box(_box, bg, rad, frame, bw)
 	ci.draw_style_box(_box, cr)
 	_box.set_border_width_all(0)
+	if won:
+		# second filet d'or, fin, à l'intérieur du cadre
+		ci.draw_rect(cr.grow(-5.0 * u * sc), Color(Toon.GOLD, 0.75), false, maxf(1.0, 1.0 * u * sc))
 	# petite bande à la couleur du monde sur le bord gauche
-	ci.draw_rect(Rect2(cr.position.x + 4.0 * u * sc, cr.position.y + 6.0 * u * sc, 3.0 * u * sc, cr.size.y - 12.0 * u * sc),
+	ci.draw_rect(Rect2(cr.position.x + 7.0 * u * sc, cr.position.y + 8.0 * u * sc, 3.0 * u * sc, cr.size.y - 16.0 * u * sc),
 		Color(fill, 0.9))
 
-	var inner := cw - 16.0 * u * sc
-	_centered_fit(ci, _title, wname, Vector2(p.x, y_name), nfs, inner, Color(Toon.SUMI, 0.45 if locked else 1.0))
-	_centered_fit(ci, _ui, sub, Vector2(p.x, y_sub), sfs, inner, Color(Toon.SUMI, 0.4 if locked else 0.65))
-	if locked:
-		_centered(ci, _ui, "VERROUILLÉ", Vector2(p.x, y_rec), rfs, Color(Toon.SUMI, 0.45))
-	else:
-		# écart des perles : 7 au plus, resserré pour tenir dans la carte
-		var spans := float(maxi(1, _rooms - 1))
-		var dgap := clampf((inner - rec_tw - 13.0 * u * sc) / spans, dgap_min, 7.0 * u * sc)
-		var dr := minf(2.4 * u * sc, dgap * 0.42)
-		var roww := dgap * float(_rooms - 1) + dr * 2.0 + 8.0 * u * sc + rec_tw
-		var rx := p.x - roww / 2.0 + dr
-		var dyc := y_rec - float(rfs) * 0.35
-		for k in _rooms:
-			var dc := Vector2(rx + float(k) * dgap, dyc)
-			if k < b:
-				ci.draw_circle(dc, dr, col)
-			else:
-				ci.draw_arc(dc, dr * 0.92, 0.0, TAU, 12, Color(Toon.SUMI, 0.3), maxf(1.0, 1.0 * u), true)
-		var rc: Color = Toon.GOLD if b >= _rooms else Color(Toon.SUMI, 0.8)
-		var tx := rx + dgap * float(_rooms - 1) + dr + 8.0 * u * sc
-		ci.draw_string(_ui, Vector2(tx, y_rec), rec_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, rc)
+	# version complète
+	if a_full > 0.01:
+		var inner := cw - 18.0 * u * sc
+		var cx := card_x + 2.0 * u * sc
+		_centered_fit(ci, _title, wname, Vector2(cx, y_name), nfs, inner, Color(Toon.SUMI, (0.45 if locked else 1.0) * a_full))
+		_centered_fit(ci, _ui, sub, Vector2(cx, y_sub), sfs, inner, Color(Toon.SUMI, (0.4 if locked else 0.65) * a_full))
+		if locked:
+			var lw := _centered(ci, _ui, "VERROUILLÉ", Vector2(cx + 7.0 * u * sc, y_path + float(rfs) * 0.35), rfs, Color(Toon.SUMI, 0.5 * a_full))
+			if a_full > 0.5:
+				_lock_icon(ci, Vector2(cx + 7.0 * u * sc - lw / 2.0 - 9.0 * u * sc, y_path - 1.0 * u * sc), 8.0 * u * sc)
+			if _id(i) > 1:
+				_centered_fit(ci, _ui, "Vaincs le monde %d pour l'ouvrir" % (_id(i) - 1), Vector2(cx, y_rec), rfs, inner,
+					Color(Toon.VERMILION, 0.85 * a_full))
+		else:
+			_progress_path(ci, cx - inner / 2.0 + 5.0 * u * sc, cx + inner / 2.0 - 5.0 * u * sc, y_path, b, won, _mini_done(i), col, sc, a_full)
+			var rec := "Record : étape %d" % b
+			var rc := Color(Toon.SUMI, 0.8)
+			if won:
+				rec = "Boss vaincu - %d/%d étapes" % [_rooms, _rooms]
+				rc = gold_ink
+			elif fresh:
+				rec = "Jamais exploré"
+				rc = Color(Toon.SUMI, 0.45)
+			_centered_fit(ci, _ui, rec, Vector2(cx, y_rec), rfs, inner, Color(rc, rc.a * a_full))
 
-	var hit_w := maxf(r * 2.0, cw)
+	# version resserrée : nom sur deux lignes au besoin, état en un mot
+	if a_comp > 0.01:
+		var avail := cw - 16.0 * u
+		var cx2 := card_x + 2.0 * u
+		var ch := cr.size.y
+		_name_lines(ci, wname, cx2, ctop + ch * 0.33, maxi(1, int(float(nfs) * 0.9)), avail, Color(Toon.SUMI, (0.45 if locked else 1.0) * a_comp))
+		var st_txt := "ÉTAPE %d/%d" % [b, _rooms]
+		var st_col := Color(Toon.SUMI, 0.75)
+		if locked:
+			st_txt = "VERROUILLÉ"
+			st_col = Color(Toon.SUMI, 0.45)
+		elif won:
+			st_txt = "ACCOMPLI"
+			st_col = gold_ink
+		elif fresh:
+			st_txt = "INEXPLORÉ"
+			st_col = Color(Toon.SUMI, 0.5)
+		var sy := ctop + ch * 0.8
+		var mark := 0.0
+		if won or locked:
+			mark = 11.0 * u
+		var sfs2 := _fit_size(_ui, st_txt, rfs, avail - mark)
+		var stw := _ui.get_string_size(st_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs2).x
+		_centered(ci, _ui, st_txt, Vector2(cx2 + mark / 2.0, sy), sfs2, Color(st_col, st_col.a * a_comp))
+		var mpos := Vector2(cx2 + mark / 2.0 - stw / 2.0 - 6.0 * u, sy - float(sfs2) * 0.35)
+		if won:
+			_check_mark(ci, mpos, 8.0 * u, Color(gold_ink, a_comp))
+		elif locked and a_comp > 0.5:
+			_lock_icon(ci, mpos, 7.0 * u)
+
+	# étiquette « Nouveau » sur le coin d'un monde jamais exploré
+	if fresh:
+		_new_tag(ci, Vector2(cr.end.x - 5.0 * u * sc, cr.position.y), sc)
+
+	# grand sceau ACCOMPLI pressé en biais sur le médaillon
+	if won:
+		var e := _stamp_elapsed(_id(i), focus)
+		if e >= 0.0:
+			_stamp(ci, p + Vector2(r * 0.05, r * 0.15), r, e)
+
 	var hit_top := p.y - r - 28.0 * u
-	_station_rects[i] = Rect2(p.x - hit_w / 2.0, hit_top, hit_w, cbot - hit_top)
+	_station_rects[i] = Rect2(p.x - r, hit_top, r * 2.0, cbot - hit_top).merge(cr)
+
+
+## Chemin des salles : trait de pinceau et nœuds, plein jusqu'au record ; gardien et boss plus gros, avec icône.
+func _progress_path(ci: Control, xa: float, xb: float, y: float, b: int, won: bool, mini_done: bool, col: Color, sc: float, a: float) -> void:
+	var u := _u
+	var n := _rooms
+	var fillc: Color = Toon.GOLD if won else col
+	var pts := PackedVector2Array()
+	for k in n:
+		var t := 0.0 if n <= 1 else float(k) / float(n - 1)
+		pts.append(Vector2(lerpf(xa, xb, t), y + sin(float(k) * 1.9 + 0.7) * 1.3 * u * sc))
+	# trait : épais et franc jusqu'au record, fin et pâle ensuite
+	for k in range(1, n):
+		var wdt := 1.3 * u * sc
+		var c := Color(Toon.SUMI, 0.3 * a)
+		if k < b:
+			wdt = (3.4 - 1.2 * float(k) / float(n)) * u * sc
+			c = Color(fillc, a)
+		ci.draw_line(pts[k - 1], pts[k], c, maxf(1.0, wdt), true)
+	for k in n:
+		var room := k + 1
+		var is_boss := room == n
+		var is_mini := room == MINI_ROOM and room < n
+		var reached := k < b
+		var q: Vector2 = pts[k]
+		if is_boss or is_mini:
+			var nr := 4.2 * u * sc
+			var beaten := won if is_boss else mini_done
+			var nb := Color(Toon.PAPER, a)
+			if beaten:
+				nb = Color(fillc, a)
+			elif reached:
+				nb = Color(Toon.VERMILION.lerp(Toon.PAPER, 0.55), a)  # atteint, pas encore vaincu
+			ci.draw_circle(q, nr + 1.2 * u * sc, Color(Toon.SUMI, 0.85 * a))
+			ci.draw_circle(q, nr, nb)
+			var ic := Color(Toon.WASHI, a) if beaten else Color(Toon.SUMI, 0.7 * a)
+			if is_boss:
+				_crown(ci, q + Vector2(0, 0.4 * u * sc), nr * 0.62, ic)
+			else:
+				_horns(ci, q, nr * 0.62, ic)
+		elif reached:
+			ci.draw_circle(q, 2.3 * u * sc, Color(fillc, a))
+		else:
+			ci.draw_circle(q, 2.1 * u * sc, Color(Toon.PAPER, a))
+			ci.draw_arc(q, 2.1 * u * sc, 0.0, TAU, 10, Color(Toon.SUMI, 0.35 * a), maxf(1.0, 0.9 * u), true)
+
+
+## Couronne (boss), centrée en c.
+func _crown(ci: Control, c: Vector2, s: float, col: Color) -> void:
+	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.8, 0.55) * s, c + Vector2(-0.9, -0.5) * s, c + Vector2(-0.4, 0.0) * s,
+		c + Vector2(0.0, -0.75) * s, c + Vector2(0.4, 0.0) * s, c + Vector2(0.9, -0.5) * s, c + Vector2(0.8, 0.55) * s]), col)
+
+
+## Cornes d'oni (gardien) : deux pointes et un œil.
+func _horns(ci: Control, c: Vector2, s: float, col: Color) -> void:
+	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.8, 0.25) * s, c + Vector2(-0.65, -0.85) * s, c + Vector2(-0.15, 0.0) * s]), col)
+	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0.15, 0.0) * s, c + Vector2(0.65, -0.85) * s, c + Vector2(0.8, 0.25) * s]), col)
+	ci.draw_circle(c + Vector2(0, 0.5) * s, 0.28 * s, col)
+
+
+func _check_mark(ci: Control, c: Vector2, s: float, col: Color) -> void:
+	ci.draw_polyline(PackedVector2Array([c + Vector2(-0.5, 0.0) * s, c + Vector2(-0.12, 0.4) * s, c + Vector2(0.55, -0.45) * s]),
+		col, maxf(1.5, s * 0.22), true)
+
+
+## Étiquette vermillon « NOUVEAU » accrochée au coin haut-droit (right_top) de la cartouche.
+func _new_tag(ci: Control, right_top: Vector2, sc: float) -> void:
+	var u := _u
+	var fs := maxi(1, int(8.5 * u * sc))
+	var tw := _ui.get_string_size("NOUVEAU", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var tag := Rect2(right_top.x - tw - 10.0 * u * sc, right_top.y - 7.0 * u * sc, tw + 10.0 * u * sc, float(fs) + 6.0 * u * sc)
+	UiKit.box(_box, Toon.VERMILION, maxi(1, int(3.0 * u * sc)))
+	ci.draw_style_box(_box, tag)
+	_centered(ci, _ui, "NOUVEAU", Vector2(tag.get_center().x, tag.get_center().y + float(fs) * 0.36), fs, Toon.WASHI)
+
+
+## Nom en une ligne, ou en deux (coupé au blanc le plus proche du milieu) s'il ne tient pas.
+func _name_lines(ci: Control, txt: String, x: float, y: float, fs: int, max_w: float, c: Color) -> void:
+	var tw := _title.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var sp := txt.find(" ")
+	if tw <= max_w or sp < 0:
+		_centered_fit(ci, _title, txt, Vector2(x, y + float(fs) * 0.45), fs, max_w, c)
+		return
+	var mid := int(float(txt.length()) / 2.0)
+	var cut := sp
+	while sp >= 0:
+		if absi(sp - mid) < absi(cut - mid):
+			cut = sp
+		sp = txt.find(" ", sp + 1)
+	var l1 := txt.substr(0, cut)
+	var l2 := txt.substr(cut + 1)
+	var fs2 := mini(_fit_size(_title, l1, fs, max_w), _fit_size(_title, l2, fs, max_w))
+	_centered(ci, _title, l1, Vector2(x, y), fs2, c)
+	_centered(ci, _title, l2, Vector2(x, y + float(fs2) + 1.0 * _u), fs2, c)
+
+
+## Secondes écoulées depuis que le sceau ACCOMPLI de ce monde a frappé (< 0 : pas encore).
+## La première fois de la session, il frappe quand le monde arrive au centre ; ensuite il est déjà posé.
+func _stamp_elapsed(id: int, focus: float) -> float:
+	if _stamp_at.has(id):
+		return _t - float(_stamp_at[id])
+	if _stamps_seen.has(id):
+		_stamp_at[id] = -100.0
+		return _t + 100.0
+	if focus > 0.7 and _ready_k >= 1.0 and _leaving == 0:
+		_stamps_seen[id] = true
+		_stamp_at[id] = _t + 0.1
+	return -1.0
+
+
+## Hanko vermillon cerclé d'or « ACCOMPLI » avec une couronne, posé en biais ; e = secondes depuis la frappe.
+func _stamp(ci: Control, c: Vector2, r: float, e: float) -> void:
+	var u := _u
+	var slam := 0.26
+	var k := clampf(e / slam, 0.0, 1.0)
+	var s := 1.0 + 1.6 * (1.0 - k) * (1.0 - k)
+	var a := clampf(k * 1.6, 0.0, 1.0)
+	if e > slam:
+		var e2 := e - slam
+		s = 1.0 + 0.07 * sin(e2 * 28.0) * exp(-e2 * 9.0)
+		# gouttes d'encre projetées à l'impact
+		if e2 < 0.5:
+			var sp := e2 / 0.5
+			for q in 10:
+				var ang := float(q) / 10.0 * TAU + _hash(q + 7) * 0.5
+				var dist := r * (1.0 + 0.5 * sp) * (0.9 + 0.3 * _hash(q * 3 + 1))
+				ci.draw_circle(c + Vector2(cos(ang) * dist * 1.25, sin(ang) * dist * 0.75), (2.5 - 1.5 * sp) * u,
+					Color(Toon.VERMILION, 0.8 * (1.0 - sp)))
+	var base := Vector2.ZERO
+	if ci == _paper:
+		base = -_paper.position
+	ci.draw_set_transform(base + c, -0.3, Vector2(s, s))
+	var w := r * 2.5
+	var h := r * 0.8
+	var rect := Rect2(-w / 2.0, -h / 2.0, w, h)
+	var rad := maxi(1, int(h * 0.14))
+	UiKit.box(_box, Color(Toon.SUMI, 0.25 * a), rad)
+	ci.draw_style_box(_box, Rect2(rect.position + Vector2(2.0, 3.0) * u, rect.size))
+	UiKit.box(_box, Color(Toon.VERMILION, 0.94 * a), rad, Color(Toon.GOLD, a), maxi(1, int(2.5 * u)))
+	ci.draw_style_box(_box, rect)
+	_box.set_border_width_all(0)
+	ci.draw_rect(rect.grow(-4.5 * u), Color(Toon.WASHI, 0.75 * a), false, maxf(1.0, 1.2 * u))
+	# couronne dans un rond washi
+	var cc := Vector2(-w / 2.0 + h * 0.56, 0.0)
+	var crr := h * 0.3
+	ci.draw_circle(cc, crr, Color(Toon.WASHI, 0.95 * a))
+	_crown(ci, cc + Vector2(0, 0.08 * crr), crr * 0.62, Color(Toon.VERMILION, a))
+	# texte
+	var tx0 := cc.x + crr + 4.0 * u
+	var tx1 := w / 2.0 - 8.0 * u
+	var fs := _fit_size(_title, "ACCOMPLI", maxi(1, int(h * 0.5)), tx1 - tx0)
+	_centered(ci, _title, "ACCOMPLI", Vector2((tx0 + tx1) / 2.0, float(fs) * 0.36), fs, Color(Toon.WASHI, a))
+	# grain du tampon
+	for q in 14:
+		var gp := Vector2((_hash(q * 5 + 2) - 0.5) * w * 0.92, (_hash(q * 9 + 4) - 0.5) * h * 0.85)
+		ci.draw_circle(gp, (0.6 + _hash(q + 30)) * u, Color(Toon.VERMILION.lightened(0.35), 0.55 * a))
+	ci.draw_set_transform(base, 0.0, Vector2.ONE)
 
 
 ## Sceau vermillon barré d'un trait d'encre (monde scellé).
@@ -1073,11 +1335,15 @@ func _centered(ci: CanvasItem, font: Font, txt: String, at: Vector2, fs: int, c:
 
 ## Texte centré qui rétrécit pour tenir dans max_w.
 func _centered_fit(ci: CanvasItem, font: Font, txt: String, at: Vector2, fs: int, max_w: float, c: Color) -> void:
-	var size_px := fs
-	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
+	_centered(ci, font, txt, at, _fit_size(font, txt, fs, max_w), c)
+
+
+## Taille de police (<= fs) pour que txt tienne dans max_w.
+func _fit_size(font: Font, txt: String, fs: int, max_w: float) -> int:
+	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	if tw > max_w and tw > 0.0:
-		size_px = maxi(1, int(float(fs) * max_w / tw))
-	_centered(ci, font, txt, at, size_px, c)
+		return maxi(1, int(float(fs) * max_w / tw))
+	return fs
 
 
 func _diamond(ci: CanvasItem, c: Vector2, s: float, col: Color, filled: bool) -> void:

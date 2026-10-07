@@ -15,9 +15,9 @@ const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const BotShapes = preload("res://scripts/bot_shapes.gd")
 const BotUi = preload("res://scripts/bot_ui.gd")
 const MODES := ["campaign", "powers", "ui", "stress"]
-const ROOM_TIMEOUT := {"campaign": 70.0, "powers": 100.0, "stress": 150.0}  # secondes de jeu avant de déclarer une salle bloquée
-const GAME_LIMIT := {"campaign": 4000.0, "powers": 12000.0, "stress": 3000.0, "ui": 1.0e9}  # secondes de jeu
-const WALL_LIMIT := 660.0  # secondes réelles (le CI coupe à 12 min)
+const ROOM_TIMEOUT := {"campaign": 90.0, "powers": 120.0, "stress": 170.0}  # secondes de jeu avant de déclarer un combat bloqué (marche de l'étape comprise)
+const GAME_LIMIT := {"campaign": 5200.0, "powers": 14000.0, "stress": 3800.0, "ui": 1.0e9}  # secondes de jeu
+const WALL_LIMIT := 900.0  # secondes réelles (le CI coupe à 16 min)
 const STROKE_KINDS := ["plain", "loop", "zigzag", "straight", "return", "enso", "hook"]
 const POWER_GROUP := 6  # pouvoirs suivis par partie (mode powers)
 const MAX_POWER_RUNS := 14
@@ -337,8 +337,13 @@ func _play(dt: float) -> void:
 		_room_t = 0.0
 		if main.arena.gate_open:
 			main.hero.position = main.arena.gate_pos
-	if _death_test and not main.in_hub:
-		return  # il se laisse frapper
+		elif bool(main.arena.stage) and int(main._enc) < 0:
+			# étape : on pose le héros à l'entrée de la zone suivante
+			var g: Vector3 = main.arena.next_goal()
+			if g != Vector3.INF:
+				main.hero.position = g
+	if _death_test and not main.in_hub and (int(main._enc) >= 0 or not bool(main.arena.stage) or not main.enemies.is_empty()):
+		return  # il se laisse frapper (hors combat dans une étape : il marche jusqu'à la zone suivante)
 	if _measure_t > 0.0:
 		# stress : salle nettoyée, on laisse retomber les effets avant de compter
 		_measure_t -= dt
@@ -350,7 +355,7 @@ func _play(dt: float) -> void:
 		if not main.hero.dashing and _force_hurts():
 			_force_pending = false
 		return
-	if mode == "powers" and not main.in_hub and main.bosses.is_empty() and not main.arena.gate_open and fmod(_room_t, 9.0) < 2.0:
+	if mode == "powers" and not main.in_hub and main.bosses.is_empty() and not bool(main._room_done) and fmod(_room_t, 9.0) < 2.0:
 		return  # mode powers : il se laisse approcher (coups reçus : écume, utsusemi, hōō)
 	_t -= dt
 	if _t > 0.0 or main.hero.dashing or main.touching:
@@ -389,9 +394,9 @@ func _play(dt: float) -> void:
 	if target == Vector3.INF and is_instance_valid(main._shrine) and (mode != "powers" or _take_shrine):
 		target = main._shrine.position  # le robot prend les pactes (pour les tester)
 	if target == Vector3.INF:
-		if main.arena.gate_open:
-			target = main.arena.gate_pos
-		else:
+		# hors combat : recoin à fouiller, entrée de la zone suivante de l'étape, ou torii ouvert
+		target = main.bot_goal()
+		if target == Vector3.INF:
 			return
 	target = Vector3(target.x, 0, target.z)
 	if mode == "powers" and fight:
@@ -592,9 +597,19 @@ func _uncovered() -> Array:
 
 func _next_group() -> Array:
 	var g: Array = _uncovered().slice(0, POWER_GROUP)
-	# Lame rouge et Hibana n'agissent que sur des ennemis en feu : Braise les accompagne
-	if ("fire_edge" in g or "fire_spark" in g) and not "fire_burn" in g and not "fire_fudo" in g:
-		g.append("fire_burn")
+	# un pouvoir qui en demande un autre (needs : Lame rouge et Braise, améliorations de figure et leur
+	# technique, Kasha et la toupie…) vient avec le premier de sa liste
+	for id in g.duplicate():
+		var d: Dictionary = PowerData.POWERS.get(String(id), {})
+		var needs: Array = d.get("needs", [])
+		if needs.is_empty():
+			continue
+		var ok := false
+		for n in needs:
+			if String(n) in g:
+				ok = true
+		if not ok:
+			g.append(String(needs[0]))
 	return g
 
 

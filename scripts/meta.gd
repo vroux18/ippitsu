@@ -27,7 +27,7 @@ const LINES := {
 	"paper": {"name": "Peau de papier", "kanji": "士", "costs": [80, 170, 300],
 		"fmt": "PV max +%d", "base": 0, "step": 1},
 	"breath": {"name": "Second souffle", "kanji": "風", "costs": [200, 420],
-		"fmt": "%d filets par salle", "base": 1, "step": 1},
+		"fmt": "%d filets par combat", "base": 1, "step": 1},
 	"purse": {"name": "Bourse", "kanji": "円", "costs": [25, 50, 85, 130, 180],
 		"fmt": "Encre gagnée +%d %%", "base": 0, "step": 5},
 	"choice": {"name": "Choix", "kanji": "道", "costs": [100, 200, 340],
@@ -384,9 +384,9 @@ func print_how(id: String, short := false) -> String:
 	var wn: String = WORLD_NAMES[wi - 1] if wi >= 1 and wi <= 5 else ""
 	match String(p["c"]):
 		"room":
-			return "Salle 4" if short else "Atteins la salle 4 du monde %s." % wn
+			return "3 combats" if short else "Remporte 3 combats dans le monde %s." % wn
 		"mini":
-			return "Gardien" if short else "Bats le gardien (salle %d) du monde %s." % [MINI_ROOM, wn]
+			return "Gardien" if short else "Bats le gardien (étape 4) du monde %s." % wn
 		"win":
 			return "Victoire" if short else "Remporte le monde %s." % wn
 		"curse":

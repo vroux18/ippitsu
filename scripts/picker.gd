@@ -43,6 +43,7 @@ var _motes: Array = []  # poussière d'or : [x 0..1, vitesse, phase, taille]
 var _ui := FontVariation.new()
 var _title := FontVariation.new()
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
+var _big := 40.0  # rayon du médaillon, commun aux cartes (fixé par la mise en page)
 
 
 func _ready() -> void:
@@ -173,13 +174,42 @@ func _draw() -> void:
 	var revealed := 0.0
 	if leg:
 		revealed = 1.0 if _chosen >= 0 else clampf((_t - _reveal_start(_leg_index) - REVEAL_DUR * 0.5) / 0.4, 0.0, 1.0)
+	# mise en page : titre, cartes ajustées à leur contenu, bulle de détail, CHOISIR et relance
+	# forment un seul bloc, centré verticalement quelle que soit la hauteur de l'écran
+	var n := _infos.size()
+	var gap := 8.0 * u
+	var side := 12.0 * u
+	var cw := minf((w - 2.0 * side - gap * float(n - 1)) / maxf(1.0, float(n)), 150.0 * u)
+	var s := minf(u, cw / 116.0)
+	_big = minf(cw * 0.36, 44.0 * u)
+	var ch := 0.0
+	var bub_h := 70.0 * u  # au moins la place de l'invitation « Touche une carte »
+	for i in n:
+		ch = maxf(ch, _need_h(_infos[i], _id(i), cw, _big, s))
+		bub_h = maxf(bub_h, _bubble_h(_infos[i], w - 28.0 * u, u))
+	var head := 64.0 * u
+	var conf_h := 46.0 * u
+	var tail := 16.0 * u + bub_h + 12.0 * u + conf_h
+	if rerolls > 0:
+		tail += 12.0 * u + 44.0 * u
+	var avail := h - 32.0 * u
+	var over := head + ch + tail - avail
+	if over > 0.0:
+		# écran trop court : le médaillon rapetisse d'abord, puis la carte
+		var cut := minf(over / 2.0, _big - 24.0 * u)
+		if cut > 0.0:
+			_big -= cut
+			ch -= cut * 2.0
+		ch = maxf(ch - maxf(0.0, head + ch + tail - avail), 120.0 * u)
+	var gt := maxf(12.0 * u, (h - (head + ch + tail)) * 0.47)
+	var gy := gt + 64.0 * u + ch * 0.5  # centre des cartes : la lueur les suit
 	# voile d'encre et lueur (prusse, sanctuaire, ou or pour un légendaire)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.86 * fade))
 	var glow := Color("#5E1A14") if _curse_mode else Toon.PRUSSIAN
-	draw_circle(Vector2(w / 2.0, h * 0.38), w * 0.75, Color(glow, 0.18 * fade))
+	draw_circle(Vector2(w / 2.0, gy), w * 0.75, Color(glow, 0.18 * fade))
 	if leg:
 		var pulse := 0.5 + 0.5 * sin(_t * 2.2)
-		draw_circle(Vector2(w / 2.0, h * 0.38), w * (0.55 + 0.05 * pulse), Color(GOLD_HI, (0.07 + 0.04 * pulse) * revealed * fade))
+		draw_circle(Vector2(w / 2.0, gy), w * (0.55 + 0.05 * pulse), Color(GOLD_HI, (0.07 + 0.04 * pulse) * revealed * fade))
 		_draw_motes(w, h, u, revealed * fade)
 
 	# titre
@@ -190,18 +220,12 @@ func _draw() -> void:
 		sub = "Un rouleau légendaire !"
 		title_col = Toon.WASHI.lerp(GOLD_HI, revealed)
 	var tfs := int(28 * u)
-	var ty := h * 0.07 + 20 * u - 16 * u * (1.0 - fade)
+	var ty := gt + 22.0 * u - 16 * u * (1.0 - fade)
 	UiKit.text(self, _title, title, Vector2(w / 2.0, ty), tfs, Color(title_col, fade))
 	UiKit.text(self, _ui, _p(sub), Vector2(w / 2.0, ty + 22 * u), int(12 * u), Color(GOLD_HI if leg else Toon.WASHI, (0.85 if leg else 0.55) * fade))
 
 	# cartes côte à côte
-	var n := _infos.size()
-	var gap := 8.0 * u
-	var side := 12.0 * u
-	var cw := minf((w - 2.0 * side - gap * float(n - 1)) / maxf(1.0, float(n)), 150.0 * u)
-	var bottom := h - (78.0 * u if rerolls > 0 else 22.0 * u)
-	var top := ty + 42.0 * u
-	var ch := minf(300.0 * u, minf(cw * 2.7, (bottom - top) * 0.56))
+	var top := gt + head
 	var x0 := (w - (cw * float(n) + gap * float(n - 1))) / 2.0
 	_rects.clear()
 	for i in n:
@@ -233,26 +257,28 @@ func _draw() -> void:
 		r = Rect2(r.get_center() - r.size * grow / 2.0, r.size * grow)
 		_card(r, info, _id(i), u, a, i)
 
-	# bulle de détail et bouton CHOISIR
-	var conf_h := 46.0 * u
-	_confirm_rect = Rect2(Vector2(w / 2.0 - 90.0 * u, bottom - conf_h - 6.0 * u), Vector2(180.0 * u, conf_h))
-	var bub := Rect2(Vector2(14.0 * u, top + ch + 16.0 * u), Vector2(w - 28.0 * u, _confirm_rect.position.y - top - ch - 28.0 * u))
+	# bulle de détail juste sous les cartes, bouton CHOISIR collé sous la bulle
+	var bub := Rect2(Vector2(14.0 * u, top + ch + 16.0 * u), Vector2(w - 28.0 * u, bub_h))
+	var bh := bub_h
+	if _sel >= 0 and _sel < n:
+		bh = minf(_bubble_h(_infos[_sel], bub.size.x, u), bub_h)
+	_confirm_rect = Rect2(Vector2(w / 2.0 - 90.0 * u, bub.position.y + bh + 12.0 * u), Vector2(180.0 * u, conf_h))
 	var ba := fade * (UiKit.ease_out(_sel_t / 0.2) if _chosen < 0 else 1.0)
 	if _sel >= 0 and _sel < n:
 		var sc: Rect2 = _rects[_sel]
-		_bubble(bub, _infos[_sel], _id(_sel), sc.get_center().x, u, ba)
+		_bubble(Rect2(bub.position, Vector2(bub.size.x, bh)), _infos[_sel], _id(_sel), sc.get_center().x, u, ba)
 		_confirm(u, ba)
 	elif _t >= _ready_time():
 		# invitation : on touche une carte pour la lire
 		var ia := fade * clampf((_t - _ready_time()) / 0.3, 0.0, 1.0)
-		var hc := Vector2(w / 2.0, bub.position.y + 34.0 * u)
+		var hc := Vector2(w / 2.0, bub.position.y + 26.0 * u)
 		UiKit.glyph(self, "t_touch", hc + Vector2(0, -2.0 * u * sin(_t * 4.0)), 9.0 * u, Toon.WASHI, UiKit.NONE, 0.7 * ia)
 		UiKit.text(self, _ui, "Touche une carte pour la lire", hc + Vector2(0, 28.0 * u), int(11 * u), Color(Toon.WASHI, 0.6 * ia))
 
 	# relance
 	_reroll_rect = Rect2()
 	if rerolls > 0 and _chosen < 0 and n > 0:
-		_reroll_rect = Rect2(Vector2(w / 2.0 - 80 * u, h - 66 * u), Vector2(160 * u, 44 * u))
+		_reroll_rect = Rect2(Vector2(w / 2.0 - 80 * u, top + ch + tail - 44 * u), Vector2(160 * u, 44 * u))
 		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * fade), 999, Color(Toon.WASHI, 0.7 * fade), int(1.5 * u)), _reroll_rect)
 		var fs := int(13 * u)
 		var rc := _reroll_rect.get_center()
@@ -370,7 +396,7 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 	draw_style_box(_sb, r)
 
 	var cx := r.get_center().x
-	var big := minf(r.size.x * 0.36, minf(r.size.y * 0.17, 46.0 * u))
+	var big := _big
 	var mc := Vector2(cx, r.position.y + 22.0 * s + big + 6.0 * s)
 	# halo de la couleur d'école derrière le médaillon
 	var mcol: Color = CURSE_COL if is_curse else (Color("#8C8FA8") if is_pass else col)
@@ -470,6 +496,65 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 	# reflet qui traverse la carte (épique, légendaire)
 	if rank >= 2:
 		_shine(r, u, a, i, Color(GOLD_HI, 0.2) if leg else Color(1, 1, 1, 0.16))
+
+
+## Hauteur utile d'une carte (même enchaînement que _face) : la carte s'arrête sous son contenu.
+func _need_h(info: Dictionary, id: String, cw: float, big: float, s: float) -> float:
+	var rank := int(info.get("rarity_rank", -1))
+	var nm := _p(String(info.get("name", ""))) if rank < 0 else UiKit.power_label(id)
+	var nfs := int(16 * s)
+	var nlines := _wrap(UiKit.TITLE_FONT, nm, nfs, cw - 12.0 * s)
+	if nlines.size() > 1:
+		nfs = int(13 * s)
+		nlines = _wrap(UiKit.TITLE_FONT, nm, nfs, cw - 12.0 * s)
+	var y := 22.0 * s + 2.0 * big + 6.0 * s + 16.0 * s
+	for k in mini(nlines.size(), 2):
+		y += float(nfs) * (0.95 if k == 0 else 1.05)
+	y += 24.0 * s
+	var efs := int(10.5 * s)
+	var lh := 13.5 * s
+	var tw := cw - 14.0 * s
+	if rank < 0:
+		# malédiction ou « Passer » : lignes de _curse_lines, puis une marge
+		var t := _p(String(info.get("text", "")))
+		var count := 0
+		if t.contains("·"):
+			var parts := t.split("·")
+			for k in 2:
+				count += mini(_wrap(_ui, ("- " if k == 0 else "+ ") + String(parts[k]).strip_edges(), efs, tw).size(), 2)
+			y += lh * 0.4
+		else:
+			count = mini(_wrap(_ui, t, efs, tw).size(), 3)
+		return y + float(maxi(count - 1, 0)) * lh + 18.0 * s
+	var m := mini(_wrap(_ui, _short(id, info), efs, tw).size(), 3)
+	y += float(maxi(m - 1, 0)) * lh + 4.0 * s
+	# pied : pastilles d'affinité (et la gélule BONUS au-dessus si le palier tombe)
+	var goal := int(info.get("aff_goal", 0))
+	var school := String(info.get("school", ""))
+	if goal <= 0 or school == "" or school == "ink":
+		return y + 14.0 * s
+	if bool(info.get("aff_hit", false)):
+		return y + 49.0 * s
+	return y + 31.5 * s
+
+
+## Hauteur de la bulle de détail d'une carte (même enchaînement que _bubble).
+func _bubble_h(info: Dictionary, bw: float, u: float) -> float:
+	var rank := int(info.get("rarity_rank", -1))
+	var pad := 14.0 * u
+	var body := _wrap(_ui, _p(String(info.get("text", ""))), int(11 * u), bw - pad * 2.0)
+	var hgt := pad + 18.0 * u
+	if rank >= 0:
+		hgt += 22.0 * u
+	hgt += float(mini(body.size(), 4)) * 14.5 * u + 4.0 * u
+	if rank >= 0 and _p(String(info.get("stat", ""))) != "":
+		hgt += 18.0 * u
+	if rank >= 0 and int(info.get("aff_goal", 0)) > 0:
+		if bool(info.get("aff_hit", false)) or _p(String(info.get("aff_text", ""))) != "":
+			hgt += 15.0 * u
+	if bool(info.get("synergy_on", false)):
+		hgt += 15.0 * u
+	return hgt + pad * 0.6
 
 
 ## Ligne courte de la carte : champ « short », valeurs du niveau proposé.
@@ -603,17 +688,7 @@ func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: f
 	var syn := ""
 	if bool(info.get("synergy_on", false)):
 		syn = "+ " + _p(String(info.get("synergy", "")))
-	var hgt := pad + 18.0 * u
-	if rank >= 0:
-		hgt += 22.0 * u
-	hgt += float(body.size()) * lh + 4.0 * u
-	if stat != "" and rank >= 0:
-		hgt += 18.0 * u
-	if aff_line != "":
-		hgt += 15.0 * u
-	if syn != "":
-		hgt += 15.0 * u
-	hgt += pad * 0.6
+	var hgt := _bubble_h(info, bub.size.x, u)
 	var box := Rect2(bub.position, Vector2(bub.size.x, minf(hgt, bub.size.y)))
 	# papier et pointe vers la carte levée
 	var tipx := clampf(px, box.position.x + 24.0 * u, box.end.x - 24.0 * u)

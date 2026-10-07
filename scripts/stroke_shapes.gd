@@ -10,10 +10,10 @@ const MIN_LENGTH := 0.5         # trait trop court : aucune forme
 const SIMPLIFY_TOL := 0.3       # tolérance RDP pour zigzag / crochet
 
 # Ensō (cercle ouvert)
-const ENSO_GAP := 1.5
-const ENSO_MIN_R := 2.0
-const ENSO_ROUND := 0.2
-const ENSO_MIN_TURN := 270.0
+const ENSO_GAP := 1.5            # écart fin-début toléré (au moins ; grandit avec le rayon)
+const ENSO_MIN_R := 1.6
+const ENSO_ROUND := 0.34          # un cercle à main levée, un peu ovale ou cabossé, passe
+const ENSO_MIN_TURN := 245.0
 # Uzu (boucle)
 const LOOP_TURN := 300.0
 const LOOP_R_MIN := 0.6
@@ -137,12 +137,13 @@ static func turning_deg(points: PackedVector3Array) -> float:
 # ---------------------------------------------------------------- détecteurs
 
 static func _detect_enso(p: PackedVector3Array) -> Dictionary:
-	if p[0].distance_to(p[p.size() - 1]) > ENSO_GAP:
-		return {}
 	if absf(turning_deg(p)) < ENSO_MIN_TURN:
 		return {}
 	var c := _centroid(p)
 	var st := _radius_stats(p, c)
+	# un grand cercle peut rester plus ouvert : l'écart toléré suit le rayon
+	if p[0].distance_to(p[p.size() - 1]) > maxf(ENSO_GAP, st.x * 1.1):
+		return {}
 	if st.x < ENSO_MIN_R or st.y / st.x >= ENSO_ROUND:
 		return {}
 	return {"shape": "enso", "center": c, "radius": st.x}
@@ -354,6 +355,209 @@ static func _flat_dir(v: Vector3) -> Vector3:
 	return f.normalized()
 
 
+# ---------------------------------------------------------------- diagnostic (dojo)
+# Trait non reconnu : la figure la plus proche et la condition qui a manqué, avec les mêmes seuils que detect().
+
+const FIG_NAMES := {"enso": "un ensō", "loop": "une boucle", "return": "un aller-retour", "zigzag": "un zigzag", "straight": "un trait droit", "hook": "un crochet"}
+const NEAR_MIN := 0.35  # sous ce score : trait simple, aucune figure en vue
+const ZZ_SOFT := 50.0   # virage mou : presque un angle de zigzag
+
+
+## Pourquoi le trait n'est pas une figure, en une phrase (vide s'il est reconnu).
+## Ex. : « Presque un ensō : cercle trop ouvert ».
+static func explain(points: PackedVector3Array) -> String:
+	return describe(near_miss(points))
+
+
+## Phrase d'un résultat de near_miss() (vide si le trait est reconnu).
+static func describe(m: Dictionary) -> String:
+	if m.is_empty():
+		return ""
+	var sh := String(m.get("shape", ""))
+	var why := String(m.get("reason", ""))
+	if sh == "":
+		if why == "trop court":
+			return "Trait trop court"
+		return "Trait simple : aucune figure"
+	return "Presque %s : %s" % [String(FIG_NAMES.get(sh, sh)), why]
+
+
+## Figure la plus proche d'un trait non reconnu.
+## Renvoie {} si le trait est reconnu, sinon {"shape": figure ("" : aucune), "reason": String, "score": 0..1}.
+static func near_miss(points: PackedVector3Array) -> Dictionary:
+	var p := _clean(points)
+	if p.size() < 3 or length(p) < MIN_LENGTH:
+		return {"shape": "", "reason": "trop court", "score": 0.0}
+	if not detect(points).is_empty():
+		return {}
+	var s := simplify(p, SIMPLIFY_TOL)
+	var best: Dictionary = {"shape": "", "reason": "aucune figure", "score": 0.0}
+	for c: Dictionary in [_miss_enso(p), _miss_loop(p), _miss_return(p), _miss_zigzag(s), _miss_straight(p), _miss_hook(s)]:
+		if float(c["score"]) > float(best["score"]):
+			best = c
+	if float(best["score"]) < NEAR_MIN:
+		return {"shape": "", "reason": "aucune figure", "score": float(best["score"])}
+	return best
+
+
+## Score = porte × produit des conditions (rapport ≥ 1 : tenue) ; la raison est la condition la plus manquée.
+static func _worst(shape: String, checks: Array, gate: float) -> Dictionary:
+	var score := clampf(gate, 0.0, 1.0)
+	var reason := ""
+	var low := 2.0
+	for ck: Array in checks:
+		var r := clampf(float(ck[0]), 0.0, 1.0)
+		score *= r
+		if r < low:
+			low = r
+			reason = String(ck[1])
+	return {"shape": shape, "reason": reason, "score": score}
+
+
+static func _miss_enso(p: PackedVector3Array) -> Dictionary:
+	var turn := absf(turning_deg(p))
+	var c := _centroid(p)
+	var st := _radius_stats(p, c)
+	var gap := p[0].distance_to(p[p.size() - 1])
+	var gap_max := maxf(ENSO_GAP, st.x * 1.1)
+	var rnd := st.y / maxf(st.x, EPS)
+	var checks := [
+		[turn / ENSO_MIN_TURN, "fais presque tout le tour"],
+		[gap_max / maxf(gap, EPS), "cercle trop ouvert"],
+		[st.x / ENSO_MIN_R, "cercle trop petit"],
+		[ENSO_ROUND / maxf(rnd, EPS), "pas assez rond"],
+	]
+	# il faut au moins une bonne moitié de tour pour parler de cercle
+	return _worst("enso", checks, (turn - 120.0) / 120.0)
+
+
+static func _miss_loop(p: PackedVector3Array) -> Dictionary:
+	var n := p.size()
+	var best: Dictionary = {"shape": "loop", "reason": "", "score": 0.0}
+	var crossed := false
+	for i in range(n - 1):
+		for j in range(i + 2, n - 1):
+			var t := _seg_hit(p[i], p[i + 1], p[j], p[j + 1])
+			if t < 0.0:
+				continue
+			crossed = true
+			var x := p[i].lerp(p[i + 1], t)
+			var sub := PackedVector3Array([x])
+			sub.append_array(p.slice(i + 1, j + 1))
+			sub.append(x)
+			var st := _radius_stats(sub, _centroid(sub))
+			var a := maxi(0, i - LOOP_PAD)
+			var b := mini(n - 1, j + 1 + LOOP_PAD)
+			var turn := absf(turning_deg(p.slice(a, b + 1)))
+			var checks := [
+				[st.x / LOOP_R_MIN, "boucle trop petite"],
+				[LOOP_R_MAX / maxf(st.x, EPS), "boucle trop grande"],
+				[turn / LOOP_TURN, "boucle trop plate"],
+			]
+			var r := _worst("loop", checks, 1.0)
+			if float(r["score"]) > float(best["score"]):
+				best = r
+	if not crossed:
+		# ça tourne, mais le trait ne se recoupe pas : la boucle reste ouverte
+		var tt := absf(turning_deg(p))
+		best = {"shape": "loop", "reason": "recoupe ton propre trait", "score": clampf((tt - 180.0) / 180.0, 0.0, 1.0) * 0.8}
+	return best
+
+
+static func _miss_return(p: PackedVector3Array) -> Dictionary:
+	var start := p[0]
+	var k := 0
+	var far := 0.0
+	for i in range(p.size()):
+		var d := p[i].distance_to(start)
+		if d > far:
+			far = d
+			k = i
+	# part du trait après le point le plus loin : sans retour, ce n'est pas un aller-retour
+	var back := 1.0 - float(k) / float(maxi(p.size() - 1, 1))
+	if back < 0.15 or far < 0.5:
+		return {"shape": "return", "reason": "", "score": 0.0}
+	var gap := start.distance_to(p[p.size() - 1])
+	var aller := _resample_n(p.slice(0, k + 1), RET_SAMPLES)
+	var back_src := p.slice(k)
+	back_src.reverse()
+	var retour := _resample_n(back_src, RET_SAMPLES)
+	var dev := 0.0
+	for s in range(RET_SAMPLES):
+		dev += aller[s].distance_to(retour[s])
+	dev /= float(RET_SAMPLES)
+	var checks := [
+		[RET_GAP / maxf(gap, EPS), "reviens jusqu'au départ"],
+		[far / RET_FAR, "aller trop court"],
+		[RET_DEV / maxf(dev, EPS), "retour trop écarté de l'aller"],
+	]
+	return _worst("return", checks, back / 0.3)
+
+
+static func _miss_zigzag(s: PackedVector3Array) -> Dictionary:
+	var sharp := 0
+	var soft := 0
+	var n_short := 0
+	var n_long := 0
+	for i in range(1, s.size() - 1):
+		var a := s[i] - s[i - 1]
+		var b := s[i + 1] - s[i]
+		var ang := _angle_change(a, b)
+		if ang < ZZ_SOFT:
+			continue
+		var la := a.length()
+		var lb := b.length()
+		if la < ZZ_SEG_MIN or lb < ZZ_SEG_MIN:
+			n_short += 1
+		elif la > ZZ_SEG_MAX or lb > ZZ_SEG_MAX:
+			n_long += 1
+		elif ang > ZZ_ANGLE:
+			sharp += 1
+		else:
+			soft += 1
+	var reason := "il faut deux virages nets"
+	if soft > 0 and soft >= n_short and soft >= n_long:
+		reason = "angles trop doux"
+	elif n_short > 0 and n_short >= n_long:
+		reason = "branches trop courtes"
+	elif n_long > 0:
+		reason = "branches trop longues"
+	var score := (float(sharp) + 0.6 * float(soft + n_short + n_long)) / float(ZZ_COUNT)
+	return {"shape": "zigzag", "reason": reason, "score": clampf(score, 0.0, 0.95)}
+
+
+static func _miss_straight(p: PackedVector3Array) -> Dictionary:
+	var a := p[0]
+	var b := p[p.size() - 1]
+	var dev := 0.0
+	for q: Vector3 in p:
+		dev = maxf(dev, _seg_dist(q, a, b))
+	var checks := [
+		[length(p) / ST_LEN, "trop court"],
+		[ST_DEV / maxf(dev, EPS), "trop sinueux pour un trait droit"],
+	]
+	# un trait franchement courbe ou cassé n'est pas « presque droit »
+	return _worst("straight", checks, (1.6 - dev) / 1.2)
+
+
+static func _miss_hook(s: PackedVector3Array) -> Dictionary:
+	var n := s.size()
+	if n < 3:
+		return {"shape": "hook", "reason": "", "score": 0.0}
+	var last := s[n - 1] - s[n - 2]
+	var prev := s[n - 2] - s[n - 3]
+	var ang := _angle_change(prev, last)
+	if ang < 60.0:
+		return {"shape": "hook", "reason": "", "score": 0.0}
+	var checks := [
+		[last.length() / HK_LAST, "crochet trop court"],
+		[prev.length() / HK_PREV, "premier trait trop court"],
+		[ang / HK_MIN, "repars plus en arrière"],
+		[HK_MAX / ang, "trop replié, presque un aller-retour"],
+	]
+	return _worst("hook", checks, (ang - 60.0) / 50.0)
+
+
 # ---------------------------------------------------------------- auto-test
 
 static func _resample_step(p: PackedVector3Array, step: float) -> PackedVector3Array:
@@ -389,6 +593,13 @@ static func self_test() -> Array:
 		var rr := 2.5 + 0.1 * sin(5.0 * t)
 		circ.append(Vector3(3.0 + rr * cos(t), 0.0, 1.0 + rr * sin(t)))
 	_check(fails, "enso", _resample_step(circ, step), "enso")
+	# Ensō à main levée : ovale, cabossé, ouvert d'un quart de rayon de plus
+	var ov := PackedVector3Array()
+	for k in range(101):
+		var t2 := (TAU - 0.55) * float(k) / 100.0
+		var r2 := 2.2 + 0.35 * sin(3.0 * t2 + 0.7)
+		ov.append(Vector3(r2 * 1.25 * cos(t2), 0.0, r2 * 0.85 * sin(t2)))
+	_check(fails, "enso main levée", _resample_step(ov, step), "enso")
 	# Uzu : boucle (trochoïde) au milieu d'un trait droit
 	var R := 1.4
 	var sp := 0.5

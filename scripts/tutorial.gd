@@ -1,25 +1,30 @@
 extends Control
 ## Tutoriel : 10 étapes guidées (trancher, enchaîner, esquiver, zone rouge, puis les six formes).
 ## Une carte en haut explique l'étape et rejoue le geste à faire avec un doigt animé.
+## Les techniques des figures (débloquées en partie par les rouleaux de figure) sont prêtées le temps du tutoriel.
 ## main appelle begin(), on_dash_end(...), on_dodge() et is_over_ui() ; le tutoriel émet finished.
+## Mode libre (dojo, scripts/dojo.gd) : begin_dojo() ; les mêmes appels lui sont transmis, plus on_ultimate() ;
+## le tutoriel émet alors dojo_finished.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const Dojo = preload("res://scripts/dojo.gd")
 
 signal finished
+signal dojo_finished
 
 const STEPS := [
 	{"title": "Trancher", "hint": "Glisse le doigt sur l'écran : ton trait part du héros. Traverse le squelette.", "gesture": "line", "goal": "kill1"},
 	{"title": "Enchaîner", "hint": "Deux squelettes d'un seul trait : dégâts ×1,5.", "gesture": "diag", "goal": "kill2"},
 	{"title": "Esquive", "hint": "Un simple tap sur l'écran : le héros bondit loin du danger. Pendant un bond, rien ne te touche.", "gesture": "flick", "goal": "dodge"},
 	{"title": "Zone rouge", "hint": "Le rouge annonce un coup. Sors du cercle avant qu'il soit plein : un bond ou un trait.", "gesture": "zone", "goal": "zone"},
-	{"title": "Trait droit", "hint": "Un long trait bien droit : l'iaï tranche toute la ligne.", "gesture": "straight", "goal": "straight"},
-	{"title": "Kaeshi", "hint": "Aller-retour : file tout droit, puis reviens sur ton trait jusqu'au départ. Garde et renvoi des tirs.", "gesture": "return", "goal": "return"},
-	{"title": "Kagi", "hint": "Un trait, puis repars en biais vers l'arrière, comme un crochet : estoc dans le dos.", "gesture": "hook", "goal": "hook"},
-	{"title": "Boucle", "hint": "Fais une petite boucle dans ton trait : le héros tourne en toupie.", "gesture": "loop", "goal": "loop"},
-	{"title": "Zigzag", "hint": "Trace un zigzag : ruée éclair et foudre en chaîne.", "gesture": "zigzag", "goal": "zigzag"},
-	{"title": "Ensō", "hint": "Un grand cercle presque fermé : le héros bondit et frappe le sol.", "gesture": "enso", "goal": "enso"},
+	{"title": "Trait droit", "hint": "Un long trait droit. Figure = +1 chaîne ; son rouleau débloque la technique (prêtée ici : l'iaï).", "gesture": "straight", "goal": "straight"},
+	{"title": "Kaeshi", "hint": "Aller-retour : file tout droit, puis reviens jusqu'au départ. Technique prêtée ici : la garde.", "gesture": "return", "goal": "return"},
+	{"title": "Kagi", "hint": "Un trait, puis repars en biais vers l'arrière, comme un crochet. Technique prêtée ici : l'estoc.", "gesture": "hook", "goal": "hook"},
+	{"title": "Boucle", "hint": "Fais une petite boucle dans ton trait. Technique prêtée ici : la toupie (rouleau Tourbillon).", "gesture": "loop", "goal": "loop"},
+	{"title": "Zigzag", "hint": "Trace un zigzag. Technique prêtée ici : l'éclair en chaîne (rouleau de figure en partie).", "gesture": "zigzag", "goal": "zigzag"},
+	{"title": "Ensō", "hint": "Un grand cercle presque fermé. Technique prêtée ici : le bond et la frappe au sol.", "gesture": "enso", "goal": "enso"},
 ]
 const SHAPE_FR := {"loop": "une boucle", "zigzag": "un zigzag", "return": "un aller-retour", "straight": "un trait droit", "enso": "un ensō", "hook": "un crochet"}
 const SKIP_FAILS := 3      # échecs avant de proposer « passer l'étape »
@@ -43,6 +48,7 @@ var _skip: Control
 var _quit: Control
 var _ui := FontVariation.new()
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
+var dojo: Control  # entraînement libre
 
 
 func _ready() -> void:
@@ -63,17 +69,63 @@ func _ready() -> void:
 	_quit.icon = "home"
 	add_child(_quit)
 	_quit.pressed.connect(_finish)
+	dojo = Dojo.new()
+	add_child(dojo)
+	dojo.closed.connect(_on_dojo_closed)
 
 
 func begin() -> void:
+	abort_dojo()
+	visible = true
+	_quit.visible = true
+	step = -1
+	# les techniques des figures sont prêtées pendant le tutoriel (en partie : rouleaux de figure)
+	if main.powers != null:
+		main.powers.demo = true
+	_next()
+
+
+## Dojo : entraînement libre (mêmes réglages de main que le tutoriel, sans étapes).
+func begin_dojo() -> void:
+	_clear_world()
 	visible = true
 	step = -1
-	_next()
+	_done_t = -1.0
+	_dodged = false
+	_skip.visible = false
+	_quit.visible = false
+	dojo.main = main
+	dojo.begin()
+	queue_redraw()  # plus de carte d'étape
+
+
+func in_dojo() -> bool:
+	return dojo != null and bool(dojo.active)
+
+
+## Arrêt sans retour à l'accueil (reprise du robot testeur, nouveau tutoriel).
+func abort_dojo() -> void:
+	if in_dojo():
+		dojo.stop(false)
+
+
+func _on_dojo_closed() -> void:
+	visible = false
+	_quit.visible = true
+	dojo_finished.emit()
+
+
+## Ultime lancé (double tap) : seul le dojo le compte.
+func on_ultimate() -> void:
+	if in_dojo():
+		dojo.on_ultimate()
 
 
 func is_over_ui(p: Vector2) -> bool:
 	if not visible:
 		return false
+	if in_dojo():
+		return dojo.is_over_ui(p)
 	if _skip.visible and Rect2(_skip.position, _skip.size).grow(6).has_point(p):
 		return true
 	return Rect2(_quit.position, _quit.size).grow(6).has_point(p) or _card_rect().has_point(p)
@@ -87,6 +139,9 @@ func _goal() -> String:
 
 ## Bond d'esquive (petit coup de doigt) : main l'appelle au lancement du bond.
 func on_dodge() -> void:
+	if in_dojo():
+		dojo.on_dodge()
+		return
 	if not visible or _done_t >= 0.0 or _goal() == "":
 		return
 	_dodged = true
@@ -96,6 +151,9 @@ func on_dodge() -> void:
 
 ## Fin d'une ruée : l'étape est-elle réussie ?
 func on_dash_end(_pos: Vector3, kills: int, shape: String) -> void:
+	if in_dojo():
+		dojo.on_dash_end(_pos, kills, shape)
+		return
 	var goal := _goal()
 	var was_dodge := _dodged
 	_dodged = false
@@ -193,6 +251,8 @@ func _finish() -> void:
 	_clear_world()
 	visible = false
 	step = -1
+	if main.powers != null:
+		main.powers.demo = false
 	finished.emit()
 
 
@@ -232,6 +292,10 @@ func _process(_delta: float) -> void:
 	if not visible:
 		return
 	size = get_viewport_rect().size
+	if in_dojo():
+		_skip.visible = false
+		_quit.visible = false
+		return
 	var real := UiKit.real_delta()
 	_t += real
 	if _done_t >= 0.0:

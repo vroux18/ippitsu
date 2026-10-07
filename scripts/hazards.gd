@@ -46,6 +46,7 @@ var _wave_t := 0.0  # temps avant la prochaine déferlante
 var _band: Node3D
 var _band_fill: MeshInstance3D
 var _band_z := 0.0
+var _zone := Rect2(-4.6, -8.6, 9.2, 17.2)  # zone du combat en cours (déferlantes)
 var _band_dir := 1.0
 var _warn := 0.0
 var _crest: Node3D
@@ -62,14 +63,20 @@ var _pops: Array = []  # [nœud, temps] : apparition des trous
 var _anim_t := 0.0
 
 
-func begin_room(room: int, hero_pos: Vector3, boss := false) -> void:
-	clear()
+## Début d'un combat. `zone` : cadre de la zone de combat (vide = salle classique autour de l'origine) ;
+## `keep` : étape longue, les trous des zones précédentes restent en place.
+func begin_room(room: int, hero_pos: Vector3, boss := false, zone := Rect2(), keep := false) -> void:
+	if keep:
+		calm()
+	else:
+		clear()
+	_zone = zone if zone.has_area() else Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0)
 	# trous à partir de la salle 4, un de plus toutes les 4 salles ; rien dans une salle de boss
 	var n := 0 if room < 4 or boss else mini(1 + (room - 4) / 4, 3)
 	for i in n:
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)
-			var c := Vector3(randf_range(-HALF.x + 1.4, HALF.x - 1.4), 0, randf_range(-HALF.y + 2.0, HALF.y - 2.0))
+			var c := Vector3(randf_range(_zone.position.x + 1.4, _zone.end.x - 1.4), 0, randf_range(_zone.position.y + 2.0, _zone.end.y - 2.0))
 			var ok: bool = c.distance_to(hero_pos) > 3.0 and main.arena.walkable(c, r + 0.4) and not main.arena.is_bridge(c, r + 1.0)
 			for h in holes:
 				var hc: Vector3 = h[0]
@@ -1054,11 +1061,11 @@ func update(dt: float) -> void:
 
 
 func _start_band() -> void:
-	_band_z = randf_range(-HALF.y + 2.0, HALF.y - 2.0)
+	_band_z = randf_range(_zone.position.y + 2.0, _zone.end.y - 2.0)
 	if not main.arena.walkable(Vector3(main.hero.position.x, 0, _band_z), 0.0):
 		_band_z = main.hero.position.z
 	if absf(_band_z - main.hero.position.z) > 5.0:
-		_band_z = clampf(main.hero.position.z + randf_range(-2.0, 2.0), -HALF.y + 1.5, HALF.y - 1.5)
+		_band_z = clampf(main.hero.position.z + randf_range(-2.0, 2.0), _zone.position.y + 1.5, _zone.end.y - 1.5)
 	_band_dir = 1.0 if randf() < 0.5 else -1.0
 	_warn = WAVE_WARN
 	_band = Node3D.new()

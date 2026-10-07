@@ -1,5 +1,5 @@
 extends Control
-## Accueil (titre, sceau, Jouer, Atelier, son), écran de résultats en fin de partie, et pause.
+## Accueil (titre, sceau, Jouer, Atelier, Dojo, son), écran de résultats en fin de partie, et pause.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -28,10 +28,11 @@ signal restart_pressed
 signal tuto_pressed
 signal options_pressed
 signal powers_pressed
+signal dojo_pressed
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
-var rooms_total := 15  # salles d'une partie
+var rooms_total := 8  # étapes d'une partie (main.STAGE_PLAN)
 var last := 0
 var new_record := false
 var victory := false
@@ -44,6 +45,7 @@ var stat_room := 0
 var stat_kills := 0
 var stat_combo := 0
 var stat_time := 0.0
+var pause_powers: Array = []  # ids des pouvoirs de la partie (rangée d'icônes de la pause)
 var world_name := ""
 var world_kanji := "波"
 var world_color := Toon.PRUSSIAN
@@ -64,6 +66,7 @@ var _replay: Control
 var _home: Control
 var _sound: Control
 var _atelier: Control
+var _dojo: Control  # entraînement libre aux figures
 var _worlds: Control
 var _resume: Control
 var _quit: Control
@@ -93,6 +96,8 @@ func _ready() -> void:
 	_over_atelier.pressed.connect(func(): atelier_pressed.emit())
 	_atelier = _button("ATELIER", "ghost")
 	_atelier.pressed.connect(func(): atelier_pressed.emit())
+	_dojo = _button("DOJO", "ghost")
+	_dojo.pressed.connect(func(): dojo_pressed.emit())
 	_sound = _button("", "round")
 	_sound.pressed.connect(_toggle_sound)
 	_worlds = _button("MONDES", "ghost")
@@ -182,6 +187,7 @@ func _process(_delta: float) -> void:
 	_powers_btn.visible = mode == "pause"
 	_sound.visible = mode == "home" or mode == "pause"
 	_atelier.visible = mode == "home"
+	_dojo.visible = mode == "home"
 	_help.visible = mode == "home"
 	_gear.visible = mode == "home" or mode == "pause"
 	_gear.size = Vector2(40, 40) * u
@@ -197,10 +203,18 @@ func _process(_delta: float) -> void:
 	_play.position = Vector2((w - bw) / 2.0, h * 0.76 + 30.0 * u * (1.0 - appear))
 	_play.modulate.a = appear
 	_play.font_size = int(26 * u)
-	_atelier.size = Vector2(w * 0.42, 46.0 * u)
-	_atelier.position = Vector2((w - w * 0.42) / 2.0, h * 0.76 + bh + 14.0 * u + 30.0 * u * (1.0 - appear))
+	# ATELIER et DOJO côte à côte sous JOUER
+	var rw := w * 0.72
+	var sw := (rw - 10.0 * u) / 2.0
+	var sy := h * 0.76 + bh + 14.0 * u + 30.0 * u * (1.0 - appear)
+	_atelier.size = Vector2(sw, 46.0 * u)
+	_atelier.position = Vector2((w - rw) / 2.0, sy)
 	_atelier.modulate.a = appear
-	_atelier.font_size = int(17 * u)
+	_atelier.font_size = int(16 * u)
+	_dojo.size = Vector2(sw, 46.0 * u)
+	_dojo.position = Vector2((w - rw) / 2.0 + sw + 10.0 * u, sy)
+	_dojo.modulate.a = appear
+	_dojo.font_size = int(16 * u)
 
 	# fin de partie : REJOUER, puis ATELIER et ACCUEIL côte à côte (touches bloquées les 0,6 premières secondes)
 	var over_in := UiKit.ease_out(clampf((_t - 0.45) / 0.35, 0.0, 1.0))
@@ -233,16 +247,16 @@ func _process(_delta: float) -> void:
 	var pw := pc.size.x - 48 * u
 	var px := pc.position.x + 24 * u
 	_resume.size = Vector2(pw, 58 * u)
-	_resume.position = Vector2(px, pc.position.y + 206 * u)
+	_resume.position = Vector2(px, pc.position.y + 240 * u)
 	_resume.font_size = int(20 * u)
 	_powers_btn.size = Vector2(pw, 48 * u)
-	_powers_btn.position = Vector2(px, pc.position.y + 276 * u)
+	_powers_btn.position = Vector2(px, pc.position.y + 310 * u)
 	_powers_btn.font_size = int(15 * u)
 	_restart.size = Vector2(pw, 48 * u)
-	_restart.position = Vector2(px, pc.position.y + 334 * u)
+	_restart.position = Vector2(px, pc.position.y + 368 * u)
 	_restart.font_size = int(15 * u)
 	_quit.size = Vector2(pw, 48 * u)
-	_quit.position = Vector2(px, pc.position.y + 392 * u)
+	_quit.position = Vector2(px, pc.position.y + 426 * u)
 	_quit.font_size = int(15 * u)
 
 	_sound.size = Vector2(44, 44) * u
@@ -299,7 +313,7 @@ func _draw_home() -> void:
 	# record
 	if best > 0:
 		var ra := UiKit.ease_out(clampf((_t - 0.8) / 0.5, 0.0, 1.0))
-		UiKit.text(self, _ui, "RECORD  ·  SALLE %d / %d" % [best, rooms_total], Vector2(w / 2.0, h * 0.76 + 64 * u + 14 * u + 46 * u + 30 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
+		UiKit.text(self, _ui, "RECORD  ·  ÉTAPE %d / %d" % [best, rooms_total], Vector2(w / 2.0, h * 0.76 + 64 * u + 14 * u + 46 * u + 30 * u), int(12 * u), Color(Toon.SUMI, 0.6 * ra))
 
 	# halo qui respire autour du bouton
 	var pulse := 0.5 + 0.5 * sin(_t * 3.0)
@@ -396,7 +410,7 @@ func _draw_head(card: Rect2, y: float, u: float, v: float, a: float) -> void:
 		UiKit.text(self, _title, "VICTOIRE", Vector2(cx, hy), int(34 * u), Color(GOLD_INK, a * kh))
 		UiKit.text(self, _ui, wn, Vector2(cx, y + 142 * v), int(12 * u), Color(Toon.SUMI, 0.6 * a * kh))
 	else:
-		UiKit.text(self, UiKit.TITLE_FONT, "Tombé en salle %d" % stat_room, Vector2(cx, hy), int(28 * u), Color(Toon.SUMI, a * kh))
+		UiKit.text(self, UiKit.TITLE_FONT, "Tombé, étape %d" % stat_room, Vector2(cx, hy), int(28 * u), Color(Toon.SUMI, a * kh))
 		UiKit.text(self, _ui, wn, Vector2(cx, y + 138 * v), int(11 * u), Color(Toon.SUMI, 0.5 * a * kh))
 		var kl := _killer_line()
 		if kl != "":
@@ -420,7 +434,7 @@ func _draw_stats(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 	var figs := 0
 	for f in stat_shapes.keys():
 		figs += int(stat_shapes[f])
-	var cols := [["SALLE", "%d/%d" % [stat_room, rooms_total]], ["ENNEMIS", str(stat_kills)], ["CHAÎNE MAX", str(stat_combo)],
+	var cols := [["ÉTAPE", "%d/%d" % [stat_room, rooms_total]], ["ENNEMIS", str(stat_kills)], ["CHAÎNE MAX", str(stat_combo)],
 		["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]], ["FIGURES", str(figs)]]
 	var cw := (x1 - x0) / float(cols.size())
 	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.05 * a), int(10 * u)), Rect2(Vector2(x0 - 6 * u, y + 2 * v), Vector2(x1 - x0 + 12 * u, 50 * v)))
@@ -638,7 +652,7 @@ func _pause_card() -> Rect2:
 	var h := size.y
 	var u := w / 400.0
 	var cw := minf(w * 0.86, 360.0 * u)
-	return Rect2(Vector2((w - cw) / 2.0, h * 0.5 - 235 * u), Vector2(cw, 470 * u))
+	return Rect2(Vector2((w - cw) / 2.0, h * 0.5 - 252 * u), Vector2(cw, 504 * u))
 
 
 ## Pause : voile d'encre, carte de papier avec le sceau du monde, la partie en cours et les boutons.
@@ -666,7 +680,7 @@ func _draw_pause() -> void:
 	UiKit.text(self, UiKit.TITLE_FONT, world_kanji, Vector2(seal.get_center().x, seal.get_center().y + 13 * u), int(34 * u), Color(Toon.WASHI, a))
 	UiKit.text(self, _title, "PAUSE", Vector2(card.get_center().x, card.position.y + 124 * u), int(32 * u), Color(Toon.SUMI, a))
 	# la partie en cours
-	var cols := [["SALLE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
 	for i in cols.size():
 		var cx := card.position.x + card.size.x * (0.2 + 0.3 * i)
 		UiKit.text(self, _ui, String(cols[i][0]), Vector2(cx, card.position.y + 156 * u), int(10 * u), Color(Toon.SUMI, 0.5 * a))
@@ -674,6 +688,17 @@ func _draw_pause() -> void:
 		if i > 0:
 			var lx := card.position.x + card.size.x * (0.05 + 0.3 * i)
 			draw_line(Vector2(lx, card.position.y + 146 * u), Vector2(lx, card.position.y + 186 * u), Color(Toon.SUMI, 0.12 * a), 1.5 * u)
+	# pouvoirs de la partie : une rangée d'icônes (le détail est dans MES POUVOIRS)
+	var ids: Array = pause_powers
+	if not ids.is_empty():
+		var r := 11.0 * u
+		var n := mini(ids.size(), 10)
+		var gap := minf(2.0 * r + 5.0 * u, (card.size.x - 40.0 * u) / float(maxi(n, 1)))
+		var x0 := card.get_center().x - gap * float(n - 1) / 2.0
+		for i in n:
+			UiKit.power_icon(self, String(ids[i]), Vector2(x0 + gap * i, card.position.y + 214 * u), r, a)
+		if ids.size() > n:
+			UiKit.text(self, _ui, "+%d" % (ids.size() - n), Vector2(x0 + gap * n, card.position.y + 218 * u), int(11 * u), Color(Toon.SUMI, 0.6 * a))
 
 func _brush(p0: Vector2, p1: Vector2, wdt: float, c: Color) -> void:
 	var d := p1 - p0

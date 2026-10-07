@@ -18,22 +18,22 @@ const PAGES := [
 		["trait", "Trait", "Ton doigt dessine, le ronin suit."],
 		["encre", "Encre", "La jauge du bas : chaque trait en coûte."],
 		["esquive", "Esquive", "Un tap : un bond, sans encre."],
-		["figure", "Figure", "Boucle, zigzag, trait droit… = une technique."],
+		["figure", "Figure", "Boucle, zigzag… : +1 chaîne. Son rouleau : une technique."],
 		["chaine", "Chaîne", "Traits réussis sans être touché : + dégâts."],
 		["rouleau", "Rouleau", "Pouvoir à chaque niveau, du commun au légendaire."],
 		["affinite", "Affinité", "2 pouvoirs d'une même école = bonus."],
-		["torii", "Torii", "La porte vers la salle suivante."],
+		["torii", "Torii", "La porte vers l'étape suivante."],
 	]},
 	{"kanji": "墨", "title": "L'encre",
 		"text": "Chaque trait coûte de l'encre (la jauge en bas). Elle remonte quand tu ne traces pas, et à chaque ennemi touché."},
 	{"kanji": "円", "title": "Les figures",
-		"text": "Boucle, zigzag, trait droit, ensō… Chaque forme cachée dans ton trait déclenche une technique."},
+		"text": "Boucle, zigzag, ensō… Une forme cachée dans ton trait : +1 chaîne. Ramasse son rouleau de figure pour débloquer sa technique, puis l'améliorer."},
 	{"kanji": "風", "title": "Esquive",
 		"text": "Une zone rouge annonce un coup : sors-en ! Un tap = un bond d'esquive (gratuit). Pas touché ? Ta chaîne monte, tes dégâts aussi."},
 	{"kanji": "道", "title": "Progresse",
 		"text": "Nettoie les vagues, ramasse l'XP et l'or. Chaque niveau t'offre un rouleau de pouvoir, du commun au légendaire. Puis le torii s'ouvre."},
-	{"kanji": "鬼", "title": "15 salles, un gardien",
-		"text": "Sanctuaires facultatifs, mini-boss en salle 8, puis le gardien du monde en salle 15. Bonne route !"},
+	{"kanji": "鬼", "title": "8 étapes, un gardien",
+		"text": "Avance de combat en combat, fouille les recoins. Mini-boss à l'étape 4, gardien du monde à l'étape 8. Bonne route !"},
 ]
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert l'intro (ou tourné la planche) ne compte pas
 const TRANS := 0.35  # durée du fondu entre deux planches
@@ -533,7 +533,7 @@ func _page_encre(t0: float) -> void:
 	UiKit.text(self, _ui, cap, _at(0.5, 0.95), int(10 * u), _c(Toon.SUMI, 0.7))
 
 
-## 4. Quatre formes tracées tour à tour : chacune allume son sceau et déclenche sa technique.
+## 4. Quatre formes tracées tour à tour : chacune allume son sceau et montre la technique que son rouleau débloque.
 func _page_figures(t0: float) -> void:
 	var u := _u
 	var cyc := 1.9
@@ -732,16 +732,16 @@ func _page_progres(t0: float) -> void:
 		_scroll_card(_at(0.4, 0.43), 0.95 * u, rar, UiKit.ease_out(_k(t, 1.85, 0.35)), 1.0 - _k(t, 3.2, 0.3))
 
 
-## 7. Le chemin des 15 salles : sanctuaires, mini-boss, et le gardien qui attend au bout.
+## 7. Le chemin des 8 étapes : sanctuaires, mini-boss, et le gardien qui attend au bout.
 func _page_gardien(t0: float) -> void:
 	var u := _u
 	var lp := 4.4
 	var t := fmod(t0, lp)
 	var fade := 1.0 - _k(t, 4.0, 0.4)
 	var nodes := PackedVector2Array()
-	for i in 15:
-		var f := float(i) / 14.0
-		nodes.append(_at(lerpf(0.07, 0.64, f), lerpf(0.26, 0.86, f) + 0.06 * sin(float(i) * 1.1)))
+	for i in 8:
+		var f := float(i) / 7.0
+		nodes.append(_at(lerpf(0.07, 0.64, f), lerpf(0.26, 0.86, f) + 0.06 * sin(float(i) * 1.9)))
 	var walk := _k(t, 0.2, 2.8)
 	var rage := _k(t, 3.0, 0.3) * fade
 	_boss(_at(0.83, 0.97), 0.95 * u, rage)
@@ -750,28 +750,28 @@ func _page_gardien(t0: float) -> void:
 	draw_polyline(nodes, _c(Toon.SUMI, 0.22), 2.0 * u, true)
 	if walk > 0.0:
 		_stroke(nodes, 0.0, walk, 3.5 * u, _c(Toon.SUMI, 0.85))
-	# sanctuaires facultatifs (après les salles 5 et 10), un peu à l'écart
-	for si in [4, 9]:
+	# sanctuaires facultatifs (au bout des étapes 2 et 5), un peu à l'écart
+	for si in [1, 4]:
 		var n0: Vector2 = nodes[si]
 		var n1: Vector2 = nodes[si + 1]
 		var mid := n0.lerp(n1, 0.5)
 		var sp := mid + Vector2(16, -16) * u
 		draw_line(mid, sp, _c(Toon.SUMI, 0.35), 1.5 * u, true)
-		_shrine(sp, u, walk * 14.0 >= float(si) + 0.5)
-		if si == 4:
+		_shrine(sp, u, walk * 7.0 >= float(si) + 0.5)
+		if si == 1:
 			UiKit.text(self, _ui, "SANCTUAIRE", sp + Vector2(10, -20) * u, int(9 * u), _c(Toon.SUMI, 0.6))
-	for i in 15:
+	for i in 8:
 		var c: Vector2 = nodes[i]
-		var reached := walk * 14.0 >= float(i) - 0.01
-		if i == 7:
-			# mini-boss de la salle 8 : cornes et étiquette en dessous à gauche
+		var reached := walk * 7.0 >= float(i) - 0.01
+		if i == 3:
+			# mini-boss (son arène, étape 4) : cornes et étiquette en dessous à gauche
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-6, -4) * u, c + Vector2(-3, -6) * u, c + Vector2(-8, -12) * u]), _c(Toon.SUMI))
 			draw_colored_polygon(PackedVector2Array([c + Vector2(6, -4) * u, c + Vector2(3, -6) * u, c + Vector2(8, -12) * u]), _c(Toon.SUMI))
 			draw_circle(c, 7.0 * u, _c(Toon.VERMILION, 1.0 if reached else 0.5))
 			draw_arc(c, 7.0 * u, 0, TAU, 20, _c(Toon.SUMI), 1.5 * u, true)
 			var lw := _ui.get_string_size("MINI-BOSS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u)).x
 			draw_string(_ui, c + Vector2(-12.0 * u - lw, 22.0 * u), "MINI-BOSS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), _c(Toon.SUMI, 0.6))
-		elif i == 14:
+		elif i == 7:
 			draw_circle(c, 8.0 * u, _c(Toon.SUMI, 1.0 if reached else 0.45))
 			draw_arc(c, 8.0 * u, 0, TAU, 20, _c(Toon.VERMILION), 2.0 * u, true)
 		elif reached:
@@ -780,9 +780,9 @@ func _page_gardien(t0: float) -> void:
 			draw_circle(c, 4.0 * u, _c(Toon.WASHI))
 			draw_arc(c, 4.0 * u, 0, TAU, 14, _c(Toon.SUMI, 0.45), 1.5 * u, true)
 	var first: Vector2 = nodes[0]
-	var last: Vector2 = nodes[14]
+	var last: Vector2 = nodes[7]
 	UiKit.text(self, _ui, "1", first + Vector2(0, -10) * u, int(9 * u), _c(Toon.SUMI, 0.6))
-	UiKit.text(self, _ui, "15", last + Vector2(0, 21) * u, int(10 * u), _c(Toon.VERMILION))
+	UiKit.text(self, _ui, "8", last + Vector2(0, 21) * u, int(10 * u), _c(Toon.VERMILION))
 	# le ronin en route
 	_ronin(_pt_at(nodes, walk) + Vector2(0, 3) * u, 0.55 * u, 1.0, false, fade * _k(t, 0.0, 0.2))
 	# le gardien s'éveille

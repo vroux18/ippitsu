@@ -136,7 +136,7 @@ jobs:
   bot:
     name: bot ${{ matrix.mode }} ${{ matrix.seed }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -182,7 +182,7 @@ jobs:
       - name: Robot ${{ matrix.mode }} (graine ${{ matrix.seed }})
         run: |
           log=bot-${{ matrix.mode }}-${{ matrix.seed }}.log
-          timeout 720 godot --headless --path . --fixed-fps 30 -- --bot --mode=${{ matrix.mode }} --seed=${{ matrix.seed }} > $log 2>&1 || true
+          timeout 960 godot --headless --path . --fixed-fps 30 -- --bot --mode=${{ matrix.mode }} --seed=${{ matrix.seed }} > $log 2>&1 || true
           grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" $log | head -800
           # (sous bash -e, « ! cmd » ne fait pas échouer l'étape : on teste explicitement)
           fail=0

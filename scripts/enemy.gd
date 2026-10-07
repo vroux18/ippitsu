@@ -264,6 +264,9 @@ func _ready() -> void:
 			_tint(Color(0.3, 0.29, 0.34), 0.85)
 			ch.attach("handslot.r", _blade(0.85, Toon.SUMI))
 			_timer = randf_range(2.0, 3.0)
+	# rythme un peu plus posé : marche -10 %, annonces des coups +15 %
+	speed *= 0.9
+	_windup *= 1.15
 	if _glow_a > 0.0:
 		_base_glow()
 	ch.idle = "Blocking" if kind == "tate" else ("Idle" if kind == "kagebo" else "Idle_Combat")
@@ -1286,28 +1289,40 @@ func _kagebo(delta: float, dir: Vector3, dist: float) -> void:
 
 ## Point du bord le plus proche de `p` (les noyés sortent de l'eau, jamais du milieu du ponton).
 func _nearest_edge(p: Vector3) -> Vector3:
-	var ex := HALF.x - EDGE_IN
-	var ez := HALF.y - EDGE_IN
-	var dx := HALF.x - absf(p.x)
-	var dz := HALF.y - absf(p.z)
-	var q := Vector3(ex * (1.0 if p.x >= 0.0 else -1.0), 0, clampf(p.z, -ez, ez)) if dx <= dz else Vector3(clampf(p.x, -ex, ex), 0, ez * (1.0 if p.z >= 0.0 else -1.0))
+	# bords du cadre courant (la zone de combat d'une étape, sinon l'arène)
+	var b: Rect2 = main.arena.bounds
+	var c := b.get_center()
+	var hx := b.size.x * 0.5
+	var hz := b.size.y * 0.5
+	var ex := hx - EDGE_IN
+	var ez := hz - EDGE_IN
+	var lx := p.x - c.x
+	var lz := p.z - c.y
+	var dx := hx - absf(lx)
+	var dz := hz - absf(lz)
+	var q := Vector3(ex * (1.0 if lx >= 0.0 else -1.0), 0, clampf(lz, -ez, ez)) if dx <= dz else Vector3(clampf(lx, -ex, ex), 0, ez * (1.0 if lz >= 0.0 else -1.0))
+	q += Vector3(c.x, 0, c.y)
 	# salles en plateformes : toujours sur la terre ferme
 	return main.arena.clamp_walk(q, radius)
 
 
 ## Autre point du bord, loin de l'ancien et pas collé au héros.
 func _random_edge() -> Vector3:
-	var ex := HALF.x - EDGE_IN
-	var ez := HALF.y - EDGE_IN
+	var b: Rect2 = main.arena.bounds
+	var c := b.get_center()
+	var hx := b.size.x * 0.5
+	var hz := b.size.y * 0.5
+	var ex := hx - EDGE_IN
+	var ez := hz - EDGE_IN
 	var best := position
 	for attempt in 20:
 		var q := Vector3.ZERO
 		# les grands côtés sont plus souvent choisis (proportion des longueurs)
-		if randf() < HALF.y / (HALF.x + HALF.y):
+		if randf() < hz / (hx + hz):
 			q = Vector3(ex * (1.0 if randf() < 0.5 else -1.0), 0, randf_range(-ez + 0.4, ez - 0.4))
 		else:
 			q = Vector3(randf_range(-ex + 0.4, ex - 0.4), 0, ez * (1.0 if randf() < 0.5 else -1.0))
-		q = main.arena.clamp_walk(q, radius)
+		q = main.arena.clamp_walk(q + Vector3(c.x, 0, c.y), radius)
 		best = q
 		if q.distance_to(position) > 3.0 and q.distance_to(hero.position) > 2.0:
 			break

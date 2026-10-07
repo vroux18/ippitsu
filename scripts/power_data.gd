@@ -7,6 +7,8 @@ extends RefCounted
 ## "icon" (pictogramme UiKit.glyph), "trig" (pictogramme du déclencheur : hit, stroke, arrive, kill…).
 ## Clés facultatives : "max" (niveau max, 3 par défaut, 1 pour les légendaires), "kanji" (idéogramme propre),
 ## "needs" (au moins un de ces pouvoirs déjà pris).
+## École « fig » (figures) : une figure tracée donne seulement +1 chaîne et +15 % de dégâts sur sa ruée ;
+## son premier rouleau (FIG_UNLOCK) débloque la technique, les suivants l'améliorent (needs).
 
 const SCHOOLS := {
 	"fire": {"kanji": "火", "color": Color("#D7372B"), "name": "FEU", "word": "Feu"},
@@ -15,8 +17,15 @@ const SCHOOLS := {
 	"wind": {"kanji": "風", "color": Color("#5F8F86"), "name": "VENT", "word": "Vent"},
 	"shadow": {"kanji": "影", "color": Color("#3A3846"), "name": "OMBRE", "word": "Ombre"},
 	"ink": {"kanji": "墨", "color": Color("#6E5A44"), "name": "ENCRE", "word": "Encre"},
+	"fig": {"kanji": "法", "color": Color("#A8436B"), "name": "FIGURE", "word": "Figure"},
 }
-const SCHOOL_ORDER := ["fire", "water", "bolt", "wind", "shadow", "ink"]
+const SCHOOL_ORDER := ["fig", "fire", "water", "bolt", "wind", "shadow", "ink"]
+
+# figure -> rouleau qui débloque sa technique
+const FIG_UNLOCK := {"loop": "fig_loop", "zigzag": "fig_zigzag", "straight": "fig_straight",
+	"return": "fig_return", "enso": "fig_enso", "hook": "fig_hook"}
+# saveur d'école des techniques (2 pouvoirs d'une école suffisent) : effet en deux mots
+const FIG_ELEMENT := {"fire": "brûle", "water": "repousse", "bolt": "électrise", "wind": "portée +25 %", "shadow": "dégâts +25 %"}
 
 const RARITIES := {
 	"common": {"rank": 0, "name": "COMMUN", "color": Color("#8A8478")},
@@ -30,7 +39,7 @@ const RARITY_ORDER := ["common", "rare", "epic", "legendary"]
 const AFF_TIERS := [2, 4]
 const AFFINITY := {
 	"fire": ["dégâts de feu +25 %", "dégâts de feu +50 %, chaque coup enflamme"],
-	"water": ["+1 bulle d'écume par salle", "+1 cœur à chaque salle, vagues +50 %"],
+	"water": ["+1 bulle d'écume par combat", "+1 cœur à chaque combat, vagues +50 %"],
 	"bolt": ["course +10 %, foudre +25 %", "foudre +50 %, éclairs tous les 5 coups"],
 	"wind": ["trait max +2 m", "trait max +4 m, course +15 %"],
 	"shadow": ["10 % de chances de frapper 2× plus fort", "25 % de chances de frapper 2,5× plus fort"],
@@ -38,7 +47,7 @@ const AFFINITY := {
 # les mêmes bonus en deux mots (cartes de rouleau)
 const AFF_SHORT := {
 	"fire": ["Feu +25 %", "Feu +50 %"],
-	"water": ["+1 bulle", "+1 cœur/salle"],
+	"water": ["+1 bulle", "+1 cœur/combat"],
 	"bolt": ["Foudre +25 %", "Foudre +50 %"],
 	"wind": ["Trait +2 m", "Trait +4 m"],
 	"shadow": ["Critique ×2", "Critique ×2,5"],
@@ -48,7 +57,7 @@ const AFF_SHORT := {
 const LEXICON := [
 	["ÉLAN", "l'encre de ton trait (jauge du bas). Elle remonte quand tu ne traces pas."],
 	["CHAÎNE", "traits réussis d'affilée sans être touché : +5 % de dégâts par trait."],
-	["FIGURE", "forme tracée (boucle, zigzag, cercle...) qui lance un coup spécial."],
+	["FIGURE", "forme tracée (boucle, zigzag, cercle...) : +1 chaîne. Son rouleau de figure débloque une technique."],
 	["AFFINITÉ", "2 puis 4 pouvoirs d'une même école débloquent un bonus d'école."],
 ]
 
@@ -90,10 +99,10 @@ const POWERS := {
 		"name": "Hibana", "sub": "Étincelles", "when": "QUAND UN ENNEMI MEURT",
 		"text": "Un ennemi qui meurt en brûlant explose et enflamme ses voisins.",
 		"stat": "Explosion : {v} dégâts", "v": [0.6, 0.9, 1.2], "needs": ["fire_burn", "fire_fudo"]},
-	"fire_kasha": {"school": "fire", "rarity": "epic", "label": "Roue de feu", "short": "Boucle : roue de feu {v}/s", "icon": "wheel_fire", "trig": "figure",
-		"name": "Kasha", "sub": "Roue de feu", "when": "FIGURE : BOUCLE",
-		"text": "Trace une boucle : une roue de feu en sort et fonce sur les ennemis.",
-		"stat": "Roue de feu : {v} dégâts/s", "v": [1.5, 2.0, 2.5]},
+	"fire_kasha": {"school": "fire", "rarity": "epic", "label": "Roue de feu", "short": "Toupie : roue de feu {v}/s", "icon": "wheel_fire", "trig": "figure",
+		"name": "Kasha", "sub": "Roue de feu", "when": "TECHNIQUE : TOUPIE",
+		"text": "Ta toupie (boucle) lance une roue de feu qui fonce sur les ennemis.",
+		"stat": "Roue de feu : {v} dégâts/s", "v": [1.5, 2.0, 2.5], "needs": ["fig_loop"]},
 	"fire_fudo": {"school": "fire", "rarity": "legendary", "label": "Halo de feu", "short": "Halo brûlant : {v}/s", "icon": "halo_fire", "trig": "always",
 		"name": "Fudō Myōō", "sub": "Halo de flammes", "kanji": "炎", "max": 1,
 		"when": "EN PERMANENCE",
@@ -114,10 +123,10 @@ const POWERS := {
 		"name": "Rosée", "sub": "Soin par les victoires", "when": "EN TUANT",
 		"text": "Tuer des ennemis te soigne : 1 cœur rendu à chaque série.",
 		"stat": "+1 cœur tous les {v} ennemis tués", "v": [12, 10, 8]},
-	"water_foam": {"school": "water", "rarity": "rare", "label": "Écume", "short": "Bulle : bloque {v} coup/salle", "icon": "shield", "trig": "hurt",
+	"water_foam": {"school": "water", "rarity": "rare", "label": "Écume", "short": "Bulle : bloque {v} coup/combat", "icon": "shield", "trig": "hurt",
 		"name": "Écume", "sub": "Bulle protectrice", "when": "QUAND TU ES TOUCHÉ",
 		"text": "Une bulle d'écume encaisse des coups à ta place, puis éclate sur les ennemis.",
-		"stat": "Bloque {v}/salle · éclat : {w} dégâts", "v": [1, 1, 2], "w": [1.0, 2.0, 2.0]},
+		"stat": "Bloque {v}/combat · éclat : {w} dégâts", "v": [1, 1, 2], "w": [1.0, 2.0, 2.0]},
 	"water_tide": {"school": "water", "rarity": "rare", "label": "Marée", "short": "Vague à l'arrivée : {v}", "icon": "tide", "trig": "arrive",
 		"name": "Marée", "sub": "Vague d'arrivée", "when": "QUAND TU ARRIVES",
 		"text": "À la fin de chaque trait, une vague jaillit autour de toi et repousse les ennemis.",
@@ -136,7 +145,7 @@ const POWERS := {
 		"name": "Kanagawa", "sub": "La Grande Vague", "kanji": "波", "max": 1,
 		"when": "TOUS LES 3 TRAITS",
 		"text": "Tous les 3 traits, une énorme vague déferle tout le long de ton trait.",
-		"stat": "Vague : {v} dégâts · +1 bulle d'écume/salle", "v": [3]},
+		"stat": "Vague : {v} dégâts · +1 bulle d'écume/combat", "v": [3]},
 
 	# ---------------------------------------------------------------- FOUDRE
 	"bolt_arc": {"school": "bolt", "rarity": "common", "label": "Arc", "short": "Chaque coup : éclair +{v} cible", "icon": "chain_bolt", "trig": "hit",
@@ -163,10 +172,10 @@ const POWERS := {
 		"name": "Raijū", "sub": "Loup-tonnerre", "when": "TOUTES LES {v} SECONDES",
 		"text": "Un loup de foudre te suit et frappe l'ennemi le plus proche en l'étourdissant.",
 		"stat": "Toutes les {v} s : 2 dégâts", "v": [6, 5, 4]},
-	"bolt_inazuma": {"school": "bolt", "rarity": "epic", "label": "Éclairs", "short": "Zigzag : +{v} foudroyés", "icon": "fork_bolt", "trig": "figure",
-		"name": "Inazuma", "sub": "Éclair en chaîne", "when": "FIGURE : ZIGZAG",
-		"text": "Ton zigzag foudroie déjà 4 ennemis : l'éclair continue sur d'autres et les étourdit.",
-		"stat": "+{v} ennemis foudroyés", "v": [3, 5, 7]},
+	"bolt_inazuma": {"school": "bolt", "rarity": "epic", "label": "Paralysie", "short": "Éclair : étourdit, +{v}", "icon": "fork_bolt", "trig": "figure",
+		"name": "Kanashibari", "sub": "Foudre paralysante", "when": "TECHNIQUE : ÉCLAIR",
+		"text": "L'éclair en chaîne de ton zigzag étourdit chaque ennemi qu'il touche et frappe plus fort.",
+		"stat": "Étourdit · +{v} dégât par cible", "v": [0.5, 0.8, 1.1], "needs": ["fig_zigzag"]},
 	"bolt_raijin": {"school": "bolt", "rarity": "legendary", "label": "Tambour", "short": "Chaque coup foudroie {v} ennemis", "icon": "drum", "trig": "hit",
 		"name": "Raijin no Taiko", "sub": "Tambour du tonnerre", "kanji": "神", "max": 1,
 		"when": "À CHAQUE COUP",
@@ -222,11 +231,11 @@ const POWERS := {
 		"when": "ENNEMI AFFAIBLI",
 		"text": "Un ennemi presque mort est achevé net, d'un seul coup.",
 		"stat": "Achève sous {v} % de vie", "v": [20, 25, 30]},
-	"shadow_utsusemi": {"school": "shadow", "rarity": "epic", "label": "Leurre", "short": "Leurre : évite {v} coup/salle", "icon": "ghost", "trig": "hurt",
+	"shadow_utsusemi": {"school": "shadow", "rarity": "epic", "label": "Leurre", "short": "Leurre : évite {v} coup/combat", "icon": "ghost", "trig": "hurt",
 		"name": "Utsusemi", "sub": "Leurre d'ombre", "kanji": "逃",
 		"when": "QUAND TU ES TOUCHÉ",
-		"text": "Les premiers coups reçus par salle ne touchent qu'un leurre d'ombre, qui riposte.",
-		"stat": "Évite {v}/salle · riposte : {w} dégâts", "v": [1, 1, 2], "w": [1.5, 2.5, 2.5]},
+		"text": "Les premiers coups reçus par combat ne touchent qu'un leurre d'ombre, qui riposte.",
+		"stat": "Évite {v}/combat · riposte : {w} dégâts", "v": [1, 1, 2], "w": [1.5, 2.5, 2.5]},
 	"shadow_stolen": {"school": "shadow", "rarity": "epic", "label": "Instant volé", "short": "4 touchés : ralenti {v} s", "icon": "hourglass", "trig": "multi",
 		"name": "Instant volé", "sub": "Ralenti", "when": "4 ENNEMIS D'UN TRAIT",
 		"text": "Touche 4 ennemis d'un seul trait : le temps ralentit, vise bien le suivant.",
@@ -255,14 +264,87 @@ const POWERS := {
 		"name": "Rakkan", "sub": "Sceau du maître", "max": 1, "when": "BONUS D'ÉCOLE",
 		"text": "Chaque école déjà commencée compte 1 pouvoir de plus pour ses bonus.",
 		"stat": "+{v} pouvoir par école commencée", "v": [1]},
-	"ink_enso": {"school": "ink", "rarity": "legendary", "label": "Ensō", "short": "Figures : onde d'encre ({v})", "icon": "enso", "trig": "figure",
+	"ink_enso": {"school": "ink", "rarity": "legendary", "label": "Ensō", "short": "Techniques : onde d'encre", "icon": "enso", "trig": "figure",
 		"name": "Ensō parfait", "sub": "Cercle parfait", "kanji": "円", "max": 1,
-		"when": "À CHAQUE FIGURE",
-		"text": "Chaque figure lance une onde d'encre. L'ensō (cercle) frappe plus fort et soigne.",
-		"stat": "Onde : 1,5 dégât · ensō : {v} dégâts", "v": [2]},
+		"when": "À CHAQUE TECHNIQUE",
+		"text": "Chaque technique de figure lance une onde d'encre. La frappe au sol laisse un cercle d'encre.",
+		"stat": "Onde : 1,5 dégât · frappe au sol : +{v}", "v": [2],
+		"needs": ["fig_loop", "fig_zigzag", "fig_straight", "fig_return", "fig_enso", "fig_hook"]},
 	"ink_ippitsu": {"school": "ink", "rarity": "legendary", "label": "Un seul trait", "short": "+{v} % par ennemi enchaîné", "icon": "one_stroke", "trig": "multi",
 		"name": "Ippitsu", "sub": "Un seul trait", "kanji": "筆", "max": 1,
 		"when": "À CHAQUE COUP",
 		"text": "Chaque ennemi de plus touché d'un même trait prend plus cher. À 4 : trait suivant ×2.",
 		"stat": "+{v} % par ennemi enchaîné", "v": [25]},
+
+	# ---------------------------------------------------------------- FIGURES (techniques des formes tracées)
+	# boucle
+	"fig_loop": {"school": "fig", "rarity": "common", "label": "Tourbillon", "short": "Boucle : toupie {v}/coup", "icon": "fig_loop", "trig": "figure",
+		"name": "Uzu", "sub": "Tourbillon", "kanji": "渦", "when": "FIGURE : BOUCLE",
+		"text": "Débloque la toupie : trace une boucle, le héros tourne sur lui-même, aspire et lacère autour de lui.",
+		"stat": "Toupie 0,8 s : {v} dégât par coup", "v": [0.45, 0.6, 0.75]},
+	"fig_loop_pull": {"school": "fig", "rarity": "rare", "label": "Tourbillon aspirant", "short": "Toupie : aspire à {v} m", "icon": "fig_loop_pull", "trig": "figure",
+		"name": "Uzumaki", "sub": "Tourbillon aspirant", "kanji": "渦", "max": 2, "when": "TECHNIQUE : TOUPIE",
+		"text": "Ta toupie dure plus longtemps et aspire les ennemis de plus loin, bien plus fort.",
+		"stat": "Aspiration : {v} m · toupie +0,3 s", "v": [4.5, 6.0], "needs": ["fig_loop"]},
+	# zigzag
+	"fig_zigzag": {"school": "fig", "rarity": "common", "label": "Éclair en chaîne", "short": "Zigzag : foudre sur {v} ennemis", "icon": "fig_zigzag", "trig": "figure",
+		"name": "Inazuma", "sub": "Éclair en chaîne", "kanji": "雷", "when": "FIGURE : ZIGZAG",
+		"text": "Débloque l'éclair : trace un zigzag, ta course accélère et la foudre saute d'ennemi en ennemi.",
+		"stat": "Éclair : {v} ennemis, 1 dégât · course ×1,4", "v": [3, 4, 5]},
+	"fig_zigzag_long": {"school": "fig", "rarity": "rare", "label": "Chaîne longue", "short": "Éclair : +{v} cibles", "icon": "fig_zigzag_long", "trig": "figure",
+		"name": "Nagare", "sub": "Chaîne longue", "kanji": "雷", "max": 2, "when": "TECHNIQUE : ÉCLAIR",
+		"text": "L'éclair de ton zigzag va plus loin et saute sur plus d'ennemis.",
+		"stat": "+{v} ennemis foudroyés · portée +3 m", "v": [3, 5], "needs": ["fig_zigzag"]},
+	# trait droit
+	"fig_straight": {"school": "fig", "rarity": "common", "label": "Iaï", "short": "Trait droit : coupe {v}", "icon": "fig_straight", "trig": "figure",
+		"name": "Ittō", "sub": "Coupe iaï", "kanji": "一", "when": "FIGURE : TRAIT DROIT",
+		"text": "Débloque l'iaï : un long trait droit perce les gardes, puis une coupe tombe sur toute la ligne.",
+		"stat": "Coupe : {v} dégâts · course ×1,4", "v": [1.5, 1.8, 2.1]},
+	"fig_straight_double": {"school": "fig", "rarity": "rare", "label": "Double coupe", "short": "Iaï : 2e coupe à {v} %", "icon": "fig_straight_double", "trig": "figure",
+		"name": "Nitō", "sub": "Double coupe", "kanji": "一", "max": 2, "when": "TECHNIQUE : IAÏ",
+		"text": "Une seconde coupe suit la première, un instant plus tard, sur la même ligne.",
+		"stat": "2e coupe : {v} % des dégâts", "v": [60, 90], "needs": ["fig_straight"]},
+	"fig_straight_wave": {"school": "fig", "rarity": "epic", "label": "Onde tranchante", "short": "Iaï : +{v} m, plus large", "icon": "fig_straight_wave", "trig": "figure",
+		"name": "Zankō", "sub": "Onde tranchante", "kanji": "斬", "max": 2, "when": "TECHNIQUE : IAÏ",
+		"text": "La coupe file au-delà de ton trait en onde tranchante, plus large et plus loin.",
+		"stat": "Coupe prolongée de {v} m · largeur ×1,5", "v": [3, 5], "needs": ["fig_straight"]},
+	# aller-retour
+	"fig_return": {"school": "fig", "rarity": "common", "label": "Garde", "short": "Aller-retour : garde {v} s", "icon": "fig_return", "trig": "figure",
+		"name": "Kaeshi", "sub": "Garde", "kanji": "返", "when": "FIGURE : ALLER-RETOUR",
+		"text": "Débloque la garde : après un aller-retour, tu te mets en garde et rien ne te touche.",
+		"stat": "Garde : {v} s", "v": [0.5, 0.65, 0.8]},
+	"fig_return_reflect": {"school": "fig", "rarity": "rare", "label": "Renvoi", "short": "Renvoie les tirs à {v} m", "icon": "fig_return_reflect", "trig": "figure",
+		"name": "Hanekaeshi", "sub": "Renvoi des tirs", "kanji": "返", "max": 2, "when": "TECHNIQUE : GARDE",
+		"text": "En traçant ton aller-retour, les tirs proches du trait repartent vers les ennemis.",
+		"stat": "Portée du renvoi : {v} m", "v": [1.6, 2.4], "needs": ["fig_return"]},
+	"fig_return_counter": {"school": "fig", "rarity": "epic", "label": "Contre", "short": "Garde : contre {v}", "icon": "fig_return_counter", "trig": "figure",
+		"name": "Ōji", "sub": "Contre", "kanji": "返", "max": 2, "when": "TECHNIQUE : GARDE",
+		"text": "Pendant ta garde, chaque ennemi qui prépare un coup près de toi est contré et étourdi.",
+		"stat": "Contre : {v} dégâts, étourdit", "v": [2, 3], "needs": ["fig_return"]},
+	# ensō
+	"fig_enso": {"school": "fig", "rarity": "common", "label": "Frappe au sol", "short": "Ensō : bond et onde {v}", "icon": "fig_enso", "trig": "figure",
+		"name": "Ensō", "sub": "Frappe au sol", "kanji": "円", "when": "FIGURE : ENSŌ",
+		"text": "Débloque la frappe : trace un grand cercle presque fermé, le héros bondit au centre et frappe le sol.",
+		"stat": "Onde de choc : {v} dégâts", "v": [1.5, 1.8, 2.1]},
+	"fig_enso_big": {"school": "fig", "rarity": "rare", "label": "Grand ensō", "short": "Ensō : onde +{v} %", "icon": "fig_enso_big", "trig": "figure",
+		"name": "Dai-ensō", "sub": "Grand cercle", "kanji": "円", "max": 2, "when": "TECHNIQUE : FRAPPE AU SOL",
+		"text": "Ta frappe au sol porte plus loin et projette les ennemis bien plus fort.",
+		"stat": "Rayon de l'onde +{v} %", "v": [30, 60], "needs": ["fig_enso"]},
+	"fig_enso_heal": {"school": "fig", "rarity": "epic", "label": "Ensō de soin", "short": "Ensō : +{v} cœur par combat", "icon": "fig_enso_heal", "trig": "figure",
+		"name": "Iyashi", "sub": "Ensō de soin", "kanji": "円", "max": 1, "when": "TECHNIQUE : FRAPPE AU SOL",
+		"text": "La première frappe au sol de chaque combat te soigne.",
+		"stat": "+{v} cœur, 1 fois par combat", "v": [1], "needs": ["fig_enso"]},
+	# crochet
+	"fig_hook": {"school": "fig", "rarity": "common", "label": "Estoc", "short": "Crochet : estoc {v}", "icon": "fig_hook", "trig": "figure",
+		"name": "Kagi", "sub": "Estoc", "kanji": "鉤", "when": "FIGURE : CROCHET",
+		"text": "Débloque l'estoc : trace un crochet, le héros fait demi-tour et transperce l'ennemi le plus proche.",
+		"stat": "Estoc : {v} dégâts", "v": [2.0, 2.5, 3.0]},
+	"fig_hook_back": {"school": "fig", "rarity": "rare", "label": "Estoc assassin", "short": "Estoc ×{v} : blessé ou de dos", "icon": "fig_hook_back", "trig": "figure",
+		"name": "Ansatsu", "sub": "Estoc assassin", "kanji": "背", "max": 2, "when": "TECHNIQUE : ESTOC",
+		"text": "Ton estoc frappe bien plus fort un ennemi pris de dos ou déjà à moitié mort.",
+		"stat": "Estoc ×{v} (de dos, ou sous 50 % de vie)", "v": [2.0, 2.5], "needs": ["fig_hook"]},
+	"fig_hook_double": {"school": "fig", "rarity": "rare", "label": "Double estoc", "short": "Estoc : +{v} cible", "icon": "fig_hook_double", "trig": "figure",
+		"name": "Nidan-zuki", "sub": "Double estoc", "kanji": "鉤", "max": 2, "when": "TECHNIQUE : ESTOC",
+		"text": "Ton estoc transperce aussi les ennemis voisins de ta cible.",
+		"stat": "+{v} ennemi transpercé", "v": [1, 2], "needs": ["fig_hook"]},
 }

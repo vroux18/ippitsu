@@ -145,7 +145,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.7,
 		"ambient_color": Color(1.0, 0.9, 0.9),
 		"ambient_energy": 0.35,
-		"ground": [Color("#E9DFC9"), Color("#E2D6BD"), Color("#EFE6D2"), Color("#D9CCB1"), Color("#E6DBC4")],
+		"ground": [Color("#C9B48E"), Color("#BFA983"), Color("#D2BE98"), Color("#B6A07A"), Color("#C5AF89")],  # papier vieilli, plus soutenu (le blanc saturait)
 		"ground_style": "paper",
 		"edge": Color("#1B1A1E"),
 		"under": Color("#3A3530"),
@@ -1211,13 +1211,14 @@ static func _lava_flow(lava: Dictionary, veins: Dictionary, lm: Material, vm: Ma
 ## Grands props hors de l'arène, alignements et petits props au ras des bords (jamais à moins de 0.3
 ## d'une zone jouable, rien de haut au bas de l'écran), petits props dans les vides entre plateformes,
 ## tapis d'éléments répétés (MultiMesh). Tout est fusionné : ~1 draw call par matériau.
-static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int) -> void:
+## `zone` (facultatif, tronçon d'une étape) : les props de bord restent dans cette tranche de z.
+static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS) -> void:
 	var wid := clampi(world_id, 1, 5)
 	var rng := _rng(rng_seed * 31 + wid)
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
-	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": [], "avoid": [], "bs": {}, "bn": {}, "mm": {}}
+	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": [], "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# grands props dans le vide autour de l'arène
 	for i in rng.randi_range(13, 17):
@@ -1269,6 +1270,14 @@ static func _reserve_gate(ctx: Dictionary) -> void:
 	var gx := clampf(0.0, high.position.x + 1.2, high.end.x - 1.2)
 	var avoid: Array = ctx["avoid"]
 	avoid.append(Vector3(gx, high.position.y, 2.3))
+
+
+## Vrai si `p` est dans la tranche de z du tronçon (toujours vrai pour une salle unique).
+static func _in_zone(ctx: Dictionary, p: Vector2) -> bool:
+	var zone: Rect2 = ctx.get("zone", Rect2())
+	if not zone.has_area():
+		return true
+	return p.y >= zone.position.y - 0.6 and p.y <= zone.end.y + 0.6
 
 
 static func _take(ctx: Dictionary, p: Vector2) -> void:
@@ -1343,7 +1352,7 @@ static func _spot_edge(ctx: Dictionary, rng: RandomNumberGenerator) -> Vector4:
 			n = Vector2(0, -1)
 			p = Vector2(lerpf(r.position.x, r.end.x, t), r.position.y)
 		p += n * EDGE_OFF
-		if p.y > 6.8:
+		if p.y > 6.8 or not _in_zone(ctx, p):
 			continue
 		if _ok(ctx, p, 0.5, 1.2):
 			return Vector4(p.x, p.y, n.x, n.y)
@@ -1375,7 +1384,7 @@ static func _spot_run(ctx: Dictionary, rng: RandomNumberGenerator) -> Array:
 			b = Vector2(minf(x0 + span, r.end.x - 0.2), r.position.y)
 		a += n * 0.42
 		b += n * 0.42
-		if a.distance_to(b) < 1.0 or maxf(a.y, b.y) > 6.8:
+		if a.distance_to(b) < 1.0 or maxf(a.y, b.y) > 6.8 or not _in_zone(ctx, a) or not _in_zone(ctx, b):
 			continue
 		var good := true
 		var steps := int(ceil(a.distance_to(b) / 0.3))
@@ -1423,7 +1432,8 @@ static func _face(p: Vector2, tx: float, tz: float) -> float:
 
 static func _light_ok(ctx: Dictionary) -> bool:
 	var n: int = ctx["lights"]
-	return n < MAX_LIGHTS
+	var m: int = ctx.get("max_lights", MAX_LIGHTS)
+	return n < m
 
 
 static func _use_light(ctx: Dictionary) -> void:

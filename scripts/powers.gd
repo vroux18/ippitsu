@@ -2,8 +2,11 @@ extends Node
 ## Rouleaux (pouvoirs) choisis en montant de niveau, au sanctuaire et après le gardien :
 ## raretés (commun → légendaire), affinités d'école, synergies, légendaires uniques et visibles.
 ## Données dans power_data.gd. `main` appelle les hooks : on_hit, on_boss_hit, on_kill, on_dash_end,
-## on_stroke_release, update ; et en plus on_hurt, on_shape, on_enso_land, on_dodge, time_mult,
-## boss_dmg, on_room_start (facultatif : la salle est aussi détectée dans update).
+## on_stroke_release, update ; et en plus on_hurt, on_dodge, time_mult, boss_dmg, on_room_start
+## (facultatif : la salle est aussi détectée dans update).
+## Figures : main appelle figure_launch (au lancement), figure_end (à l'arrivée), figure_update (chaque image),
+## figure_landed (fin du bond d'ensō) et figure_cancel. Sans son rouleau (Data.FIG_UNLOCK), une figure
+## ne donne que +1 chaîne et +15 % de dégâts sur sa ruée.
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -69,6 +72,24 @@ var _gale: Node3D
 var _foxes: Array = []
 var _anim := 0.0
 var _cache := {}
+# figures : techniques débloquées par les rouleaux de figure
+const FIG_NAMES := {"loop": "UZU · TOUPIE", "zigzag": "INAZUMA · ÉCLAIR EN CHAÎNE", "return": "KAESHI · GARDE",
+	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · FRAPPE AU SOL", "hook": "KAGI · ESTOC"}
+const FIG_PLAIN := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOUR", "straight": "TRAIT DROIT",
+	"enso": "ENSŌ", "hook": "CROCHET"}
+var demo := false  # tutoriel : toutes les techniques prêtées (niveau 1)
+var _offer_n := 0  # offres de rouleaux depuis le début de la partie
+var _fig_spin_tick := 0.0
+var _fig_spin_dmg := 0.0
+var _fig_pull_r := 3.0
+var _fig_pull_k := 2.5
+var _fig_iai_pts := PackedVector3Array()
+var _fig_cuts: Array = []  # [délai, points, dégâts, largeur]
+var _fig_enso_c := Vector3.ZERO
+var _fig_enso_r := 2.0
+var _fig_enso_pending := false
+var _fig_counter_t := 0.0
+var _fig_countered := {}
 
 
 func reset() -> void:
@@ -108,6 +129,9 @@ func reset() -> void:
 	_slow_scale = 1.0
 	_was_touching = false
 	_drum_pulse = 0.0
+	demo = false
+	_offer_n = 0
+	figure_cancel()
 	_zones.clear()
 	_sweeps.clear()
 	_fx.clear()
@@ -186,7 +210,8 @@ func affinity(school: String) -> int:
 
 
 func _aff_raw(school: String) -> int:
-	if school == "ink" or school == "":
+	# encre et figures : pas de bonus d'école
+	if school == "ink" or school == "fig" or school == "":
 		return 0
 	var n := 0
 	for id in levels.keys():
@@ -294,6 +319,9 @@ func offer(room_n: int = -1) -> Array:
 		if id == "":
 			break
 		out.append(id)
+	_offer_n += 1
+	if _want_fig(out):
+		_force_fig(out, r, lv)
 	if _has_rank(out, 2):
 		_since_epic = 0
 	else:
@@ -305,6 +333,45 @@ func offer(room_n: int = -1) -> Array:
 			_since_leg += 1
 	out.shuffle()
 	return out
+
+
+## Rouleaux de figure : tant qu'aucune technique n'est débloquée, la 1re offre en montre une une fois sur deux
+## et la 2e en montre toujours une.
+func _want_fig(out: Array) -> bool:
+	if fig_count() > 0 or _offer_n > 2:
+		return false
+	for id in out:
+		if String(id) in Data.FIG_UNLOCK.values():
+			return false
+	return _offer_n == 2 or randf() < 0.5
+
+
+## Remplace un rouleau ordinaire (ni épique ni légendaire) par un rouleau qui débloque une figure.
+func _force_fig(out: Array, r: int, lv: int) -> void:
+	var cands: Array = []
+	for v in Data.FIG_UNLOCK.values():
+		var id := String(v)
+		if Data.POWERS.has(id) and lvl(id) == 0 and _eligible(id, r, lv) and not id in out:
+			cands.append(id)
+	if cands.is_empty():
+		return
+	var pick := String(cands[randi() % cands.size()])
+	if out.size() < 3:
+		out.append(pick)
+		return
+	for i in range(out.size() - 1, -1, -1):
+		if _rank(String(out[i])) < 2:
+			out[i] = pick
+			return
+
+
+## Nombre de techniques de figure débloquées.
+func fig_count() -> int:
+	var n := 0
+	for v in Data.FIG_UNLOCK.values():
+		if lvl(String(v)) > 0:
+			n += 1
+	return n
 
 
 func _leg_open(r: int, lv: int) -> bool:
@@ -420,6 +487,13 @@ func _bias(id: String) -> float:
 	var d: Dictionary = Data.POWERS[id]
 	var school := String(d["school"])
 	var b := 1.0
+	if school == "fig":
+		# figures : une nouvelle technique de temps en temps (de plus en plus rare), ses améliorations souvent
+		if lvl(id) > 0:
+			return 1.4
+		if id in Data.FIG_UNLOCK.values():
+			return 1.0 / (1.0 + 0.6 * float(fig_count()))
+		return 1.6
 	if lvl(id) > 0:
 		b *= 1.4
 	elif school != "ink" and _aff_raw(school) > 0:
@@ -482,6 +556,11 @@ func describe(id: String) -> Dictionary:
 			aff_tail = "école complète :"
 			aff_tail_short = "complète :"
 	var syn := _synergy(id)
+	if school == "fig":
+		# saveur d'école des techniques (« + FEU : brûle » sur la carte)
+		var fl := fig_element_line()
+		if fl != "":
+			syn = [fl, true]
 	return {"name": d["name"], "sub": String(d.get("sub", "")),
 		"when": _fill(id, String(d.get("when", "")), next, next),
 		"text": _fill(id, String(d.get("text", "")), next, next),
@@ -503,6 +582,11 @@ func recap_info(id: String) -> Dictionary:
 	var sd: Dictionary = Data.SCHOOLS[school]
 	var rd: Dictionary = Data.RARITIES[String(d["rarity"])]
 	var syn := _synergy(id)
+	if school == "fig":
+		# saveur d'école des techniques (« + FEU : brûle » sur la carte)
+		var fl := fig_element_line()
+		if fl != "":
+			syn = [fl, true]
 	return {"id": id, "name": d["name"], "sub": String(d.get("sub", "")),
 		"when": _fill(id, String(d.get("when", "")), cur, cur),
 		"text": _fill(id, String(d.get("text", "")), cur, cur),
@@ -529,6 +613,20 @@ func school_status(school: String) -> Dictionary:
 		out["next"] = String(bonus[tier])
 		out["next_at"] = int(tiers[tier])
 	return out
+
+
+## Saveurs d'école des techniques de figure : « FEU + VENT : brûle, portée +25 % » ("" sans école à 2 pouvoirs).
+func fig_element_line() -> String:
+	var el := _fig_elems()
+	if el.is_empty():
+		return ""
+	var names: Array = []
+	var fx: Array = []
+	for s in el:
+		var sd: Dictionary = Data.SCHOOLS[String(s)]
+		names.append(String(sd["name"]))
+		fx.append(String(Data.FIG_ELEMENT[String(s)]))
+	return "%s : %s" % [" + ".join(PackedStringArray(names)), ", ".join(PackedStringArray(fx))]
 
 
 ## Synergie du pouvoir : [texte « Avec <partenaire> : <effet> », active ?] (la première active, sinon une piste).
@@ -889,48 +987,417 @@ func on_stroke_release(points: PackedVector3Array) -> void:
 		_add_clone(points)
 
 
-## Forme reconnue (渦 loop, 雷 zigzag, 返 return, 一 straight, 円 enso, 鉤 hook), à l'arrivée de la ruée.
-## main : `powers.on_shape(String(sh.shape), sh)` au début de _apply_shape.
-func on_shape(shape: String, info: Dictionary) -> void:
+# ------------------------------------------------------------------ figures (techniques)
+# Une figure reconnue (渦 loop, 雷 zigzag, 返 return, 一 straight, 円 enso, 鉤 hook) ne donne d'elle-même
+# que +1 chaîne et +15 % de dégâts sur sa ruée ; son rouleau (Data.FIG_UNLOCK) débloque la technique.
+
+## Technique de la figure débloquée (ou prêtée par le tutoriel) ?
+func fig_on(shape: String) -> bool:
+	if demo:
+		return true
+	return lvl(String(Data.FIG_UNLOCK.get(shape, ""))) > 0
+
+
+## Valeur d'un rouleau de figure (niveau 1 s'il est seulement prêté par le tutoriel).
+func _fv(id: String) -> float:
+	return _level_value(id, "v", maxi(1, lvl(id)))
+
+
+## Écoles qui parfument les techniques (au moins 2 pouvoirs de l'école).
+func _fig_elems() -> Array:
+	var out: Array = []
+	for s in ["fire", "water", "bolt", "wind", "shadow"]:
+		if _tier_of(String(s)) >= 1:
+			out.append(String(s))
+	return out
+
+
+func _fig_mult() -> float:
+	return 1.25 if _tier_of("shadow") >= 1 else 1.0
+
+
+func _fig_r(r: float) -> float:
+	return r * (1.25 if _tier_of("wind") >= 1 else 1.0)
+
+
+## Coup de technique sur un ennemi, avec la saveur des écoles (feu, foudre, eau ; ombre : dégâts).
+func _fig_hit(e, dmg: float, fx := true) -> void:
+	if not _alive(e):
+		return
+	var p: Vector3 = e.position
+	var el := _fig_elems()
+	if "fire" in el:
+		_ignite(e, maxf(val("fire_burn"), 0.6), 3.0)
+	if "bolt" in el:
+		for o in main.nearest_enemies(p, 3.0, 1, e):
+			var oq: Vector3 = o.position
+			main.zap(p, oq)
+			main.damage_enemy(o, 0.5 * _bolt_mult())
+	main.damage_enemy(e, dmg * _fig_mult(), fx)
+	if "water" in el and _alive(e):
+		var away: Vector3 = p - main.hero.position
+		away.y = 0.0
+		if away.length_squared() > 0.0001:
+			e.push(away.normalized() * 6.0)
+
+
+func _fig_boss(c: Vector3, r: float, dmg: float) -> Array:
+	return main.damage_bosses(c, r, dmg * _fig_mult())
+
+
+## Lancement d'une ruée en figure. main : `_fig_mods = powers.figure_launch(shape, info, s.points)`,
+## puis hero.speed_mult *= speed ; pierce (ignore les gardes) et dmg (multiplicateur) servent à _check_slashes.
+func figure_launch(shape: String, _info: Dictionary, points: PackedVector3Array) -> Dictionary:
+	var out := {"speed": 1.0, "pierce": false, "dmg": 1.15}
+	if not fig_on(shape):
+		return out
+	match shape:
+		"zigzag":
+			out["speed"] = 1.4
+		"straight":
+			out["speed"] = 1.4
+			out["pierce"] = true
+			out["dmg"] = 1.15 * 1.25
+			_fig_iai_pts = points
+		"return":
+			if lvl("fig_return_reflect") > 0:
+				_fig_reflect(points)
+	return out
+
+
+## Arrivée d'une ruée en figure : lance la technique (si débloquée). Renvoie le nom à afficher (hud.shape_pop).
+func figure_end(shape: String, info: Dictionary) -> String:
+	if main == null or not is_instance_valid(main.hero):
+		return ""
+	if not fig_on(shape):
+		_fig_iai_pts = PackedVector3Array()
+		return "%s · CHAÎNE +1" % String(FIG_PLAIN.get(shape, ""))
 	var hp: Vector3 = main.hero.position
 	if lvl("ink_enso") > 0 and shape != "enso":
 		_ink_wave(hp, 2.2, 1.5)
 	match shape:
 		"loop":
-			if lvl("fire_kasha") > 0:
-				var c: Vector3 = info.get("center", hp)
-				_add_wheel(Vector3(c.x, 0, c.z))
+			_fig_loop(info, hp)
 		"zigzag":
-			if lvl("bolt_inazuma") > 0:
-				# l'éclair de base frappe les 4 plus proches ; Inazuma continue la chaîne
-				var list: Array = main.nearest_enemies(hp, 8.0, 4 + int(val("bolt_inazuma")), null)
-				if list.size() > 4:
-					main.vfx.school_kanji(hp, "bolt")
-				var from := hp
-				for i in list.size():
-					var o = list[i]
-					_stun(o)
-					if i >= 4:
-						main.zap(from, o.position)
-						main.damage_enemy(o, 1.2 * _bolt_mult())
-					from = o.position
-				main.sfx.play("strike", 1.8, -6.0)
+			_fig_zigzag(hp)
+		"straight":
+			_fig_straight()
+		"return":
+			_fig_return(hp)
+		"enso":
+			_fig_enso(info, hp)
+		"hook":
+			_fig_hook(info, hp)
+	var label := String(FIG_NAMES.get(shape, ""))
+	var el := _fig_elems()
+	for i in mini(el.size(), 2):
+		var sd: Dictionary = Data.SCHOOLS[String(el[i])]
+		label += " + " + String(sd["name"])
+	return label
 
 
-## Atterrissage du bond d'ensō. main : `powers.on_enso_land(hero.position, _enso_r)` à la fin de _on_hero_landed.
-func on_enso_land(pos: Vector3, r: float) -> void:
-	if lvl("ink_enso") == 0:
+## Techniques qui durent : toupie, coupes iaï différées, contre de garde. main : dans _update_moves.
+func figure_update(dt: float) -> void:
+	if main == null or not is_instance_valid(main.hero):
 		return
-	var rr := r * 1.4 + 0.4
-	main.vfx.ink_wave(pos, rr / 1.5)
-	main.vfx.school_kanji(pos, "ink")
-	main.shake = maxf(float(main.shake), 0.6)
-	_burst(pos, rr, 2.0, 8.0)
-	if _enso_heal_room != _room:
-		_enso_heal_room = _room
-		main.heal(1)
-	_add_inkring(pos, minf(rr, 4.0))
+	var h = main.hero
+	var hp: Vector3 = h.position
+	if _fig_spin_dmg > 0.0:
+		if float(h.spinning) <= 0.0:
+			_fig_spin_dmg = 0.0
+		else:
+			# toupie : aspire, puis lacère tout autour à intervalle régulier
+			_fig_spin_tick -= dt
+			for o in main.nearest_enemies(hp, _fig_pull_r, 99, null):
+				var d: Vector3 = hp - o.position
+				d.y = 0.0
+				if d.length() > 0.4:
+					o.position += d.normalized() * _fig_pull_k * dt
+			if _fig_spin_tick <= 0.0:
+				_fig_spin_tick = 0.16
+				var r := _fig_r(1.9)
+				for o in main.nearest_enemies(hp, r, 99, null):
+					var op: Vector3 = o.position
+					_fig_hit(o, _fig_spin_dmg)
+					main._slash_mark(op, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
+				_fig_boss(hp, r, _fig_spin_dmg)
+	for i in range(_fig_cuts.size() - 1, -1, -1):
+		var c: Array = _fig_cuts[i]
+		c[0] = float(c[0]) - dt
+		if float(c[0]) <= 0.0:
+			_fig_cuts.remove_at(i)
+			_fig_cut(c[1], float(c[2]), float(c[3]))
+	if _fig_counter_t > 0.0:
+		_fig_counter_t -= dt
+		_fig_counter(hp)
 
+
+## Fin du bond d'ensō : onde de choc. main : `powers.figure_landed(hero.position)` dans _on_hero_landed.
+func figure_landed(pos: Vector3) -> void:
+	if not _fig_enso_pending:
+		return
+	_fig_enso_pending = false
+	var r := _fig_enso_r
+	main._blot(pos, Color(Toon.VERMILION, 0.3), r, 1.2)
+	main.splash(pos, Toon.SUMI, 24)
+	main.ink_wave(pos, r * 0.6)
+	var dmg := _fv("fig_enso")
+	var push := 4.0 if lvl("fig_enso_big") == 0 else 8.0
+	for o in main.nearest_enemies(pos, r + 0.4, 99, null):
+		var op: Vector3 = o.position
+		_fig_hit(o, dmg)
+		if _alive(o):
+			var away := op - pos
+			away.y = 0.0
+			if away.length_squared() > 0.0001:
+				o.push(away.normalized() * push)
+	_fig_boss(pos, r + 0.4, dmg)
+	if lvl("fig_enso_heal") > 0 and _enso_heal_room != _room:
+		_enso_heal_room = _room
+		main.heal(int(val("fig_enso_heal")))
+	if lvl("ink_enso") > 0:
+		# Ensō parfait : grande onde d'encre et cercle d'encre qui blesse
+		var rr := r * 1.4 + 0.4
+		main.vfx.ink_wave(pos, rr / 1.5)
+		main.vfx.school_kanji(pos, "ink")
+		main.shake = maxf(float(main.shake), 0.6)
+		_burst(pos, rr, val("ink_enso"), 8.0)
+		_add_inkring(pos, minf(rr, 4.0))
+
+
+## Oublie les techniques en cours (fin de salle, nouvelle partie). main : dans _reset_stroke_state(all).
+func figure_cancel() -> void:
+	_fig_cuts.clear()
+	_fig_iai_pts = PackedVector3Array()
+	_fig_spin_dmg = 0.0
+	_fig_counter_t = 0.0
+	_fig_countered.clear()
+	_fig_enso_pending = false
+
+
+## Anciens hooks (avant figure_end / figure_landed) : sans effet.
+func on_shape(_shape: String, _info: Dictionary) -> void:
+	pass
+
+
+func on_enso_land(_pos: Vector3, _r: float) -> void:
+	pass
+
+
+## Uzu : toupie (aspire et lacère) ; Tourbillon aspirant ; Kasha (roue de feu).
+func _fig_loop(info: Dictionary, hp: Vector3) -> void:
+	var pull := lvl("fig_loop_pull") > 0
+	main.hero.spin(0.8 + (0.3 if pull else 0.0))
+	_fig_spin_tick = 0.0
+	_fig_spin_dmg = _fv("fig_loop")
+	_fig_pull_r = _fig_r(val("fig_loop_pull") if pull else 3.0)
+	_fig_pull_k = 4.5 if pull else 2.5
+	main.wind_spin(hp, 1.8)
+	if pull:
+		main.vfx.swirl(hp, _fig_pull_r * 0.6)
+	if "fire" in _fig_elems():
+		main.vfx.flames(hp, 0.6, 8)
+	main.sfx.play("whoosh", 1.4)
+	if lvl("fire_kasha") > 0:
+		var c: Vector3 = info.get("center", hp)
+		_add_wheel(Vector3(c.x, 0, c.z))
+
+
+## Inazuma : éclair en chaîne ; Chaîne longue ; Kanashibari (étourdit, plus fort).
+func _fig_zigzag(hp: Vector3) -> void:
+	var n := int(_fv("fig_zigzag")) + int(val("fig_zigzag_long"))
+	var rng := _fig_r(6.0 + (3.0 if lvl("fig_zigzag_long") > 0 else 0.0))
+	var stun := lvl("bolt_inazuma") > 0
+	var dmg := 1.0
+	if stun:
+		dmg += val("bolt_inazuma") * _bolt_mult()
+	var from := hp
+	var list: Array = main.nearest_enemies(hp, rng, n, null)
+	for o in list:
+		if not _alive(o):
+			continue
+		var op: Vector3 = o.position
+		main.zap(from, op)
+		if stun:
+			_stun(o)
+		_fig_hit(o, dmg)
+		from = op
+	for bp in _fig_boss(hp, rng, dmg):
+		main.zap(from, bp)
+	if stun and not list.is_empty():
+		main.vfx.school_kanji(hp, "bolt")
+	main.sfx.play("strike", 1.6, -2.0)
+
+
+## Ittō : le héros rengaine, la coupe tombe sur la ligne ; Double coupe ; Onde tranchante.
+func _fig_straight() -> void:
+	main.hero.guard(0.35)
+	var pts := _fig_iai_pts
+	_fig_iai_pts = PackedVector3Array()
+	if pts.size() < 2:
+		return
+	var width := 0.9
+	if lvl("fig_straight_wave") > 0:
+		width = 1.35
+		var a: Vector3 = pts[0]
+		var b: Vector3 = pts[pts.size() - 1]
+		var dir := b - a
+		dir.y = 0.0
+		if dir.length_squared() > 0.0001:
+			pts = pts.duplicate()
+			var tip: Vector3 = main._clamp_point(b + dir.normalized() * val("fig_straight_wave"))
+			pts.append(tip)
+	width = _fig_r(width)
+	var dmg := _fv("fig_straight")
+	_fig_cuts.append([0.3, pts, dmg, width])
+	if lvl("fig_straight_double") > 0:
+		_fig_cuts.append([0.62, pts, dmg * val("fig_straight_double") / 100.0, width])
+
+
+## La coupe apparaît d'un coup sur tout le trait.
+func _fig_cut(pts: PackedVector3Array, dmg: float, width: float) -> void:
+	if pts.size() < 2:
+		return
+	main.vfx.slash_line(pts[0], pts[pts.size() - 1])
+	main.shake = maxf(float(main.shake), 0.4)
+	main.sfx.play("kill", 1.3)
+	main.feel("figure")
+	var hits: Array = []
+	for e in main.enemies:
+		if _alive(e) and _near_line(e.position, pts, width + float(e.radius)):
+			hits.append(e)
+	for e in hits:
+		var ep: Vector3 = e.position
+		_fig_hit(e, dmg)
+		main._dmg_text(ep, dmg * _fig_mult(), false)
+	main.damage_bosses_line(pts, width, dmg * _fig_mult())
+
+
+## Kaeshi : garde ; Ōji (contre pendant la garde).
+func _fig_return(hp: Vector3) -> void:
+	var d := _fv("fig_return")
+	main.hero.guard(d)
+	main.splash(hp, Toon.GOLD, 12)
+	if lvl("fig_return_counter") > 0:
+		_fig_counter_t = d + 0.15
+		_fig_countered.clear()
+		main.vfx.ring(Vector3(hp.x, 0.07, hp.z), Toon.GOLD, _fig_r(2.4))
+
+
+## Contre : chaque ennemi proche qui prépare un coup est contré une fois (dégâts, étourdi).
+func _fig_counter(hp: Vector3) -> void:
+	var cr := _fig_r(2.4)
+	var targets: Array = []
+	for e in main.enemies:
+		if not _alive(e):
+			continue
+		var eid: int = e.get_instance_id()
+		if _fig_countered.has(eid):
+			continue
+		var ep: Vector3 = e.position
+		if Vector2(ep.x - hp.x, ep.z - hp.z).length() > cr + float(e.radius):
+			continue
+		var z: Array = e.danger_zone()
+		if z.is_empty():
+			continue
+		_fig_countered[eid] = true
+		targets.append(e)
+	var dmg := val("fig_return_counter")
+	for e in targets:
+		var ep2: Vector3 = e.position
+		_stun(e)
+		main.shadow_stab(hp, ep2)
+		main.float_text(ep2, "CONTRE", Toon.GOLD)
+		_fig_hit(e, dmg)
+	if not targets.is_empty():
+		main.shake = maxf(float(main.shake), 0.3)
+		main.sfx.play("strike", 1.2, -3.0)
+
+
+## Hanekaeshi : les tirs proches de l'aller-retour repartent vers l'ennemi le plus proche.
+func _fig_reflect(pts: PackedVector3Array) -> void:
+	var r := _fig_r(val("fig_return_reflect"))
+	for b in main.bullets:
+		if bool(b.get("friendly", false)):
+			continue
+		var n: Node3D = b["node"]
+		var q := Vector3(n.position.x, 0, n.position.z)
+		for i in range(0, pts.size(), 3):
+			var pp: Vector3 = pts[i]
+			if q.distance_to(Vector3(pp.x, 0, pp.z)) >= r:
+				continue
+			var v: Vector3 = b["vel"]
+			var speed := maxf(v.length(), 3.0) * 1.4
+			var near: Array = main.nearest_enemies(q, 9.0, 1, null)
+			if near.is_empty():
+				b["vel"] = -v.normalized() * speed
+			else:
+				var o = near[0]
+				var to: Vector3 = o.position - q
+				to.y = 0.0
+				b["vel"] = to.normalized() * speed
+			b["friendly"] = true
+			main.splash(n.position, Toon.GOLD, 6)
+			break
+
+
+## Ensō : bond au centre du cercle (l'onde part à l'atterrissage, figure_landed) ; Grand ensō.
+func _fig_enso(info: Dictionary, hp: Vector3) -> void:
+	var c: Vector3 = info.get("center", hp)
+	var r := maxf(float(info.get("radius", 2.0)), 2.0)
+	r *= 1.0 + val("fig_enso_big") / 100.0
+	_fig_enso_c = Vector3(c.x, 0, c.z)
+	_fig_enso_r = _fig_r(r)
+	_fig_enso_pending = true
+	main.hero.leap(_fig_enso_c, 0.45)
+	main.sfx.play("whoosh", 0.8)
+
+
+## Kagi : demi-tour et estoc vers la pointe du crochet ; Estoc assassin ; Double estoc.
+func _fig_hook(info: Dictionary, hp: Vector3) -> void:
+	var tip: Vector3 = info.get("tip", hp)
+	var rng := _fig_r(2.6)
+	var dmg := _fv("fig_hook")
+	var near: Array = main.nearest_enemies(tip, rng, 1 + int(val("fig_hook_double")), null)
+	if not near.is_empty():
+		var first = near[0]
+		var p0: Vector3 = first.position
+		main.hero.stab(p0 - hp)
+		main.shape_text(p0, "背")
+		var mult := val("fig_hook_back")
+		for o in near:
+			if not _alive(o):
+				continue
+			var op: Vector3 = o.position
+			var d := dmg
+			if mult > 0.0 and _fig_exposed(o, op - hp):
+				d *= mult
+				main.float_text(op, "×" + _num(mult), FOX_COLOR)
+			main.shadow_stab(hp, op)
+			_fig_hit(o, d)
+		main.shake = maxf(float(main.shake), 0.25)
+		return
+	var bh: Array = _fig_boss(tip, rng, dmg)
+	if not bh.is_empty():
+		var bp: Vector3 = bh[0]
+		main.hero.stab(bp - hp)
+		main.shadow_stab(hp, bp)
+		main.shake = maxf(float(main.shake), 0.25)
+
+
+## Ennemi pris de dos, ou sous la moitié de sa vie (Estoc assassin).
+func _fig_exposed(e, dir: Vector3) -> bool:
+	var mx := float(e.get_meta("max_hp", 1.0))
+	if float(e.hp) < mx * 0.5:
+		return true
+	if dir.length_squared() < 0.0001:
+		return false
+	var ry: float = e.body.rotation.y
+	var fwd := Vector3(-sin(ry), 0, -cos(ry))
+	return dir.normalized().dot(fwd) > 0.5
+
+
+# ------------------------------------------------------------------ hooks de combat (suite)
 
 ## Bond d'esquive. main : `powers.on_dodge(origin, end)` juste après `_launch(s)` dans la branche d'esquive.
 func on_dodge(from: Vector3, to: Vector3) -> void:

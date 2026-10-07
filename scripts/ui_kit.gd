@@ -356,6 +356,35 @@ static func _cloud(ci: CanvasItem, c: Vector2, s: float, p: Vector2, k: float, c
 	ci.draw_rect(Rect2(c + (p + Vector2(-0.45, -0.3) * k) * s, Vector2(0.95, 0.4) * k * s), col)
 
 
+## Symbole d'une figure (même dessin que UiKit.figure) en coordonnées unité, centré en `off`, taille k.
+static func _fsym(ci: CanvasItem, shape: String, c: Vector2, s: float, col: Color, w: float, off := Vector2.ZERO, k := 1.0) -> void:
+	var o := c + off * s
+	var q := s * k
+	match shape:
+		"loop":
+			var pts := PackedVector2Array()
+			for i in 40:
+				var t := float(i) / 39.0
+				pts.append(Vector2.from_angle(t * TAU * 1.75) * 0.85 * (0.15 + 0.85 * t))
+			_pl(ci, o, q, pts, col, w)
+		"zigzag":
+			_pl(ci, o, q, PackedVector2Array([Vector2(-0.6, -0.9), Vector2(0.25, -0.15), Vector2(-0.25, 0.1), Vector2(0.6, 0.9)]), col, w * 1.2)
+		"straight":
+			_ln(ci, o, q, Vector2(-0.95, 0.55), Vector2(0.95, -0.55), col, w * 1.3)
+		"return":
+			_arc(ci, o, q, Vector2(0, -0.1), 0.55, PI, TAU, col, w)
+			_ln(ci, o, q, Vector2(-0.55, -0.1), Vector2(-0.55, 0.8), col, w)
+			_ln(ci, o, q, Vector2(0.55, -0.1), Vector2(0.55, 0.55), col, w)
+			_head(ci, o, q, Vector2(0.55, 0.95), Vector2(0, 1), 0.4, col)
+		"enso":
+			_arc(ci, o, q, Vector2.ZERO, 0.8, -PI * 0.35, PI * 1.45, col, w * 1.5)
+			ci.draw_circle(o + Vector2.from_angle(-PI * 0.35) * 0.8 * q, w * 0.8, col)
+		"hook":
+			_ln(ci, o, q, Vector2(0.35, -0.9), Vector2(0.35, 0.3), col, w)
+			_arc(ci, o, q, Vector2(0.0, 0.3), 0.35, 0.0, PI, col, w)
+			_head(ci, o, q, Vector2(-0.45, 0.0), Vector2(-0.25, -1.0), 0.4, col)
+
+
 static func _sword(ci: CanvasItem, c: Vector2, s: float, col: Color, w: float) -> void:
 	_taper(ci, c, s, Vector2(-0.4, 0.4), Vector2(0.8, -0.8), 0.24, 0.04, col)
 	_ln(ci, c, s, Vector2(-0.66, 0.16), Vector2(-0.16, 0.66), col, w * 1.1)
@@ -637,6 +666,60 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 			_dot(ci, c, s, Vector2(-0.82, 0.55), 0.21, k)
 			_dot(ci, c, s, Vector2(0.5, 0.38), 0.09, k)
 			_dot(ci, c, s, Vector2(0.72, 0.18), 0.06, k)
+		# ------------------------------------------------ figures (le symbole de la forme, et ce que le rouleau ajoute)
+		"fig":
+			_fsym(ci, "loop", c, s, k, w, Vector2(-0.38, -0.32), 0.62)
+			_fsym(ci, "zigzag", c, s, k, w, Vector2(0.42, 0.3), 0.62)
+		"fig_loop":
+			_fsym(ci, "loop", c, s, k, w)
+		"fig_loop_pull":
+			_fsym(ci, "loop", c, s, k, w, Vector2.ZERO, 0.62)
+			for i in 4:
+				var dl := Vector2.from_angle(PI * 0.25 + PI * 0.5 * float(i))
+				_head(ci, c, s, dl * 0.68, -dl, 0.3, k)
+		"fig_zigzag":
+			_fsym(ci, "zigzag", c, s, k, w)
+		"fig_zigzag_long":
+			_fsym(ci, "zigzag", c, s, k, w, Vector2(-0.3, 0), 0.75)
+			_ln(ci, c, s, Vector2(0.15, 0.62), Vector2(0.72, 0.1), k, w * 0.7)
+			_dot(ci, c, s, Vector2(0.72, 0.1), 0.17, k)
+			_ln(ci, c, s, Vector2(0.72, 0.1), Vector2(0.6, -0.55), k, w * 0.7)
+			_dot(ci, c, s, Vector2(0.6, -0.55), 0.17, k)
+		"fig_straight":
+			_fsym(ci, "straight", c, s, k, w)
+		"fig_straight_double":
+			_fsym(ci, "straight", c, s, k, w, Vector2(-0.12, -0.2), 0.95)
+			_fsym(ci, "straight", c, s, k, w, Vector2(0.12, 0.2), 0.95)
+		"fig_straight_wave":
+			_fsym(ci, "straight", c, s, k, w, Vector2(-0.22, 0.13), 0.72)
+			_sweep(ci, c, s, Vector2(0.15, 0.1), 0.75, -1.3, 0.25, 0.3, k)
+		"fig_return":
+			_fsym(ci, "return", c, s, k, w)
+		"fig_return_reflect":
+			_fsym(ci, "return", c, s, k, w, Vector2(-0.3, 0.1), 0.72)
+			_dot(ci, c, s, Vector2(0.55, -0.15), 0.17, k)
+			_ln(ci, c, s, Vector2(0.55, -0.15), Vector2(0.8, -0.6), k, w * 0.7)
+			_head(ci, c, s, Vector2(0.92, -0.85), Vector2(0.45, -0.9), 0.3, k)
+		"fig_return_counter":
+			_shp(ci, "shield", c, s, k, Vector2(-0.2, 0.1), 0.72)
+			_shp(ci, "star4", c, s, k, Vector2(0.55, -0.55), 0.4)
+		"fig_enso":
+			_fsym(ci, "enso", c, s, k, w)
+			_dot(ci, c, s, Vector2.ZERO, 0.14, k)
+		"fig_enso_big":
+			_fsym(ci, "enso", c, s, k, w, Vector2.ZERO, 0.7)
+			_arc(ci, c, s, Vector2.ZERO, 0.95, 0.0, TAU, Color(k, k.a * 0.6), w * 0.6)
+		"fig_enso_heal":
+			_fsym(ci, "enso", c, s, k, w)
+			_shp(ci, "heart", c, s, k, Vector2(0, 0.04), 0.36)
+		"fig_hook":
+			_fsym(ci, "hook", c, s, k, w)
+		"fig_hook_back":
+			_fsym(ci, "hook", c, s, k, w, Vector2(-0.32, 0.05), 0.75)
+			_person(ci, c, s, Vector2(0.55, 0.15), 0.55, k)
+		"fig_hook_double":
+			_fsym(ci, "hook", c, s, k, w, Vector2(-0.35, 0.05), 0.72)
+			_fsym(ci, "hook", c, s, k, w, Vector2(0.35, 0.05), 0.72)
 		# ------------------------------------------------ sanctuaire, bandeaux, Atelier
 		"oni":
 			_dot(ci, c, s, Vector2(0, 0.2), 0.62, k)

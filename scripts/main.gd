@@ -1,5 +1,8 @@
 extends Node3D
-## Boucle de jeu : on trace, on lâche = ruée qui tranche. 15 salles par monde, vagues d'ennemis, boss au bout.
+## Boucle de jeu : on trace, on lâche = ruée qui tranche. Chaque monde est une expédition en étapes :
+## de longues cartes qui avancent vers le fond, des zones de combat qui se ferment (vagues d'ennemis),
+## des recoins à fouiller, l'arène du gardien à mi-chemin et le boss au bout.
+## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -26,9 +29,9 @@ const BOSS_HINTS := {
 	"daidara": "Tranche ses cœurs lumineux dans l'ordre",
 	"kuronami": "Coupe ses griffes en longueur, renvoie les vagues d'un aller-retour",
 	"tsuchigumo": "Trace une boucle autour du cocon pour le déchirer",
-	"yukionna": "Après son souffle : tranche les cristaux du plus petit au plus grand",
+	"yukionna": "après son souffle, tranche les cristaux du plus petit au plus grand",
 	"ibaraki": "Touche ses sceaux de braise dans l'ordre, d'un seul trait",
-	"bakekujira": "Un aller-retour devant sa tête la renvoie",
+	"bakekujira": "quand elle charge, trace un aller-retour juste devant sa tête",
 }
 const MINI_BOSS := {1: "okappa", 2: "tsuchigumo", 3: "yukionna", 4: "ibaraki", 5: "bakekujira"}
 const Vfx = preload("res://scripts/vfx.gd")
@@ -57,12 +60,13 @@ const CURSES := {
 	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin"},
 }
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const SHAPE_NAMES := {"loop": "UZU · TOUPIE", "zigzag": "INAZUMA · ÉCLAIR EN CHAÎNE", "return": "KAESHI · GARDE",
-	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · ONDE DE CHOC", "hook": "KAGI · ESTOC"}
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
-const ROOMS := 15
-const MINI_ROOM := 8  # salle du mini-boss
-const SANCTUARIES := [5, 10]  # malédictions proposées après ces salles
+const ROOMS := 15  # combats d'un monde
+const MINI_ROOM := 8  # combat du mini-boss (son arène)
+const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fins des étapes 2 et 5)
+# étapes du monde : combats (numéros de `room`) réunis sur une même longue carte ; [8] et [15] : arènes
+const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
+const CAM_LEAD := 2.4  # la caméra regarde un peu devant le héros (vers le fond de l'étape)
 const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
 	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3}
 # première salle où chaque ennemi peut venir (ennemis signature : un par monde, vers la salle 3-4)
@@ -184,10 +188,12 @@ var ult := 0.0  # jauge d'ultime (0..1), double tap quand elle est pleine
 var _dodge_cd := 0.0
 var _touch_ms := 0
 var _last_tap_ms := 0
+var _boss_seen: Node3D = null
+var _boss_hp_seen := 0.0
+var _boss_dry_t := 0.0  # temps sans dégât sur le boss (affiche son point faible)
 var _ricochets := {}  # ricochets sur les boss de la partie (astuces)
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
-var _spin_tick := 0.0
 # chaîne : ruées réussies d'affilée sans prendre de coup (bonus de dégâts)
 const CHAIN_TIMEOUT := 6.0
 const CHAIN_TIERS := {5: "FLUIDE", 10: "TRANCHANT", 20: "MAÎTRE"}
@@ -196,12 +202,23 @@ var max_chain := 0
 var shape_counts := {}  # figures réalisées pendant la partie (forme -> nombre)
 var _chain_t := 0.0
 var _stroke_hit := false
-var _iai_t := 0.0
-var _iai_points := PackedVector3Array()
-var _enso_center := Vector3.ZERO
-var _enso_r := 2.0
 var _pad_start := Vector2.ZERO
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
+var _fig_mods: Dictionary = {}  # effets de la figure sur la ruée en cours (powers.figure_launch)
+# expédition
+var stage_i := 0  # étape en cours (index dans STAGE_PLAN)
+var _enc := -1  # zone de combat en cours dans l'étape (-1 : on marche)
+var _cam_dz := 0.0  # la caméra suit le héros le long de l'étape
+var _pockets: Array = []  # recoins : {kind, node, pos, used, fx}
+# ralenti sur le dernier ennemi d'un combat
+var _slowmo_t := -1.0  # temps réel écoulé (-1 : pas de ralenti)
+var _slowmo_pos := Vector3.ZERO
+var _last_kill_pos := Vector3.ZERO
+var _alive_prev := 0
+# rituel du torii (passage vers la suite, joueur seulement)
+var _ritual := false
+var _ritual_from := Vector3.ZERO
+var _ritual_flash := false
 
 
 func _ready() -> void:
@@ -276,6 +293,8 @@ func _ready() -> void:
 	tuto.main = self
 	pick_layer.add_child(tuto)
 	tuto.finished.connect(_on_tuto_finished)
+	tuto.dojo_finished.connect(_on_dojo_finished)
+	menu.dojo_pressed.connect(_start_dojo)
 	intro = Intro.new()
 	opt_layer.add_child(intro)
 	intro.finished.connect(_on_intro_finished)
@@ -304,16 +323,13 @@ func _ready() -> void:
 	autoplay = autoplay or "autoplay" in wsearch
 	if autoplay or "room=" in wsearch:
 		_start(false)  # tests : directement dans les salles, sans le sanctuaire
-	# `?room=N` (web) : commence directement à la salle N (tests des boss : 8 et 15)
+	# `?room=N` (web) : commence directement à l'étape du combat N (tests des boss : 8 et 15)
 	var rm := wsearch.find("room=")
 	if rm >= 0:
 		room = clampi(int(wsearch.substr(rm + 5).get_slice("&", 0)), 1, ROOMS) - 1
-		arena.build_room(room + 1, ROOMS, randi(), MINI_ROOM)
-		hero.position = arena.start
-		_prev_hero = hero.position
+		_build_segment()
 		_set_state("play")
 		music.play_world(current_world)
-		_begin_room()
 	else:
 		# `?hub` : directement en jeu dans le sanctuaire de départ
 		_set_state("play" if autoplay or "hub" in wsearch else "menu")
@@ -324,6 +340,8 @@ func _ready() -> void:
 		_open_upgrades()
 	if "atelier" in wsearch:
 		_on_atelier()
+	if "dojo" in wsearch:
+		_start_dojo()
 	if "tuto" in wsearch:
 		_start_tutorial()
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
@@ -391,7 +409,7 @@ func _load() -> void:
 		pad_size = String(cfg.get_value("settings", "pad_size", "m"))
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
 		sfx.haptics = String(cfg.get_value("settings", "vibration", "on")) == "on"
-	menu.best = record
+	menu.best = stage_of(record)
 	menu.sumi = meta.sumi
 	AudioServer.set_bus_mute(0, menu.muted)
 
@@ -431,7 +449,7 @@ func _set_state(s: String) -> void:
 				if in_hub:
 					hud.banner("SANCTUAIRE", "ENTRAÎNE-TOI  ·  PASSE LE TORII POUR PARTIR", wd.color, 2.6)
 				else:
-					hud.banner(String(wd.name).to_upper(), "SALLE 1  ·  TRACE POUR FRAPPER", wd.color, 2.4)
+					hud.banner(String(wd.name).to_upper(), "ÉTAPE 1  ·  AVANCE, TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":
 			menu.show_mode("over")
 		"worlds", "sail":
@@ -457,7 +475,11 @@ func _open_worlds() -> void:
 	# choix du monde sur le rouleau
 	_set_state("worlds")
 	var unlocked: int = 5 if UNLOCK_ALL else int(meta.unlocked)
-	worldmap.open(Worlds.WORLDS, unlocked, meta.world_best, current_world, ROOMS)
+	# records : meilleur combat atteint -> meilleure étape
+	var best := {}
+	for k in meta.world_best.keys():
+		best[k] = stage_of(int(meta.world_best[k]))
+	worldmap.open(Worlds.WORLDS, unlocked, best, current_world, STAGE_PLAN.size(), meta.owned_prints)
 
 
 func _on_world_chosen(id: int) -> void:
@@ -475,9 +497,10 @@ func _on_pause() -> void:
 	var w: Dictionary = Worlds.world(current_world)
 	menu.world_kanji = String(w.kanji)
 	menu.world_color = w.color
-	menu.stat_room = maxi(room, 1)
+	menu.stat_room = maxi(stage_i + 1, 1)
 	menu.stat_combo = chain
 	menu.stat_time = run_time
+	menu.pause_powers = powers.levels.keys()
 	hud.pause_enabled = false
 	state = "paused"
 	menu.show_mode("pause")
@@ -507,7 +530,7 @@ func _notification(what: int) -> void:
 func _start_tutorial() -> void:
 	sfx.play("slash", 0.9, -4.0)
 	menu.show_mode("hidden")
-	_start(false)
+	_start(false, true)
 	_set_state("tuto")
 	hero.face(Vector3(0, 0, -1))
 	hero.guard_t = 99999.0
@@ -536,6 +559,24 @@ func _on_intro_finished(action: String) -> void:
 			_set_state("sail")
 	else:
 		menu.show_mode("home")
+
+
+## Dojo : entraînement libre aux figures (mêmes réglages que le tutoriel : héros intouchable, encre infinie,
+## techniques prêtées), mené par le tutoriel en mode libre.
+func _start_dojo() -> void:
+	sfx.play("slash", 0.9, -4.0)
+	menu.show_mode("hidden")
+	_start(false, true)
+	_set_state("tuto")
+	hero.face(Vector3(0, 0, -1))
+	hero.guard_t = 99999.0
+	hud.banner("DOJO", "ENTRAÎNE-TOI LIBREMENT", Toon.PRUSSIAN, 1.6)
+	tuto.begin_dojo()
+
+
+func _on_dojo_finished() -> void:
+	_start()
+	_set_state("menu")
 
 
 func _on_tuto_finished() -> void:
@@ -845,8 +886,9 @@ func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
 
 # ------------------------------------------------------------------ partie
 
-## Nouvelle partie. `hub` : on démarre dans le sanctuaire (zone d'entraînement, torii vers la salle 1).
-func _start(hub := true) -> void:
+## Nouvelle partie. `hub` : on démarre dans le sanctuaire (zone d'entraînement, torii vers l'étape 1) ;
+## sinon directement dans l'étape 1 (tests), ou dans une salle simple pour le tutoriel (`tutorial`).
+func _start(hub := true, tutorial := false) -> void:
 	for e in enemies:
 		if is_instance_valid(e):
 			e.queue_free()
@@ -861,18 +903,32 @@ func _start(hub := true) -> void:
 	bullets.clear()
 	if hero:
 		hero.queue_free()
+	_clear_pockets()
+	hazards.clear()
+	if is_instance_valid(_shrine):
+		_shrine.queue_free()
+	_shrine = null
 	in_hub = hub
+	stage_i = 0
+	_enc = -1
+	_slowmo_t = -1.0
+	_alive_prev = 0
 	if hub:
 		arena.build_hub(randi())
 		arena.open_gate()
-	else:
+	elif tutorial:
 		arena.build_room(1, ROOMS, randi(), MINI_ROOM)
+	else:
+		arena.build_stage(STAGE_PLAN[0].size(), randi(), true)
 	hero = Hero.new()
 	add_child(hero)
 	hero.position = arena.start
 	hero.dash_finished.connect(_on_dash_finished)
 	hero.landed.connect(_on_hero_landed)
 	_prev_hero = hero.position
+	if arena.stage:
+		_build_pockets()
+	_cam_dz = _cam_target()
 	_cancel_stroke()
 	if is_instance_valid(dash_stroke):
 		dash_stroke.queue_free()
@@ -950,14 +1006,19 @@ func elan_max() -> float:
 	return (ELAN_MAX + powers.elan_bonus() + meta.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
 
 
-## Salle suivante : 3 vagues d'ennemis à tuer, tirées selon le monde, budget croissant.
+## Combat suivant (zone d'une étape, ou arène d'un gardien) : 3 vagues d'ennemis à tuer, tirées selon
+## le monde, budget croissant.
 func _begin_room() -> void:
 	room += 1
 	_room_done = false
+	_alive_prev = 0
 	foam = powers.foam_per_room()
 	powers.on_room_start(room)
 	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
-	hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
+	if arena.stage:
+		hazards.begin_room(room, hero.position, false, arena.bounds, true)
+	else:
+		hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
 	var w: Dictionary = Worlds.world(current_world)
 	var weights: Dictionary = w.enemies
 	var budget := 5 + 2 * room
@@ -998,8 +1059,8 @@ func _begin_room() -> void:
 	if boss_room:
 		# salle de boss : carton titre et première vague à la fin de son entrée (_start_boss_intro)
 		_intro_wave = first
-	elif room > 1:
-		hud.toast("SALLE %d" % room)
+	elif arena.stage:
+		hud.toast("COMBAT %d / %d" % [_enc + 1, arena.zones.size()])
 	if not boss_room:
 		_spawn_list(first)
 	sfx.play("strike", 0.7, -2.0)
@@ -1065,7 +1126,7 @@ func _start_boss_intro() -> void:
 		_intro_wave = []
 		return
 	_intro_mini = is_mini_boss(String(b.kind))
-	var sub := ("GARDIEN DE LA SALLE %d" % MINI_ROOM) if _intro_mini else "GARDIEN DU MONDE"
+	var sub := ("GARDIEN DE L'ÉTAPE %d" % stage_of(MINI_ROOM)) if _intro_mini else "GARDIEN DU MONDE"
 	if _bot != null and not bool(_bot.get("cinematics")):
 		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
 		_end_boss_intro()
@@ -1133,15 +1194,16 @@ func _boss_intro_tap(event: InputEvent) -> void:
 
 ## Plan rapproché sur le boss, mêlé au cadrage de l'arène selon _intro_w.
 func _boss_intro_cam() -> Transform3D:
+	var base := _cam_base.translated(Vector3(0, 0, _cam_dz))
 	if not is_instance_valid(_intro_boss):
-		return _cam_base
+		return base
 	var p := _intro_boss.global_position
 	var f := Vector3(clampf(p.x, -HALF.x, HALF.x), 0.0, clampf(p.z, -HALF.y + 1.5, HALF.y - 1.5))
 	var look := f + Vector3(0, 1.3 if _intro_mini else 2.6, 0)
 	var eye := f + (Vector3(0, 6.0, 7.5) if _intro_mini else Vector3(0, 9.0, 12.0))
 	var close := Transform3D(Basis(), eye).looking_at(look, Vector3.UP)
 	var w := _intro_w * _intro_w * (3.0 - 2.0 * _intro_w)
-	return _cam_base.interpolate_with(close, w * (0.7 if _intro_mini else 0.55))
+	return base.interpolate_with(close, w * (0.7 if _intro_mini else 0.55))
 
 
 func spawn_minions(list: Array) -> void:
@@ -1168,6 +1230,17 @@ func boss_killed(b: Node3D) -> void:
 	feel("boss_death")
 	_splash(b.position, Toon.VERMILION, 30)
 	_splash(b.position, Toon.GOLD, 20)
+	# gardien vaincu (le boss du monde a sa propre fin au ralenti) : même ralenti que le dernier ennemi
+	if is_mini_boss(String(b.kind)) and room < ROOMS:
+		var others := false
+		for bo in bosses:
+			if is_instance_valid(bo) and bo != b and not bo.dead:
+				others = true
+		for e in enemies:
+			if is_instance_valid(e) and not e.dead and not e.dummy:
+				others = true
+		if not others:
+			_start_slowmo(b.position)
 
 
 ## Retour haptique nommé (motifs dans sfx.gd) : sans effet hors mobile ou si l'option est coupée.
@@ -1233,7 +1306,7 @@ func collect(kind: String, value: int) -> void:
 			xp -= xp_need()
 			level += 1
 			_pending_levels += 1
-			hud.toast("NIVEAU %d  ·  ROULEAU EN FIN DE SALLE" % level)
+			hud.toast("NIVEAU %d  ·  ROULEAU À LA FIN DU COMBAT" % level)
 			sfx.play("levelup", 1.0, -3.0)
 			feel("level")
 	else:
@@ -1246,9 +1319,16 @@ func _on_enemy_killed(e: Node3D) -> void:
 	if e.dummy:
 		return  # mannequin : pas de butin
 	var k := String(e.kind)
+	_last_kill_pos = e.position
 	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
 	if randf() < (0.8 if k == "brute" else 0.4):
 		pickups.drop(e.position, "coin", 2 if k == "brute" else 1)
+	if e.has_meta("elite"):
+		# défi d'un recoin relevé : belle récompense
+		pickups.drop(e.position, "coin", 8)
+		pickups.drop(e.position, "xp", 6)
+		hud.toast("DÉFI RELEVÉ  ·  BUTIN")
+		sfx.play("levelup", 1.2, -4.0)
 
 
 func _room_cleared() -> void:
@@ -1261,9 +1341,31 @@ func _room_cleared() -> void:
 	if room >= ROOMS:
 		_victory()
 		return
+	if arena.stage and _enc >= 0:
+		arena.clear_zone(_enc)
+		var j: int = _enc
+		_enc = -1
+		if arena.zones_left() > 0:
+			_open_passage(j + 1)
+			if room in SANCTUARIES:
+				_spawn_shrine()
+			return
 	_open_gate()
 	if room in SANCTUARIES:
 		_spawn_shrine()
+
+
+## Zone nettoyée au milieu d'une étape : la haie d'encre du nord se renfonce, la route continue.
+func _open_passage(j: int) -> void:
+	elan = elan_max()
+	_set_state("play")
+	var jc: Vector3 = arena.join_center(j)
+	hud.banner("ZONE NETTOYÉE", "LA HAIE S'OUVRE  ·  AVANCE  ·  COMBAT %d / %d" % [arena.zones_done() + 1, arena.zones.size()], Toon.GOLD, 1.6)
+	_splash(jc + Vector3(0, 0.4, 0), Toon.SUMI, 14)
+	shake = maxf(shake, 0.1)
+	sfx.play("torii", 1.15, -5.0)
+	sfx.play("whoosh", 0.6, -6.0)
+	feel("clear")
 
 
 func _open_gate() -> void:
@@ -1271,13 +1373,10 @@ func _open_gate() -> void:
 	_set_state("play")
 	var was_open: bool = arena.gate_open
 	arena.open_gate()
-	# fin de salle bien visible : bandeau doré, éclat d'or au pied du torii
+	# fin d'étape bien visible : le torii s'éveille (arena), chemin d'encre du héros jusqu'à lui
 	if room > 0 and not in_hub and not was_open:
-		hud.banner("SALLE NETTOYÉE", "LE TORII S'OUVRE  ·  AVANCE VERS LUI", Toon.GOLD, 1.8)
-		var gp: Vector3 = arena.gate_pos
-		vfx.ring(Vector3(gp.x, 0.08, gp.z), Toon.GOLD, 2.6)
-		vfx.ring(Vector3(gp.x, 0.08, gp.z), Toon.GOLD, 1.6)
-		_splash(gp + Vector3(0, 0.6, 0), Toon.GOLD, 18)
+		hud.banner("ÉTAPE NETTOYÉE", "LE TORII S'ÉVEILLE  ·  SUIS LE CHEMIN D'ENCRE", Toon.GOLD, 1.8)
+		arena.gate_path(hero.position)
 		shake = maxf(shake, 0.12)
 		sfx.play("torii", 1.0, -3.0)
 		feel("clear")
@@ -1285,13 +1384,22 @@ func _open_gate() -> void:
 	sfx.play("whoosh", 0.7, -6.0)
 
 
-## Sanctuaire facultatif (après certaines salles) : un petit autel près du torii.
-## Le toucher propose un pacte ; passer le torii l'ignore.
+## Après un rouleau ou un pacte choisi hors fin de niveau : on rend la main (le torii s'il est ouvert).
+func _after_room_pick() -> void:
+	if arena.gate_open:
+		_open_gate()
+	else:
+		elan = elan_max()
+		_set_state("play")
+
+
+## Sanctuaire facultatif (après certains combats) : un petit autel près du torii (s'il est ouvert),
+## sinon près du héros. Le toucher propose un pacte ; passer le torii l'ignore.
 func _spawn_shrine() -> void:
-	var gp: Vector3 = arena.gate_pos
+	var gp: Vector3 = arena.gate_pos if arena.gate_open else hero.position + Vector3(0, 0, -1.5)
 	var side := 1.0 if randf() < 0.5 else -1.0
 	var p: Vector3 = arena.clamp_walk(gp + Vector3(2.3 * side, 0, 2.2), 0.6)
-	if p.distance_to(gp) < 1.8:
+	if p.distance_to(gp) < 1.8 or p.distance_to(hero.position) < 1.6:
 		p = arena.clamp_walk(gp + Vector3(-2.3 * side, 0, 2.2), 0.6)
 	_shrine = Node3D.new()
 	add_child(_shrine)
@@ -1366,7 +1474,7 @@ func _on_picked(id: String) -> void:
 			_extra_picks -= 1
 			_open_upgrades()
 		else:
-			_open_gate()
+			_after_room_pick()
 		return
 	powers.add(id)
 	_sync_power_seals()
@@ -1378,17 +1486,61 @@ func _on_picked(id: String) -> void:
 	if _pick_context == "level":
 		_set_state("play")
 	else:
-		_open_gate()
+		_after_room_pick()
 
 
-## Passage du torii : un coup de pinceau couvre l'écran, la salle suivante apparaît derrière.
+## Passage du torii. Joueur : petit rituel (le héros passe sous l'arche, éclat de lumière, lavis d'encre
+## qui part du torii et couvre l'écran) ; robot : simple coup de pinceau. La suite apparaît derrière.
 func _transit() -> void:
 	_set_state("transit")
 	_rebuilt = false
 	_cancel_stroke()
-	_reset_stroke_state(true)  # pas de technique (ensō, iai…) qui déborde sur la salle suivante
+	_reset_stroke_state(true)  # pas de technique (ensō, iai…) qui déborde sur la suite
 	hero.stop_dash()
-	sfx.play("whoosh", 0.6)
+	_ritual = _bot == null
+	_ritual_from = hero.position
+	_ritual_flash = false
+	if _ritual:
+		hero.face(Vector3(0, 0, -1))
+		hero.ch.play("Walking_A", 1.3)
+		arena.gate_flash()
+		sfx.play("whoosh", 0.5, -4.0)
+	else:
+		sfx.play("whoosh", 0.6)
+
+
+## Rituel du torii (temps réel) : 0-0,45 s le héros passe l'arche ; éclat ; 0,35-0,75 s le lavis d'encre
+## s'étend depuis le torii ; la suite se construit sous l'encre ; 0,8-1,15 s l'encre se retire.
+func _update_ritual() -> void:
+	var t := _state_t
+	if not _rebuilt:
+		var k := clampf(t / 0.45, 0.0, 1.0)
+		var e := k * k * (3.0 - 2.0 * k)
+		var gp: Vector3 = arena.gate_pos
+		hero.position = _ritual_from.lerp(Vector3(gp.x, 0, gp.z - 0.8), e)
+		_prev_hero = hero.position
+		hud.wash_c = cam.unproject_position(gp + Vector3(0, 1.0, 0))
+		if t >= 0.36 and not _ritual_flash:
+			_ritual_flash = true
+			arena.gate_flash()
+			hud.screen_flash = maxf(hud.screen_flash, 0.55)
+			hero.ch.play_once("Interact", 1.6)
+			sfx.play("torii", 1.25, -4.0)
+			sfx.play("whoosh", 0.8, -3.0)
+			feel("clear")
+		hud.wash_out = false
+		hud.wash = clampf((t - 0.35) / 0.4, 0.0, 1.0)
+		if t >= 0.8:
+			hud.wash = 1.0
+			_rebuild_room()
+			hero.ch.play(hero.ch.idle)
+	else:
+		hud.wash_out = true
+		hud.wash = clampf(1.0 - (t - 0.8) / 0.35, 0.0, 1.0)
+	if t >= 1.15 and _rebuilt:
+		hud.wash = 0.0
+		hud.wash_out = false
+		_set_state("play")
 
 
 func _rebuild_room() -> void:
@@ -1396,28 +1548,319 @@ func _rebuild_room() -> void:
 	if is_instance_valid(_shrine):
 		_shrine.queue_free()
 	_shrine = null
-	if in_hub:
-		# on quitte le sanctuaire : les mannequins restent derrière
-		in_hub = false
-		for e in enemies:
-			if is_instance_valid(e):
-				e.queue_free()
-		enemies.clear()
+	in_hub = false
+	# on quitte le sanctuaire (mannequins) ou l'étape (défi laissé derrière) : personne ne suit
+	for e in enemies:
+		if is_instance_valid(e):
+			e.queue_free()
+	enemies.clear()
+	_attackers.clear()
+	for b in bullets:
+		b.node.queue_free()
+	bullets.clear()
 	for e in effects:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
-	arena.build_room(room + 1, ROOMS, randi(), MINI_ROOM)
+	_build_segment()
+
+
+## Construit la suite pour le combat `room + 1` : l'étape qui le contient (on arrive au sud, les zones
+## de combat se déclenchent en marchant) ou l'arène d'un gardien (le combat commence tout de suite).
+func _build_segment() -> void:
+	var next := room + 1
+	stage_i = clampi(stage_of(next) - 1, 0, STAGE_PLAN.size() - 1)
+	var plan: Array = STAGE_PLAN[stage_i]
+	_enc = -1
+	_slowmo_t = -1.0
+	_clear_pockets()
+	hazards.clear()
+	var boss_seg := next == MINI_ROOM or next >= ROOMS
+	if boss_seg:
+		arena.build_room(next, ROOMS, randi(), MINI_ROOM)
+	else:
+		# (tests : `?room=N` au milieu d'une étape -> on reprend à son premier combat)
+		room = int(plan[0]) - 1
+		arena.build_stage(plan.size(), randi(), int(plan[0]) == 1)
+		_build_pockets()
 	hero.cancel_moves()
 	hero.position = arena.start
 	_prev_hero = hero.position
 	hero.face(Vector3(0, 0, -1))
 	hero.snap_facing()
+	_cam_dz = _cam_target()
+	arena.follow_camera(_cam_dz)
+	if boss_seg:
+		_begin_room()
+	elif room > 0:
+		var wd: Dictionary = Worlds.world(current_world)
+		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, STAGE_PLAN.size()], "%d COMBATS  ·  FOUILLE LES RECOINS" % plan.size(), wd.color, 2.2)
+
+
+## Numéro d'étape (1..8) du combat `r` (0 : pas encore parti).
+static func stage_of(r: int) -> int:
+	if r <= 0:
+		return 0
+	for i in STAGE_PLAN.size():
+		var p: Array = STAGE_PLAN[i]
+		if r <= int(p[p.size() - 1]):
+			return i + 1
+	return STAGE_PLAN.size()
+
+
+## Le héros entre dans la zone `i` de l'étape : les haies se dressent, le combat commence.
+func _enter_zone(i: int) -> void:
+	_enc = i
+	arena.begin_zone(i)
+	hero.position = _clamp_point(hero.position)
+	_prev_hero = hero.position
+	shake = maxf(shake, 0.2)
+	sfx.play("strike", 0.55, -2.0)
+	sfx.play("whoosh", 0.5, -5.0)
+	_splash(arena.join_center(i) + Vector3(0, 0.3, 0), Toon.SUMI, 16)
 	_begin_room()
 
 
+## Marche dans l'étape, hors combat : autel, torii, entrée de la zone suivante.
+func _stage_roam() -> void:
+	if is_instance_valid(_shrine) and not hero.dashing and Vector2(hero.position.x - _shrine.position.x, hero.position.z - _shrine.position.z).length() < 1.3:
+		_shrine.queue_free()
+		_shrine = null
+		_pick_context = "room"
+		_set_state("pick")
+		_open_sanctuary()
+		return
+	if arena.gate_open and arena.gate_reached(hero.position):
+		_transit()
+		return
+	var zi: int = arena.zone_entered(hero.position)
+	if zi >= 0:
+		_enter_zone(zi)
+
+
+## Cadrage le long de l'étape : la zone de combat entière pendant un combat, sinon le héros (un peu en
+## retrait pour voir devant), sans dépasser les bouts de l'étape. 0 pour une salle unique.
+func _cam_target() -> float:
+	if not arena.stage or hero == null:
+		return 0.0
+	var lo: float = arena.stage_rect.position.y + HALF.y
+	var hi: float = arena.stage_rect.end.y - HALF.y
+	var t: float = hero.position.z - CAM_LEAD
+	if _enc >= 0 and _enc < arena.zones.size():
+		var z: Rect2 = arena.zones[_enc]
+		t = z.get_center().y
+	return clampf(t, lo, hi)
+
+
+# ------------------------------------------------------------------ recoins de l'étape
+
+## Recoins : un coffre au départ, puis selon le tirage une source de soin et un défi d'élite (dès l'étape 2).
+func _build_pockets() -> void:
+	_clear_pockets()
+	var spots: Array = arena.pocket_spots
+	var kinds: Array = []
+	for i in spots.size():
+		kinds.append("")
+	if spots.size() > 0:
+		kinds[0] = "chest"
+	var slots: Array = []
+	for i in range(1, spots.size()):
+		slots.append(i)
+	slots.shuffle()
+	if not slots.is_empty() and randf() < 0.6:
+		kinds[int(slots.pop_back())] = "spring"
+	if not slots.is_empty() and stage_i >= 1 and randf() < 0.65:
+		kinds[int(slots.pop_back())] = "elite"
+	if not slots.is_empty() and randf() < 0.35:
+		kinds[int(slots.pop_back())] = "chest"
+	for i in spots.size():
+		var p: Vector3 = spots[i]
+		var k := String(kinds[i])
+		if k == "" or p == Vector3.INF:
+			continue
+		_pockets.append({"kind": k, "pos": p, "used": false, "node": _pocket_node(k, p)})
+
+
+func _clear_pockets() -> void:
+	for pk in _pockets:
+		var n: Node3D = pk["node"]
+		if is_instance_valid(n):
+			n.queue_free()
+	_pockets.clear()
+
+
+## Coffre laqué, source entourée de pierres, ou stèle de défi (鬼) : petits décors posés dans le recoin.
+func _pocket_node(kind: String, p: Vector3) -> Node3D:
+	var n := Node3D.new()
+	add_child(n)
+	n.position = Vector3(p.x, 0, p.z)
+	match kind:
+		"chest":
+			var lac := Toon.mat(Color("#5A1E18"))
+			var gold := Toon.mat(Toon.GOLD)
+			Toon.part(n, Toon.box(Vector3(0.72, 0.4, 0.48)), lac, Vector3(0, 0.2, 0))
+			var lid := Node3D.new()
+			lid.name = "Lid"
+			n.add_child(lid)
+			lid.position = Vector3(0, 0.4, -0.24)
+			Toon.part(lid, Toon.box(Vector3(0.76, 0.14, 0.52)), lac, Vector3(0, 0.07, 0.24))
+			Toon.part(lid, Toon.box(Vector3(0.78, 0.05, 0.08)), gold, Vector3(0, 0.07, 0.24))
+			Toon.part(n, Toon.box(Vector3(0.1, 0.16, 0.02)), gold, Vector3(0, 0.33, 0.25))
+			_disc(n, 0.75, Toon.flat(Color(Toon.SUMI, 0.18)), 0.015)
+		"spring":
+			var stone := Toon.mat(Color("#8C8A86"))
+			for k in 7:
+				var a := TAU * float(k) / 7.0
+				var s := Toon.part(n, Toon.sphere(0.16), stone, Vector3(cos(a) * 0.62, 0.05, sin(a) * 0.5), Vector3(1.2, 0.6, 1.0))
+				s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var water := Toon.flat(Color("#7FD3E0", 0.85))
+			var w := _disc(n, 0.55, water, 0.03)
+			w.name = "Water"
+			w.scale = Vector3(0.55, 1, 0.45)
+			var glint := _disc(n, 0.6, Toon.flat(Color("#BFF2F5", 0.35)), 0.035)
+			glint.scale = Vector3(0.36, 1, 0.28)
+		"elite":
+			var stone2 := Toon.mat(Color("#55525A"))
+			Toon.part(n, Toon.box(Vector3(0.5, 0.12, 0.4)), stone2, Vector3(0, 0.06, 0))
+			Toon.part(n, Toon.box(Vector3(0.34, 0.9, 0.16)), stone2, Vector3(0, 0.55, 0))
+			Toon.part(n, Toon.box(Vector3(0.2, 0.3, 0.02)), Toon.mat(Toon.VERMILION, false), Vector3(0, 0.65, 0.09))
+			_disc(n, 1.2, Toon.flat(Color(Toon.VERMILION, 0.18)), 0.02)
+			var l := Label3D.new()
+			l.font = KANJI_FONT
+			l.text = "鬼"
+			l.font_size = 110
+			l.pixel_size = 0.004
+			l.modulate = Toon.VERMILION
+			l.outline_modulate = Toon.SUMI
+			l.outline_size = 18
+			l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			l.position = Vector3(0, 1.35, 0)
+			n.add_child(l)
+	return n
+
+
+## Le héros touche un recoin : coffre (or, expérience), source (2 cœurs), défi (un ennemi d'élite apparaît).
+func _update_pockets() -> void:
+	for pk in _pockets:
+		if bool(pk["used"]):
+			continue
+		var p: Vector3 = pk["pos"]
+		var d := Vector2(hero.position.x - p.x, hero.position.z - p.z).length()
+		var kind := String(pk["kind"])
+		var n: Node3D = pk["node"]
+		match kind:
+			"chest":
+				if d < 1.1:
+					pk["used"] = true
+					var lid := n.get_node_or_null("Lid") as Node3D
+					if lid != null:
+						lid.rotation.x = -1.05
+					pickups.drop(p, "coin", randi_range(6, 9))
+					pickups.drop(p, "xp", randi_range(3, 5))
+					_splash(p + Vector3(0, 0.3, 0), Toon.GOLD, 16)
+					sfx.play("coin", 0.8, -2.0)
+					sfx.play("shot", 1.6, -6.0)
+					hud.toast("COFFRE  ·  OR ET EXPÉRIENCE")
+			"spring":
+				if d < 1.1 and hero.hp < hero.max_hp:
+					pk["used"] = true
+					heal(2)
+					var w := n.get_node_or_null("Water") as MeshInstance3D
+					if w != null:
+						w.material_override = Toon.flat(Color("#4E6E78", 0.6))
+					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
+					sfx.play("shrine", 1.4, -4.0)
+					hud.toast("SOURCE  ·  SOIN +2")
+			"elite":
+				if d < 3.0 and _enc < 0:
+					pk["used"] = true
+					_spawn_elite(p)
+					if is_instance_valid(n):
+						n.queue_free()
+
+
+## Défi d'un recoin : un costaud d'élite, plus gros et plus solide, qui garde un butin.
+func _spawn_elite(p: Vector3) -> void:
+	var e := Enemy.new()
+	e.setup("brute", hero, self)
+	e.position = arena.clamp_walk(p, 0.8)
+	add_child(e)
+	e.scale = Vector3.ONE * 1.22
+	e.radius *= 1.15
+	e.hp *= 2.4 * float(Worlds.world(current_world).hp_mult)
+	if "oni_eye" in curses:
+		e.hp *= 1.5
+	if "haste" in curses:
+		e.speed *= 1.25
+	e.set_meta("max_hp", e.hp)
+	e.set_meta("elite", true)
+	enemies.append(e)
+	shake = maxf(shake, 0.3)
+	sfx.play("strike", 0.45)
+	_splash(p + Vector3(0, 0.4, 0), Toon.VERMILION, 20)
+	hud.banner("DÉFI", "UN GARDIEN D'ÉLITE  ·  BUTIN À LA CLÉ", Toon.VERMILION, 1.6)
+
+
+## But du robot hors combat : recoin à fouiller (dans le cadre courant), torii ouvert, entrée de la zone suivante.
+func bot_goal() -> Vector3:
+	if not arena.stage or _enc >= 0:
+		return arena.gate_pos if arena.gate_open else Vector3.INF
+	var best := Vector3.INF
+	var bd := 1.0e9
+	var chosen: Dictionary = {}
+	for pk in _pockets:
+		if bool(pk["used"]):
+			continue
+		if String(pk["kind"]) == "spring" and hero.hp >= hero.max_hp:
+			continue
+		var p: Vector3 = pk["pos"]
+		if not arena.bounds.has_point(Vector2(p.x, p.z)) or int(pk.get("bot", 0)) > 12:
+			continue
+		var d := p.distance_to(hero.position)
+		if d < bd:
+			bd = d
+			best = p
+			chosen = pk
+	if best != Vector3.INF:
+		# au plus une douzaine d'essais par recoin (jamais bloqué sur un coffre mal placé)
+		chosen["bot"] = int(chosen.get("bot", 0)) + 1
+		return best
+	if arena.gate_open:
+		return arena.gate_pos
+	return arena.next_goal()
+
+
+## Ralenti cinématographique sur le dernier ennemi d'un combat (jamais pour le robot).
+func _start_slowmo(pos: Vector3) -> void:
+	if _bot != null or in_hub:
+		return
+	_slowmo_t = 0.0
+	_slowmo_pos = pos
+	sfx.play("kill", 0.55, 0.0)
+	feel("heavy")
+
+
+## Échelle de temps du ralenti : ~0,25 pendant 0,55 s (réelles), puis retour à 1 en 0,25 s.
+func _slowmo_scale() -> float:
+	if _slowmo_t < 0.0:
+		return 1.0
+	if _slowmo_t < 0.55:
+		return 0.25
+	return lerpf(0.25, 1.0, clampf((_slowmo_t - 0.55) / 0.25, 0.0, 1.0))
+
+
+## Poids du rapproché de caméra pendant le ralenti (0..1).
+func _slowmo_w() -> float:
+	if _slowmo_t < 0.0:
+		return 0.0
+	var a := clampf(_slowmo_t / 0.15, 0.0, 1.0)
+	var b := clampf((0.85 - _slowmo_t) / 0.3, 0.0, 1.0)
+	var w := minf(a, b)
+	return w * w * (3.0 - 2.0 * w)
+
+
 func _award(victory: bool) -> void:
-	var cleared := room if victory else room - 1
+	var cleared := room if victory or _room_done else room - 1
 	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world)
 	meta.record_world(current_world, room, victory)
 	# l'or ramassé devient de l'encre (2 pièces = 1 encre)
@@ -1494,9 +1937,9 @@ func _finish_run() -> void:
 	if room > record:
 		record = room
 		_save()
-	menu.best = record
+	menu.best = stage_of(record)
 	var w: Dictionary = Worlds.world(current_world)
-	menu.stat_room = room
+	menu.stat_room = maxi(stage_i + 1, 1)
 	menu.stat_kills = kills
 	menu.stat_combo = max_chain
 	menu.stat_time = run_time
@@ -1630,130 +2073,30 @@ func ink_wave(pos: Vector3, r: float) -> void:
 	vfx.ink_wave(pos, r)
 
 
-## Technique de la forme reconnue, déclenchée à l'arrivée de la ruée.
+## Figure reconnue, à l'arrivée de la ruée : sa technique vient des rouleaux de figure (powers.figure_end).
 func _apply_shape() -> void:
 	if _shape.is_empty():
 		return
 	var sh: Dictionary = _shape
 	_shape = {}
 	shape_counts[String(sh.shape)] = int(shape_counts.get(String(sh.shape), 0)) + 1
-	powers.on_shape(String(sh.shape), sh)
-	hud.shape_pop(String(sh.shape), String(SHAPE_NAMES.get(String(sh.shape), "")))
+	var label: String = powers.figure_end(String(sh.shape), sh)
+	hud.shape_pop(String(sh.shape), label)
 	sfx.play("tech_" + String(sh.shape), 1.0, -3.0)
 	feel("figure")
-	match String(sh.shape):
-		"loop":
-			# Uzu : toupie sabre tendu, aspire et lacère tout autour pendant ~1 s
-			hero.spin(0.95)
-			_spin_tick = 0.0
-			wind_spin(hero.position, 1.8)
-			sfx.play("whoosh", 1.4)
-		"zigzag":
-			# Inazuma : éclair en chaîne sur 4 ennemis
-			var from := hero.position
-			for o in nearest_enemies(hero.position, 6.0, 4, null):
-				zap(from, o.position)
-				damage_enemy(o, 1.2)
-				from = o.position
-			for bp in damage_bosses(hero.position, 6.0, 1.2):
-				zap(from, bp)
-			sfx.play("strike", 1.6, -2.0)
-		"straight":
-			# Ittō / iaï : le héros rengaine, puis la coupe s'abat sur toute la ligne
-			hero.guard(0.35)
-			_iai_t = 0.3
-		"return":
-			# Kaeshi : garde, intouchable un instant
-			hero.guard(0.7)
-			_splash(hero.position, Toon.GOLD, 12)
-		"enso":
-			# Ensō : bond au centre du cercle, puis frappe au sol
-			_enso_center = sh.center
-			_enso_r = maxf(float(sh.radius), 2.0)
-			hero.leap(_enso_center, 0.45)
-			sfx.play("whoosh", 0.8)
-		"hook":
-			# Kagi : demi-tour et estoc sur l'ennemi le plus proche de la pointe
-			var tip: Vector3 = sh.tip
-			var near: Array = nearest_enemies(tip, 2.6, 1, null)
-			if not near.is_empty():
-				var o: Node3D = near[0]
-				hero.stab(o.position - hero.position)
-				shadow_stab(hero.position, o.position)
-				damage_enemy(o, 3.0)
-				shape_text(o.position, "背")
-				shake = maxf(shake, 0.25)
-			else:
-				var bh: Array = damage_bosses(tip, 2.6, 3.0)
-				if not bh.is_empty():
-					var bp: Vector3 = bh[0]
-					hero.stab(bp - hero.position)
-					shadow_stab(hero.position, bp)
-					shake = maxf(shake, 0.25)
 
 
-## Atterrissage du bond d'ensō : onde de choc qui repousse et blesse tout l'intérieur du cercle.
+## Fin d'un bond (figure) : les pouvoirs de figure frappent à l'atterrissage.
 func _on_hero_landed() -> void:
 	shake = maxf(shake, 0.5)
 	sfx.play("strike", 0.7)
 	feel("heavy")
-	_blot(hero.position, Color(Toon.VERMILION, 0.3), _enso_r, 1.2)
-	_splash(hero.position, Toon.SUMI, 24)
-	ink_wave(hero.position, _enso_r * 0.6)
-	for o in nearest_enemies(hero.position, _enso_r + 0.4, 99, null):
-		damage_enemy(o, 2.0)
-		o.push((o.position - hero.position).normalized() * 4.0)
-	damage_bosses(hero.position, _enso_r + 0.4, 2.0)
-	powers.on_enso_land(hero.position, _enso_r)
+	powers.figure_landed(hero.position)
 
 
-## Techniques qui durent : toupie (dégâts réguliers + aspiration) et coupe différée de l'iaï.
+## Techniques qui durent (toupie, coupe différée…) : gérées par les pouvoirs de figure.
 func _update_moves(dt: float) -> void:
-	if hero.spinning > 0.0:
-		_spin_tick -= dt
-		for o in nearest_enemies(hero.position, 3.0, 99, null):
-			var d: Vector3 = hero.position - o.position
-			d.y = 0
-			o.position += d.normalized() * 2.5 * dt
-		if _spin_tick <= 0.0:
-			_spin_tick = 0.16
-			for o in nearest_enemies(hero.position, 1.9, 99, null):
-				damage_enemy(o, 0.6)
-				_slash_mark(o.position, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
-			damage_bosses(hero.position, 1.9, 0.6)
-	if _iai_t > 0.0:
-		_iai_t -= dt
-		if _iai_t <= 0.0 and _iai_points.size() > 1:
-			# la ligne de coupe apparaît d'un coup sur tout le trait
-			var a: Vector3 = _iai_points[0]
-			var b: Vector3 = _iai_points[_iai_points.size() - 1]
-			_iai_line(a, b)
-			shake = maxf(shake, 0.4)
-			sfx.play("kill", 1.3)
-			feel("figure")
-			for e in enemies:
-				if is_instance_valid(e) and not e.dead and powers._near_line(e.position, _iai_points, 0.9 + float(e.radius)):
-					damage_enemy(e, 2.0)
-					_dmg_text(e.position, 2.0, false)
-			damage_bosses_line(_iai_points, 0.9, 2.0)
-			_iai_points = PackedVector3Array()
-
-
-## Iaï : grand trait blanc cerné d'encre sur toute la ligne.
-func _iai_line(a: Vector3, b: Vector3) -> void:
-	vfx.slash_line(a, b)
-
-## Kaeshi : les boules proches du trait repartent vers les ennemis.
-func _reflect_bullets(pts: PackedVector3Array) -> void:
-	for b in bullets:
-		var n: Node3D = b.node
-		var q := Vector3(n.position.x, 0, n.position.z)
-		for i in range(0, pts.size(), 3):
-			if q.distance_to(pts[i]) < 1.6:
-				b.vel = -b.vel * 1.4
-				b["friendly"] = true
-				_splash(n.position, Toon.GOLD, 6)
-				break
+	powers.figure_update(dt)
 
 
 func shape_text(pos: Vector3, kanji: String) -> void:
@@ -1801,8 +2144,6 @@ func _boss_ricochet() -> void:
 			continue
 		var k := String(bo.kind)
 		_ricochets[k] = int(_ricochets.get(k, 0)) + 1
-		if int(_ricochets[k]) == 2 and BOSS_HINTS.has(k):
-			hud.banner("ASTUCE", String(BOSS_HINTS[k]), Toon.GOLD, 3.6)
 		if is_mini_boss(k) and bo.has_method("_damage"):
 			bo.call("_damage", 0.5)
 		return
@@ -1839,8 +2180,10 @@ func clamp_to_arena(n: Node3D, r: float) -> void:
 	n.position = Vector3(cp.x, n.position.y, cp.z)
 
 
+## Point ramené dans le cadre courant (l'arène, ou la partie ouverte de l'étape / la zone de combat).
 func _clamp_point(p: Vector3) -> Vector3:
-	return Vector3(clampf(p.x, -HALF.x + 0.3, HALF.x - 0.3), 0, clampf(p.z, -HALF.y + 0.3, HALF.y - 0.3))
+	var b: Rect2 = arena.bounds
+	return Vector3(clampf(p.x, b.position.x + 0.3, b.end.x - 0.3), 0, clampf(p.z, b.position.y + 0.3, b.end.y - 0.3))
 
 
 # ------------------------------------------------------------------ entrée
@@ -1948,7 +2291,7 @@ func _touch_up(sp: Vector2) -> void:
 		flick.y = 0
 		var is_tap := flick.length() <= 0.12 and now - _touch_ms < 260
 		# double tap : l'ultime, si la jauge est pleine
-		if is_tap and now - _last_tap_ms < 320 and ult >= 1.0 and state == "play":
+		if is_tap and now - _last_tap_ms < 320 and ult >= 1.0 and (state == "play" or (state == "tuto" and tuto.in_dojo())):
 			_last_tap_ms = 0
 			stroke.queue_free()
 			stroke = null
@@ -2044,11 +2387,13 @@ func _ultimate() -> void:
 	feel("heavy")
 	hud.toast("IPPITSU  ·  ULTIME")
 	for e in enemies.duplicate():
-		if is_instance_valid(e) and not e.dead and not e.dummy:
+		if is_instance_valid(e) and not e.dead and (not e.dummy or state == "tuto"):
 			damage_enemy(e, ULT_DAMAGE * chain_mult())
 	for bo in bosses:
 		if is_instance_valid(bo) and not bo.dead:
 			bo.aoe_hit(bo.position, 6.0, ULT_DAMAGE * 2.0 * chain_mult(), true)
+	if state == "tuto":
+		tuto.on_ultimate()
 
 
 ## Jauge d'ultime : se remplit en tranchant.
@@ -2081,16 +2426,12 @@ func _launch(s: MeshInstance3D) -> void:
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
 	_shape = StrokeShapes.detect(s.points) if s.length >= 2.0 else {}
+	_fig_mods = {}
 	if not _shape.is_empty():
 		shape_text(s.last(), String(SHAPE_KANJI.get(_shape.shape, "")))
 		sfx.play("whoosh", 0.7)
-		if _shape.shape == "straight":
-			hero.speed_mult *= 1.6
-			_iai_points = s.points
-		elif _shape.shape == "zigzag":
-			hero.speed_mult *= 1.5
-		elif _shape.shape == "return":
-			_reflect_bullets(s.points)
+		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
+		hero.speed_mult *= float(_fig_mods.get("speed", 1.0))
 	sfx.play("whoosh", randf_range(0.9, 1.1))
 	feel("dash")
 
@@ -2165,9 +2506,9 @@ func _reset_stroke_state(all := false) -> void:
 	_stroke_kills = 0
 	_stroke_hit = false
 	_shape = {}
+	_fig_mods = {}
 	if all:
-		_iai_t = 0.0
-		_iai_points = PackedVector3Array()
+		powers.figure_cancel()
 
 
 ## Vrai si finir en `p` dans `eta` secondes tombe dans une attaque (zone qui frappe ou boule qui passe).
@@ -2284,7 +2625,7 @@ func _check_slashes() -> void:
 			combo += 1
 			var dmg := 1.0 * (1.0 + 0.5 * (combo - 1))
 			var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
-			var piercing: bool = not _shape.is_empty() and _shape.shape == "straight"
+			var piercing: bool = bool(_fig_mods.get("pierce", false))
 			if not piercing and e.blocks(dir):
 				e.last_stroke = stroke_id
 				combo -= 1
@@ -2296,8 +2637,7 @@ func _check_slashes() -> void:
 				hero.position = arena.clamp_walk(hero.position - dir.normalized() * 0.8, 0.4)
 				_prev_hero = hero.position
 				continue
-			if piercing:
-				dmg *= 1.5
+			dmg *= float(_fig_mods.get("dmg", 1.0))
 			dmg *= chain_mult()
 			dmg = powers.on_hit(e, dmg, dir)
 			_stroke_hit = true
@@ -2331,7 +2671,7 @@ func _check_slashes() -> void:
 			continue
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
-			var bd := 1.0 * (1.0 + 0.5 * (combo - 1)) * chain_mult()
+			var bd := 1.0 * (1.0 + 0.5 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0))
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
@@ -2373,7 +2713,7 @@ func _update_bullets(dt: float) -> void:
 		elif d < 0.3 + Hero.RADIUS and not hero.dashing and hero.invuln <= 0.0:
 			_hurt_hero()
 			b.life = 0.0
-		if b.life <= 0.0 or absf(n.position.x) > HALF.x + 1.0 or absf(n.position.z) > HALF.y + 1.0:
+		if b.life <= 0.0 or not arena.bounds.grow(1.0).has_point(Vector2(n.position.x, n.position.z)):
 			if b.life <= 0.0:
 				_splash(n.position, Toon.VERMILION, 6)
 			n.queue_free()
@@ -2518,6 +2858,14 @@ func _process(_delta: float) -> void:
 		target = 0.35
 	elif state == "play":
 		target = powers.time_mult()  # ralentis des pouvoirs (souffle suspendu, instant volé)
+		if _slowmo_t >= 0.0:
+			# dernier ennemi du combat : ralenti cinématographique (temps réel)
+			target = minf(target, _slowmo_scale())
+			_slowmo_t += real
+			if _slowmo_t > 0.85:
+				_slowmo_t = -1.0
+	elif _slowmo_t >= 0.0 and state != "pick":
+		_slowmo_t = -1.0
 	if target < Engine.time_scale:
 		Engine.time_scale = lerpf(Engine.time_scale, target, minf(1.0, real * 18.0))
 	else:
@@ -2546,7 +2894,8 @@ func _process(_delta: float) -> void:
 		if not _ending_victory:
 			hud.dying = clampf(_state_t / 1.3, 0.0, 1.0)
 			var close := Transform3D(Basis(), hero.position + Vector3(0, 7.5, 6.0)).looking_at(hero.position + Vector3(0, 0.8, 0), Vector3.UP)
-			_cam_base = _cam_base.interpolate_with(close, minf(1.0, real * 2.0))
+			# (la caméra finale est _cam_base décalée de _cam_dz le long de l'étape)
+			_cam_base = _cam_base.interpolate_with(close.translated(Vector3(0, 0, -_cam_dz)), minf(1.0, real * 2.0))
 		if _state_t > 1.6:
 			_finish_run()
 	if state == "tuto":
@@ -2590,6 +2939,16 @@ func _process(_delta: float) -> void:
 		for e in enemies:
 			if is_instance_valid(e) and not e.dead:
 				alive += 1
+		# dernier ennemi du combat tombé : ralenti (le bandeau et l'ouverture suivent, wave_wait)
+		if alive == 0 and _alive_prev > 0 and _waves_left.is_empty() and not _room_done and bosses.is_empty() and not in_hub and room > 0:
+			_start_slowmo(_last_kill_pos)
+		_alive_prev = alive
+		# combat d'une étape : le héros reste dans la zone (haies)
+		if arena.stage and _enc >= 0:
+			var hb: Rect2 = arena.bounds
+			if hero.position.z < hb.position.y + 0.3 or hero.position.z > hb.end.y - 0.3:
+				hero.position.z = clampf(hero.position.z, hb.position.y + 0.3, hb.end.y - 0.3)
+		_update_pockets()
 		if not _waves_left.is_empty() and alive <= 1:
 			# vague suivante
 			_spawn_list(_waves_left.pop_front())
@@ -2605,6 +2964,9 @@ func _process(_delta: float) -> void:
 			_hub_t -= real
 			if arena.gate_reached(hero.position):
 				_transit()
+		elif arena.stage and _enc < 0:
+			# étape : on marche (recoins, autel, zone suivante, torii)
+			_stage_roam()
 		elif room == 0:
 			wave_wait -= real
 			if wave_wait <= 0.0:
@@ -2632,12 +2994,24 @@ func _process(_delta: float) -> void:
 	elif state == "boss_intro":
 		_update_boss_intro(real)
 	elif state == "transit":
-		hud.wipe = clampf(_state_t / 0.35, 0.0, 1.0) if _state_t < 0.45 else clampf(1.0 - (_state_t - 0.45) / 0.35, 0.0, 1.0)
-		if _state_t >= 0.4 and not _rebuilt:
-			_rebuild_room()
-		if _state_t >= 0.8:
-			hud.wipe = 0.0
-			_set_state("play")
+		if _ritual:
+			_update_ritual()
+		else:
+			hud.wipe = clampf(_state_t / 0.35, 0.0, 1.0) if _state_t < 0.45 else clampf(1.0 - (_state_t - 0.45) / 0.35, 0.0, 1.0)
+			if _state_t >= 0.4 and not _rebuilt:
+				_rebuild_room()
+			if _state_t >= 0.8:
+				hud.wipe = 0.0
+				_set_state("play")
+
+	# caméra le long de l'étape (et le lointain avec elle)
+	if state in ["play", "pick", "transit", "boss_intro", "tuto"]:
+		_cam_dz = lerpf(_cam_dz, _cam_target(), minf(1.0, real * 2.6))
+	arena.follow_camera(_cam_dz)
+	var cb := _cam_base.translated(Vector3(0, 0, _cam_dz))
+	if _slowmo_t >= 0.0:
+		# léger rapproché vers le dernier coup
+		cb.origin = cb.origin.lerp(_slowmo_pos + Vector3(0, 0.8, 0), 0.14 * _slowmo_w())
 
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
@@ -2648,7 +3022,7 @@ func _process(_delta: float) -> void:
 	elif state == "intro":
 		var k := clampf(_state_t / 1.6, 0.0, 1.0)
 		k = k * k * (3.0 - 2.0 * k)
-		cam.global_transform = _menu_transform().interpolate_with(_cam_base, k)
+		cam.global_transform = _menu_transform().interpolate_with(cb, k)
 		if k >= 1.0:
 			menu_boat.visible = false
 			_set_state("play")
@@ -2670,9 +3044,9 @@ func _process(_delta: float) -> void:
 	elif shake > 0.0:
 		shake = maxf(0.0, shake - real * 1.6)
 		var s := shake * shake * 1.2
-		cam.global_transform = _cam_base.translated(Vector3(randf_range(-s, s), randf_range(-s, s) * 0.5, randf_range(-s, s)))
+		cam.global_transform = cb.translated(Vector3(randf_range(-s, s), randf_range(-s, s) * 0.5, randf_range(-s, s)))
 	else:
-		cam.global_transform = _cam_base
+		cam.global_transform = cb
 
 	hud.pad = pad_rect() if ctrl_mode == "pad" else Rect2()
 	hud.pad_active = touching
@@ -2687,8 +3061,8 @@ func _process(_delta: float) -> void:
 	var wd: Dictionary = Worlds.world(current_world)
 	hud.world_kanji = String(wd.kanji)
 	hud.world_color = wd.color
-	hud.rooms_total = ROOMS
-	menu.rooms_total = ROOMS
+	hud.rooms_total = STAGE_PLAN.size()
+	menu.rooms_total = STAGE_PLAN.size()
 	hud.elan_m = elan_max()
 	hud.combo = combo if hero.dashing else 0
 	hud.chain = chain if state != "tuto" else 0
@@ -2711,14 +3085,40 @@ func _process(_delta: float) -> void:
 	if touching and stroke != null:
 		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
-	hud.wave = maxi(room, 1)
+	hud.wave = stage_i + 1
 	hud.wave_index = wave_index
 	hud.waves_total = waves_total
 	hud.show_waves = state == "play" and room > 0 and not _room_done
-	hud.gate_hint = arena.gate_open and state == "play"
+	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
+	hud.gate_hint = state == "play" and (arena.gate_open or (arena.stage and _enc < 0 and arena.zones_left() > 0))
+	# barre d'avancée de l'étape (héros, zones de combat) et compte des combats
+	if arena.stage and not in_hub:
+		hud.stage_k = arena.progress_of(hero.position)
+		var marks: Array = []
+		for i in arena.zones.size():
+			var sp: Vector2 = arena.zone_span(i)
+			marks.append([sp.x, sp.y, int(arena.zone_state[i])])
+		hud.stage_marks = marks
+		hud.enc_done = arena.zones_done()
+		hud.enc_total = arena.zones.size()
+	else:
+		hud.stage_k = -1.0
+		hud.stage_marks = []
+		hud.enc_done = 0
+		hud.enc_total = 0
 	hud.game_over = game_over
 	hud.boss_name = ""
+	hud.boss_hint = ""
 	for bo in bosses:
 		if is_instance_valid(bo) and not bo.dead:
 			hud.boss_name = bo.title
+			# point faible : seulement après 12 s sans le moindre dégât sur ce boss
+			var bh: float = float(bo.hp)
+			if bh < _boss_hp_seen - 0.001 or bo != _boss_seen:
+				_boss_dry_t = 0.0
+			_boss_seen = bo
+			_boss_hp_seen = bh
+			_boss_dry_t += real
+			if _boss_dry_t > 12.0:
+				hud.boss_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 			hud.boss_ratio = clampf(bo.hp / bo.max_hp, 0.0, 1.0)

@@ -32,6 +32,8 @@ func run() -> void:
 		await _recover()
 	if not await _step_atelier():
 		await _recover()
+	if not await _step_dojo():
+		await _recover()
 	for w in range(1, 6):
 		if not await _step_world(w):
 			await _recover()
@@ -138,6 +140,7 @@ func _recover() -> void:
 	main.meta.tuto_done = true
 	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker]:
 		c.visible = false
+	main.tuto.abort_dojo()
 	if bool(main.tuto.visible):
 		main.tuto.visible = false
 		main.tuto.step = -1
@@ -557,6 +560,102 @@ func _step_atelier() -> bool:
 	return true
 
 
+# ------------------------------------------------------------------ dojo
+
+## Dojo : entrée depuis l'accueil, quelques figures et traits ratés (verdict), un trait à travers trois
+## mannequins, une esquive, le mannequin offensif (zone rouge), le carnet, l'ultime au double tap, puis la maison.
+func _step_dojo() -> bool:
+	var dj = main.tuto.dojo
+	await _press(main.menu._dojo, "DOJO")
+	if not await _until(func(): return String(main.state) == "tuto" and bool(main.tuto.in_dojo()) and bool(dj.visible), "DOJO ouvre le dojo"):
+		return false
+	if not await _until(func(): return _dummies().size() >= 3, "dojo : mannequins en place"):
+		return false
+	_ok("dojo ouvert (%d mannequins)" % _dummies().size())
+	# figures : quelques essais jusqu'à une figure reconnue
+	var kinds := ["loop", "zigzag", "enso", "straight", "loop", "zigzag"]
+	for k in kinds:
+		if int(dj.total_figures()) >= 2:
+			break
+		if not await _until(func(): return _hero_still(), "héros posé (dojo)", 10.0):
+			return false
+		var dm := _dummies()
+		var target := Vector3.ZERO
+		if not dm.is_empty():
+			target = dm[0].position
+		if not bot.figure(String(k), target):
+			bot.stroke_line(Vector3(0, 0, 1))
+		await _until(func(): return _hero_still(), "fin de la ruée (dojo)", 10.0)
+		await _frames(3)
+	_check(int(dj.total_figures()) >= 1, "dojo : figures reconnues et comptées (%d)" % int(dj.total_figures()), "aucune figure comptée")
+	# trait trop court pour une figure : un verdict s'affiche
+	await _until(func(): return _hero_still(), "héros posé (dojo)", 10.0)
+	dj.last_verdict = ""
+	var hp: Vector3 = main.hero.position
+	var side := Vector3(1.3, 0, 0)
+	if hp.x > 0.0:
+		side = Vector3(-1.3, 0, 0)  # vers le milieu de l'arène
+	bot._stroke_points(PackedVector3Array([hp + side]))
+	await _until(func(): return _hero_still(), "fin de la ruée (dojo)", 10.0)
+	await _frames(3)
+	_check(String(dj.last_verdict) != "", "dojo : verdict d'un trait non reconnu (%s)" % String(dj.last_verdict), "aucun verdict")
+	# un trait à travers trois mannequins
+	if await _until(func(): return _dummies().size() >= 3 and _hero_still(), "dojo : trois mannequins", 10.0):
+		var d3 := _dummies()
+		bot._stroke_points(PackedVector3Array([d3[0].position, d3[1].position, d3[2].position]))
+		await _until(func(): return _hero_still(), "fin de la ruée (dojo)", 10.0)
+		await _frames(3)
+		_check(dj.done.has("multi3"), "dojo : défi « 3 mannequins d'un trait »", "défi non coché")
+	# esquive
+	await _until(func(): return _hero_still(), "héros posé (dojo)", 10.0)
+	var dg0 := int(dj.dodges)
+	var hd: Vector3 = main.hero.position
+	bot.dodge(Vector3(-hd.x, 0, -hd.z))
+	await _until(func(): return _hero_still(), "fin du bond (dojo)", 10.0)
+	await _frames(3)
+	_check(int(dj.dodges) > dg0, "dojo : esquive comptée", "esquive non comptée")
+	# mannequin offensif : une zone rouge à esquiver
+	await _press(dj._off, "OFFENSIF")
+	_check(bool(dj.offensive), "dojo : mannequin offensif activé", "toujours inactif")
+	var tries := 0
+	while int(dj.zones_ok) < 1 and tries < 4:
+		tries += 1
+		if not await _until(func(): return dj._zone != null, "dojo : zone rouge annoncée", 10.0):
+			break
+		await _until(func(): return _hero_still(), "héros posé (dojo)", 10.0)
+		var hz: Vector3 = main.hero.position
+		bot.dodge(Vector3(-hz.x, 0, -hz.z))
+		await _until(func(): return dj._zone == null, "dojo : impact de la zone rouge", 10.0)
+		await _frames(2)
+	_check(int(dj.zones_ok) >= 1 and dj.done.has("zone"), "dojo : zone rouge esquivée", "aucune zone esquivée")
+	await _press(dj._off, "OFFENSIF")
+	_check(not bool(dj.offensive) and dj._zone == null, "dojo : mannequin offensif désactivé", "toujours actif")
+	# carnet : déplié puis replié
+	await _press(dj._book, "CARNET")
+	if await _until(func(): return bool(dj.open) and float(dj._open_k) > 0.9, "dojo : carnet déplié", 5.0):
+		_ok("dojo : carnet déplié")
+	await _press(dj._book, "FERMER")
+	if await _until(func(): return not bool(dj.open) and float(dj._open_k) < 0.1, "dojo : carnet replié", 5.0):
+		_ok("dojo : carnet replié")
+	# ultime : jauge pleine, double tap au centre du pad
+	await _until(func(): return _hero_still() and not bool(main.touching), "héros posé (dojo)", 10.0)
+	main.ult = 1.0
+	var sp: Vector2 = main.pad_rect().get_center()
+	main._touch_down(sp)
+	main._touch_up(sp)
+	main._touch_down(sp)
+	main._touch_up(sp)
+	await _frames(3)
+	_check(int(dj.ults) >= 1 and dj.done.has("ult"), "dojo : ultime au double tap", "ultime non lancé")
+	await _until(func(): return _hero_still(), "fin du bond (dojo)", 10.0)
+	# maison : retour à l'accueil
+	await _press(dj._home, "maison du dojo")
+	if not await _until(func(): return String(main.state) == "menu" and not bool(main.tuto.visible) and not bool(main.tuto.in_dojo()), "dojo quitté -> accueil"):
+		return false
+	_ok("dojo quitté (bouton maison)")
+	return true
+
+
 # ------------------------------------------------------------------ mondes
 
 func _step_world(w: int) -> bool:
@@ -626,9 +725,23 @@ func _transit_to_room1(w: int) -> bool:
 		if String(main.state) == "play" and _hero_still():
 			bot.stroke_line(main.arena.gate_pos)
 		await _frames(4)
-	if not await _until(func(): return String(main.state) == "play" and int(main.room) == 1, "monde %d : transit -> salle 1" % w):
+	if not await _until(func(): return String(main.state) == "play" and not bool(main.in_hub) and bool(main.arena.stage), "monde %d : transit -> étape 1" % w):
 		return false
-	_ok("monde %d : torii, transit, salle 1" % w)
+	_ok("monde %d : torii, transit, étape 1 (%s)" % [w, String(main.arena.layout)])
+	# l'étape avance : on marche jusqu'à la première zone de combat, qui se ferme derrière le héros
+	t0 = Time.get_ticks_msec()
+	while int(main.room) < 1:
+		if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
+			_fail("monde %d : zone de combat 1 jamais atteinte" % w)
+			return false
+		if String(main.state) == "play" and _hero_still():
+			var g: Vector3 = main.arena.next_goal()
+			if g != Vector3.INF:
+				bot.stroke_line(g)
+		await _frames(4)
+	if not await _until(func(): return String(main.state) == "play" and int(main.room) == 1 and int(main._enc) == 0, "monde %d : entrée dans la zone 1" % w):
+		return false
+	_ok("monde %d : marche dans l'étape, zone de combat 1 fermée" % w)
 	return true
 
 
@@ -808,10 +921,10 @@ func _step_pickers() -> bool:
 	return true
 
 
-## Salle nettoyée par le vrai chemin (ennemis achevés), torii ouvert, rouleaux de niveau en attente résolus.
+## Combat nettoyé par le vrai chemin (ennemis achevés), haie ou torii ouvert, rouleaux de niveau en attente résolus.
 func _clear_room() -> bool:
 	var t0 := Time.get_ticks_msec()
-	while not (bool(main.arena.gate_open) and bool(main._room_done)):
+	while not (bool(main._room_done) and (bool(main.arena.gate_open) or int(main._enc) < 0)):
 		if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
 			_fail("salle %d jamais nettoyée" % int(main.room))
 			return false
