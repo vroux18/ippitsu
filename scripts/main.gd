@@ -1683,7 +1683,7 @@ func _build_pockets() -> void:
 
 func _clear_pockets() -> void:
 	for pk in _pockets:
-		var n: Node3D = pk["node"]
+		var n = pk["node"]  # peut déjà être libéré : pas de type (sinon erreur à l'affectation)
 		if is_instance_valid(n):
 			n.queue_free()
 	_pockets.clear()
@@ -1747,6 +1747,8 @@ func _update_pockets() -> void:
 		var p: Vector3 = pk["pos"]
 		var d := Vector2(hero.position.x - p.x, hero.position.z - p.z).length()
 		var kind := String(pk["kind"])
+		if not is_instance_valid(pk["node"]):
+			continue
 		var n: Node3D = pk["node"]
 		match kind:
 			"chest":

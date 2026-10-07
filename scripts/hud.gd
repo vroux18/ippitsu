@@ -30,6 +30,7 @@ var boss_ratio := 1.0
 var wipe := 0.0  # rideau d'encre de la transition entre salles (0..1)
 # expédition (main) : avancée dans l'étape (0..1, < 0 = cachée), zones [début, fin, état 0/1/2], combats
 var stage_k := -1.0
+var top_off := 0.0  # marge du haut : encoche / barre d'état du téléphone (zone de sécurité) + un peu d'air
 var stage_marks: Array = []
 var enc_done := 0
 var enc_total := 0
@@ -194,6 +195,7 @@ func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 func _process(_delta: float) -> void:
 	size = get_viewport_rect().size
 	var real := UiKit.real_delta()
+	_update_safe_top()
 	_t += real
 	if hurt_flash > 0.0:
 		hurt_flash = maxf(0.0, hurt_flash - real * 2.5)
@@ -231,7 +233,7 @@ func _process(_delta: float) -> void:
 	var u := size.x / 400.0
 	_pause.visible = in_play and pause_enabled and dying <= 0.0
 	_pause.size = Vector2(40, 40) * u
-	_pause.position = Vector2(size.x - 54 * u, 16 * u)
+	_pause.position = Vector2(size.x - 54 * u, 16 * u + top_off)
 	queue_redraw()
 
 
@@ -253,21 +255,23 @@ func _draw() -> void:
 	if in_play:
 		_draw_pad(u)
 		# voile de papier en dégradé derrière le bandeau du haut : lisible sur n'importe quel décor
-		var top_h := 96.0 * u
+		var top_h := 96.0 * u + top_off
 		var paper := Color(Toon.PAPER, 0.88)
 		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0), Vector2(sz.x, top_h * 0.55), Vector2(0, top_h * 0.55)]),
 			PackedColorArray([paper, paper, paper, paper]))
 		draw_polygon(PackedVector2Array([Vector2(0, top_h * 0.55), Vector2(sz.x, top_h * 0.55), Vector2(sz.x, top_h), Vector2(0, top_h)]),
 			PackedColorArray([paper, paper, Color(paper, 0.0), Color(paper, 0.0)]))
+		draw_set_transform(Vector2(0, top_off))
 		_draw_status(u)
 		# pouvoirs : plus affichés en jeu (lisibilité) — rangée sur la carte de pause et bilan de fin
 		_draw_shape_pop(sz, u)
 		_draw_chain(u)
 		_draw_room(sz, u)
-		_draw_stage_bar(sz, u)
-		_draw_gauge(sz, u)
 		if boss_name != "":
 			_draw_boss(sz, u)
+		draw_set_transform(Vector2.ZERO)
+		_draw_stage_bar(sz, u)
+		_draw_gauge(sz, u)
 		if gate_hint:
 			_draw_gate_hint(sz, u)
 		if _combo_t > 0.0 and _combo_shown >= 2:
@@ -535,7 +539,8 @@ func _draw_xp(u: float) -> void:
 			var band := PackedVector2Array([Vector2(sx, fill.position.y - 1.0), Vector2(sx + 6.0 * u, fill.position.y - 1.0), Vector2(sx + 2.0 * u, fill.end.y + 1.0), Vector2(sx - 4.0 * u, fill.end.y + 1.0)])
 			for piece in Geometry2D.intersect_polygons(band, pts):
 				var pp: PackedVector2Array = piece
-				if pp.size() >= 3:
+				# morceaux trop fins (début de barre) : la triangulation échoue, on les saute
+				if pp.size() >= 3 and absf(_poly_area(pp)) > 2.0:
 					draw_colored_polygon(pp, Color(1, 1, 1, 0.6 * _xp_sheen))
 	if fl > 0.0:
 		draw_style_box(UiKit.box(_sb, Color(1, 0.95, 0.75, 0.6 * fl), 999), bar.grow(1.5 * u))
@@ -906,9 +911,9 @@ func _draw_room(sz: Vector2, u: float) -> void:
 ## Le sceau de l'ultime est posé juste au-dessus.
 func _draw_gauge(sz: Vector2, u: float) -> void:
 	var gw := 16.0 * u
-	var gh := sz.y * 0.34
+	var gh := sz.y * 0.3
 	var gx := sz.x - gw - 12.0 * u
-	var gy := sz.y * 0.56
+	var gy := sz.y * 0.3  # haut placé : bien visible, hors du pad
 	var ink := Color("#2F86E0")
 	var low := elan < 0.2
 	if elan_empty or low:
@@ -1009,7 +1014,7 @@ func _draw_gate_hint(sz: Vector2, u: float) -> void:
 func _draw_combo(sz: Vector2, u: float) -> void:
 	var a := clampf(_combo_t / 0.4, 0.0, 1.0)
 	# à gauche : la colonne des pouvoirs occupe la droite
-	var c := Vector2(40 * u, maxf(sz.y * 0.32, 160 * u))
+	var c := Vector2(92 * u, maxf(sz.y * 0.32, 160 * u) + top_off)
 	# petite tache d'encre derrière le nombre
 	draw_circle(c, 21 * u, Color(Toon.SUMI, 0.8 * a))
 	draw_circle(c + Vector2(15, -12) * u, 4 * u, Color(Toon.SUMI, 0.6 * a))
@@ -1174,39 +1179,62 @@ func _draw_card(sz: Vector2, u: float) -> void:
 
 ## Expédition : fine colonne d'encre à droite (bas = arrivée, haut = torii), zones de combat
 ## (grises à venir, vermillon en cours, or nettoyées), le héros en point, et le compte des combats.
+## Zone de sécurité : l'encoche et la barre d'état ne doivent pas cacher les cœurs ni l'XP.
+func _update_safe_top() -> void:
+	var u := size.x / 400.0
+	var inset := 0.0
+	var win := DisplayServer.window_get_size()
+	if win.y > 0:
+		var safe := DisplayServer.get_display_safe_area()
+		inset = float(safe.position.y) * size.y / float(win.y)
+	top_off = clampf(inset, 0.0, 80.0 * u) + 12.0 * u
+
+
+## Progression de l'étape : colonne à gauche (combats à venir, en cours, faits), le héros et le torii au bout.
 func _draw_stage_bar(sz: Vector2, u: float) -> void:
 	if stage_k < 0.0:
 		return
-	var x := sz.x - 14.0 * u
-	var y0 := 150.0 * u
-	var y1 := y0 + 180.0 * u
-	draw_line(Vector2(x, y0), Vector2(x, y1), Color(Toon.SUMI, 0.28), 4.0 * u, true)
+	var x := 18.0 * u
+	var y0 := top_off + 236.0 * u
+	var y1 := y0 + 200.0 * u
+	# fond : pilule sombre translucide pour rester lisible partout
+	_sb.bg_color = Color(0.06, 0.05, 0.07, 0.55)
+	_sb.set_corner_radius_all(int(9 * u))
+	_sb.set_border_width_all(0)
+	_sb.shadow_size = 0
+	draw_style_box(_sb, Rect2(Vector2(x - 9.0 * u, y0 - 26.0 * u), Vector2(18.0 * u, y1 - y0 + 34.0 * u)))
+	draw_line(Vector2(x, y0), Vector2(x, y1), Color(1, 1, 1, 0.25), 5.0 * u, true)
 	for m in stage_marks:
 		var mk: Array = m
 		var ya := lerpf(y1, y0, float(mk[0]))
 		var yb := lerpf(y1, y0, float(mk[1]))
 		var st := int(mk[2])
-		var col := Color(Toon.SUMI, 0.6)
+		var col := Color(1, 1, 1, 0.6)
 		if st == 1:
 			col = Toon.VERMILION
 		elif st == 2:
-			col = Color(Toon.GOLD, 0.95)
-		draw_line(Vector2(x, ya - 2.0 * u), Vector2(x, yb + 2.0 * u), col, 6.0 * u, true)
+			col = Toon.GOLD
+		draw_line(Vector2(x, ya - 2.0 * u), Vector2(x, yb + 2.0 * u), col, 8.0 * u, true)
 	# petit torii au bout du chemin
-	var tc := Vector2(x, y0 - 9.0 * u)
-	draw_line(tc + Vector2(-5, -4) * u, tc + Vector2(-4, 6) * u, Toon.VERMILION, 2.0 * u, true)
-	draw_line(tc + Vector2(5, -4) * u, tc + Vector2(4, 6) * u, Toon.VERMILION, 2.0 * u, true)
-	draw_line(tc + Vector2(-8, -5) * u, tc + Vector2(8, -5) * u, Toon.SUMI, 2.4 * u, true)
-	draw_line(tc + Vector2(-6, -1.5) * u, tc + Vector2(6, -1.5) * u, Toon.VERMILION, 1.6 * u, true)
+	var tc := Vector2(x, y0 - 13.0 * u)
+	draw_line(tc + Vector2(-4, -4) * u, tc + Vector2(-3.5, 6) * u, Toon.VERMILION, 2.2 * u, true)
+	draw_line(tc + Vector2(4, -4) * u, tc + Vector2(3.5, 6) * u, Toon.VERMILION, 2.2 * u, true)
+	draw_line(tc + Vector2(-7, -5) * u, tc + Vector2(7, -5) * u, Toon.WASHI, 2.6 * u, true)
+	draw_line(tc + Vector2(-5, -1.5) * u, tc + Vector2(5, -1.5) * u, Toon.VERMILION, 1.8 * u, true)
 	# le héros
 	var hy := lerpf(y1, y0, clampf(stage_k, 0.0, 1.0))
-	draw_circle(Vector2(x, hy), 6.0 * u, Toon.SUMI)
-	draw_circle(Vector2(x, hy), 3.6 * u, Toon.WASHI)
-	draw_circle(Vector2(x, hy), 1.8 * u, Toon.VERMILION)
+	draw_circle(Vector2(x, hy), 7.0 * u, Toon.WASHI)
+	draw_circle(Vector2(x, hy), 4.6 * u, Toon.SUMI)
+	draw_circle(Vector2(x, hy), 2.2 * u, Toon.VERMILION)
 	if enc_total > 0:
 		var txt := "%d/%d" % [enc_done, enc_total]
-		UiKit.text(self, UiKit.UI_FONT, txt, Vector2(x - 2.0 * u, y1 + 16.0 * u), int(10 * u), Color(Toon.SUMI, 0.75))
-		UiKit.text(self, UiKit.UI_FONT, "COMBATS", Vector2(x - 6.0 * u, y1 + 27.0 * u), int(6.5 * u), Color(Toon.SUMI, 0.55))
+		var fs := int(14 * u)
+		var p := Vector2(x + 14.0 * u, y1 - 2.0 * u)
+		draw_string_outline(UiKit.TITLE_FONT, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(4 * u), Color(Toon.SUMI, 0.7))
+		draw_string(UiKit.TITLE_FONT, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.WASHI)
+		var p2 := Vector2(x + 14.0 * u, y1 + 10.0 * u)
+		draw_string_outline(UiKit.UI_FONT, p2, "COMBATS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(8 * u), int(3 * u), Color(Toon.SUMI, 0.7))
+		draw_string(UiKit.UI_FONT, p2, "COMBATS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(8 * u), Color(Toon.WASHI, 0.9))
 
 
 ## Rituel du torii : un lavis d'encre part de l'arche (wash_c) et couvre l'écran (bords qui bavent,
@@ -1240,3 +1268,13 @@ func _draw_wash(sz: Vector2, u: float) -> void:
 	# halo doré de l'arche, au cœur du lavis
 	if k < 0.6:
 		draw_circle(wash_c, (18.0 + 30.0 * k) * u, Color(Toon.GOLD, 0.35 * (1.0 - k / 0.6)))
+
+
+## Aire signée d'un polygone (formule du lacet).
+func _poly_area(pp: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in pp.size():
+		var p0 := pp[i]
+		var p1 := pp[(i + 1) % pp.size()]
+		a += p0.x * p1.y - p1.x * p0.y
+	return a * 0.5

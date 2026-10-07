@@ -21,7 +21,7 @@ const ZONE_EVERY := 3.5     # pause entre deux annonces
 const ULT_PER_STROKE := 0.34  # la jauge d'ultime se remplit vite au dojo
 const ULT_REGEN := 0.08     # ... et toute seule (par seconde)
 const FIG_MIN_LEN := 2.0    # main : pas de figure sous 2 m de trait
-const VERDICT_LEN := 2.2
+const VERDICT_LEN := 1.3
 const HEAD_H := 54.0        # en-tête de la carte (× u)
 const BOOK_H := 232.0       # carnet déplié (× u)
 const FIG_FR := {"straight": "Trait droit", "return": "Kaeshi", "zigzag": "Zigzag", "loop": "Boucle", "enso": "Ensō", "hook": "Kagi"}
@@ -453,30 +453,14 @@ func _section(label: String, x0: float, x1: float, y: float, u: float, a: float)
 ## Verdict du dernier trait : figure ratée (la plus proche, pâlie, et ce qui manque),
 ## ou figure réussie quand le carnet ouvert cache le sceau du HUD.
 func _draw_verdict(card: Rect2, u: float) -> void:
-	if _verdict_t < 0.0 or _verdict == "":
+	# discret : une petite ligne sous la carte, seulement quand la figure n'est pas reconnue
+	if _verdict_t < 0.0 or _verdict == "" or not _verdict_miss:
 		return
-	if not _verdict_miss and _open_k < 0.5:
-		return
-	var a := clampf(minf(_verdict_t / 0.15, (VERDICT_LEN - _verdict_t) / 0.4), 0.0, 1.0)
-	var bfs := int(15 * u)
-	var sfs := int(10 * u)
-	var bw := UiKit.TITLE_FONT.get_string_size(_verdict, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	var sw := 0.0
-	if _verdict_sub != "":
-		sw = UiKit.UI_FONT.get_string_size(_verdict_sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-	var lead: float = 40.0 * u if _verdict_shape != "" else 0.0
-	var w := minf(maxf(bw, sw) + 32 * u + lead, size.x - 24 * u)
-	var h: float = (50.0 if _verdict_sub != "" else 36.0) * u
-	# sous le sceau du HUD (carnet fermé), sinon sous la carte
-	var top := maxf(card.end.y + 24 * u, 208 * u) - 6 * u * (1.0 - a)
-	var r := Rect2(Vector2((size.x - w) / 2.0, top), Vector2(w, h))
-	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.8 * a), int(14 * u)), r)
-	if _verdict_shape != "":
-		UiKit.figure(self, _verdict_shape, Vector2(r.position.x + 16 * u + 13 * u, r.get_center().y), 13 * u, a * (0.5 if _verdict_miss else 1.0))
-	var tx := r.position.x + 16 * u + lead
-	var bc: Color = Color(Toon.WASHI, a) if _verdict_miss else Color(Toon.GOLD, a)
-	if _verdict_sub != "":
-		draw_string(UiKit.TITLE_FONT, Vector2(tx, r.position.y + 22 * u), _verdict, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, bc)
-		draw_string(UiKit.UI_FONT, Vector2(tx, r.position.y + 39 * u), _verdict_sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.VERMILION.lightened(0.35), a) if _verdict_miss else Color(Toon.WASHI, 0.8 * a))
-	else:
-		draw_string(UiKit.TITLE_FONT, Vector2(tx, r.position.y + 24 * u), _verdict, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, bc)
+	var a := clampf(minf(_verdict_t / 0.12, (VERDICT_LEN - _verdict_t) / 0.3), 0.0, 1.0)
+	var fs := int(11 * u)
+	var txt := _verdict + ("  ·  " + _verdict_sub if _verdict_sub != "" else "")
+	txt = UiKit.plain(txt.to_lower())
+	var tw := UiKit.UI_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var p := Vector2((size.x - tw) / 2.0, card.end.y + 22 * u)
+	draw_string_outline(UiKit.UI_FONT, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(4 * u), Color(Toon.SUMI, 0.55 * a))
+	draw_string(UiKit.UI_FONT, p, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, 0.9 * a))
