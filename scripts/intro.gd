@@ -1,5 +1,5 @@
 extends Control
-## Intro : six planches illustrées et animées qui présentent le jeu (premier JOUER, ou bouton « ? » de l'accueil).
+## Intro : sept planches animées qui présentent le jeu, dont un petit lexique (premier JOUER, ou bouton « ? » de l'accueil).
 ## Glisser à gauche / à droite, ou toucher, pour tourner les planches.
 ## main appelle open(replay) ; l'intro émet finished(action) : "done" (fin ou PASSER au premier lancement),
 ## "tuto" (lancer le tutoriel, depuis le « ? ») ou "back" (retour à l'accueil).
@@ -13,12 +13,23 @@ signal finished(action: String)
 const PAGES := [
 	{"kanji": "一", "title": "Un seul trait",
 		"text": "Trace un trait du doigt : ton ronin fonce le long et tranche tout ce qu'il touche."},
+	# lexique : [pastille, mot, définition courte]
+	{"kanji": "巻", "title": "Petit lexique", "text": "", "terms": [
+		["trait", "Trait", "Ton doigt dessine, le ronin suit."],
+		["encre", "Encre", "La jauge du bas : chaque trait en coûte."],
+		["esquive", "Esquive", "Un tap : un bond, sans encre."],
+		["figure", "Figure", "Boucle, zigzag, trait droit… = une technique."],
+		["chaine", "Chaîne", "Traits réussis sans être touché : + dégâts."],
+		["rouleau", "Rouleau", "Pouvoir à chaque niveau, du commun au légendaire."],
+		["affinite", "Affinité", "2 pouvoirs d'une même école = bonus."],
+		["torii", "Torii", "La porte vers la salle suivante."],
+	]},
 	{"kanji": "墨", "title": "L'encre",
 		"text": "Chaque trait coûte de l'encre (la jauge en bas). Elle remonte quand tu ne traces pas, et à chaque ennemi touché."},
 	{"kanji": "円", "title": "Les figures",
 		"text": "Boucle, zigzag, trait droit, ensō… Chaque forme cachée dans ton trait déclenche une technique."},
 	{"kanji": "風", "title": "Esquive",
-		"text": "Une zone rouge annonce un coup : sors-en ! Un petit coup de doigt = un bond d'esquive. Pas touché ? Ta chaîne monte, tes dégâts aussi."},
+		"text": "Une zone rouge annonce un coup : sors-en ! Un tap = un bond d'esquive (gratuit). Pas touché ? Ta chaîne monte, tes dégâts aussi."},
 	{"kanji": "道", "title": "Progresse",
 		"text": "Nettoie les vagues, ramasse l'XP et l'or. Chaque niveau t'offre un rouleau de pouvoir, du commun au légendaire. Puis le torii s'ouvre."},
 	{"kanji": "鬼", "title": "15 salles, un gardien",
@@ -232,14 +243,19 @@ func _draw() -> void:
 	_sb.shadow_size = int(20 * u)
 	draw_style_box(_sb, card)
 	var panel := _panel_rect(card)
-	draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, a), int(12 * u), Color(Toon.SUMI, 0.8 * a), int(maxf(1.0, 2.0 * u))), panel)
-	_a = a
+	# cadre de l'illustration (absent du lexique : il s'efface pendant la transition)
+	var k := UiKit.ease_out(_pt / TRANS)
+	var fr := _framed(page)
+	if _prev >= 0 and k < 1.0:
+		fr = lerpf(_framed(_prev), fr, k)
+	if fr > 0.01:
+		draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, a * fr), int(12 * u), Color(Toon.SUMI, 0.8 * a * fr), int(maxf(1.0, 2.0 * u))), panel)
+	_a = a * fr
 	_u = u
 	_r = panel
 	_ellipse(_at(0.5, 0.88), panel.size.x * 0.44, panel.size.y * 0.09, _c(Toon.SUMI, 0.05))  # lavis au sol
 	draw_string(_ui, card.position + Vector2(20, 30) * u, "%d / %d" % [page + 1, PAGES.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.VERMILION, a))
 	# planches : fondu enchaîné, le texte glisse dans le sens de la lecture
-	var k := UiKit.ease_out(_pt / TRANS)
 	if _prev >= 0 and k < 1.0:
 		_draw_page(_prev, card, panel, u, a * (1.0 - k), -_dir * 36.0 * u * k, _prev_t0 + _pt)
 		_draw_page(page, card, panel, u, a * k, _dir * 36.0 * u * (1.0 - k), _pt)
@@ -260,6 +276,12 @@ func _draw() -> void:
 		UiKit.text(self, _ui, "GLISSE OU TOUCHE POUR CONTINUER", Vector2(card.get_center().x, dy + 26.0 * u), int(9 * u), Color(Toon.SUMI, ha))
 
 
+## 1.0 pour une planche illustrée, 0.0 pour le lexique (sans cadre).
+func _framed(i: int) -> float:
+	var pg: Dictionary = PAGES[i]
+	return 0.0 if pg.has("terms") else 1.0
+
+
 func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: float, t: float) -> void:
 	if alpha <= 0.01:
 		return
@@ -271,12 +293,14 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 		0:
 			_page_trait(t)
 		1:
-			_page_encre(t)
+			pass  # le lexique se dessine plus bas, sans illustration
 		2:
-			_page_figures(t)
+			_page_encre(t)
 		3:
-			_page_esquive(t)
+			_page_figures(t)
 		4:
+			_page_esquive(t)
+		5:
 			_page_progres(t)
 		_:
 			_page_gardien(t)
@@ -285,6 +309,9 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 	var seal := Rect2(Vector2(card.end.x - 48.0 * u, card.position.y + 10.0 * u), Vector2(30, 30) * u)
 	draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, alpha), int(6 * u)), seal)
 	UiKit.text(self, UiKit.TITLE_FONT, String(pg.kanji), seal.get_center() + Vector2(0, 8.0 * u), int(21 * u), Color(Toon.WASHI, alpha))
+	if pg.has("terms"):
+		_page_lexique(pg, card, dx, t)
+		return
 	# titre et texte
 	var cx := card.get_center().x + dx
 	var ty := panel.end.y + 44.0 * u
@@ -356,7 +383,92 @@ func _page_trait(t0: float) -> void:
 		UiKit.text(self, UiKit.TITLE_FONT, "×2", rp + Vector2(0, -50) * u, int((18.0 + 10.0 * (1.0 - pk)) * u), _c(Toon.VERMILION, pk * fade))
 
 
-## 2. Tracer vide la jauge d'encre ; toucher un ennemi en rend un peu ; au repos, elle remonte.
+## 2. Petit lexique : huit mots du jeu, chacun avec sa pastille ; les lignes arrivent l'une après l'autre.
+func _page_lexique(pg: Dictionary, card: Rect2, dx: float, t: float) -> void:
+	var u := _u
+	var base_a := _a
+	var cx := card.get_center().x + dx
+	var ty := card.position.y + 74.0 * u
+	UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain(String(pg.title)), Vector2(cx, ty), int(25 * u), _c(Toon.SUMI))
+	draw_line(Vector2(cx - 22.0 * u, ty + 12.0 * u), Vector2(cx + 22.0 * u, ty + 12.0 * u), _c(Toon.VERMILION), 2.0 * u)
+	var terms: Array = pg.terms
+	var wmax := card.size.x - 88.0 * u
+	for j in terms.size():
+		var row: Array = terms[j]
+		var k := UiKit.ease_out(_k(t, 0.1 + 0.07 * j, 0.4))
+		if k <= 0.0:
+			continue
+		_a = base_a * k
+		var y := card.position.y + (100.0 + 48.0 * j) * u
+		var ox := card.position.x + dx + 14.0 * u * (1.0 - k)
+		if j > 0:
+			draw_line(Vector2(ox + 24.0 * u, y), Vector2(ox + card.size.x - 24.0 * u, y), _c(Toon.SUMI, 0.08), maxf(1.0, u))
+		_lex_icon(String(row[0]), Vector2(ox + 38.0 * u, y + 24.0 * u), 17.0 * u, k)
+		draw_string(UiKit.TITLE_FONT, Vector2(ox + 70.0 * u, y + 21.0 * u), UiKit.plain(String(row[1])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), _c(Toon.SUMI))
+		var d := UiKit.plain(String(row[2]))
+		var fs := int(12 * u)
+		while fs > 8 and UiKit.UI_FONT.get_string_size(d, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > wmax:
+			fs -= 1
+		draw_string(UiKit.UI_FONT, Vector2(ox + 70.0 * u, y + 39.0 * u), d, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, _c(Toon.SUMI, 0.75))
+	_a = base_a
+
+
+## Pastille d'un mot du lexique : sceau rond (comme ceux des figures) et petit dessin à l'encre.
+## r = rayon du sceau ; k = arrivée de la ligne (le trait se dessine pendant ce temps).
+func _lex_icon(kind: String, c: Vector2, r: float, k: float) -> void:
+	if kind == "figure":
+		_symbol("loop", c, r, 1.0)
+		return
+	draw_circle(c, r + 2.5 * r / 30.0, _c(Toon.SUMI, 0.85))
+	draw_circle(c, r, _c(Toon.PAPER, 0.95))
+	var s := r / 17.0
+	match kind:
+		"trait":
+			# un trait de pinceau, la pointe vermillon au bout
+			var pts := _bez_pts(c + Vector2(-10, 7) * s, c + Vector2(-2, -15) * s, c + Vector2(10, -3) * s, 16)
+			_stroke(pts, 0.0, k, 4.0 * s, _c(Toon.SUMI))
+			draw_circle(_pt_at(pts, k), 2.0 * s, _c(Toon.VERMILION))
+		"encre":
+			# une goutte au-dessus de la jauge
+			_drop(c + Vector2(0, -3) * s, 5.5 * s, _c(Toon.SUMI))
+			_bar(c + Vector2(-10, 6.5) * s, 20.0 * s, 4.5 * s, 1.0, _c(Toon.SUMI, 0.15))
+			_bar(c + Vector2(-10, 6.5) * s, 20.0 * s, 4.5 * s, 0.6, _c(Toon.SUMI))
+		"esquive":
+			# un bond hors de la zone rouge
+			draw_line(c + Vector2(-13, 8) * s, c + Vector2(13, 8) * s, _c(Toon.SUMI, 0.3), 1.2 * s, true)
+			_ellipse(c + Vector2(-8, 8) * s, 6.0 * s, 2.2 * s, _c(Toon.VERMILION, 0.5))
+			draw_circle(c + Vector2(-8, 3) * s, 3.0 * s, _c(Toon.SUMI, 0.25))
+			draw_arc(c + Vector2(0, 3) * s, 8.0 * s, PI * 1.1, PI * 1.9, 12, _c(Toon.SUMI, 0.7), 1.6 * s, true)
+			draw_circle(c + Vector2(8, 3) * s, 3.2 * s, _c(Toon.SUMI))
+			draw_line(c + Vector2(6, 2) * s, c + Vector2(2, 1) * s, _c(Toon.VERMILION), 1.2 * s, true)
+		"chaine":
+			# trois maillons
+			_ellipse_line(c + Vector2(-8, 0) * s, 5.5 * s, 3.6 * s, _c(Toon.PRUSSIAN), 2.2 * s)
+			_ellipse_line(c, 3.6 * s, 5.5 * s, _c(Toon.PRUSSIAN), 2.2 * s)
+			_ellipse_line(c + Vector2(8, 0) * s, 5.5 * s, 3.6 * s, _c(Toon.PRUSSIAN), 2.2 * s)
+		"rouleau":
+			# un rouleau dont le liseré passe par les quatre raretés
+			var rc: Color = RARITY_COLS[int(_now / 0.9) % RARITY_COLS.size()]
+			var body := Rect2(c + Vector2(-7, -9) * s, Vector2(14, 18) * s)
+			draw_style_box(UiKit.box(_sb, _c(Toon.WASHI), int(2 * s), _c(rc), int(maxf(1.0, 1.6 * s))), body)
+			draw_rect(Rect2(c + Vector2(-9, -11) * s, Vector2(18, 2.5) * s), _c(Toon.SUMI))
+			draw_rect(Rect2(c + Vector2(-9, 8.5) * s, Vector2(18, 2.5) * s), _c(Toon.SUMI))
+			draw_rect(Rect2(c + Vector2(-4, -6) * s, Vector2(8, 6) * s), _c(rc))
+			draw_line(c + Vector2(-4, 3.5) * s, c + Vector2(4, 3.5) * s, _c(Toon.SUMI, 0.35), 1.5 * s)
+		"affinite":
+			# deux sceaux d'une même école, reliés par un arc d'or
+			var pulse := 0.6 + 0.4 * sin(_now * 3.0)
+			draw_arc(c + Vector2(0, -2) * s, 7.0 * s, PI * 1.15, PI * 1.85, 10, _c(Toon.GOLD, pulse), 1.8 * s, true)
+			for sx in [-1.0, 1.0]:
+				var q := Rect2(c + Vector2(6.5 * sx - 4.5, -2.0) * s, Vector2(9, 9) * s)
+				draw_style_box(UiKit.box(_sb, _c(Toon.VERMILION), int(2 * s)), q)
+			draw_circle(c + Vector2(0, -12.5) * s, 1.6 * s, _c(Toon.GOLD, pulse))
+		_:
+			# la porte, entrouverte sur l'or
+			_torii(c + Vector2(0, 10) * s, 0.36 * s, 0.35 + 0.1 * sin(_now * 2.0), 1.0)
+
+
+## 3. Tracer vide la jauge d'encre ; toucher un ennemi en rend un peu ; au repos, elle remonte.
 func _page_encre(t0: float) -> void:
 	var u := _u
 	var t := fmod(t0, 3.8)
@@ -421,7 +533,7 @@ func _page_encre(t0: float) -> void:
 	UiKit.text(self, _ui, cap, _at(0.5, 0.95), int(10 * u), _c(Toon.SUMI, 0.7))
 
 
-## 3. Quatre formes tracées tour à tour : chacune allume son sceau et déclenche sa technique.
+## 4. Quatre formes tracées tour à tour : chacune allume son sceau et déclenche sa technique.
 func _page_figures(t0: float) -> void:
 	var u := _u
 	var cyc := 1.9
@@ -489,7 +601,7 @@ func _tech_fx(kind: String, box: Rect2, pts: PackedVector2Array, k: float, fade:
 					draw_arc(ce, (20.0 + 60.0 * rk) * u, 0, TAU, 40, _c(Toon.SUMI, (1.0 - rk) * 0.6 * fade), 3.0 * u * (1.0 - rk) + 1.0, true)
 
 
-## 4. Une zone rouge se remplit ; un petit coup de doigt fait bondir le ronin hors de portée ; la chaîne monte.
+## 5. Une zone rouge se remplit ; un petit coup de doigt fait bondir le ronin hors de portée ; la chaîne monte.
 func _page_esquive(t0: float) -> void:
 	var u := _u
 	var lp := 3.4
@@ -555,7 +667,7 @@ func _page_esquive(t0: float) -> void:
 	draw_string(UiKit.UI_FONT, bp2 + Vector2(52, 28) * u, "+%d %% DÉGÂTS" % (n * 5), HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), _c(Toon.SUMI, 0.8))
 
 
-## 5. Les vagues tombent, l'XP et l'or filent vers la barre, un rouleau apparaît, le torii s'ouvre.
+## 6. Les vagues tombent, l'XP et l'or filent vers la barre, un rouleau apparaît, le torii s'ouvre.
 func _page_progres(t0: float) -> void:
 	var u := _u
 	var lp := 4.6
@@ -620,7 +732,7 @@ func _page_progres(t0: float) -> void:
 		_scroll_card(_at(0.4, 0.43), 0.95 * u, rar, UiKit.ease_out(_k(t, 1.85, 0.35)), 1.0 - _k(t, 3.2, 0.3))
 
 
-## 6. Le chemin des 15 salles : sanctuaires, mini-boss, et le gardien qui attend au bout.
+## 7. Le chemin des 15 salles : sanctuaires, mini-boss, et le gardien qui attend au bout.
 func _page_gardien(t0: float) -> void:
 	var u := _u
 	var lp := 4.4

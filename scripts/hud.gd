@@ -1,6 +1,7 @@
 extends Control
 ## Interface de jeu dessinée à la main.
-## En haut : cœurs d'encre (à gauche), sceau du monde + salle + vagues (au centre), pause (à droite).
+## En haut à gauche : plaque d'état (cœurs, sceau de niveau et anneau d'expérience, or), badge de chaîne dessous.
+## Au centre : sceau du monde + salle + vagues. À droite : pause, puis la colonne des pouvoirs (pictogramme + nom court).
 ## Sous le haut : barre du boss. En bas : jauge d'élan graduée. Par-dessus : bandeaux d'annonce,
 ## compteur de combo, barres de vie des ennemis, voile de mort et rideau de transition.
 
@@ -54,7 +55,11 @@ var _shapes: Array = []  # figures enchaînées : [forme, âge]
 var shape_name := ""
 var _shape_t := 9.0
 var _real_dt := 0.0
-var power_seals: Array = []  # [kanji, couleur d'école, niveau, couleur de rareté, rang] des pouvoirs possédés
+var ult := 0.0  # jauge d'ultime (0..1), écrite par main
+var power_seals: Array = []  # [id, nom court, couleur d'école, niveau, couleur de rareté, rang, niveau max] (main._sync_power_seals)
+var seals_tap := true  # toucher la colonne ouvre le récapitulatif (pad) : on l'indique une fois
+static var _seal_hint_done := false
+var _seal_hint_t := -1.0
 var game_over := false
 var over_t := 0.0
 var best_wave := 0
@@ -68,6 +73,7 @@ var _banner_small := ""
 var _banner_col := Toon.SUMI
 var _banner_t := -1.0
 var _banner_len := 2.0
+var _banner_icon := "ink"  # pictogramme du sceau du bandeau (UiKit.glyph)
 var cine := 0.0  # bandes de cinéma (0..1) pendant l'entrée d'un boss
 var _card: Array = []  # carton titre de boss : [kanji, nom, épithète, sous-titre]
 var _card_mini := false
@@ -146,6 +152,26 @@ func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_col = col
 	_banner_t = 0.0
 	_banner_len = length
+	# sceau du bandeau d'après l'annonce ; salle nettoyée : brève et festive
+	var up := _banner_big.to_upper()
+	_banner_icon = "ink"
+	if up.contains("NETTOY"):
+		_banner_icon = "torii"
+		_banner_len = minf(length, 1.4)
+	elif up.contains("VICTOIRE"):
+		_banner_icon = "star"
+	elif up.contains("SANCTUAIRE"):
+		_banner_icon = "oni" if up.contains("UN ") else "torii"
+	elif up.begins_with("BIEN"):
+		_banner_icon = "check"
+	elif up.begins_with("RAT"):
+		_banner_icon = "cross"
+	elif up.contains("TUTORIEL"):
+		_banner_icon = "ink"
+	elif col == Toon.VERMILION:
+		_banner_icon = "oni"
+	else:
+		_banner_icon = "path"
 
 
 func _process(_delta: float) -> void:
@@ -179,6 +205,14 @@ func _process(_delta: float) -> void:
 			_toast_t = -1.0
 	_shape_t += real
 	_real_dt = real
+	# premiers pouvoirs : on indique une fois qu'on peut toucher la colonne
+	if in_play and seals_tap and not _seal_hint_done and not power_seals.is_empty():
+		_seal_hint_done = true
+		_seal_hint_t = 0.0
+	if _seal_hint_t >= 0.0:
+		_seal_hint_t += real
+		if _seal_hint_t > 5.0:
+			_seal_hint_t = -1.0
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -218,10 +252,9 @@ func _draw() -> void:
 			PackedColorArray([paper, paper, paper, paper]))
 		draw_polygon(PackedVector2Array([Vector2(0, top_h * 0.55), Vector2(sz.x, top_h * 0.55), Vector2(sz.x, top_h), Vector2(0, top_h)]),
 			PackedColorArray([paper, paper, Color(paper, 0.0), Color(paper, 0.0)]))
-		_draw_hearts(u)
+		_draw_status(u)
 		_draw_seals(sz, u)
 		_draw_shape_pop(sz, u)
-		_draw_xp(u)
 		_draw_chain(u)
 		_draw_room(sz, u)
 		_draw_gauge(sz, u)
@@ -309,11 +342,47 @@ func _heart_pts(c: Vector2, s: float, closed := false) -> PackedVector2Array:
 	return xf * _heart
 
 
+## Bloc d'état en haut à gauche : plaque d'encre arrondie, cœurs, sceau de niveau (anneau d'expérience), or.
+## S'arrête avant le sceau du monde (centre) ; la chaîne s'affiche dessous (_draw_chain).
+func _draw_status(u: float) -> void:
+	var plate := Rect2(Vector2(6, 8) * u, Vector2(128, 78) * u)
+	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.72), int(14 * u), Color(Toon.WASHI, 0.14), maxi(1, int(1.2 * u))), plate)
+	_draw_hearts(u)
+	# sceau de niveau : disque d'encre, « NIV » et le nombre, anneau d'expérience jade
+	var lc := Vector2(26 * u, 62 * u)
+	var lr := 13.0 * u
+	var jade := Color("#3FD1B2")
+	draw_arc(lc, lr + 2.5 * u, 0.0, TAU, 36, Color(Toon.WASHI, 0.16), 3.2 * u, true)
+	var xr := clampf(xp_ratio, 0.0, 1.0)
+	if xr > 0.005:
+		draw_arc(lc, lr + 2.5 * u, -PI / 2.0, -PI / 2.0 + TAU * xr, maxi(4, int(36 * xr)), jade, 3.2 * u, true)
+	draw_circle(lc, lr, Color("#26242B"))
+	UiKit.text(self, UiKit.UI_FONT, "NIV", lc + Vector2(0, -3.5 * u), int(6.5 * u), Color(jade, 0.9))
+	UiKit.text(self, UiKit.TITLE_FONT, str(level), lc + Vector2(0, 9.5 * u), int((13.0 if level < 100 else 10.0) * u), Toon.WASHI)
+	# barre d'expérience fine en plus de l'anneau, avec son libellé
+	var bx := lc.x + lr + 9 * u
+	draw_string(UiKit.UI_FONT, Vector2(bx, 56 * u), "EXP", HORIZONTAL_ALIGNMENT_LEFT, -1, int(7 * u), Color(Toon.WASHI, 0.55))
+	var bw := 30.0 * u
+	draw_rect(Rect2(Vector2(bx, 59 * u), Vector2(bw, 3 * u)), Color(Toon.WASHI, 0.16))
+	draw_rect(Rect2(Vector2(bx, 59 * u), Vector2(bw * xr, 3 * u)), jade)
+	# or : pièce percée et montant
+	var gc := Vector2(bx + bw + 13 * u, 62 * u)
+	draw_circle(gc, 7.0 * u, Toon.GOLD)
+	draw_arc(gc, 5.2 * u, 0.0, TAU, 20, Color("#8C6A2A"), 1.0 * u, true)
+	draw_rect(Rect2(gc - Vector2(2, 2) * u, Vector2(4, 4) * u), Color("#5A4318"))
+	var gtxt := str(gold)
+	var gfs := int(12 * u)
+	while gfs > 7 and UiKit.UI_FONT.get_string_size(gtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, gfs).x > plate.end.x - gc.x - 14 * u:
+		gfs -= 1
+	draw_string(UiKit.UI_FONT, gc + Vector2(10 * u, gfs * 0.36), gtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, gfs, Toon.WASHI)
+
+
 func _draw_hearts(u: float) -> void:
-	# une seule rangée : au-delà de 5 cœurs, ils se resserrent et rapetissent (place jusqu'au sceau du monde)
+	# une seule rangée : au-delà de 5 cœurs, ils se resserrent et rapetissent (la plaque ne grandit pas)
 	var k_fit := minf(1.0, 5.0 / maxf(float(max_hp), 1.0))
+	var rim := Toon.VERMILION.darkened(0.45)
 	for i in max_hp:
-		var c := Vector2(24 * u + i * 27 * u * k_fit, 34 * u)
+		var c := Vector2(24 * u + i * 23 * u * k_fit, 31 * u)
 		var s := 10.5 * u * lerpf(1.0, k_fit, 0.6)
 		var lost_t := -1.0
 		for l in _lost:
@@ -321,22 +390,23 @@ func _draw_hearts(u: float) -> void:
 				lost_t = float(l[1])
 		if i < hp:
 			var beat := 1.0 + (0.08 * maxf(0.0, sin(_t * 6.0)) if hp == 1 else 0.0)
-			draw_colored_polygon(_heart_pts(c + Vector2(0, 2.5 * u), s * beat), Color(Toon.SUMI, 0.25))
 			draw_colored_polygon(_heart_pts(c, s * beat), Toon.VERMILION)
-			draw_circle(c + Vector2(-4.5, -4.0) * u * beat, 2.6 * u, Color(1, 1, 1, 0.55))
-			draw_polyline(_heart_pts(c, s * beat, true), Toon.SUMI, 2.0 * u, true)
+			draw_circle(c + Vector2(-4.0, -3.5) * u * beat * k_fit, 2.4 * u, Color(1, 1, 1, 0.55))
+			draw_polyline(_heart_pts(c, s * beat, true), rim, 1.6 * u, true)
 		elif lost_t >= 0.0:
 			# il vient d'être perdu : il gonfle, se fend et part en éclats
 			var k := lost_t / 0.7
 			var pts2 := _heart_pts(c, s * (1.0 + 0.5 * k))
 			draw_colored_polygon(pts2, Color(Toon.VERMILION, 1.0 - k))
-			draw_line(c + Vector2(-2, -8) * u, c + Vector2(2, 0) * u, Color(Toon.SUMI, 1.0 - k), 2.0 * u)
-			draw_line(c + Vector2(2, 0) * u, c + Vector2(-1, 8) * u, Color(Toon.SUMI, 1.0 - k), 2.0 * u)
+			draw_line(c + Vector2(-2, -8) * u, c + Vector2(2, 0) * u, Color(Toon.WASHI, 1.0 - k), 2.0 * u)
+			draw_line(c + Vector2(2, 0) * u, c + Vector2(-1, 8) * u, Color(Toon.WASHI, 1.0 - k), 2.0 * u)
 			for j in 5:
 				var a := TAU * j / 5.0
 				draw_circle(c + Vector2(cos(a), sin(a)) * (6.0 + 26.0 * k) * u + Vector2(0, 30 * k * k) * u, 2.4 * u * (1.0 - k), Color(Toon.VERMILION, 1.0 - k))
 		else:
-			draw_polyline(_heart_pts(c, s, true), Color(Toon.SUMI, 0.3), 1.8 * u, true)
+			# cœur vide : creux sombre, contour pâle
+			draw_colored_polygon(_heart_pts(c, s), Color(0, 0, 0, 0.35))
+			draw_polyline(_heart_pts(c, s, true), Color(Toon.WASHI, 0.38), 1.4 * u, true)
 
 
 ## Figures réussies : les sceaux s'alignent quand on les enchaîne (6 au plus), le dernier porte son nom.
@@ -420,95 +490,150 @@ func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 			draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
 
-## Colonne des sceaux de pouvoirs (même géométrie que _draw_seals) : la toucher ouvre le récapitulatif.
+const SEAL_MAX := 8  # pastilles visibles ; au-delà, la dernière compte le reste (« +N »)
+
+
+## Géométrie de la colonne des pouvoirs : [centre x, y de la première pastille, rayon, pas, lignes affichées].
+func _seal_geo(u: float) -> Array:
+	var r := 11.0 * u
+	return [size.x - 34.0 * u, 84.0 * u, r, 2.0 * r + 8.0 * u, mini(power_seals.size(), SEAL_MAX)]
+
+
+## Étiquette d'une pastille : nom court, et le niveau en chiffres romains à partir de II.
+func _seal_label(sd: Array) -> String:
+	var lv := int(sd[3])
+	var nm := plain(String(sd[1]))
+	if int(sd[6]) > 1 and lv > 1:
+		var romans := ["I", "II", "III", "IV", "V"]
+		nm += " " + String(romans[clampi(lv, 1, 5) - 1])
+	return nm
+
+
+func _seal_font(u: float) -> int:
+	return int(10 * u)
+
+
+## Colonne des pouvoirs (même géométrie que _draw_seals, étiquettes comprises) : la toucher ouvre le récapitulatif.
 func is_over_seals(p: Vector2) -> bool:
 	if power_seals.is_empty() or not in_play or dying > 0.0:
 		return false
 	var u := size.x / 400.0
-	var r := 11.0 * u
-	var step := 2.0 * r + 12.0 * u
-	var per_col := int(floor((size.y * 0.6 - 84.0 * u) / step)) + 1
-	var n := power_seals.size()
-	var cols := int(ceil(float(n) / float(maxi(per_col, 1))))
-	var rows := mini(n, per_col)
-	var right := size.x - 26.0 * u + r + 6.0 * u
-	var left := size.x - 26.0 * u - float(cols - 1) * (2.0 * r + 10.0 * u) - r - 6.0 * u
-	var top := 84.0 * u - r - 6.0 * u
-	var bottom := 84.0 * u + float(rows - 1) * step + r + 10.0 * u
+	var g := _seal_geo(u)
+	var x: float = g[0]
+	var r: float = g[2]
+	var rows: int = g[4]
+	var lw := 0.0
+	for i in rows:
+		lw = maxf(lw, UiKit.UI_FONT.get_string_size(_seal_label(power_seals[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, _seal_font(u)).x)
+	var right := x + r + 8.0 * u
+	var left := x - r - 14.0 * u - lw
+	var top := float(g[1]) - r - 4.0 * u
+	var bottom := float(g[1]) + float(rows - 1) * float(g[3]) + r + 6.0 * u
 	return Rect2(left, top, right - left, bottom - top).has_point(p)
 
 
-## Pouvoirs possédés : colonne de petits sceaux sous le bouton pause (école, niveau, liseré de rareté).
-func _draw_seals(sz: Vector2, u: float) -> void:
-	var r := 11.0 * u
-	var x := sz.x - 26.0 * u
-	var y := 84.0 * u
-	for sd in power_seals:
+## Pouvoirs possédés : colonne de pastilles sous le bouton pause (pictogramme sur la couleur d'école,
+## liseré de rareté, crans de niveau) avec le nom court dans une gélule sombre, lisible sur tout décor.
+func _draw_seals(_sz: Vector2, u: float) -> void:
+	var n := power_seals.size()
+	if n == 0:
+		return
+	var g := _seal_geo(u)
+	var x: float = g[0]
+	var r: float = g[2]
+	var step: float = g[3]
+	var rows: int = g[4]
+	var fs := _seal_font(u)
+	var y := 0.0
+	for i in rows:
+		y = float(g[1]) + float(i) * step
 		var c := Vector2(x, y)
-		var col: Color = sd[1]
-		var rc: Color = sd[3]
-		# liseré de rareté (or animé pour les légendaires)
+		if i == rows - 1 and n > rows:
+			# trop de pouvoirs : la dernière pastille compte le reste
+			draw_circle(c, r + 2.0 * u, Color(Toon.WASHI, 0.5))
+			draw_circle(c, r, Color(Toon.SUMI, 0.9))
+			UiKit.text(self, UiKit.UI_FONT, "+%d" % (n - rows + 1), c + Vector2(0, 4 * u), int(11 * u), Toon.WASHI)
+			continue
+		var sd: Array = power_seals[i]
+		var rc: Color = sd[4]
+		var rank := int(sd[5])
+		# nom court (la première ligne se tait pendant un boss : sa barre passe là)
+		if boss_name == "" or y > 104.0 * u:
+			var lab := _seal_label(sd)
+			var tw := UiKit.UI_FONT.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var pill := Rect2(Vector2(x - r - 12.0 * u - tw, y - 8.5 * u), Vector2(tw + 12.0 * u + r, 17.0 * u))
+			draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.62), 999), pill)
+			var lc: Color = Toon.GOLD.lightened(0.3) if rank >= 3 else Toon.WASHI
+			draw_string(UiKit.UI_FONT, Vector2(pill.position.x + 7.0 * u, y + fs * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, lc)
+		# liseré de rareté (or animé pour les légendaires), puis la pastille
 		var glow := 0.0
-		if int(sd[4]) >= 3:
+		if rank >= 3:
 			glow = 0.35 + 0.25 * sin(_t * 3.0)
-		draw_circle(c, r + 2.5 * u + glow * 2.0 * u, Color(rc, 0.9))
-		draw_circle(c, r, col)
-		var fs := int(13 * u)
-		var k := String(sd[0])
-		var kw := UiKit.TITLE_FONT.get_string_size(k, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		draw_string(UiKit.TITLE_FONT, c + Vector2(-kw / 2.0, fs * 0.36), k, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.WASHI)
-		# niveau : petits points sous le sceau
-		var lv := int(sd[2])
-		for i in lv:
-			draw_circle(c + Vector2((i - (lv - 1) / 2.0) * 5.0 * u, r + 5.0 * u), 1.6 * u, Toon.SUMI)
-		y += 2.0 * r + 12.0 * u
-		if y > sz.y * 0.6:
-			# deuxième colonne
-			y = 84.0 * u
-			x -= 2.0 * r + 10.0 * u
+		draw_circle(c, r + 2.2 * u + glow * 2.0 * u, rc)
+		UiKit.power_icon(self, String(sd[0]), c, r)
+		# niveau : crans sur le bas du liseré
+		var mx := int(sd[6])
+		if mx > 1:
+			var lv := int(sd[3])
+			for k in mx:
+				var dc := c + Vector2.from_angle(PI / 2.0 + (float(k) - float(mx - 1) / 2.0) * 0.5) * (r + 1.0 * u)
+				draw_circle(dc, 2.3 * u, Toon.SUMI)
+				draw_circle(dc, 1.5 * u, Toon.WASHI if k < lv else Color(Toon.WASHI, 0.25))
+	# indice : une fois, à l'arrivée des premiers pouvoirs
+	if _seal_hint_t >= 0.0:
+		var ha := clampf(minf(_seal_hint_t / 0.3, (5.0 - _seal_hint_t) / 0.5), 0.0, 1.0)
+		var hint := "touche pour le détail"
+		var hfs := int(10 * u)
+		var hw := UiKit.UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
+		var hy := y + r + 22.0 * u + 2.0 * u * sin(_t * 5.0)
+		var hr := Rect2(Vector2(x + r + 4.0 * u - hw - 16.0 * u, hy - hfs - 3.0 * u), Vector2(hw + 16.0 * u, hfs + 9.0 * u))
+		draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, 0.92 * ha), 999), hr)
+		# petite flèche vers la colonne
+		var ax := x
+		draw_colored_polygon(PackedVector2Array([Vector2(ax, hr.position.y - 6.0 * u), Vector2(ax + 5.0 * u, hr.position.y + 0.5), Vector2(ax - 5.0 * u, hr.position.y + 0.5)]), Color(Toon.VERMILION, 0.92 * ha))
+		draw_string(UiKit.UI_FONT, Vector2(hr.position.x + 8.0 * u, hy), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Color(Toon.WASHI, ha))
 
 
 ## Chaîne : sous les cœurs, nombre, bonus de dégâts et jauge de temps restant ; éclat quand elle se brise.
+## Chaîne : petit badge sous la plaque d'état (« CHAÎNE ×n  +25 % » et jauge du temps restant),
+## seulement à partir de 2 ; éclat vermillon quand elle se brise.
 func _draw_chain(u: float) -> void:
-	var p := Vector2(14 * u, 68 * u)
+	var p := Vector2(6 * u, 92 * u)
 	if chain >= 2:
-		var tier_col := Toon.SUMI
+		var tier_col := Toon.WASHI
 		if chain >= 20:
-			tier_col = Toon.VERMILION
+			tier_col = Color("#FF6B5A")
 		elif chain >= 10:
-			tier_col = Toon.GOLD
+			tier_col = Toon.GOLD.lightened(0.15)
 		elif chain >= 5:
-			tier_col = Toon.PRUSSIAN
-		var box := Rect2(p, Vector2(112, 34) * u)
-		draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, 0.85), int(8 * u), tier_col, int(2 * u)), box)
-		draw_string(UiKit.UI_FONT, p + Vector2(9, 14) * u, "CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), Color(Toon.SUMI, 0.6))
-		draw_string(UiKit.TITLE_FONT, p + Vector2(9, 30) * u, str(chain), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), tier_col)
-		draw_string(UiKit.UI_FONT, p + Vector2(58, 27) * u, "+%d %%" % int(round((chain_mult - 1.0) * 100.0)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.SUMI, 0.8))
+			tier_col = Color("#7FB2E5")
+		var box := Rect2(p, Vector2(128, 26) * u)
+		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.78), int(13 * u), Color(tier_col, 0.7), maxi(1, int(1.5 * u))), box)
+		var base := p.y + 17 * u
+		draw_string(UiKit.UI_FONT, Vector2(p.x + 10 * u, base), "CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(8 * u), Color(Toon.WASHI, 0.6))
+		var nx := p.x + 10 * u + UiKit.UI_FONT.get_string_size("CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(8 * u)).x + 5 * u
+		var ntxt := "×%d" % chain
+		var nfs := int(15 * u)
+		draw_string(UiKit.TITLE_FONT, Vector2(nx, base + 1 * u), ntxt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, tier_col)
+		var bonus := "+%d %%" % int(round((chain_mult - 1.0) * 100.0))
+		var bfs := int(11 * u)
+		var bw := UiKit.UI_FONT.get_string_size(bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+		draw_string(UiKit.UI_FONT, Vector2(box.end.x - 10 * u - bw, base), bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.GOLD.lightened(0.2))
 		# temps restant avant que la chaîne s'éteigne
-		draw_rect(Rect2(p + Vector2(8, 31) * u, Vector2(96 * clampf(chain_left, 0.0, 1.0), 2) * u), tier_col)
+		var tw := box.size.x - 24 * u
+		draw_rect(Rect2(Vector2(p.x + 12 * u, box.end.y - 5 * u), Vector2(tw, 2 * u)), Color(Toon.WASHI, 0.12))
+		draw_rect(Rect2(Vector2(p.x + 12 * u, box.end.y - 5 * u), Vector2(tw * clampf(chain_left, 0.0, 1.0), 2 * u)), tier_col)
 	if chain_break > 0.0:
 		var k := 1.0 - chain_break
-		var txt := "CHAÎNE BRISÉE  %d" % chain_lost
-		draw_string(UiKit.UI_FONT, p + Vector2(4, 28 + 18 * k) * u, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.VERMILION, chain_break))
+		var txt := "CHAÎNE BRISÉE  ×%d" % chain_lost
+		var tfs := int(11 * u)
+		var tw2 := UiKit.UI_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var tp := p + Vector2(4, 17 + 14 * k) * u
+		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.7 * chain_break), 999), Rect2(tp + Vector2(-4 * u, -tfs), Vector2(tw2 + 8 * u, tfs + 6 * u)))
+		draw_string(UiKit.UI_FONT, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Color("#FF6B5A"), chain_break))
 		for j in 5:
 			var a := TAU * j / 5.0
-			draw_rect(Rect2(p + Vector2(56, 18) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.SUMI, chain_break))
-
-
-## Niveau, barre d'expérience (jade) et or ramassé, sous les cœurs.
-func _draw_xp(u: float) -> void:
-	var p := Vector2(14 * u, 54 * u)
-	var lv := "NIV %d" % level
-	draw_string(UiKit.UI_FONT, p + Vector2(0, 4 * u), lv, HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Toon.SUMI)
-	var bx := p.x + 38 * u
-	var bw := 96.0 * u
-	draw_rect(Rect2(Vector2(bx, p.y - 2 * u), Vector2(bw, 6 * u)), Color(Toon.SUMI, 0.55))
-	draw_rect(Rect2(Vector2(bx + 1 * u, p.y - 1 * u), Vector2((bw - 2 * u) * clampf(xp_ratio, 0.0, 1.0), 4 * u)), Color("#3FD1B2"))
-	# or
-	var gp := Vector2(bx + bw + 14 * u, p.y + 1 * u)
-	draw_circle(gp, 5.5 * u, Toon.GOLD)
-	draw_circle(gp, 3.0 * u, Color("#8C6A2A"))
-	draw_string(UiKit.UI_FONT, gp + Vector2(9 * u, 4 * u), str(gold), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Toon.SUMI)
+			draw_rect(Rect2(p + Vector2(64, 13) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.VERMILION, chain_break))
 
 
 ## Pad tactile : zone où l'on trace, avec le geste en cours en miniature.
@@ -584,6 +709,27 @@ func _draw_gauge(sz: Vector2, u: float) -> void:
 		var x := gx + gw * (2.0 * i / elan_m)
 		if x < gx + gw - 2:
 			draw_line(Vector2(x, gy - 2 * u), Vector2(x, gy + 3 * u), Color(Toon.SUMI, 0.35), 1.5 * u)
+	_draw_ult(Vector2(gx + gw + 22.0 * u, gy + gh / 2.0), u)
+
+
+## Jauge d'ultime : sceau rond au bout de la jauge d'encre ; pleine, il pulse en or (double tap).
+func _draw_ult(c: Vector2, u: float) -> void:
+	var r := 14.0 * u
+	var full := ult >= 1.0
+	var pulse := (0.5 + 0.5 * sin(_t * 7.0)) if full else 0.0
+	if full:
+		draw_circle(c, r + (4.0 + 3.0 * pulse) * u, Color(Toon.GOLD, 0.25 + 0.25 * pulse))
+	draw_circle(c, r, Color(Toon.SUMI, 0.85))
+	draw_arc(c, r - 2.0 * u, -PI / 2.0, -PI / 2.0 + TAU * clampf(ult, 0.0, 1.0), 32, Toon.GOLD if full else Color(Toon.VERMILION, 0.9), 3.5 * u, true)
+	var fs := int(15 * u)
+	var k := "筆"
+	var kw := UiKit.TITLE_FONT.get_string_size(k, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	draw_string(UiKit.TITLE_FONT, c + Vector2(-kw / 2.0, fs * 0.36), k, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Toon.GOLD if full else Color(Toon.WASHI, 0.7))
+	if full:
+		var hs := int(9 * u)
+		var hint := "2× TAP"
+		var hw := UiKit.UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hs).x
+		draw_string(UiKit.UI_FONT, c + Vector2(-hw / 2.0, -r - 6.0 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hs, Color(Toon.GOLD, 0.7 + 0.3 * pulse))
 
 
 func _draw_boss(sz: Vector2, u: float) -> void:
@@ -612,7 +758,8 @@ func _draw_gate_hint(sz: Vector2, u: float) -> void:
 
 func _draw_combo(sz: Vector2, u: float) -> void:
 	var a := clampf(_combo_t / 0.4, 0.0, 1.0)
-	var c := Vector2(sz.x - 40 * u, sz.y * 0.32)
+	# à gauche : la colonne des pouvoirs occupe la droite
+	var c := Vector2(40 * u, maxf(sz.y * 0.32, 160 * u))
 	# petite tache d'encre derrière le nombre
 	draw_circle(c, 21 * u, Color(Toon.SUMI, 0.8 * a))
 	draw_circle(c + Vector2(15, -12) * u, 4 * u, Color(Toon.SUMI, 0.6 * a))
@@ -622,33 +769,72 @@ func _draw_combo(sz: Vector2, u: float) -> void:
 	draw_string(UiKit.TITLE_FONT, Vector2(c.x - tw / 2.0, c.y + fs * 0.35), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.VERMILION if _combo_shown >= 4 else Toon.WASHI, a))
 
 
+## Bandeau d'annonce : trait d'encre opaque aux bords déchirés, dans le tiers haut (sous le HUD),
+## sceau carré de la couleur d'annonce avec son pictogramme, titre papier, sous-titre teinté.
+## Entre en balayant de gauche à droite, sort en glissant et en s'effaçant.
 func _draw_banner(sz: Vector2, u: float) -> void:
-	var k_in := clampf(_banner_t / 0.3, 0.0, 1.0)
-	var k_out := clampf((_banner_len - _banner_t) / 0.35, 0.0, 1.0)
-	var a := minf(k_in, k_out)
-	var cy := sz.y * 0.3
-	# grand coup de pinceau horizontal qui traverse l'écran
-	var reach := sz.x * (0.1 + 0.9 * (1.0 - pow(1.0 - k_in, 3.0)))
+	var t := _banner_t
+	var k_in := clampf(t / 0.28, 0.0, 1.0)
+	var k_out := clampf((_banner_len - t) / 0.3, 0.0, 1.0)
+	var a := k_out
+	var ein := UiKit.ease_out(k_in)
+	var has_sub := _banner_small != ""
+	var bw := minf(sz.x - 28.0 * u, 352.0 * u)
+	var h := 62.0 * u if has_sub else 48.0 * u
+	var cy := 196.0 * u
+	var x0 := (sz.x - bw) / 2.0 + (1.0 - k_out) * 26.0 * u
+	var reach := bw * (0.15 + 0.85 * ein)
+	var acc := _banner_col
+	var acc_l: Color = acc.lightened(0.35) if acc.get_luminance() < 0.4 else acc
+	# ombre portée puis le trait d'encre (bords irréguliers, bout droit effiloché)
+	var n := 22
 	var pts := PackedVector2Array()
-	var n := 20
-	var h := 70.0 * u if _banner_small != "" else 44.0 * u
 	for i in n + 1:
-		var x := reach * float(i) / n
-		var th := h * (0.7 + 0.3 * sin(float(i) * 0.9)) * (0.85 + 0.15 * sin(PI * float(i) / n))
-		pts.append(Vector2(x, cy - th / 2.0))
+		var f := float(i) / n
+		var jag := (sin(float(i) * 2.7) * 1.6 + sin(float(i) * 1.1) * 1.2) * u
+		pts.append(Vector2(x0 + reach * f, cy - h / 2.0 + jag - (2.0 * u if i == 0 else 0.0)))
 	for i in range(n, -1, -1):
-		var x := reach * float(i) / n
-		var th := h * (0.7 + 0.3 * sin(float(i) * 1.3 + 1.0)) * (0.85 + 0.15 * sin(PI * float(i) / n))
-		pts.append(Vector2(x, cy + th / 2.0))
-	draw_colored_polygon(pts, Color(_banner_col, 0.92 * a))
+		var f := float(i) / n
+		var jag := (sin(float(i) * 1.9 + 1.0) * 1.6 + sin(float(i) * 0.7) * 1.3) * u
+		pts.append(Vector2(x0 + reach * f - (6.0 * u * f * f), cy + h / 2.0 + jag))
+	var shadow := Transform2D(0.0, Vector2(0, 4 * u)) * pts
+	draw_colored_polygon(shadow, Color(0, 0, 0, 0.25 * a))
+	draw_colored_polygon(pts, Color(Toon.SUMI, 0.96 * a))
+	# poils du pinceau au bout du trait
+	for j in 5:
+		var yy := cy - h * 0.38 + h * 0.19 * float(j)
+		var ln := (10.0 + 8.0 * sin(float(j) * 2.3 + 0.5)) * u
+		draw_line(Vector2(x0 + reach - 3.0 * u, yy), Vector2(x0 + reach + ln * ein, yy + 1.0 * u), Color(Toon.SUMI, 0.75 * a), 2.0 * u, true)
+	# filet de couleur sous le trait, tracé avec lui
+	draw_line(Vector2(x0 + 8 * u, cy + h / 2.0 - 5 * u), Vector2(x0 + maxf(8 * u, reach - 14 * u), cy + h / 2.0 - 5 * u), Color(acc_l, 0.95 * a), 2.5 * u, true)
+	# sceau : se pose comme un tampon juste après le trait
+	var sk := clampf((t - 0.1) / 0.22, 0.0, 1.0)
+	var sc := Vector2(x0 + 30.0 * u, cy - 1.0 * u)
+	if sk > 0.0:
+		var z := lerpf(1.6, 1.0, UiKit.ease_out(sk))
+		var half := 17.0 * u * z
+		draw_style_box(UiKit.box(_sb, Color(acc, a * sk), int(6 * u), Color(Toon.WASHI, 0.85 * a * sk), maxi(1, int(1.5 * u))), Rect2(sc - Vector2(half, half), Vector2(half, half) * 2.0))
+		UiKit.glyph(self, _banner_icon, sc, 11.0 * u * z, Toon.WASHI, acc, a * sk)
+	# salle nettoyée : petite gerbe d'or autour du sceau
+	if _banner_icon == "torii" and t < 0.8:
+		var gk := clampf((t - 0.15) / 0.6, 0.0, 1.0)
+		for j in 10:
+			var d := Vector2.from_angle(TAU * float(j) / 10.0 + 0.3)
+			draw_line(sc + d * (22.0 + 18.0 * gk) * u, sc + d * (28.0 + 24.0 * gk) * u, Color(Toon.GOLD.lightened(0.25), (1.0 - gk) * a), 2.0 * u, true)
+	# textes, à droite du sceau (rétrécis s'ils débordent)
+	var tx := x0 + 58.0 * u
+	var room := bw - 66.0 * u
+	var ta := a * clampf((t - 0.08) / 0.2, 0.0, 1.0)
 	var fs := int(22 * u)
-	var tw := UiKit.TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var ty := cy + (fs * 0.35 if _banner_small == "" else -fs * 0.05)
-	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - tw / 2.0, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, a))
-	if _banner_small != "":
+	while fs > 12 and UiKit.TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
+		fs -= 1
+	var ty := cy + (-1.0 * u if has_sub else fs * 0.36)
+	draw_string(UiKit.TITLE_FONT, Vector2(tx + (1.0 - ein) * 12.0 * u, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, ta))
+	if has_sub:
 		var sfs := int(10 * u)
-		var sw := UiKit.UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
-		draw_string(UiKit.UI_FONT, Vector2(sz.x / 2.0 - sw / 2.0, cy + 19 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, 0.85 * a))
+		while sfs > 7 and UiKit.UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > room:
+			sfs -= 1
+		draw_string(UiKit.UI_FONT, Vector2(tx, cy + 16.0 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(acc_l.lerp(Toon.WASHI, 0.45), ta))
 
 
 func _brush_bar(pos: Vector2, w: float, h: float, fill: float, c: Color) -> void:

@@ -147,7 +147,8 @@ func _recover() -> void:
 	await _frames(5)
 
 
-## Rouleaux en attente (niveau, malédiction, bénédiction) : on touche la première carte jusqu'au retour en jeu.
+## Rouleaux en attente (niveau, malédiction, bénédiction) : on touche la première carte jusqu'au retour en jeu
+## (un toucher la lève, le suivant la choisit).
 func _settle_play(what := "") -> int:
 	var n := 0
 	var pk = main.picker
@@ -169,10 +170,17 @@ func _pick_card(idx: int, what: String) -> bool:
 	var pk = main.picker
 	if not await _until(func(): return bool(pk.visible) and int(pk._chosen) < 0 and float(pk._t) >= float(pk._ready_time()) + 0.05 and pk._rects.size() > idx, "%s : cartes prêtes" % what):
 		return false
+	# premier toucher : la carte se lève (détail) ; puis le bouton CHOISIR la prend
 	var r: Rect2 = pk._rects[idx]
 	_tap(pk, r.get_center())
+	if int(pk._sel) != idx or int(pk._chosen) >= 0:
+		_fail("%s : le toucher n'a pas levé la carte %d" % [what, idx])
+		return false
+	await _frames(2)
+	var cr: Rect2 = pk._confirm_rect
+	_tap(pk, cr.get_center())
 	if int(pk._chosen) != idx:
-		_fail("%s : le toucher n'a pas choisi la carte %d" % [what, idx])
+		_fail("%s : CHOISIR n'a pas pris la carte %d" % [what, idx])
 		return false
 	return await _until(func(): return int(pk._chosen) < 0 or not bool(pk.visible), "%s : rouleau refermé" % what)
 
@@ -414,6 +422,9 @@ func _step_options(from: String) -> bool:
 		return false
 	var orig: Dictionary = opt.values.duplicate()
 	for row in Options.ROWS:
+		# les réglages du pad sont grisés en mode « sur l'écran » : on repasse en pad avant de les tester
+		if String(row["key"]) in ["pad_size", "pad_show"] and String(opt.values.get("control", "pad")) != "pad":
+			await _option("control", "pad", false)
 		for o in row["opts"]:
 			await _option(String(row["key"]), String(o[0]), from == "accueil")
 	# valeurs de départ

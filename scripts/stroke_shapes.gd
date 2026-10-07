@@ -25,10 +25,10 @@ const RET_FAR := 3.0
 const RET_DEV := 0.8
 const RET_SAMPLES := 24
 # Inazuma (zigzag)
-const ZZ_ANGLE := 100.0
-const ZZ_SEG_MIN := 0.8
-const ZZ_SEG_MAX := 3.0
-const ZZ_COUNT := 3
+const ZZ_ANGLE := 85.0           # virage net (un Z dessiné vite tourne d'environ 110-150°)
+const ZZ_SEG_MIN := 0.6
+const ZZ_SEG_MAX := 9.0          # le pad agrandit le geste : les branches peuvent être longues
+const ZZ_COUNT := 2              # un Z (2 virages) suffit
 # Ittō (trait droit)
 const ST_LEN := 7.0
 const ST_DEV := 0.4
@@ -405,6 +405,8 @@ static func self_test() -> Array:
 	# Ittō : droite de 8 m
 	_check(fails, "straight", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(8, 0.2)])), step), "straight")
 	# Kagi : 5 m puis retour à 150° sur 1.8 m
+	# Z tracé au pad : 2 virages, branches longues
+	_check(fails, "zigzag Z", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(6, 0), Vector2(0.5, 4), Vector2(6.5, 4)])), step), "zigzag")
 	var hk := deg_to_rad(30.0)
 	_check(fails, "hook", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(5.0 - 1.8 * cos(hk), 1.8 * sin(hk))])), step), "hook")
 	# gribouillis court

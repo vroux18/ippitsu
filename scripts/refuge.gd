@@ -26,6 +26,8 @@ const LINE_COLORS := {
 	"purse": Color("#8C6A2A"),
 	"choice": Color("#4E3A63"),
 }
+# pictogrammes des dons des sceaux (les légendaires prennent celui de leur pouvoir)
+const SEAL_GLYPHS := {"reroll": "reroll", "scroll": "scroll", "purse": "coin", "blessing": "cards", "hp": "kintsugi"}
 const TABS := ["AMÉLIORATIONS", "SCEAUX", "ESTAMPES"]
 const KIND_LABELS := {"cape": "ÉCHARPE", "trail": "SILLAGE", "ink": "ENCRE"}
 
@@ -859,7 +861,7 @@ func _seal_card(id: String, r: Rect2, u: float) -> void:
 	var scol := Toon.VERMILION if owned else (Color("#3A3846") if afford else LOCKED)
 	_list.draw_style_box(UiKit.box(_sb, scol, int(6 * u)), sq)
 	_list.draw_rect(sq.grow(-4 * u), Color(Toon.WASHI, 0.35), false, 1.2 * u)
-	UiKit.text(_list, UiKit.TITLE_FONT, String(it["kanji"]), Vector2(sq.get_center().x, sq.get_center().y + 30 * u * 0.36), int(30 * u), Toon.WASHI)
+	_seal_glyph(id, sq.get_center(), 16.0 * u, Toon.WASHI, scol, 1.0)
 	# nom, mention légendaire, effet
 	var tx := rr.position.x + 74 * u
 	var tw := rr.end.x - 90 * u - tx
@@ -885,10 +887,22 @@ func _seal_card(id: String, r: Rect2, u: float) -> void:
 		var pfs := int(14 * u)
 		_list.draw_string(_ui, tg.position + Vector2(28 * u, tg.size.y / 2.0 + pfs * 0.36), str(c), HORIZONTAL_ALIGNMENT_LEFT, -1, pfs, Toon.WASHI)
 	if _stamp_key == key and _stamp > 0.0:
-		_stamp_fx(_list, sq.get_center(), String(it["kanji"]), u)
+		_stamp_fx(_list, sq.get_center(), "", u)
+		var zk := 1.0 + 0.8 * maxf(0.0, 1.0 - (1.0 - _stamp) * 5.0)
+		_seal_glyph(id, sq.get_center(), 14.0 * u * zk, Color(Toon.VERMILION, 0.85 * _stamp), UiKit.NONE, 1.0)
 	_list_hits.append([_to_screen(r), key])
 	if owned and id == "scroll":
 		_scroll_chooser(rr, u)
+
+
+## Pictogramme d'un don des sceaux : le légendaire qu'il libère, sinon un symbole de son effet.
+func _seal_glyph(id: String, c: Vector2, r: float, col: Color, bg: Color, a: float) -> void:
+	var it: Dictionary = Meta.SEAL_ITEMS.get(id, {})
+	if it.has("power"):
+		UiKit.power_glyph(_list, String(it["power"]), c, r, col, bg, a)
+		return
+	var g := String(SEAL_GLYPHS.get(id, "stamp"))
+	UiKit.glyph(_list, g, c, r, col, bg, a)
 
 
 ## Choix du rouleau de départ : flèches de part et d'autre du sceau d'école et du nom.
@@ -902,18 +916,17 @@ func _scroll_chooser(r: Rect2, u: float) -> void:
 	_arrow(rp.get_center(), 1.0, u, _pressed == "next")
 	if Data.POWERS.has(sp):
 		var d: Dictionary = Data.POWERS[sp]
-		var sd: Dictionary = Data.SCHOOLS[String(d["school"])]
-		var col: Color = sd["color"]
-		var kj := String(d.get("kanji", sd["kanji"]))
 		var nm := _p(String(d["name"]))
+		var lab := UiKit.power_label(sp)
+		if lab != nm:
+			nm = lab + " · " + nm
 		var nfs := int(12 * u)
 		var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 		var total := 26.0 * u + nw
 		var x0 := row.get_center().x - total / 2.0
-		var sq := Rect2(Vector2(x0, row.get_center().y - 10 * u), Vector2(20, 20) * u)
-		_list.draw_style_box(UiKit.box(_sb, col, int(4 * u)), sq)
-		UiKit.text(_list, UiKit.TITLE_FONT, kj, Vector2(sq.get_center().x, sq.get_center().y + 13 * u * 0.36), int(13 * u), Toon.WASHI)
-		_list.draw_string(UiKit.TITLE_FONT, Vector2(sq.end.x + 6 * u, row.get_center().y + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.SUMI)
+		var ic := Vector2(x0 + 10 * u, row.get_center().y)
+		UiKit.power_icon(_list, sp, ic, 10.0 * u)
+		_list.draw_string(UiKit.TITLE_FONT, Vector2(ic.x + 16 * u, row.get_center().y + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.SUMI)
 	_list_hits.append([_to_screen(lp.grow(4 * u)), "prev"])
 	_list_hits.append([_to_screen(rp.grow(4 * u)), "next"])
 

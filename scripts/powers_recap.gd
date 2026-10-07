@@ -1,6 +1,6 @@
 extends Control
 ## Récapitulatif « MES POUVOIRS » (depuis la pause ou les sceaux du HUD) : pouvoirs possédés rangés par école
-## (sceau, nom et sous-titre, niveau, déclencheur, effet chiffré), bonus d'école en clair et petit lexique.
+## (pictogramme, nom court et nom japonais, niveau, déclencheur, effet chiffré), bonus d'école en clair et petit lexique.
 ## Carte de papier sur voile d'encre ; la liste glisse au doigt (ou à la molette). Marche jeu figé :
 ## tout est compté en temps réel (UiKit.real_delta). main : open(powers), signal closed.
 
@@ -326,13 +326,13 @@ func _row_empty(y: float, W: float, u: float) -> float:
 	return 66 * u
 
 
-## En-tête d'école : sceau carré, nom, filet de la couleur de l'école.
+## En-tête d'école : pastille au pictogramme de l'école, nom, filet de la couleur de l'école.
 func _row_head(y: float, W: float, u: float, school: String) -> float:
 	var sd: Dictionary = Data.SCHOOLS[school]
 	var col: Color = sd["color"]
-	var box := Rect2(Vector2(6 * u, y + 10 * u), Vector2(22, 22) * u)
-	_list.draw_style_box(UiKit.box(_sb, col, int(5 * u)), box)
-	UiKit.text(_list, UiKit.TITLE_FONT, String(sd["kanji"]), Vector2(box.get_center().x, box.get_center().y + 15 * u * 0.36), int(15 * u), Toon.WASHI)
+	var hc := Vector2(17 * u, y + 21 * u)
+	_list.draw_circle(hc, 12 * u, col)
+	UiKit.school_icon(_list, school, hc, 7.5 * u, Toon.WASHI, 1.0, col)
 	var nm := String(sd["name"])
 	var nfs := int(14 * u)
 	_list.draw_string(_title, Vector2(36 * u, y + 27 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.SUMI)
@@ -348,16 +348,14 @@ func _row_power(y: float, W: float, u: float, info: Dictionary) -> float:
 	var tw := W - tx - 8.0 * u
 	var rank := int(info.get("rarity_rank", 0))
 	var rc: Color = info.get("rarity_color", Toon.SUMI)
-	var col: Color = info.get("color", Toon.SUMI)
-	# sceau
+	# pastille : pictogramme du pouvoir sur la couleur d'école
 	var sc := Vector2(x0 + 20 * u, y + 24 * u)
 	var sr := 16.0 * u
 	if rank >= 2:
 		var pulse := 0.5 + 0.5 * sin(_t * 3.0)
 		_list.draw_circle(sc, sr + 5 * u, Color(rc, 0.18 + 0.12 * pulse))
 	_list.draw_circle(sc, sr + 2.5 * u, rc)
-	_list.draw_circle(sc, sr, col)
-	UiKit.text(_list, UiKit.TITLE_FONT, String(info.get("kanji", "")), Vector2(sc.x, sc.y + 18 * u * 0.36), int(18 * u), Toon.WASHI)
+	UiKit.power_icon(_list, String(info.get("id", "")), sc, sr)
 	# niveau sous le sceau : losanges, ou « UNIQUE »
 	var lv := int(info.get("level", 1))
 	var mx := int(info.get("max_level", 3))
@@ -377,10 +375,13 @@ func _row_power(y: float, W: float, u: float, info: Dictionary) -> float:
 	# nom (et sous-titre à côté s'il tient, sinon dessous)
 	var by := y + 18 * u
 	var nfs := int(15 * u)
-	var nm := _p(String(info.get("name", "")))
+	# nom court (celui du HUD et des cartes), puis le nom japonais s'il diffère, sinon le sous-titre
+	var pid := String(info.get("id", ""))
+	var jp := _p(String(info.get("name", "")))
+	var nm := UiKit.power_label(pid) if pid != "" else jp
 	_list.draw_string(UiKit.TITLE_FONT, Vector2(tx, by), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, GOLD_INK if rank >= 3 else Toon.SUMI)
 	var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	var sub := _p(String(info.get("sub", "")))
+	var sub := jp if jp != nm else _p(String(info.get("sub", "")))
 	var sfs := int(10 * u)
 	if sub != "":
 		var sw := _ui.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
@@ -448,9 +449,9 @@ func _row_school(y: float, W: float, u: float, school: String, st: Dictionary) -
 	var col: Color = sd["color"]
 	var n := int(st.get("count", 0))
 	var al: float = 1.0 if n > 0 else 0.55
-	var box := Rect2(Vector2(6 * u, y + 6 * u), Vector2(24, 24) * u)
-	_list.draw_style_box(UiKit.box(_sb, Color(col, al), int(5 * u)), box)
-	UiKit.text(_list, UiKit.TITLE_FONT, String(sd["kanji"]), Vector2(box.get_center().x, box.get_center().y + 16 * u * 0.36), int(16 * u), Toon.WASHI)
+	var bc := Vector2(18 * u, y + 18 * u)
+	_list.draw_circle(bc, 12.5 * u, Color(col, al))
+	UiKit.school_icon(_list, school, bc, 7.8 * u, Toon.WASHI, al, Color(col, al))
 	var tx := 40.0 * u
 	var nm := String(sd["name"])
 	var nfs := int(13 * u)

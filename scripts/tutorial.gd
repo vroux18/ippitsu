@@ -10,9 +10,9 @@ const UiKit = preload("res://scripts/ui_kit.gd")
 signal finished
 
 const STEPS := [
-	{"title": "Trancher", "hint": "Glisse le doigt dans le pad en bas : ton trait part du héros. Traverse le squelette.", "gesture": "line", "goal": "kill1"},
+	{"title": "Trancher", "hint": "Glisse le doigt sur l'écran : ton trait part du héros. Traverse le squelette.", "gesture": "line", "goal": "kill1"},
 	{"title": "Enchaîner", "hint": "Deux squelettes d'un seul trait : dégâts ×1,5.", "gesture": "diag", "goal": "kill2"},
-	{"title": "Esquive", "hint": "Un petit coup sec du doigt, très court : le héros bondit. Pendant un bond, rien ne te touche.", "gesture": "flick", "goal": "dodge"},
+	{"title": "Esquive", "hint": "Un simple tap sur l'écran : le héros bondit loin du danger. Pendant un bond, rien ne te touche.", "gesture": "flick", "goal": "dodge"},
 	{"title": "Zone rouge", "hint": "Le rouge annonce un coup. Sors du cercle avant qu'il soit plein : un bond ou un trait.", "gesture": "zone", "goal": "zone"},
 	{"title": "Trait droit", "hint": "Un long trait bien droit : l'iaï tranche toute la ligne.", "gesture": "straight", "goal": "straight"},
 	{"title": "Kaeshi", "hint": "Aller-retour : file tout droit, puis reviens sur ton trait jusqu'au départ. Garde et renvoi des tirs.", "gesture": "return", "goal": "return"},

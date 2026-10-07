@@ -66,6 +66,8 @@ const ELAN_REGEN := 9.0  # par seconde réelle, hors tracé
 const ELAN_PER_HIT := 3.5
 const DODGE_COST := 0.6
 const DODGE_DIST := 2.4
+const DODGE_COOLDOWN := 0.7  # esquive gratuite (sans encre), mais pas en rafale
+const ULT_DAMAGE := 4.0
 const HIT_REACH := 0.55
 
 var cam: Camera3D
@@ -104,7 +106,7 @@ var state := "menu"  # menu | worlds | intro | play | boss_intro | pick | transi
 var menu: Control
 var record := 0
 var _state_t := 0.0
-const MENU_BOAT := Vector3(0, 0, -23.0)  # la barque de l'accueil, au large derrière l'arène
+const MENU_BOAT := Vector3(0, 0, 17.5)  # la barque de l'accueil, au large devant le sanctuaire (elle avance vers lui)
 const BOAT_DECK := -0.24
 var menu_boat: Node3D
 var _env: Environment
@@ -163,6 +165,12 @@ var _recap_from := "pause"
 var _shrine: Node3D = null  # autel du sanctuaire (facultatif)
 var in_hub := false  # sanctuaire de départ (avant la salle 1)
 var _hub_t := 0.0
+var _pause_pending := false  # l'appli a été quittée pendant une transition : pause au retour en jeu
+var _web_hidden_t := 0.0
+var ult := 0.0  # jauge d'ultime (0..1), double tap quand elle est pleine
+var _dodge_cd := 0.0
+var _touch_ms := 0
+var _last_tap_ms := 0
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -463,7 +471,11 @@ func _on_pause() -> void:
 
 ## Téléphone : bouton Retour ou appli mise en arrière-plan -> pause (au lieu de quitter en pleine partie).
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_GO_BACK_REQUEST:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT or what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		if _bot != null:
+			return
+		if what != NOTIFICATION_WM_GO_BACK_REQUEST and state in ["transit", "boss_intro", "pick", "intro"]:
+			_pause_pending = true  # pause dès que la partie reprend la main
 		if menu == null or hud == null:
 			return
 		if what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
@@ -689,9 +701,9 @@ func _build_world() -> void:
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	# couleurs plus franches : un peu plus de saturation et de contraste
 	e.adjustment_enabled = true
-	e.adjustment_saturation = 1.15
-	e.adjustment_contrast = 1.12
-	e.adjustment_brightness = 0.97
+	e.adjustment_saturation = 1.32
+	e.adjustment_contrast = 1.16
+	e.adjustment_brightness = 0.98
 	e.glow_enabled = true
 	e.glow_intensity = 0.9
 	e.glow_strength = 1.1
@@ -752,7 +764,7 @@ func apply_world(id: int) -> void:
 	var w: Dictionary = Worlds.world(id)
 	_env.background_color = w.sky
 	_env.fog_light_color = w.fog
-	_env.fog_density = float(w.fog_density)
+	_env.fog_density = float(w.fog_density) * 0.7  # brume plus légère : couleurs moins délavées
 	_env.ambient_light_color = w.ambient_color
 	# sans contre-jour (téléphone), un peu plus de lumière ambiante compense
 	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.0)
@@ -777,9 +789,10 @@ func _fit_camera() -> void:
 ## Caméra la plus proche qui montre toute l'arène entre le haut de l'écran et `bottom_k` (fraction de hauteur).
 func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
 	var tilt := deg_to_rad(54.0)
-	var corners := [Vector3(-HALF.x - 0.6, 0, -HALF.y - 0.6), Vector3(HALF.x + 0.6, 0, -HALF.y - 0.6),
-		Vector3(-HALF.x - 0.6, 0, HALF.y + 0.6), Vector3(HALF.x + 0.6, 0, HALF.y + 0.6),
-		Vector3(0, 3.4, -HALF.y - 0.7)]
+	# marges serrées : caméra un peu plus proche (le haut du torii peut toucher le bandeau)
+	var corners := [Vector3(-HALF.x - 0.15, 0, -HALF.y - 0.2), Vector3(HALF.x + 0.15, 0, -HALF.y - 0.2),
+		Vector3(-HALF.x - 0.15, 0, HALF.y + 0.2), Vector3(HALF.x + 0.15, 0, HALF.y + 0.2),
+		Vector3(0, 2.2, -HALF.y - 0.4)]
 	var top := vs.y * 0.085
 	var bottom := vs.y * bottom_k  # sous l'arène : le pad tactile (s'il est affiché)
 	var best := Transform3D()
@@ -801,7 +814,7 @@ func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
 				var p := cam.unproject_position(c)
 				min_y = minf(min_y, p.y)
 				max_y = maxf(max_y, p.y)
-				if p.x < vs.x * 0.01 or p.x > vs.x * 0.99 or p.y < top or p.y > bottom:
+				if p.x < -vs.x * 0.01 or p.x > vs.x * 1.01 or p.y < top or p.y > bottom:
 					ok = false
 					break
 			if ok:
@@ -853,6 +866,8 @@ func _start(hub := true) -> void:
 	_reset_stroke_state(true)
 	_pick_context = "room"
 	foam = 0
+	ult = 0.0
+	_dodge_cd = 0.0
 	wave_wait = 0.8
 	room = 0
 	_room_queue = []
@@ -889,9 +904,6 @@ func _start(hub := true) -> void:
 	shake = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
-	if hub:
-		for i in 3:
-			_hub_dummy()
 
 
 ## Mannequin d'entraînement dans le cercle du dojo du sanctuaire.
@@ -901,7 +913,7 @@ func _hub_dummy() -> void:
 	spawn_dummy(arena.hub_training_center + Vector3(cos(a) * d, 0, sin(a) * d))
 
 
-## Sceaux des pouvoirs possédés, affichés dans le HUD (kanji, couleur d'école, niveau, couleur de rareté).
+## Pouvoirs possédés, affichés dans le HUD (pictogramme, nom court, couleur d'école, niveau, rareté).
 func _sync_power_seals() -> void:
 	var seals: Array = []
 	for id in powers.levels.keys():
@@ -910,8 +922,13 @@ func _sync_power_seals() -> void:
 			continue
 		var school: Dictionary = PowerData.SCHOOLS.get(String(pd.get("school", "")), {})
 		var rar: Dictionary = PowerData.RARITIES.get(String(pd.get("rarity", "common")), {})
-		seals.append([String(pd.get("kanji", school.get("kanji", "墨"))), school.get("color", Toon.SUMI), int(powers.levels[id]), rar.get("color", Color(0.6, 0.6, 0.6)), int(rar.get("rank", 0))])
+		# [id, nom court, couleur d'école, niveau, couleur de rareté, rang, niveau max]
+		seals.append([String(id), String(pd.get("label", pd.get("name", ""))), school.get("color", Toon.SUMI), int(powers.levels[id]),
+			rar.get("color", Color(0.6, 0.6, 0.6)), int(rar.get("rank", 0)), int(pd.get("max", 3))])
+	# les plus rares en haut de la colonne
+	seals.sort_custom(func(x, y): return int(x[5]) > int(y[5]) or (int(x[5]) == int(y[5]) and String(x[0]) < String(y[0])))
 	hud.power_seals = seals
+	hud.seals_tap = ctrl_mode == "pad"
 
 
 func elan_max() -> float:
@@ -1224,6 +1241,7 @@ func _room_cleared() -> void:
 	for b in bullets:
 		b.node.queue_free()
 	bullets.clear()
+	hazards.calm()  # plus de vague une fois la salle nettoyée
 	pickups.gather()
 	if room >= ROOMS:
 		_victory()
@@ -1847,6 +1865,7 @@ func _touch_down(sp: Vector2) -> void:
 	_strokes_done += 1
 	touching = true
 	_pad_start = sp
+	_touch_ms = Time.get_ticks_msec()
 	hud.pad_trail = PackedVector2Array([sp])
 	origin = hero.dash_end()
 	stroke_layer += 1
@@ -1891,15 +1910,31 @@ func _touch_up(sp: Vector2) -> void:
 	if stroke.length >= 0.7:
 		_launch(stroke)
 	else:
-		# petit coup de doigt : bond d'esquive
+		# petit coup de doigt (direction choisie) ou simple tap (loin du danger) : bond d'esquive gratuit
+		var now := Time.get_ticks_msec()
 		var flick := (_ground(sp) - _ground(_pad_start)) if ctrl_mode == "screen" else _pad_to_world(sp - _pad_start)
 		flick.y = 0
-		if flick.length() > 0.12 and elan >= powers.dodge_cost(DODGE_COST):
+		var is_tap := flick.length() <= 0.12 and now - _touch_ms < 260
+		# double tap : l'ultime, si la jauge est pleine
+		if is_tap and now - _last_tap_ms < 320 and ult >= 1.0 and state == "play":
+			_last_tap_ms = 0
+			stroke.queue_free()
+			stroke = null
+			_ultimate()
+			return
+		if is_tap:
+			_last_tap_ms = now
+		var dir := Vector3.ZERO
+		if flick.length() > 0.12:
+			dir = flick.normalized()
+		elif is_tap:
+			dir = _dodge_dir(sp)
+		if dir != Vector3.ZERO and _dodge_cd <= 0.0:
 			var s: MeshInstance3D = stroke
 			var dd: float = powers.dodge_dist(DODGE_DIST)
-			var end := _clamp_point(origin + flick.normalized() * dd)
+			var end := _clamp_point(origin + dir * dd)
 			s.extend_to(end, dd)
-			elan -= powers.dodge_cost(DODGE_COST)
+			_dodge_cd = DODGE_COOLDOWN
 			hero.invuln = maxf(hero.invuln, powers.val("shadow_step"))
 			_launch(s)
 			powers.on_dodge(origin, end)
@@ -1909,6 +1944,85 @@ func _touch_up(sp: Vector2) -> void:
 			elan = minf(elan_max(), elan + stroke.length)
 			stroke.queue_free()
 	stroke = null
+
+
+## Direction d'un bond d'esquive au tap : vers le doigt (mode écran), sinon loin du danger le plus proche
+## (zone annoncée, boule, ennemi), en restant sur la terre ferme et hors des zones.
+func _dodge_dir(sp: Vector2) -> Vector3:
+	var o: Vector3 = hero.dash_end()
+	var want := Vector3.ZERO
+	if ctrl_mode == "screen":
+		var g := _ground(sp) - o
+		g.y = 0
+		if g.length() > 0.3:
+			want = g.normalized()
+	if want == Vector3.ZERO:
+		var threat := Vector3.INF
+		var best := 4.5
+		for e in enemies:
+			if not is_instance_valid(e) or e.dead or e.dummy:
+				continue
+			var z: Array = e.danger_zone()
+			var tp: Vector3 = z[0] if z.size() == 3 else e.position
+			var d := Vector2(tp.x - o.x, tp.z - o.z).length()
+			if d < best:
+				best = d
+				threat = tp
+		for b in bullets:
+			var n: Node3D = b.node
+			var db := Vector2(n.position.x - o.x, n.position.z - o.z).length()
+			if db < best:
+				best = db
+				threat = n.position
+		for bo in bosses:
+			if is_instance_valid(bo) and not bo.dead:
+				var dbo := Vector2(bo.position.x - o.x, bo.position.z - o.z).length()
+				if dbo < best:
+					best = dbo
+					threat = bo.position
+		if threat != Vector3.INF:
+			want = Vector3(o.x - threat.x, 0, o.z - threat.z)
+			want = want.normalized() if want.length() > 0.01 else Vector3(0, 0, 1)
+		else:
+			want = Vector3(0, 0, 1)  # rien à fuir : petit bond en arrière
+	# on garde la direction la plus proche de l'idéale qui atterrit sur un sol sûr
+	var dd: float = powers.dodge_dist(DODGE_DIST)
+	for k in [0.0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, PI]:
+		var dv := want.rotated(Vector3.UP, float(k))
+		var p := _clamp_point(o + dv * dd)
+		if not hazards.is_hole(p, 0.2) and not is_danger(p, 0.2):
+			return dv
+	return want
+
+
+## Ultime (double tap, jauge pleine) : un immense coup de pinceau traverse l'arène et frappe tout.
+func _ultimate() -> void:
+	ult = 0.0
+	var hp := hero.position
+	var a := Vector3(-HALF.x - 1.0, 0, hp.z + 1.6)
+	var b := Vector3(HALF.x + 1.0, 0, hp.z - 1.6)
+	vfx.slash_line(a, b)
+	vfx.slash_line(Vector3(-HALF.x - 1.0, 0, hp.z - 2.4), Vector3(HALF.x + 1.0, 0, hp.z + 0.8))
+	vfx.ink_wave(hp, 5.5)
+	shape_text(hp + Vector3(0, 1.2, 0), "筆")
+	hud.screen_flash = maxf(hud.screen_flash, 0.5)
+	shake = maxf(shake, 0.7)
+	sfx.play("iai", 0.8)
+	sfx.play("kill", 0.7)
+	feel("heavy")
+	hud.toast("IPPITSU  ·  ULTIME")
+	for e in enemies.duplicate():
+		if is_instance_valid(e) and not e.dead and not e.dummy:
+			damage_enemy(e, ULT_DAMAGE * chain_mult())
+	for bo in bosses:
+		if is_instance_valid(bo) and not bo.dead:
+			bo.aoe_hit(bo.position, 6.0, ULT_DAMAGE * 2.0 * chain_mult(), true)
+
+
+## Jauge d'ultime : se remplit en tranchant.
+func gain_ult(v: float) -> void:
+	if state == "play" and not in_hub:
+		ult = minf(1.0, ult + v)
 
 
 func _launch(s: MeshInstance3D) -> void:
@@ -2157,6 +2271,7 @@ func _check_slashes() -> void:
 			_stroke_hit = true
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
+			gain_ult(0.06 if killed else 0.03)
 			_dmg_text(p, dmg, killed)
 			vfx.impact(p, dir, killed)
 			if killed:
@@ -2189,6 +2304,7 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(powers.boss_dmg(bd), bdir)
+			gain_ult(0.025)
 			powers.on_boss_hit(bo.position, bd)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			shake = maxf(shake, 0.22)
@@ -2376,6 +2492,8 @@ func _process(_delta: float) -> void:
 		Engine.time_scale = target
 	var dt := real * Engine.time_scale
 
+	_dodge_cd = maxf(0.0, _dodge_cd - real)
+	hud.set("ult", ult)  # jauge d'ultime (dessinée par le HUD si elle existe)
 	if not touching and not hero.dashing:
 		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real)
 
@@ -2405,6 +2523,17 @@ func _process(_delta: float) -> void:
 	# un boss vient d'apparaître : son entrée en scène avant le combat
 	if state == "play" and _intro_boss != null:
 		_start_boss_intro()
+	if state == "play" and _bot == null:
+		if _pause_pending:
+			_pause_pending = false
+			_on_pause()
+		elif OS.has_feature("web"):
+			# navigateur mobile : onglet ou appli quittés -> pause
+			_web_hidden_t -= real
+			if _web_hidden_t <= 0.0:
+				_web_hidden_t = 0.5
+				if str(JavaScriptBridge.eval("document.hidden", true)) == "true":
+					_on_pause()
 	# rouleaux de niveau : seulement une fois la salle nettoyée (jamais en plein combat)
 	if state == "play" and _pending_levels > 0 and _room_done and not hero.dashing and not touching:
 		_pending_levels -= 1
@@ -2442,9 +2571,6 @@ func _process(_delta: float) -> void:
 				if is_instance_valid(e) and not e.dead and e.dummy:
 					dummies += 1
 			_hub_t -= real
-			if dummies < 3 and _hub_t <= 0.0:
-				_hub_t = 1.2
-				_hub_dummy()
 			if arena.gate_reached(hero.position):
 				_transit()
 		elif room == 0:
@@ -2496,13 +2622,13 @@ func _process(_delta: float) -> void:
 			_set_state("play")
 	elif state == "sail":
 		# Jouer : la barque prend le large (elle accélère), puis on choisit le monde
-		menu_boat.position.z -= real * minf(_state_t * 3.2, 2.6)
+		menu_boat.position.z = maxf(menu_boat.position.z - real * minf(_state_t * 3.2, 2.6), 12.2)
 		_rock_boat()
 		cam.global_transform = _menu_transform()
 		if _state_t > 1.3:
 			_open_worlds()
 	elif state == "worlds":
-		menu_boat.position.z -= real * 0.6  # elle glisse encore doucement derrière la carte
+		menu_boat.position.z = maxf(menu_boat.position.z - real * 0.6, 11.4)  # elle glisse encore vers le ponton derrière la carte
 		_rock_boat()
 		cam.global_transform = _menu_transform()
 	elif state == "boss_intro":

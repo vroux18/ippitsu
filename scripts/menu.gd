@@ -53,7 +53,7 @@ var affinities := {}  # école -> [nombre de pouvoirs, palier] (powers.affinitie
 var new_prints: Array = []  # Vues gagnées à cette partie (ids de meta.PRINTS)
 var killer_kind := ""  # type d'ennemi du coup fatal (vide : inconnu ou boss)
 var killer_name := ""  # nom du boss du coup fatal
-var _build_list: Array = []  # [kanji, couleur d'école, niveau, couleur de rareté, rang, niveau max, ordre d'école]
+var _build_list: Array = []  # [id du pouvoir, couleur d'école, niveau, couleur de rareté, rang, niveau max, ordre d'école]
 var _over_atelier: Control
 
 var _t := 0.0  # temps réel depuis l'affichage
@@ -152,7 +152,7 @@ func _make_build_list() -> void:
 		var sid := String(pd.get("school", ""))
 		var school: Dictionary = PowerData.SCHOOLS.get(sid, {})
 		var rar: Dictionary = PowerData.RARITIES.get(String(pd.get("rarity", "common")), {})
-		_build_list.append([String(pd.get("kanji", school.get("kanji", "墨"))), school.get("color", Toon.SUMI), lv,
+		_build_list.append([String(id), school.get("color", Toon.SUMI), lv,
 			rar.get("color", Color(0.6, 0.6, 0.6)), int(rar.get("rank", 0)), int(pd.get("max", 3)), PowerData.SCHOOL_ORDER.find(sid)])
 	_build_list.sort_custom(func(x, y): return int(x[4]) > int(y[4]) or (int(x[4]) == int(y[4]) and int(x[6]) < int(y[6])))
 
@@ -463,16 +463,12 @@ func _draw_build(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 			continue
 		var sd: Array = _build_list[i]
 		var rc: Color = sd[3]
-		var sc: Color = sd[1]
 		var glow := 0.0
 		if int(sd[4]) >= 3:
 			glow = 0.35 + 0.25 * sin(_t * 3.0)
 		draw_circle(c, rr + 3 * u + glow * 2 * u, Color(rc, 0.95 * ka))
-		draw_circle(c, rr, Color(sc, ka))
-		var fs := maxi(1, int(14 * u * (0.6 + 0.4 * k)))
-		var kj := String(sd[0])
-		var kw := UiKit.TITLE_FONT.get_string_size(kj, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		draw_string(UiKit.TITLE_FONT, c + Vector2(-kw / 2.0, fs * 0.36), kj, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, ka))
+		# pictogramme du pouvoir sur la couleur de son école
+		UiKit.power_icon(self, String(sd[0]), c, rr, ka)
 		# niveau : points sous le sceau, dorés au niveau max
 		var lv := int(sd[2])
 		var dot := Color(GOLD_INK if lv >= int(sd[5]) else Toon.SUMI, ka)
@@ -508,10 +504,9 @@ func _draw_build(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 		else:
 			draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(10 * u), Color(Toon.SUMI, 0.3 * ck), int(maxf(1.0, 1.2 * u))), rect)
 		var dc := Vector2(px + 10 * u, chy)
-		draw_circle(dc, 7 * u, Color(Toon.WASHI if tier > 0 else scol, ck))
-		var kj2 := String(sdd.get("kanji", ""))
-		var kw2 := UiKit.TITLE_FONT.get_string_size(kj2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
-		draw_string(UiKit.TITLE_FONT, dc + Vector2(-kw2 / 2.0, fs2 * 0.36), kj2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2, Color(scol if tier > 0 else Toon.WASHI, ck))
+		var disc: Color = Toon.WASHI if tier > 0 else scol
+		draw_circle(dc, 7 * u, Color(disc, ck))
+		UiKit.school_icon(self, s, dc, 4.6 * u, scol if tier > 0 else Toon.WASHI, ck, disc)
 		var tc := Color(Toon.WASHI, ck) if tier > 0 else Color(Toon.SUMI, 0.6 * ck)
 		draw_string(UiKit.UI_FONT, Vector2(px + 22 * u, chy + fs2 * 0.36), _aff_label(s), HORIZONTAL_ALIGNMENT_LEFT, -1, fs2, tc)
 		px += wch + 8 * u
