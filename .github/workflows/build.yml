@@ -130,16 +130,31 @@ jobs:
         with:
           path: build/web
 
-  # robot testeur : joue les 5 mondes en entier (en parallèle de l'export, ne bloque pas l'APK)
+  # robots testeurs (en parallèle de l'export, ne bloquent pas l'APK) : un job par mode et par graine
+  #   campaign : les 5 mondes + une partie perdue ; powers : chaque pouvoir à chaque niveau ;
+  #   ui : parcours de tous les écrans ; stress : vagues doublées, 16 pouvoirs, fuites de nœuds
   bot:
+    name: bot ${{ matrix.mode }} ${{ matrix.seed }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { mode: campaign, seed: 101 }
+          - { mode: campaign, seed: 202 }
+          - { mode: campaign, seed: 303 }
+          - { mode: powers, seed: 404 }
+          - { mode: powers, seed: 505 }
+          - { mode: ui, seed: 606 }
+          - { mode: stress, seed: 707 }
     steps:
       - uses: actions/checkout@v4
 
+      # lecture seule : seul l'export enregistre le cache (avec ses modèles d'export)
       - name: Cache Godot
         id: cache-godot
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/godot-bin
@@ -164,26 +179,27 @@ jobs:
           for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           godot --headless --path . --import || true
 
-      - name: Partie complète des 5 mondes
+      - name: Robot ${{ matrix.mode }} (graine ${{ matrix.seed }})
         run: |
-          timeout 1200 godot --headless --path . --fixed-fps 30 -- --bot > bot.log 2>&1 || true
-          grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" bot.log | head -400
+          log=bot-${{ matrix.mode }}-${{ matrix.seed }}.log
+          timeout 720 godot --headless --path . --fixed-fps 30 -- --bot --mode=${{ matrix.mode }} --seed=${{ matrix.seed }} > $log 2>&1 || true
+          grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" $log | head -800
           # (sous bash -e, « ! cmd » ne fait pas échouer l'étape : on teste explicitement)
           fail=0
-          grep -q "BOT DONE" bot.log || { echo "::error::le robot n'a pas fini"; fail=1; }
-          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" bot.log; then fail=1; fi
+          grep -q "BOT DONE" $log || { echo "::error::le robot n'a pas fini"; fail=1; }
+          if grep -E "SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid access" $log; then fail=1; fi
           # erreurs du moteur pendant la partie (hors fuites signalées à la fermeture)
-          errs=$(grep -E "^ERROR:" bot.log | grep -v "at exit" || true)
+          errs=$(grep -E "^ERROR:" $log | grep -v "at exit" || true)
           if [ -n "$errs" ]; then echo "$errs" | sort | uniq -c; fail=1; fi
-          # salles où le robot est resté bloqué
-          if grep "^BOT ALERTE" bot.log; then fail=1; fi
+          # salles bloquées, pouvoirs non couverts, écrans qui n'arrivent pas, fuites
+          if grep "^BOT ALERTE" $log; then fail=1; fi
           exit $fail
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bot-log
-          path: bot.log
+          name: bot-log-${{ matrix.mode }}-${{ matrix.seed }}
+          path: bot-${{ matrix.mode }}-${{ matrix.seed }}.log
 
   web:
     needs: export

@@ -184,6 +184,10 @@ var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 
 func _ready() -> void:
 	randomize()
+	# `-- --seed=N` (robot du CI) : tirages fixés par la graine (salles, ennemis, rouleaux)
+	for a in OS.get_cmdline_user_args():
+		if String(a).begins_with("--seed="):
+			seed(int(String(a).substr(7)))
 	_build_world()
 	sfx = Sfx.new()
 	add_child(sfx)
@@ -306,7 +310,7 @@ func _ready() -> void:
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
-	# `-- --bot` : le robot joue les 5 mondes en entier et signale les blocages (CI)
+	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		_bot = Bot.new()
 		add_child(_bot)
@@ -1030,7 +1034,7 @@ func _start_boss_intro() -> void:
 		return
 	_intro_mini = is_mini_boss(String(b.kind))
 	var sub := ("GARDIEN DE LA SALLE %d" % MINI_ROOM) if _intro_mini else "GARDIEN DU MONDE"
-	if _bot != null:
+	if _bot != null and not bool(_bot.get("cinematics")):
 		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
 		_end_boss_intro()
 		return
