@@ -12,12 +12,17 @@ const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
 const Boss = preload("res://scripts/boss.gd")
 const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashadokuro": preload("res://scripts/boss_gasha.gd"),
-	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd")}
+	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd"),
+	"tsuchigumo": preload("res://scripts/boss_mini_tsuchigumo.gd"), "yukionna": preload("res://scripts/boss_mini_yukionna.gd"),
+	"ibaraki": preload("res://scripts/boss_mini_ibaraki.gd"), "bakekujira": preload("res://scripts/boss_mini_kujira.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
+# gardien de la salle MINI_ROOM : chacun enseigne le geste utile contre le boss de son monde
+const MINI_BOSS := {1: "okappa", 2: "tsuchigumo", 3: "yukionna", 4: "ibaraki", 5: "bakekujira"}
 const Vfx = preload("res://scripts/vfx.gd")
 const Options = preload("res://scripts/options.gd")
 const Pickups = preload("res://scripts/pickups.gd")
-const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3}
+const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3,
+	"umibozu": 2, "kitsunebi": 2, "kitsunebi_s": 1, "yukionna": 3, "kasha": 3, "kagebo": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")
 const Intro = preload("res://scripts/intro.gd")
 const Music = preload("res://scripts/music_player.gd")
@@ -45,8 +50,11 @@ const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight
 const ROOMS := 15
 const MINI_ROOM := 8  # salle du mini-boss
 const SANCTUARIES := [5, 10]  # malédictions proposées après ces salles
-const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2}
-const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4}  # première salle où chaque ennemi peut venir
+const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
+	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3}
+# première salle où chaque ennemi peut venir (ennemis signature : un par monde, vers la salle 3-4)
+const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4,
+	"umibozu": 3, "kitsunebi": 3, "yukionna": 4, "kasha": 4, "kagebo": 4}
 const UNLOCK_ALL := true  # prototype : tous les mondes ouverts pour les tester
 const SAVE_PATH := "user://ippitsu.cfg"
 
@@ -314,13 +322,13 @@ func _warmup() -> void:
 	# dans le champ de la caméra d'accueil mais sous le sol : rendus (donc compilés) sans être vus
 	w.position = hero.position + Vector3(0, -0.7, -3.0)
 	var x := -3.0
-	for k in ["oni", "kappa", "brute", "tate", "funa"]:
+	for k in ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo"]:
 		var e := Enemy.new()
 		e.setup(String(k), hero, self)
 		e.position = Vector3(x, 0, 0)
 		w.add_child(e)
 		e.process_mode = Node.PROCESS_MODE_DISABLED
-		x += 1.5
+		x += 0.75
 	var b := Node3D.new()
 	w.add_child(b)
 	Toon.part(b, Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Vector3.ZERO)
@@ -329,7 +337,7 @@ func _warmup() -> void:
 	st.extend_to(Vector3(2, 0, 0), 3.0)
 	var l := Label3D.new()
 	l.font = KANJI_FONT
-	l.text = "0123456789.× 渦雷返一円鉤斬逃波筆炎鳳神嵐狐背"
+	l.text = "0123456789.× 渦雷返一円鉤斬逃波筆炎鳳神嵐狐背雪鬼"
 	l.font_size = 120  # mêmes tailles que les textes de combat : glyphes prêts d'avance
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = false
@@ -862,6 +870,7 @@ func _start(hub := true) -> void:
 	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
 	hero.hp = hero.max_hp
+	meta.apply_run_start(self)  # apparence de l'Atelier, rouleau de départ, bénédiction
 	game_over = false
 	touching = false
 	hud.game_over = false
@@ -924,9 +933,10 @@ func _begin_room() -> void:
 		list.append(k)
 		budget -= cost
 	list.shuffle()
+	var mini_boss: Node3D = null
 	if room == MINI_ROOM:
 		list = ["oni", "oni", "oni"]
-		_spawn_boss("okappa")
+		mini_boss = _spawn_boss(String(MINI_BOSS.get(current_world, "okappa")))
 	elif room == ROOMS:
 		list = []
 		_final_boss = _spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
@@ -942,8 +952,8 @@ func _begin_room() -> void:
 		_waves_left.append(list.slice(b))
 	waves_total = 1 + _waves_left.size()
 	wave_index = 1
-	if room == MINI_ROOM:
-		hud.banner("Ō-KAPPA", "GARDIEN DE LA SALLE %d" % MINI_ROOM, Toon.VERMILION, 2.2)
+	if room == MINI_ROOM and mini_boss != null:
+		hud.banner(String(mini_boss.title).to_upper(), "GARDIEN DE LA SALLE %d" % MINI_ROOM, Toon.VERMILION, 2.2)
 	elif room == ROOMS and _final_boss != null:
 		hud.banner(String(_final_boss.title).to_upper(), "GARDIEN DU MONDE", Toon.VERMILION, 2.4)
 	elif room > 1:
@@ -966,11 +976,12 @@ func _weighted_kind(weights: Dictionary) -> String:
 func _spawn_boss(k: String) -> Node3D:
 	var b: Node3D = BOSS_SCRIPTS[k].new() if BOSS_SCRIPTS.has(k) else Boss.new()
 	b.setup(k, self)
-	if k == "okappa":
+	if is_mini_boss(k):
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
 	b.max_hp_mult = float(Worlds.world(current_world).hp_mult)
 	add_child(b)
 	bosses.append(b)
+	music.play_boss(current_world, is_mini_boss(k))
 	sfx.play("strike", 0.5)
 	shake = 0.4
 	return b
@@ -980,14 +991,21 @@ func spawn_minions(list: Array) -> void:
 	_spawn_list(list)
 
 
+## Vrai pour un gardien de salle (Ō-Kappa et les mini-boss des autres mondes).
+func is_mini_boss(k: String) -> bool:
+	return MINI_BOSS.values().has(k)
+
+
 func boss_killed(b: Node3D) -> void:
 	pickups.drop(b.position, "xp", 8)
 	pickups.drop(b.position, "coin", 10)
-	if b.kind == "okappa":
+	if is_mini_boss(String(b.kind)):
 		mini_kills += 1
 		_pending_levels += 1  # le gardien vaincu offre un rouleau
+		music.end_boss(true)
 	else:
 		boss_kills += 1
+		music.end_boss(false)  # le jingle de victoire suit
 	shake = 0.7
 	sfx.play("kill", 0.6)
 	_splash(b.position, Toon.VERMILION, 30)
@@ -1228,7 +1246,7 @@ func _rebuild_room() -> void:
 
 func _award(victory: bool) -> void:
 	var cleared := room if victory else room - 1
-	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills)
+	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world)
 	meta.record_world(current_world, room, victory)
 	# l'or ramassé devient de l'encre (2 pièces = 1 encre)
 	var bonus := run_gold / 2
@@ -1286,6 +1304,7 @@ func _victory() -> void:
 	_ending_victory = true
 	hero.invuln = 999.0
 	hud.banner("VICTOIRE", String(Worlds.world(current_world).name), Toon.GOLD, 2.2)
+	music.play_victory()
 	_set_state("dying")
 
 
@@ -1905,6 +1924,7 @@ func _hurt_hero() -> void:
 		game_over = true
 		_ending_victory = false
 		_set_state("dying")
+		music.play_defeat()
 		sfx.play("kill", 0.5)
 		_cancel_stroke()
 

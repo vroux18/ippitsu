@@ -63,7 +63,7 @@ const WORLDS: Array = [
 		"under": Color("#5B4630"),
 		"void": Color("#1F3A5F"),
 		"void_metal": true,
-		"enemies": {"oni": 5, "kappa": 2, "brute": 1, "tate": 1, "funa": 2},
+		"enemies": {"oni": 5, "kappa": 2, "brute": 1, "tate": 1, "funa": 2, "umibozu": 2},
 		"hp_mult": 1.0,
 	},
 	{
@@ -85,7 +85,7 @@ const WORLDS: Array = [
 		"under": Color("#3E4A3A"),
 		"void": Color("#1E3330"),
 		"void_metal": true,
-		"enemies": {"oni": 3, "kappa": 3, "brute": 1, "tate": 2, "funa": 1},
+		"enemies": {"oni": 3, "kappa": 3, "brute": 1, "tate": 2, "funa": 1, "kitsunebi": 2},
 		"hp_mult": 1.15,
 	},
 	{
@@ -107,7 +107,7 @@ const WORLDS: Array = [
 		"under": Color("#8C8FA8"),
 		"void": Color("#34465A"),
 		"void_metal": true,
-		"enemies": {"oni": 2, "kappa": 2, "brute": 1, "tate": 1, "funa": 4},
+		"enemies": {"oni": 2, "kappa": 2, "brute": 1, "tate": 1, "funa": 4, "yukionna": 2},
 		"hp_mult": 1.3,
 	},
 	{
@@ -129,7 +129,7 @@ const WORLDS: Array = [
 		"under": Color("#2A2220"),
 		"void": Color("#241A1A"),
 		"void_metal": false,
-		"enemies": {"oni": 3, "kappa": 1, "brute": 3, "tate": 2, "funa": 1},
+		"enemies": {"oni": 3, "kappa": 1, "brute": 3, "tate": 2, "funa": 1, "kasha": 2},
 		"hp_mult": 1.45,
 	},
 	{
@@ -151,7 +151,7 @@ const WORLDS: Array = [
 		"under": Color("#3A3530"),
 		"void": Color("#0E1A2E"),
 		"void_metal": true,
-		"enemies": {"oni": 2, "kappa": 2, "brute": 2, "tate": 3, "funa": 2},
+		"enemies": {"oni": 2, "kappa": 2, "brute": 2, "tate": 3, "funa": 2, "kagebo": 3},
 		"hp_mult": 1.6,
 	},
 ]

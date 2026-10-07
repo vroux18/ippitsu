@@ -78,8 +78,9 @@ jobs:
         run: |
           godot --headless --path . --script tools/bake_music.gd
           which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
+          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           ls -la assets/music
+          du -ch assets/music/*.ogg | tail -1
 
       - name: Import du projet
         run: godot --headless --path . --import || true
@@ -160,7 +161,7 @@ jobs:
           export PATH="$HOME/godot-bin:$PATH"
           godot --headless --path . --script tools/bake_music.gd
           which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
-          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
+          for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           godot --headless --path . --import || true
 
       - name: Partie complète des 5 mondes

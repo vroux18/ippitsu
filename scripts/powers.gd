@@ -359,6 +359,9 @@ func _has_rank(ids: Array, rank: int) -> bool:
 func _eligible(id: String, r: int, lv: int) -> bool:
 	if lvl(id) >= max_level(id):
 		return false
+	# légendaires verrouillés tant qu'on n'a pas acheté leur sceau à l'Atelier
+	if main != null and main.meta != null and not main.meta.power_unlocked(id):
+		return false
 	var d: Dictionary = Data.POWERS[id]
 	if d.has("needs"):
 		var ok := false

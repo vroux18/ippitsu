@@ -32,6 +32,12 @@ var body: Node3D
 var ch: Node3D
 var _lean := 0.0
 var _flash := 0.0
+# apparence de l'Atelier : sillage de lame (ruban qui suit la ruée)
+const TRAIL_LIFE := 0.22
+var _trail: MeshInstance3D
+var _trail_mesh: ImmediateMesh
+var _trail_col := Color.WHITE
+var _trail_pts: Array = []  # [point, âge]
 
 
 func _ready() -> void:
@@ -201,3 +207,57 @@ func _process(delta: float) -> void:
 		body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(1.0, delta * (40.0 if dashing else 14.0)))
 	_lean = lerpf(_lean, 1.0 if dashing else 0.0, minf(1.0, delta * 25.0))
 	body.rotation.x = -0.35 * _lean
+	if _trail != null:
+		_update_trail(delta)
+
+
+## Apparence choisie à l'Atelier (meta.apply_run_start) : couleur de l'écharpe (cape), sillage de lame.
+func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
+	if cape_on and ch != null and ch.model != null:
+		for n in ch.model.find_children("*", "MeshInstance3D", true, false):
+			var mi := n as MeshInstance3D
+			if mi == null or mi.mesh == null or not ("Cape" in String(mi.name)):
+				continue
+			for i in mi.mesh.get_surface_count():
+				var m := mi.get_surface_override_material(i) as StandardMaterial3D
+				if m != null:
+					m.albedo_texture = null
+					m.albedo_color = cape
+	if is_instance_valid(_trail):
+		_trail.queue_free()
+	_trail = null
+	_trail_pts.clear()
+	if trail_on:
+		_trail_col = trail
+		_trail_mesh = ImmediateMesh.new()
+		_trail = MeshInstance3D.new()
+		_trail.top_level = true
+		_trail.mesh = _trail_mesh
+		_trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var mat := Toon.flat(Color.WHITE)
+		mat.vertex_color_use_as_albedo = true
+		_trail.material_override = mat
+		add_child(_trail)
+
+
+## Ruban vertical à hauteur de lame, qui s'efface en TRAIL_LIFE secondes.
+func _update_trail(delta: float) -> void:
+	for p in _trail_pts:
+		p[1] = float(p[1]) + delta
+	while not _trail_pts.is_empty() and float(_trail_pts[0][1]) > TRAIL_LIFE:
+		_trail_pts.pop_front()
+	if dashing or _leap_t >= 0.0:
+		_trail_pts.append([body.global_position + Vector3(0, 0.9, 0), 0.0])
+	_trail_mesh.clear_surfaces()
+	if _trail_pts.size() < 2:
+		return
+	_trail_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	for p in _trail_pts:
+		var k := 1.0 - float(p[1]) / TRAIL_LIFE
+		var c := Color(_trail_col, 0.8 * k)
+		var pos: Vector3 = p[0]
+		_trail_mesh.surface_set_color(c)
+		_trail_mesh.surface_add_vertex(pos + Vector3(0, 0.34 * k, 0))
+		_trail_mesh.surface_set_color(c)
+		_trail_mesh.surface_add_vertex(pos - Vector3(0, 0.34 * k, 0))
+	_trail_mesh.surface_end()

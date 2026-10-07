@@ -6,6 +6,7 @@ const Toon = preload("res://scripts/toon.gd")
 const WIDTH := 0.3
 const STEP := 0.18
 const DRY := Color("#6E6A66")
+static var ink := Toon.SUMI  # encre du trait (Atelier), réglée par meta.apply_run_start
 
 var points := PackedVector3Array()
 var jitter := PackedFloat32Array()
@@ -25,14 +26,14 @@ func _init(start: Vector3, layer: int) -> void:
 	_y = 0.02 + 0.002 * float(layer % 8)
 	mesh = _imesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_mat = Toon.flat(Toon.SUMI)
+	_mat = Toon.flat(ink)
 	_mat.vertex_color_use_as_albedo = true
 	material_override = _mat
 	_add(Vector3(start.x, 0, start.z))
 
 
 func _ready() -> void:
-	_tip = Toon.disc(self, 0.16, Color(Toon.SUMI, 0.9), _y + 0.002)
+	_tip = Toon.disc(self, 0.16, Color(ink, 0.9), _y + 0.002)
 	# cercle d'arrivée : là où le héros va s'arrêter (vermillon = zone qui va frapper)
 	_ring = Toon.disc(self, 0.55, Color(Toon.SUMI, 0.18), _y + 0.001)
 	_rebuild()
@@ -78,7 +79,7 @@ func start_drying() -> void:
 		return
 	drying = true
 	_rebuild()  # une seule fois : ensuite le séchage ne touche qu'à la matière
-	_mat.albedo_color = Color(Toon.SUMI.r * Toon.SUMI.r, Toon.SUMI.g * Toon.SUMI.g, Toon.SUMI.b * Toon.SUMI.b, 1.0)
+	_mat.albedo_color = Color(ink.r * ink.r, ink.g * ink.g, ink.b * ink.b, 1.0)
 	if _tip:
 		_tip.visible = false
 		_ring.visible = false
@@ -102,8 +103,8 @@ func _process(delta: float) -> void:
 	else:
 		# l'encre fraîche est noire, elle pâlit et s'efface en séchant
 		var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0)
-		var tint := Toon.SUMI.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
-		_mat.albedo_color = Color(Toon.SUMI.r * tint.r, Toon.SUMI.g * tint.g, Toon.SUMI.b * tint.b, fade)
+		var tint := ink.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
+		_mat.albedo_color = Color(ink.r * tint.r, ink.g * tint.g, ink.b * tint.b, fade)
 
 
 func _rebuild() -> void:
@@ -112,7 +113,7 @@ func _rebuild() -> void:
 	if n < 2:
 		return
 	# en séchant, la teinte passe par la matière (voir _process) : sommets blancs
-	var tint := Color.WHITE if drying else Toon.SUMI
+	var tint := Color.WHITE if drying else ink
 	_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	var s := 0.0
 	for i in n:
