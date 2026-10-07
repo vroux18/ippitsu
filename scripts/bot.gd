@@ -71,6 +71,9 @@ var _force_pending := false
 var _nodes := {}  # salle -> [nœuds de l'arbre, orphelins, objets]
 var _measure_room := -1
 var _measure_t := 0.0
+# énigmes des recoins (toutes parties confondues)
+var _pz_seen := 0
+var _pz_solved := 0
 
 
 func begin(m: Node) -> void:
@@ -242,6 +245,16 @@ func _pick() -> void:
 		return
 	var offer: Array = main._last_offer
 	main._last_offer = []
+	if String(main._pick_mode) == "flawless":
+		# gardien vaincu sans dégât : rouleau d'exception, épiques ou légendaires seulement
+		var best := 0
+		for oid in offer:
+			var pd: Dictionary = PowerData.POWERS.get(String(oid), {})
+			var rd: Dictionary = PowerData.RARITIES.get(String(pd.get("rarity", "common")), {})
+			best = maxi(best, int(rd.get("rank", 0)))
+		print("BOT SANS UNE ÉGRATIGNURE monde %d : %s" % [world, str(offer)])
+		if best < 2:
+			alert("rouleau sans égratignure sans épique ni légendaire : %s" % str(offer))
 	main.picker.visible = false  # le robot choisit sans toucher l'écran : on referme la carte
 	main._on_picked(_choose(offer))
 
@@ -272,6 +285,11 @@ func _choose(offer: Array) -> String:
 
 func _over() -> void:
 	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
+	print("BOT ÉNIGMES monde %d : %d résolues sur %d posées" % [world, int(main.puzzles_solved), int(main.puzzles_seen)])
+	_pz_seen += int(main.puzzles_seen)
+	_pz_solved += int(main.puzzles_solved)
+	if mode == "campaign" and _death_test and _pz_seen >= 4 and _pz_solved == 0:
+		alert("énigmes : aucune résolue sur %d posées pendant la campagne" % _pz_seen)
 	if _last_room >= 1 and _room_t > 0.0:
 		_stat("rooms", 1)
 		_stat("time", _room_t)
@@ -391,6 +409,12 @@ func _play(dt: float) -> void:
 			var away: Vector3 = main.hero.position - target
 			if dodge(away):
 				return
+	if not fight:
+		# hors combat, au pied d'une énigme : il la résout comme un joueur (un seul trait)
+		var pk: Dictionary = main.bot_puzzle()
+		if not pk.is_empty():
+			solve_puzzle(pk)
+			return
 	if target == Vector3.INF and is_instance_valid(main._shrine) and (mode != "powers" or _take_shrine):
 		target = main._shrine.position  # le robot prend les pactes (pour les tester)
 	if target == Vector3.INF:
@@ -411,7 +435,7 @@ func _play(dt: float) -> void:
 ## Ennemi immobile 8 s loin du héros (hors attaque) : coincé quelque part -> alerte.
 func _check_stuck(dt: float) -> void:
 	for e in main.enemies:
-		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa":
+		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa" or e.kind == "funa":
 			continue
 		var id: int = e.get_instance_id()
 		var p: Vector3 = e.position
@@ -514,6 +538,35 @@ func dodge(dir: Vector3) -> bool:
 
 func dodges() -> int:
 	return _dodges
+
+
+## Énigme d'un recoin (main.spawn_puzzle) résolue d'un trait depuis le héros : la figure de la stèle,
+## les lanternes dans l'ordre, ou une boucle complète autour de l'esprit errant.
+func solve_puzzle(pk: Dictionary) -> void:
+	var o: Vector3 = main.hero.position
+	var c: Vector3 = pk["pos"]
+	var pts := PackedVector3Array()
+	match String(pk["pz"]):
+		"stele":
+			# vers le sud (déjà parcouru) : la figure n'entre pas dans la zone de combat suivante
+			pts = BotShapes.plan(String(pk["shape"]), o, c + Vector3(0, 0, 2.0), Callable(main, "_clamp_point"))
+		"lanterns":
+			for q in pk["lanterns"]:
+				var lq: Vector3 = q
+				pts.append(lq)
+			if pts.size() >= 2:
+				var last := pts[pts.size() - 1]
+				var prev := pts[pts.size() - 2]
+				pts.append(last + (last - prev).normalized() * 0.4)
+		"spirit":
+			var sp: Vector3 = main.spirit_pos(pk)
+			var a0 := atan2(o.z - sp.z, o.x - sp.x)
+			for i in 27:
+				var a := a0 + TAU * 1.15 * float(i) / 26.0
+				pts.append(sp + Vector3(cos(a), 0, sin(a)) * 1.5)
+	if pts.is_empty():
+		pts.append(c + Vector3(0, 0, 1.0))
+	_stroke_points(pts)
 
 
 ## Trait de la campagne : vers l'ennemi le plus proche (traits droits, zigzags, boucles, ensō).

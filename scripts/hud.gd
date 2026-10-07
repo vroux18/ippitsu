@@ -8,6 +8,7 @@ extends Control
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const InkStroke = preload("res://scripts/ink_stroke.gd")
 const BAR_N := 24  # segments des barres au pinceau
 
 signal pause_pressed
@@ -61,6 +62,7 @@ var _toast := ""
 var _toast_t := -1.0
 var screen_flash := 0.0  # éclair blanc bref à la mise à mort
 var show_fps := false  # `?fps` dans l'adresse web
+var hero_screen := Vector2(-9999, -9999)  # position du héros à l'écran (main), pour les sceaux de figure
 var _shapes: Array = []  # figures enchaînées : [forme, âge]
 var shape_name := ""
 var _shape_t := 9.0
@@ -609,10 +611,12 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 		return
 	var a := clampf((3.4 - _shape_t) / 0.4, 0.0, 1.0)
 	var n := _shapes.size()
-	var r := 19.0 * u
-	var gap := 2.0 * r + 8.0 * u
-	var y := 150.0 * u
-	var x0 := sz.x / 2.0 - (n - 1) * gap / 2.0
+	# petits sceaux au-dessus du héros (ne gâchent pas la vue)
+	var r := 10.0 * u
+	var gap := 2.0 * r + 5.0 * u
+	var anchor := hero_screen if hero_screen.x > -9000.0 else Vector2(sz.x / 2.0, 150.0 * u)
+	var y := clampf(anchor.y - 16.0 * u, 60.0 * u + top_off, sz.y - 120.0 * u)
+	var x0 := clampf(anchor.x - (n - 1) * gap / 2.0, 14.0 * u, sz.x - 14.0 * u - (n - 1) * gap)
 	for i in n:
 		var sh: Array = _shapes[i]
 		sh[1] = float(sh[1]) + _real_dt
@@ -625,13 +629,13 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 			draw_line(Vector2(x0 + (i - 1) * gap + r, y), c - Vector2(rr, 0), Color(Toon.SUMI, 0.6 * a), 2.0 * u)
 		_draw_symbol(String(sh[0]), c, rr, a)
 	if shape_name != "":
-		var fs := int(11 * u)
+		var fs := int(8 * u)
 		var tw := UiKit.UI_FONT.get_string_size(shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var cx := x0 + (n - 1) * gap
 		var tx := clampf(cx - tw / 2.0, 8.0 * u, sz.x - tw - 8.0 * u)
-		var tp := Vector2(tx, y + r * 1.25 + 17.0 * u)
-		var la := a * clampf((2.2 - _shape_t) / 0.3, 0.0, 1.0)
-		draw_rect(Rect2(tp + Vector2(-8 * u, -fs * 1.05), Vector2(tw + 16 * u, fs * 1.55)), Color(Toon.SUMI, 0.8 * la))
+		var tp := Vector2(tx, y - r * 1.25 - 5.0 * u)
+		var la := a * clampf((1.6 - _shape_t) / 0.3, 0.0, 1.0)
+		draw_string_outline(UiKit.UI_FONT, tp, shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(3 * u), Color(Toon.SUMI, 0.75 * la))
 		draw_string(UiKit.UI_FONT, tp, shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, la))
 
 
@@ -781,7 +785,7 @@ func _draw_seals(_sz: Vector2, u: float) -> void:
 ## Chaîne : badge vif sous le bloc d'état, seulement à partir de 2 — flamme à la couleur du palier,
 ## « ×n » en grand, bonus en petit, temps restant en filet ; il bondit à chaque ruée, éclate en se brisant.
 func _draw_chain(u: float) -> void:
-	var p := Vector2(8 * u, (68.0 if boss_name == "" else 104.0) * u)  # sous la barre du boss quand il y en a une
+	var p := Vector2(8 * u, (78.0 if boss_name == "" else 112.0) * u)  # sous la barre du boss quand il y en a une
 	if chain >= 2:
 		var tier_col := Color("#F2B544")
 		if chain >= 20:
@@ -802,7 +806,7 @@ func _draw_chain(u: float) -> void:
 		# bond à chaque maillon (mise à l'échelle autour de la flamme)
 		var pop := 1.0 + 0.22 * _chain_pop * _chain_pop
 		var anchor := Vector2(p.x + 12.0 * u, body.get_center().y)
-		draw_set_transform(anchor * (1.0 - pop), 0.0, Vector2(pop, pop))
+		draw_set_transform(Vector2(0, top_off) + anchor * (1.0 - pop), 0.0, Vector2(pop, pop))  # garde la marge de l'encoche
 		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.22), 999), Rect2(body.position + Vector2(0, 2.0 * u), body.size))
 		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92), 999, Color(tier_col, 0.85), maxi(1, int(1.5 * u))), body)
 		draw_style_box(UiKit.box(_sb, Color(tier_col, 0.16), 999), Rect2(body.position + Vector2(2.0 * u, 2.0 * u), Vector2(body.size.x * 0.5, body.size.y - 4.0 * u)))
@@ -832,7 +836,7 @@ func _draw_chain(u: float) -> void:
 		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.7), 999), tr.grow(1.0 * u))
 		if left > 0.02:
 			draw_style_box(UiKit.box(_sb, Color(tier_col, blink), 999), Rect2(tr.position, Vector2(maxf(tr.size.x * left, tr.size.y), tr.size.y)))
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		draw_set_transform(Vector2(0, top_off))
 	if chain_break > 0.0:
 		var k := 1.0 - chain_break
 		var txt := "CHAÎNE BRISÉE  ×%d" % chain_lost
@@ -914,7 +918,10 @@ func _draw_gauge(sz: Vector2, u: float) -> void:
 	var gh := sz.y * 0.3
 	var gx := sz.x - gw - 12.0 * u
 	var gy := sz.y * 0.3  # haut placé : bien visible, hors du pad
-	var ink := Color("#2F86E0")
+	# couleur de l'encre choisie à l'Atelier (éclaircie si trop sombre pour rester lisible)
+	var ink: Color = InkStroke.ink
+	if ink.get_luminance() < 0.3:
+		ink = ink.lerp(Color("#C9CBD6"), 0.55)
 	var low := elan < 0.2
 	if elan_empty or low:
 		ink = Toon.VERMILION if (elan_empty and (Time.get_ticks_msec() / 90) % 2 == 0) or (low and not elan_empty) else ink
@@ -1037,7 +1044,7 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var bw := minf(sz.x - 28.0 * u, 352.0 * u)
 	var h := 62.0 * u if has_sub else 48.0 * u
 	# en bas de l'écran, au-dessus de la jauge d'encre : le torii et la sortie restent visibles
-	var cy := sz.y - 205.0 * u
+	var cy := top_off + 118.0 * u  # en haut au centre, sous le bloc vie / étape
 	var x0 := (sz.x - bw) / 2.0 + (1.0 - k_out) * 26.0 * u
 	var reach := bw * (0.15 + 0.85 * ein)
 	var acc := _banner_col

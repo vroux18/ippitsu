@@ -87,11 +87,11 @@ func _ghostify() -> void:
 			var m := mi.get_surface_override_material(i) as StandardMaterial3D
 			if m == null:
 				continue
-			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS  # pas de scintillement entre les morceaux du modèle
+			m.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED  # opaque : plus de scintillement
 			m.albedo_color.a = 0.8
 			var o := m.next_pass as StandardMaterial3D
 			if o != null:
-				o.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				o.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
 				o.albedo_color.a = 0.55
 
 

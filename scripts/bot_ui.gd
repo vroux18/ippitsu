@@ -696,6 +696,8 @@ func _step_world(w: int) -> bool:
 	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "entrée du monde %d -> sanctuaire de départ" % w):
 		return false
 	_ok("monde %d : plan d'entrée puis sanctuaire" % w)
+	if w == 1:
+		await _step_run()  # course au doigt posé, dans le sanctuaire (hors combat)
 	if not await _transit_to_room1(w):
 		return false
 	if w == 1:
@@ -704,6 +706,10 @@ func _step_world(w: int) -> bool:
 		if not await _step_pickers():
 			return false
 		if not await _step_sanctuary():
+			return false
+		if not await _step_flawless():
+			return false
+		if not await _step_puzzles():
 			return false
 	if not await _boss_intro(w, int(main.MINI_ROOM)):
 		return false
@@ -957,13 +963,107 @@ func _step_sanctuary() -> bool:
 		if not await _until(func(): return String(main.state) == "pick" and bool(main.picker._curse_mode), "autel touché -> pacte proposé"):
 			return false
 		var nc: int = main.curses.size()
+		var g0: int = main.run_gold
+		var hp0: int = main.hero.hp
 		var idx: int = 0 if take else main.picker._ids.size() - 1  # la dernière carte : « Passer »
 		if not await _pick_card(idx, "sanctuaire"):
 			return false
 		await _settle_play("après le pacte")
 		var want: int = nc + (1 if take else 0)
 		_check(main.curses.size() == want, "sanctuaire : %s" % ("malédiction acceptée %s" % str(main.curses) if take else "PASSER"), "%d malédiction(s), attendu %d" % [main.curses.size(), want])
+		if not take:
+			# « Passer » rapporte un cœur (s'il en manque) ou un peu d'or
+			_check(int(main.run_gold) >= g0 + int(main.PASS_GOLD) or int(main.hero.hp) > hp0, "sanctuaire : PASSER donne son bonus (or %d -> %d, vie %d -> %d)" % [g0, int(main.run_gold), hp0, int(main.hero.hp)], "aucun bonus")
 	return true
+
+
+## Course au doigt posé (sanctuaire, hors combat) : un trait, le doigt s'immobilise, la ruée part et le héros
+## continue de courir ; il s'arrête au relâché.
+func _step_run() -> bool:
+	if not await _until(func(): return String(main.state) == "play" and _hero_still() and bool(main._explore), "sanctuaire : héros posé, hors combat"):
+		return false
+	var hp: Vector3 = main.hero.position
+	var dir := Vector3(1, 0, 0) if hp.x < 0.0 else Vector3(-1, 0, 0)
+	var screen := String(main.ctrl_mode) == "screen"
+	var sp0 := Vector2.ZERO
+	var sp1 := Vector2.ZERO
+	if screen:
+		sp0 = main.cam.unproject_position(hp)
+		sp1 = main.cam.unproject_position(hp + dir * 1.6)
+	else:
+		var pr: Rect2 = main.pad_rect()
+		var k := 15.0 / maxf(pr.size.x, 1.0)
+		sp0 = pr.get_center()
+		sp1 = sp0 + Vector2(dir.x, dir.z) * 1.6 / k
+	if bool(main.hud.is_over_pause(sp0)) or bool(main.hud.is_over_seals(sp0)):
+		_ok("course au doigt posé : point de départ sous un bouton du HUD, étape passée")
+		return true
+	main._touch_down(sp0)
+	for i in 6:
+		main._touch_move(sp0.lerp(sp1, float(i + 1) / 6.0))
+		await _frame()
+	if not await _until(func(): return bool(main._running), "course : le doigt immobile lance la course", 5.0):
+		main._touch_up(sp1)
+		return false
+	# le doigt pousse un peu plus loin dans la même direction (manette : autour du point d'appui ; écran : devant)
+	var sp2 := sp1 + Vector2(dir.x, dir.z) * 40.0
+	if screen:
+		sp2 = main.cam.unproject_position(main.hero.dash_end() + dir * 3.0)
+	main._touch_move(sp2)
+	await _until(func(): return float(main.run_dist) > 0.6 or not bool(main._running), "course : le héros court", 4.0)
+	var ran: float = main.run_dist
+	main._touch_up(sp2)
+	await _frames(2)
+	return _check(ran > 0.6 and not bool(main._running) and not bool(main.touching), "course au doigt posé (%.1f m courus)" % ran, "%.2f m courus, course %s" % [ran, str(main._running)])
+
+
+## Gardien vaincu sans dégât : le rouleau « sans une égratignure » (épiques ou légendaires), choisi au toucher.
+func _step_flawless() -> bool:
+	await _settle_play("avant le rouleau sans égratignure")
+	var pk = main.picker
+	var p = main.powers
+	main._flawless_pending = true
+	if not await _until(func(): return String(main.state) == "pick" and bool(pk.visible) and String(main._pick_mode) == "flawless", "rouleau sans une égratignure ouvert"):
+		main._flawless_pending = false
+		return false
+	var worst := 9
+	for id in pk._ids:
+		var d: Dictionary = PowerData.POWERS.get(String(id), {})
+		var rd: Dictionary = PowerData.RARITIES.get(String(d.get("rarity", "common")), {})
+		worst = mini(worst, int(rd.get("rank", 0)))
+	_check(worst >= 2 and String(pk._title_text) == "SANS UNE ÉGRATIGNURE", "rouleau sans une égratignure : %s" % str(pk._ids), "rang le plus bas %d, titre « %s »" % [worst, String(pk._title_text)])
+	if pk._ids.is_empty():
+		return false
+	var chosen := String(pk._ids[0])
+	var l0 := int(p.lvl(chosen))
+	if not await _pick_card(0, "rouleau sans une égratignure"):
+		return false
+	await _settle_play("après le rouleau sans égratignure")
+	return _check(int(p.lvl(chosen)) > l0, "rouleau sans une égratignure : %s choisi au toucher" % chosen, "niveau inchangé")
+
+
+## Énigmes des recoins : chacune posée au pied du héros (hors combat), consigne à l'approche, résolue d'un trait.
+func _step_puzzles() -> bool:
+	var ok := true
+	for kind in ["stele", "lanterns", "spirit"]:
+		await _settle_play("avant l'énigme %s" % kind)
+		if not await _until(func(): return _hero_still() and bool(main._explore) and String(main.state) == "play", "énigme %s : héros posé hors combat" % kind):
+			return false
+		var pk: Dictionary = main.spawn_puzzle(String(kind), main.hero.position)
+		await _frames(3)
+		_check(bool(pk["hinted"]), "énigme %s : consigne affichée à l'approche" % String(pk["pz"]), "pas de consigne")
+		var tries := 0
+		while not bool(pk["used"]) and tries < 4:
+			tries += 1
+			if not await _until(func(): return _hero_still(), "énigme : héros posé", 10.0):
+				break
+			main.hero.position = pk["pos"]  # au centre de l'énigme, comme le robot de campagne
+			main._prev_hero = main.hero.position
+			bot.solve_puzzle(pk)
+			await _until(func(): return _hero_still(), "énigme : fin du trait", 10.0)
+			await _frames(3)
+		ok = _check(bool(pk["used"]), "énigme %s résolue d'un trait (%d essai(s))" % [String(pk["pz"]), tries], "non résolue") and ok
+	return ok
 
 
 func _step_victory() -> bool:

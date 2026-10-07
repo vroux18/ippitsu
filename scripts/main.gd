@@ -54,11 +54,23 @@ const PowersRecap = preload("res://scripts/powers_recap.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
-	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus"},
-	"oni_eye": {"name": "Œil d'oni", "text": "Ennemis +50 % de vie  ·  2 rouleaux en plus"},
-	"heavy": {"name": "Pas lourd", "text": "Plus de pas de côté  ·  +2 vies max, soin"},
-	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin"},
+	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus", "icon": "c_dry"},
+	"oni_eye": {"name": "Œil d'oni", "text": "Ennemis +50 % de vie  ·  2 rouleaux en plus", "icon": "c_eye"},
+	"heavy": {"name": "Pas lourd", "text": "Plus de pas de côté  ·  +2 vies max, soin", "icon": "c_heavy"},
+	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin", "icon": "c_haste"},
 }
+const PASS_GOLD := 15  # « Passer » au sanctuaire : un cœur soigné, ou cet or si la vie est pleine
+# hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
+const EXPLORE_REACH := 2.0
+const RUN_SPEED := 7.0
+const HOLD_RUN_T := 0.4  # doigt immobile (s) après un trait avant de courir
+# énigmes des recoins
+const PUZZLE_KINDS := ["stele", "lanterns", "spirit"]
+const PUZZLE_FIGS := ["loop", "zigzag", "return", "enso"]
+const PUZZLE_REWARDS := ["gold", "heal", "reroll"]
+const LANTERN_R := 1.6
+const LANTERN_TOUCH := 0.6
+const STELE_NEAR := 2.5
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 15  # combats d'un monde
@@ -221,6 +233,22 @@ var _alive_prev := 0
 var _ritual := false
 var _ritual_from := Vector3.ZERO
 var _ritual_flash := false
+# exploration : course au doigt posé
+var _explore := false  # hors combat (calculé à chaque image)
+var _running := false
+var _run_dir := Vector3.ZERO
+var _run_anchor := Vector2.ZERO  # point du pad où le doigt s'est posé (manette)
+var _run_sp := Vector2.ZERO
+var _hold_t := 0.0
+var _hold_sp := Vector2.ZERO
+var run_dist := 0.0  # distance courue depuis le dernier départ (robot)
+var puzzles_seen := 0
+var puzzles_solved := 0
+# combat de boss sans dégât
+var _scratched := false
+var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
+var _flawless_boss := false  # boss du monde vaincu sans dégât
+var _pass_bonus := ""
 
 
 func _ready() -> void:
@@ -569,6 +597,11 @@ func _start_dojo() -> void:
 	sfx.play("slash", 0.9, -4.0)
 	menu.show_mode("hidden")
 	_start(false, true)
+	# dojo : arène entièrement plate (disposition des boss), tout l'espace pour s'entraîner
+	arena.build_room(ROOMS, ROOMS, randi(), MINI_ROOM)
+	hero.position = arena.start
+	_prev_hero = hero.position
+	_fit_camera()
 	_set_state("tuto")
 	hero.face(Vector3(0, 0, -1))
 	hero.guard_t = 99999.0
@@ -758,11 +791,12 @@ func _build_world() -> void:
 	e.tonemap_mode = Environment.TONE_MAPPER_LINEAR
 	# couleurs plus franches : un peu plus de saturation et de contraste
 	e.adjustment_enabled = true
-	e.adjustment_saturation = 1.32
-	e.adjustment_contrast = 1.16
-	e.adjustment_brightness = 0.98
+	# étalonnage : couleurs franches mais pas brûlées (les sols clairs saturaient)
+	e.adjustment_saturation = 1.2
+	e.adjustment_contrast = 1.12
+	e.adjustment_brightness = 0.92
 	e.glow_enabled = true
-	e.glow_intensity = 0.9
+	e.glow_intensity = 0.6
 	e.glow_strength = 1.1
 	e.glow_bloom = 0.0
 	e.glow_hdr_threshold = 1.05
@@ -826,7 +860,7 @@ func apply_world(id: int) -> void:
 	# sans contre-jour (téléphone), un peu plus de lumière ambiante compense
 	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.0)
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy)
+	_sun.light_energy = float(w.sun_energy) * 0.86
 	arena.set_world(id)
 
 
@@ -967,6 +1001,13 @@ func _start(hub := true, tutorial := false) -> void:
 	max_chain = 0
 	shape_counts = {}
 	_chain_t = 0.0
+	_scratched = false
+	_flawless_pending = false
+	_flawless_boss = false
+	_pass_bonus = ""
+	puzzles_seen = 0
+	puzzles_solved = 0
+	run_dist = 0.0
 	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
 	hero.hp = hero.max_hp
@@ -1089,6 +1130,7 @@ func _spawn_boss(k: String) -> Node3D:
 	# figé jusqu'à son entrée en scène, une fois le torii passé (_start_boss_intro)
 	b.process_mode = Node.PROCESS_MODE_DISABLED
 	_intro_boss = b
+	_scratched = false  # combat sans dégât : suivi jusqu'à sa chute (boss_killed)
 	add_child(b)
 	bosses.append(b)
 	music.play_boss(current_world, is_mini_boss(k))
@@ -1221,13 +1263,22 @@ func is_mini_boss(k: String) -> bool:
 func boss_killed(b: Node3D) -> void:
 	pickups.drop(b.position, "xp", 8)
 	pickups.drop(b.position, "coin", 10)
+	var clean := not _scratched
 	if is_mini_boss(String(b.kind)):
 		mini_kills += 1
 		_pending_levels += 1  # le gardien vaincu offre un rouleau
 		music.end_boss(true)
+		if clean and room < ROOMS:
+			# aucun coup reçu : un rouleau d'exception (épique ou légendaire) à la fin du combat
+			_flawless_pending = true
+			hud.toast("SANS UNE ÉGRATIGNURE  ·  ROULEAU D'EXCEPTION")
+			float_text(b.position, "SANS UNE ÉGRATIGNURE", Toon.GOLD)
 	else:
 		boss_kills += 1
 		music.end_boss(false)  # le jingle de victoire suit
+		if clean:
+			_flawless_boss = true
+			float_text(b.position, "SANS UNE ÉGRATIGNURE", Toon.GOLD)
 	shake = 0.7
 	sfx.play("kill", 0.6)
 	feel("boss_death")
@@ -1453,19 +1504,53 @@ func _open_sanctuary() -> void:
 	var ids: Array = pool.slice(0, 2)
 	var infos: Array = []
 	for id in ids:
-		infos.append({"name": CURSES[id].name, "text": CURSES[id].text, "level": -1, "kanji": "鬼", "color": Color("#7A1F1A")})
+		var cd: Dictionary = CURSES[id]
+		infos.append({"name": String(cd["name"]), "text": String(cd["text"]), "level": -1, "kanji": "鬼", "color": Color("#7A1F1A"), "icon": String(cd.get("icon", "oni"))})
 	ids.append("refuse")
 	_last_offer = ids
-	infos.append({"name": "Passer", "text": "Continuer sans malédiction", "level": -1, "kanji": "道", "color": Color("#8C8FA8")})
+	# refuser rapporte un peu : un cœur s'il en manque, sinon de l'or
+	_pass_bonus = "heal" if hero.hp < hero.max_hp else "gold"
+	var bonus := "1 cœur soigné" if _pass_bonus == "heal" else ("%d pièces d'or" % PASS_GOLD)
+	infos.append({"name": "Passer", "text": "Sans pacte  ·  " + bonus, "level": -1, "kanji": "道", "color": Color("#8C8FA8")})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
 	sfx.play("pact", 1.0, -4.0)
+
+
+## Gardien vaincu sans un coup reçu : trois rouleaux épiques ou légendaires (verrous et plafond respectés).
+func _open_flawless() -> void:
+	_pick_mode = "flawless"
+	var ids: Array = powers.offer_flawless()
+	if ids.is_empty():
+		_open_upgrades()
+		return
+	_last_offer = ids
+	var infos: Array = []
+	for id in ids:
+		infos.append(powers.describe(id))
+	picker.open(ids, infos, "SANS UNE ÉGRATIGNURE", "Gardien vaincu sans un coup : un rouleau d'exception")
+	sfx.play("levelup", 0.9, -2.0)
+	sfx.play("shot", 0.6)
+
+
+## « Passer » au sanctuaire : le petit bonus annoncé sur la carte.
+func _pass_reward() -> void:
+	if _pass_bonus == "heal" and hero.hp < hero.max_hp:
+		heal(1)
+		sfx.play("shrine", 1.3, -5.0)
+	else:
+		run_gold += PASS_GOLD
+		float_text(hero.position, "+%d OR" % PASS_GOLD, Toon.GOLD)
+		sfx.play("coin", 0.9, -4.0)
+	_pass_bonus = ""
 
 
 func _on_reroll() -> void:
 	sfx.play("whoosh", 1.2, -4.0)
 	if _pick_mode == "curse":
 		_open_sanctuary()
+	elif _pick_mode == "flawless":
+		_open_flawless()
 	else:
 		_open_upgrades()
 
@@ -1474,6 +1559,8 @@ func _on_picked(id: String) -> void:
 	if _pick_mode == "curse":
 		if id != "refuse":
 			_take_curse(id)
+		else:
+			_pass_reward()
 		if _extra_picks > 0:
 			_extra_picks -= 1
 			_open_upgrades()
@@ -1658,7 +1745,8 @@ func _cam_target() -> float:
 
 # ------------------------------------------------------------------ recoins de l'étape
 
-## Recoins : un coffre au départ, puis selon le tirage une source de soin et un défi d'élite (dès l'étape 2).
+## Recoins : un coffre au départ, puis selon le tirage une énigme de trait, une source de soin et un défi
+## d'élite (dès l'étape 2).
 func _build_pockets() -> void:
 	_clear_pockets()
 	var spots: Array = arena.pocket_spots
@@ -1669,8 +1757,12 @@ func _build_pockets() -> void:
 		kinds[0] = "chest"
 	var slots: Array = []
 	for i in range(1, spots.size()):
-		slots.append(i)
+		if spots[i] != Vector3.INF:
+			slots.append(i)
 	slots.shuffle()
+	# une petite énigme de trait par étape, presque toujours (à l'écart du chemin)
+	if not slots.is_empty() and randf() < 0.9:
+		kinds[int(slots.pop_back())] = "puzzle"
 	if not slots.is_empty() and randf() < 0.6:
 		kinds[int(slots.pop_back())] = "spring"
 	if not slots.is_empty() and stage_i >= 1 and randf() < 0.65:
@@ -1681,6 +1773,9 @@ func _build_pockets() -> void:
 		var p: Vector3 = spots[i]
 		var k := String(kinds[i])
 		if k == "" or p == Vector3.INF:
+			continue
+		if k == "puzzle":
+			spawn_puzzle("", p)
 			continue
 		_pockets.append({"kind": k, "pos": p, "used": false, "node": _pocket_node(k, p)})
 
@@ -1783,6 +1878,8 @@ func _update_pockets() -> void:
 					_spawn_elite(p)
 					if is_instance_valid(n):
 						n.queue_free()
+			"puzzle":
+				_update_puzzle(pk, n, d)
 
 
 ## Défi d'un recoin : un costaud d'élite, plus gros et plus solide, qui garde un butin.
@@ -1807,6 +1904,379 @@ func _spawn_elite(p: Vector3) -> void:
 	hud.banner("DÉFI", "UN GARDIEN D'ÉLITE  ·  BUTIN À LA CLÉ", Toon.VERMILION, 1.6)
 
 
+# ------------------------------------------------------------------ énigmes des recoins
+
+## Pose une énigme de trait dans un recoin (`kind` vide : au hasard) : stèle à figure, lanternes à relier
+## dans l'ordre d'un seul trait, esprit errant à entourer. Résolue hors combat, elle offre une récompense ;
+## ratée, elle attend simplement le trait suivant.
+func spawn_puzzle(kind: String, p: Vector3) -> Dictionary:
+	var pz := kind if kind != "" else String(PUZZLE_KINDS[randi() % PUZZLE_KINDS.size()])
+	var c := Vector3(p.x, 0, p.z)
+	var pk := {"kind": "puzzle", "pz": pz, "pos": c, "used": false, "hinted": false,
+		"reward": String(PUZZLE_REWARDS[randi() % PUZZLE_REWARDS.size()]), "t": randf() * TAU, "fail_t": -9.0}
+	if pz == "lanterns":
+		var spots := _lantern_spots(c, 3 if stage_i < 2 else 3 + randi() % 2)
+		if spots.is_empty():
+			pz = "stele"  # pas la place pour un cercle de lanternes : une stèle à la place
+			pk["pz"] = pz
+		else:
+			pk["lanterns"] = spots
+	if pz == "stele":
+		pk["shape"] = String(PUZZLE_FIGS[randi() % PUZZLE_FIGS.size()])
+	pk["node"] = _puzzle_node(pk)
+	_pockets.append(pk)
+	puzzles_seen += 1
+	return pk
+
+
+## Lanternes en cercle autour de `c`, numérotées dans le désordre, toutes sur la terre ferme ; vide sinon.
+func _lantern_spots(c: Vector3, n: int) -> Array:
+	for attempt in 10:
+		var r := LANTERN_R if attempt < 6 else LANTERN_R * 0.8
+		var rot := randf() * TAU
+		var pts: Array = []
+		for i in n:
+			var a := rot + TAU * float(i) / float(n)
+			var q := c + Vector3(cos(a), 0, sin(a)) * r
+			if not Arena._walk_r(arena.rects, Vector2(q.x, q.z), 0.3) or arena.is_bridge(q, 0.2):
+				break
+			pts.append(q)
+		if pts.size() == n:
+			pts.shuffle()
+			return pts
+	return []
+
+
+## Décor de l'énigme et sa consigne au-dessus : kanji de la figure (et la figure peinte au sol),
+## numéros des lanternes, ensō au-dessus de l'esprit (et son aire en pointillés).
+func _puzzle_node(pk: Dictionary) -> Node3D:
+	var n := Node3D.new()
+	add_child(n)
+	var c: Vector3 = pk["pos"]
+	n.position = c
+	match String(pk["pz"]):
+		"stele":
+			var stone := Toon.mat(Color("#7E7A74"))
+			Toon.part(n, Toon.box(Vector3(0.8, 0.14, 0.5)), stone, Vector3(0, 0.07, 0))
+			Toon.part(n, Toon.box(Vector3(0.56, 1.15, 0.2)), stone, Vector3(0, 0.71, 0))
+			Toon.part(n, Toon.box(Vector3(0.66, 0.1, 0.28)), stone, Vector3(0, 1.33, 0))
+			Toon.part(n, Toon.box(Vector3(0.36, 0.6, 0.02)), Toon.mat(Toon.PAPER, false), Vector3(0, 0.78, 0.11))
+			var shape := String(pk["shape"])
+			var gm := Toon.flat(Color(Toon.SUMI, 0.6))
+			_ribbon(n, _glyph_pts(shape, Vector3(0, 0, 1.15), 0.75), 0.09, gm)
+			pk["gmat"] = gm
+			pk["label"] = _puzzle_label(n, String(SHAPE_KANJI.get(shape, "円")), Vector3(0, 1.95, 0), Toon.SUMI)
+		"lanterns":
+			var mats: Array = []
+			var spots: Array = pk["lanterns"]
+			var stone2 := Toon.mat(Color("#8C8A86"))
+			var roof := Toon.mat(Toon.SUMI)
+			for i in spots.size():
+				var q: Vector3 = spots[i]
+				var ln := Node3D.new()
+				n.add_child(ln)
+				ln.position = q - c
+				Toon.part(ln, Toon.cyl(0.2, 0.24, 0.12), stone2, Vector3(0, 0.06, 0))
+				Toon.part(ln, Toon.box(Vector3(0.12, 0.42, 0.12)), stone2, Vector3(0, 0.33, 0))
+				var lamp := Toon.mat(Color("#6B6258"))
+				lamp.emission_enabled = true
+				lamp.emission = Color.BLACK
+				Toon.part(ln, Toon.box(Vector3(0.3, 0.26, 0.3)), lamp, Vector3(0, 0.67, 0))
+				Toon.part(ln, Toon.cyl(0.04, 0.3, 0.14, 4), roof, Vector3(0, 0.87, 0))
+				_disc(ln, 0.42, Toon.flat(Color(Toon.GOLD, 0.22)), 0.015)
+				_puzzle_label(ln, str(i + 1), Vector3(0, 1.3, 0), Toon.VERMILION)
+				mats.append(lamp)
+			pk["mats"] = mats
+		"spirit":
+			var rm := Toon.flat(Color("#7FD3E0", 0.5))
+			for k in 10:
+				var a0 := TAU * float(k) / 10.0
+				var arc := PackedVector3Array()
+				for j in 5:
+					var a := a0 + 0.42 * float(j) / 4.0
+					arc.append(Vector3(cos(a), 0, sin(a)) * 1.7)
+				_ribbon(n, arc, 0.06, rm)
+			var sp := Node3D.new()
+			sp.name = "Spirit"
+			n.add_child(sp)
+			sp.position = Vector3(0, 0.95, 0)
+			Toon.part(sp, Toon.sphere(0.22), Toon.flat(Color("#CFF6FF", 0.85)), Vector3.ZERO)
+			Toon.part(sp, Toon.sphere(0.11), Toon.flat(Color(1, 1, 1, 0.95)), Vector3(0, 0.02, 0.06))
+			Toon.part(sp, Toon.sphere(0.12), Toon.flat(Color("#9FE6F2", 0.6)), Vector3(0, 0.2, 0), Vector3(0.8, 1.6, 0.8))
+			_puzzle_label(sp, "円", Vector3(0, 0.75, 0), Color("#2E8FA3"))
+			var sh := _disc(n, 0.25, Toon.flat(Color(Toon.SUMI, 0.15)), 0.012)
+			sh.name = "Shadow"
+	return n
+
+
+func _puzzle_label(parent: Node3D, txt: String, pos: Vector3, col: Color) -> Label3D:
+	var l := Label3D.new()
+	l.font = KANJI_FONT
+	l.text = txt
+	l.font_size = 110
+	l.pixel_size = 0.0045
+	l.modulate = col
+	l.outline_modulate = Toon.WASHI
+	l.outline_size = 22
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.position = pos
+	parent.add_child(l)
+	return l
+
+
+## Ruban posé au sol le long de `pts` (coordonnées locales du parent).
+func _ribbon(parent: Node3D, pts: PackedVector3Array, w: float, m: Material) -> MeshInstance3D:
+	var im := ImmediateMesh.new()
+	if pts.size() >= 2:
+		im.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+		for i in pts.size():
+			var a := pts[maxi(i - 1, 0)]
+			var b := pts[mini(i + 1, pts.size() - 1)]
+			var t := b - a
+			t.y = 0
+			t = t.normalized() if t.length_squared() > 0.000001 else Vector3.FORWARD
+			var side := Vector3(-t.z, 0, t.x) * w
+			var p := Vector3(pts[i].x, 0.03, pts[i].z)
+			im.surface_add_vertex(p + side)
+			im.surface_add_vertex(p - side)
+		im.surface_end()
+	var mi := MeshInstance3D.new()
+	mi.mesh = im
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+## La figure de la stèle vue de dessus (le haut de l'écran vers -z), large d'environ 2 × `k` m.
+static func _glyph_pts(shape: String, o: Vector3, k: float) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	match shape:
+		"loop":
+			for i in 33:
+				var t := -PI + TAU * float(i) / 32.0
+				out.append(o + Vector3(0.45 * t - 0.6 * sin(t), 0, 0.6 * cos(t)) * k)
+		"zigzag":
+			for v in [Vector2(-0.9, 0.5), Vector2(-0.3, -0.5), Vector2(0.3, 0.5), Vector2(0.9, -0.5)]:
+				var c2: Vector2 = v
+				out.append(o + Vector3(c2.x, 0, c2.y) * k)
+		"return":
+			for i in 9:
+				out.append(o + Vector3(-0.9 + 1.6 * float(i) / 8.0, 0, 0.22) * k)
+			for i in range(1, 12):
+				var a := PI * 0.5 - PI * float(i) / 11.0
+				out.append(o + Vector3(0.7 + 0.22 * cos(a), 0, 0.22 * sin(a)) * k)
+			for i in range(1, 8):
+				out.append(o + Vector3(0.7 - 1.4 * float(i) / 7.0, 0, -0.22) * k)
+		_:
+			# ensō : cercle ouvert
+			for i in 33:
+				var a2 := 0.5 + (TAU - 0.9) * float(i) / 32.0
+				out.append(o + Vector3(cos(a2), 0, sin(a2)) * 0.8 * k)
+	return out
+
+
+## Énigme : consigne à la première approche (hors combat), aperçu des lanternes allumées pendant le tracé,
+## esprit qui erre.
+func _update_puzzle(pk: Dictionary, n: Node3D, d: float) -> void:
+	if not bool(pk["hinted"]) and d < 4.2 and _explore:
+		pk["hinted"] = true
+		hud.toast(_puzzle_hint(pk))
+		sfx.play("shrine", 1.6, -8.0)
+	match String(pk["pz"]):
+		"spirit":
+			var sp := n.get_node_or_null("Spirit") as Node3D
+			if sp != null:
+				var q := spirit_pos(pk)
+				sp.position = Vector3(q.x - n.position.x, 0.95 + 0.12 * sin(run_time * 3.0 + float(pk["t"])), q.z - n.position.z)
+				var sh := n.get_node_or_null("Shadow") as Node3D
+				if sh != null:
+					sh.position = Vector3(sp.position.x, 0.012, sp.position.z)
+		"lanterns":
+			var mats: Array = pk["mats"]
+			var lit := 0
+			var fail := run_time - float(pk["fail_t"]) < 0.6
+			if not fail and touching and stroke != null and _explore and d < 7.0:
+				lit = maxi(0, _lantern_progress(pk["lanterns"], stroke.points))
+			for i in mats.size():
+				var m: StandardMaterial3D = mats[i]
+				if fail:
+					m.albedo_color = Toon.VERMILION
+					m.emission = Color.BLACK
+				elif i < lit:
+					m.albedo_color = Color("#FFD27A")
+					m.emission = Color("#FFB648")
+				else:
+					m.albedo_color = Color("#6B6258")
+					m.emission = Color.BLACK
+
+
+func _puzzle_hint(pk: Dictionary) -> String:
+	match String(pk["pz"]):
+		"stele":
+			return "STÈLE  ·  TRACE SON SYMBOLE : %s" % String(StrokeShapes.FIG_NAMES.get(String(pk["shape"]), "")).to_upper()
+		"lanterns":
+			return "LANTERNES  ·  RELIE-LES DANS L'ORDRE, D'UN SEUL TRAIT"
+	return "ESPRIT ERRANT  ·  ENTOURE-LE D'UNE BOUCLE"
+
+
+## Position de l'esprit errant (il flâne autour du centre du recoin, sans quitter l'étape).
+func spirit_pos(pk: Dictionary) -> Vector3:
+	var c: Vector3 = pk["pos"]
+	var t := run_time * 0.55 + float(pk["t"])
+	var q := c + Vector3(cos(t) * 0.7 + 0.2 * sin(t * 2.3), 0, sin(t * 0.8) * 0.55)
+	var b: Rect2 = arena.stage_rect
+	q.x = clampf(q.x, b.position.x + 1.0, b.end.x - 1.0)
+	return q
+
+
+## Lanternes touchées dans l'ordre par le trait (0..n) ; -1 si l'une est touchée avant son tour
+## (sauf celle d'où part le trait).
+func _lantern_progress(order: Array, pts: PackedVector3Array) -> int:
+	if pts.is_empty():
+		return 0
+	var start := pts[0]
+	var nxt := 0
+	for p in pts:
+		for i in range(nxt, order.size()):
+			var q: Vector3 = order[i]
+			if Vector2(p.x - q.x, p.z - q.z).length() >= LANTERN_TOUCH:
+				continue
+			if i == nxt:
+				nxt += 1
+			elif Vector2(start.x - q.x, start.z - q.z).length() >= LANTERN_TOUCH:
+				return -1
+		if nxt >= order.size():
+			break
+	return nxt
+
+
+## Angle total (radians, signé) balayé par le trait autour de `c`.
+static func _winding(pts: PackedVector3Array, c: Vector3) -> float:
+	if pts.size() < 2:
+		return 0.0
+	var total := 0.0
+	var prev := atan2(pts[0].z - c.z, pts[0].x - c.x)
+	for i in range(1, pts.size()):
+		var a := atan2(pts[i].z - c.z, pts[i].x - c.x)
+		total += wrapf(a - prev, -PI, PI)
+		prev = a
+	return total
+
+
+## Trait lancé hors combat : il résout (ou rate, sans punition) les énigmes proches.
+func _puzzle_stroke(pts: PackedVector3Array) -> void:
+	if pts.size() < 2:
+		return
+	var o := pts[0]
+	for pk in _pockets:
+		if bool(pk["used"]) or String(pk["kind"]) != "puzzle" or not is_instance_valid(pk["node"]):
+			continue
+		var c: Vector3 = pk["pos"]
+		if Vector2(o.x - c.x, o.z - c.z).length() > 9.0:
+			continue
+		match String(pk["pz"]):
+			"stele":
+				var near := 1.0e9
+				for p in pts:
+					near = minf(near, Vector2(p.x - c.x, p.z - c.z).length())
+				var want := String(pk["shape"])
+				var got := String(_shape.get("shape", ""))
+				if near <= STELE_NEAR and got == want:
+					_solve_puzzle(pk)
+				elif near <= STELE_NEAR and got != "":
+					_puzzle_fail(pk, "LA STÈLE ATTEND %s" % String(StrokeShapes.FIG_NAMES.get(want, "")).to_upper())
+			"lanterns":
+				var order: Array = pk["lanterns"]
+				var k := _lantern_progress(order, pts)
+				if k >= order.size():
+					_solve_puzzle(pk)
+				elif k != 0:
+					_puzzle_fail(pk, "DANS L'ORDRE, D'UN SEUL TRAIT : 1 → %d" % order.size())
+			"spirit":
+				var sp := spirit_pos(pk)
+				if absf(_winding(pts, sp)) >= PI * 1.6:
+					_solve_puzzle(pk)
+				else:
+					var close := 1.0e9
+					for p in pts:
+						close = minf(close, Vector2(p.x - sp.x, p.z - sp.z).length())
+					if close < 1.6 and StrokeShapes.length(pts) > 3.0:
+						_puzzle_fail(pk, "ENTOURE L'ESPRIT D'UNE BOUCLE COMPLÈTE")
+
+
+func _puzzle_fail(pk: Dictionary, msg: String) -> void:
+	pk["fail_t"] = run_time
+	hud.toast(msg)
+	sfx.play("empty", 0.9, -4.0)
+
+
+## Énigme résolue : la consigne se dore, la récompense tombe (coffre d'or et d'expérience, soin ou relance).
+func _solve_puzzle(pk: Dictionary) -> void:
+	pk["used"] = true
+	puzzles_solved += 1
+	var c: Vector3 = pk["pos"]
+	var n = pk["node"]  # sans type : le nœud peut avoir été libéré
+	var lb = pk.get("label", null)
+	if is_instance_valid(lb):
+		lb.modulate = Toon.GOLD
+	if pk.has("gmat"):
+		var gm: StandardMaterial3D = pk["gmat"]
+		gm.albedo_color = Color(Toon.GOLD, 0.85)
+	if pk.has("mats"):
+		for m in pk["mats"]:
+			var lm: StandardMaterial3D = m
+			lm.albedo_color = Color("#FFD27A")
+			lm.emission = Color("#FFB648")
+	if String(pk["pz"]) == "spirit" and is_instance_valid(n):
+		var sp = n.get_node_or_null("Spirit")
+		if is_instance_valid(sp):
+			_splash(sp.global_position, Color("#CFF6FF"), 18)
+			sp.queue_free()
+	var reward := String(pk["reward"])
+	if reward == "heal" and hero.hp >= hero.max_hp:
+		reward = "gold"
+	var txt := ""
+	match reward:
+		"heal":
+			heal(1)
+			txt = "SOIN +1"
+		"reroll":
+			picker.rerolls += 1
+			txt = "+1 RELANCE DE ROULEAU"
+			float_text(c, "+1 RELANCE", Toon.GOLD)
+		_:
+			var chest := _pocket_node("chest", c + Vector3(0, 0, 0.7))
+			var lid := chest.get_node_or_null("Lid") as Node3D
+			if lid != null:
+				lid.rotation.x = -1.05
+			if is_instance_valid(n):
+				chest.reparent(n)
+			pickups.drop(c, "coin", randi_range(8, 12))
+			pickups.drop(c, "xp", randi_range(4, 6))
+			txt = "COFFRE : OR ET EXPÉRIENCE"
+	hud.toast("ÉNIGME RÉSOLUE  ·  " + txt)
+	_splash(c + Vector3(0, 0.5, 0), Toon.GOLD, 18)
+	vfx.ring(Vector3(c.x, 0.05, c.z), Toon.GOLD, 2.0)
+	sfx.play("shrine", 1.2, -3.0)
+	sfx.play("levelup", 1.3, -6.0)
+	feel("clear")
+
+
+## Énigme proche du robot (CI), hors combat : il la résout lui-même (bot.gd). Vide sinon.
+func bot_puzzle() -> Dictionary:
+	if not _explore or hero == null:
+		return {}
+	for pk in _pockets:
+		if bool(pk["used"]) or String(pk["kind"]) != "puzzle" or int(pk.get("bot_try", 0)) >= 4:
+			continue
+		var p: Vector3 = pk["pos"]
+		if Vector2(hero.position.x - p.x, hero.position.z - p.z).length() < 2.0:
+			pk["bot_try"] = int(pk.get("bot_try", 0)) + 1
+			return pk
+	return {}
+
+
 ## But du robot hors combat : recoin à fouiller (dans le cadre courant), torii ouvert, entrée de la zone suivante.
 func bot_goal() -> Vector3:
 	if not arena.stage or _enc >= 0:
@@ -1819,6 +2289,8 @@ func bot_goal() -> Vector3:
 			continue
 		if String(pk["kind"]) == "spring" and hero.hp >= hero.max_hp:
 			continue
+		if String(pk["kind"]) == "puzzle" and int(pk.get("bot_try", 0)) >= 4:
+			continue  # énigme ratée plusieurs fois : le robot la laisse
 		var p: Vector3 = pk["pos"]
 		if not arena.bounds.has_point(Vector2(p.x, p.z)) or int(pk.get("bot", 0)) > 12:
 			continue
@@ -1875,6 +2347,13 @@ func _award(victory: bool) -> void:
 	meta.save_data()
 	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
 	menu.gain_seals = int(g.get("seals", 0))
+	if victory and _flawless_boss:
+		# boss du monde vaincu sans un coup : sceaux et encre en plus
+		meta.seals += 2
+		meta.sumi += 40
+		meta.save_data()
+		menu.gain_seals += 2
+		menu.gain_sumi += 40
 	menu.sumi = meta.sumi
 	# nouvelles Vues (ids de meta.PRINTS) pour la feuille de résultats
 	var np: Array = g.get("prints", [])
@@ -1929,7 +2408,10 @@ func _victory() -> void:
 	game_over = true
 	_ending_victory = true
 	hero.invuln = 999.0
-	hud.banner("VICTOIRE", String(Worlds.world(current_world).name), Toon.GOLD, 2.2)
+	if _flawless_boss:
+		hud.banner("VICTOIRE", "SANS UNE ÉGRATIGNURE  ·  +2 SCEAUX, +40 ENCRE", Toon.GOLD, 2.6)
+	else:
+		hud.banner("VICTOIRE", String(Worlds.world(current_world).name), Toon.GOLD, 2.2)
 	music.play_victory()
 	_set_state("dying")
 
@@ -2270,6 +2752,9 @@ func _touch_down(sp: Vector2) -> void:
 	# (le cadre du pad n'est qu'un repère visuel)
 	_strokes_done += 1
 	touching = true
+	_running = false
+	_hold_t = 0.0
+	_hold_sp = sp
 	_pad_start = sp
 	_touch_ms = Time.get_ticks_msec()
 	hud.pad_trail = PackedVector2Array([sp])
@@ -2294,14 +2779,24 @@ func _pad_to_world(d: Vector2) -> Vector3:
 
 
 func _touch_move(sp: Vector2) -> void:
+	if touching and _running:
+		_steer_run(sp)
+		return
 	if not touching or stroke == null:
 		return
+	if sp.distance_to(_hold_sp) > 6.0:
+		# le doigt bouge encore : pas de course
+		_hold_sp = sp
+		_hold_t = 0.0
 	var target := _clamp_point(_ground(sp)) if ctrl_mode == "screen" else _clamp_point(origin + _pad_to_world(sp - _pad_start))
 	if hud.pad_trail.size() == 0 or hud.pad_trail[hud.pad_trail.size() - 1].distance_to(sp) > 4.0:
 		hud.pad_trail.append(sp)
 	var was_empty: bool = stroke.exhausted
-	var used: float = stroke.extend_to(target, elan)
-	elan -= used
+	# hors combat : encre illimitée, trait deux fois plus long
+	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan
+	var used: float = stroke.extend_to(target, budget)
+	if not _explore:
+		elan -= used
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
@@ -2311,6 +2806,9 @@ func _touch_up(sp: Vector2) -> void:
 		return
 	touching = false
 	hud.pad_trail = PackedVector2Array()
+	if _running:
+		_stop_run()
+		return
 	if stroke == null:
 		return
 	if stroke.length >= 0.7:
@@ -2350,6 +2848,100 @@ func _touch_up(sp: Vector2) -> void:
 			elan = minf(elan_max(), elan + stroke.length)
 			stroke.queue_free()
 	stroke = null
+
+
+## Hors combat : sanctuaire, marche entre deux zones d'une étape, salle nettoyée (aucun ennemi ni boss vivant).
+func exploring() -> bool:
+	if state != "play" or game_over or hero == null:
+		return false
+	for bo in bosses:
+		if is_instance_valid(bo) and not bo.dead:
+			return false
+	for e in enemies:
+		if is_instance_valid(e) and not e.dead and not e.dummy:
+			return false
+	if in_hub or (arena.stage and _enc < 0):
+		return true
+	return _room_done
+
+
+## Course au doigt posé (hors combat) : après un trait, le doigt immobile lance la ruée puis le héros
+## continue au trot dans la direction finale tant que le doigt reste posé (manette : on l'oriente en
+## glissant autour du point d'appui ; écran : il suit le doigt). Il s'arrête aux bords et aux trous.
+func _update_run(real: float, dt: float) -> void:
+	if _running:
+		if not touching or not _explore or state != "play":
+			_stop_run()
+			return
+		if hero.dashing or float(hero._leap_t) >= 0.0:
+			return  # la ruée du trait d'abord
+		var dir := _run_dir
+		if ctrl_mode == "screen":
+			var g := _ground(_run_sp) - hero.position
+			g.y = 0
+			if g.length() < 0.35:
+				hero.ch.play(hero.ch.idle)
+				return
+			dir = g.normalized()
+			_run_dir = dir
+		var step := RUN_SPEED * dt
+		var nxt := Vector3.INF
+		# tout droit, sinon on glisse le long du bord
+		for v in [dir, Vector3(dir.x, 0, 0), Vector3(0, 0, dir.z)]:
+			var dv: Vector3 = v
+			if dv.length() < 0.25:
+				continue
+			var q: Vector3 = hero.position + dv * step
+			if arena.walkable(q, 0.25) and not hazards.is_hole(q, 0.3):
+				nxt = q
+				break
+		if nxt == Vector3.INF:
+			hero.ch.play(hero.ch.idle)
+			return
+		run_dist += hero.position.distance_to(nxt)
+		hero.position = nxt
+		_prev_hero = nxt  # courir ne tranche pas (_check_slashes)
+		hero.face(dir)
+		hero.ch.play("Running_A", 1.15)
+		return
+	if not touching or stroke == null or not _explore or state != "play":
+		return
+	_hold_t += real
+	if _hold_t < HOLD_RUN_T or float(stroke.length) < 0.7:
+		return
+	var pts: PackedVector3Array = stroke.points
+	var d := pts[pts.size() - 1] - pts[maxi(0, pts.size() - 5)]
+	d.y = 0
+	if d.length() < 0.05:
+		return
+	_run_dir = d.normalized()
+	_run_anchor = _hold_sp
+	_run_sp = _hold_sp
+	_running = true
+	run_dist = 0.0
+	var s: MeshInstance3D = stroke
+	stroke = null
+	_launch(s)
+	hud.pad_trail = PackedVector2Array() if ctrl_mode == "screen" else PackedVector2Array([_run_anchor])
+
+
+## Doigt qui bouge pendant la course : nouvelle direction (manette : autour du point d'appui).
+func _steer_run(sp: Vector2) -> void:
+	_run_sp = sp
+	if ctrl_mode == "screen":
+		return  # la direction suit le doigt à chaque image (_update_run)
+	var off := sp - _run_anchor
+	if off.length() > 14.0:
+		_run_dir = Vector3(off.x, 0, off.y).normalized()
+	hud.pad_trail = PackedVector2Array([_run_anchor, sp])
+
+
+func _stop_run() -> void:
+	_running = false
+	touching = false
+	hud.pad_trail = PackedVector2Array()
+	if hero != null and not hero.dashing and not hero.dead:
+		hero.ch.play(hero.ch.idle)
 
 
 ## Direction d'un bond d'esquive au tap : vers le doigt (mode écran), sinon loin du danger le plus proche
@@ -2463,6 +3055,8 @@ func _launch(s: MeshInstance3D) -> void:
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
 		hero.speed_mult *= float(_fig_mods.get("speed", 1.0))
+	if _explore:
+		_puzzle_stroke(s.points)  # énigmes des recoins (jamais en combat)
 	sfx.play("whoosh", randf_range(0.9, 1.1))
 	feel("dash")
 
@@ -2529,6 +3123,7 @@ func _cancel_stroke() -> void:
 		stroke.queue_free()
 	stroke = null
 	touching = false
+	_running = false
 
 
 ## Oublie la ruée finie : touches et forme reconnue. `all` annule aussi la coupe iai en attente.
@@ -2616,6 +3211,7 @@ func _hurt_hero() -> void:
 	if powers.on_hurt():
 		return
 	hero.hurt()
+	_scratched = true
 	_break_chain()
 	hud.hurt_flash = 1.0
 	shake = 0.45
@@ -2916,6 +3512,11 @@ func _process(_delta: float) -> void:
 	hud.set("ult", ult)  # jauge d'ultime (dessinée par le HUD si elle existe)
 	if not touching and not hero.dashing:
 		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real)
+	# hors combat : l'encre se recharge aussitôt, et le doigt posé fait courir
+	_explore = exploring()
+	if _explore:
+		elan = elan_max()
+	_update_run(real, dt)
 
 	_check_slashes()
 	_update_bullets(dt)
@@ -2955,6 +3556,13 @@ func _process(_delta: float) -> void:
 				_web_hidden_t = 0.5
 				if str(JavaScriptBridge.eval("document.hidden", true)) == "true":
 					_on_pause()
+	# gardien vaincu sans dégât : le rouleau d'exception, salle nettoyée
+	if state == "play" and _flawless_pending and _room_done and not hero.dashing and not touching:
+		_flawless_pending = false
+		_pick_context = "level"
+		vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 2.6)
+		_set_state("pick")
+		_open_flawless()
 	# rouleaux de niveau : seulement une fois la salle nettoyée (jamais en plein combat)
 	if state == "play" and _pending_levels > 0 and _room_done and not hero.dashing and not touching:
 		_pending_levels -= 1
@@ -3097,13 +3705,15 @@ func _process(_delta: float) -> void:
 		var kp: float = hud.pad_alpha if ctrl_mode == "pad" else 0.0
 		_cam_base = _cam_full.interpolate_with(_cam_pad, kp * kp * (3.0 - 2.0 * kp))
 	hud.in_play = state in IN_PLAY_STATES
+	if is_instance_valid(hero) and not cam.is_position_behind(hero.position):
+		hud.hero_screen = cam.unproject_position(hero.position + Vector3(0, 2.3, 0))
 	hud.pause_enabled = state == "play"  # le bouton pause n'apparaît que là où il agit
 	var wd: Dictionary = Worlds.world(current_world)
 	hud.world_kanji = String(wd.kanji)
 	hud.world_color = wd.color
 	hud.rooms_total = STAGE_PLAN.size()
 	menu.rooms_total = STAGE_PLAN.size()
-	hud.elan_m = elan_max()
+	hud.elan_m = elan_max() * (EXPLORE_REACH if _explore else 1.0)
 	hud.combo = combo if hero.dashing else 0
 	hud.chain = chain if state != "tuto" else 0
 	hud.level = level
@@ -3121,7 +3731,12 @@ func _process(_delta: float) -> void:
 	hud.enemy_bars = bars
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp
-	hud.elan = elan / elan_max()
+	if _explore:
+		# jauge : ce qui reste du trait (deux fois plus long) en cours de tracé
+		var cap := elan_max() * EXPLORE_REACH
+		hud.elan = clampf(1.0 - (float(stroke.length) / cap if touching and stroke != null else 0.0), 0.0, 1.0)
+	else:
+		hud.elan = elan / elan_max()
 	if touching and stroke != null:
 		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted

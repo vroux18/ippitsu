@@ -186,7 +186,7 @@ func _process(delta: float) -> void:
 		var k := clampf(_leap_t / _leap_dur, 0.0, 1.0)
 		var p := _leap_from.lerp(_leap_to, k)
 		position = Vector3(p.x, 0, p.z)
-		body.position.y = sin(PI * k) * 2.4
+		body.position.y = sin(PI * k) * 3.4  # bond haut, lisible depuis la caméra
 		if k >= 1.0:
 			_leap_t = -1.0
 			body.position.y = 0.0

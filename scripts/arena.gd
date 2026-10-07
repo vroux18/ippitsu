@@ -76,7 +76,9 @@ var bounds := Rect2(-4.6, -8.6, 9.2, 17.2)  # là où héros et ennemis peuvent 
 var pocket_spots: Array = []  # recoin de chaque tronçon (Vector3.INF : aucun)
 var joins: Array = []  # passages entre tronçons j et j + 1 : [Vector2(x0, x1), …]
 var _act: Array = []  # plateformes qui touchent `bounds` (tests rapides)
-var _barriers: Array = []  # {j, node, k, want} : haies d'encre aux passages
+var _barriers: Array = []  # {j, node, k, want, mode, …} : haies sacrées aux passages
+var _bar_meshes := {}  # maillages partagés des haies (bambou, traverse, tache, goutte, ofuda par monde)
+var _bar_noise: NoiseTexture2D = null  # texture de la brume des haies
 var _pending: Array = []  # tronçons dont le décor reste à construire (un par image)
 var _pit_states: Array = []
 var _stage_seed := 0
@@ -398,59 +400,576 @@ func _pocket_spot(rs: Array, dz: float, rng: RandomNumberGenerator) -> Vector3:
 	return best
 
 
-## Haie d'encre d'un passage : pieux noirs penchés, corde et ofuda vermillon, ombre d'encre au sol.
-## Elle sort de terre quand la zone se ferme et s'y renfonce quand elle s'ouvre.
+## Haie sacrée d'un passage : palissade basse de bambous liés, shimenawa lumineuse et ofuda,
+## voile de brume d'encre derrière. Ici on ne fait que la tracer (données) ; les nœuds sont créés
+## quand elle se ferme (_barrier_show) et libérés quand elle s'est ouverte.
 func _build_barrier(j: int) -> void:
 	var zb := -HALF.y - float(j) * CHUNK_L
-	var node := Node3D.new()
-	_room_root.add_child(node)
-	node.position = Vector3(0, 0, zb)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _stage_seed + j * 131
-	var stake_mesh := Toon.cyl(0.025, 0.085, 1.0, 6)
-	var paper_mesh := Toon.box(Vector3(0.13, 0.32, 0.015))
-	var stakes: Array = []
-	var papers: Array = []
-	var shade := Toon.flat(Color(Toon.SUMI, 0.45))
-	var rope := Toon.mat(Color("#C9B48A"), true, 0.012)
+	var sty: Dictionary = _barrier_style()
+	var pole_c: Color = sty["pole"]
+	var xmin := INF
+	var xmax := -INF
+	for pc in joins[j]:
+		var pv: Vector2 = pc
+		xmin = minf(xmin, pv.x)
+		xmax = maxf(xmax, pv.y)
+	var span := maxf(xmax - xmin, 0.5)
+	var poles: Array = []  # [Transform3D de base, hauteur, délai, teinte]
+	var rails: Array = []  # [x0, x1, y, z]
+	var ropes: Array = []  # PackedVector3Array par morceau
+	var ofuda: Array = []  # [point d'attache, phase, délai]
+	var blots: Array = []  # [Transform3D, délai]
+	var drops: Array = []  # [origine, vitesse, délai]
+	var rope_y := 0.76
 	for pc in joins[j]:
 		var piece: Vector2 = pc
 		var w := piece.y - piece.x
-		var n := maxi(3, int(w / 0.42))
+		# palissade : bambous hauts et bas en alternance, sur la ligne du bord
+		var n := maxi(4, int((w - 0.24) / 0.19))
 		for k in n + 1:
 			var x := lerpf(piece.x + 0.12, piece.y - 0.12, float(k) / float(n))
-			var h := rng.randf_range(0.75, 1.25)
-			var b := Basis(Vector3(0, 0, 1), rng.randf_range(-0.22, 0.22)) * Basis(Vector3(1, 0, 0), rng.randf_range(-0.28, 0.28))
-			stakes.append(Transform3D(b.scaled(Vector3(1, h, 1)), Vector3(x, h * 0.45, rng.randf_range(-0.22, 0.22))))
-			if k % 2 == 1:
-				papers.append(Transform3D(Basis(Vector3.UP, rng.randf_range(-0.3, 0.3)), Vector3(x, 0.52, 0.12)))
-		var c := (piece.x + piece.y) / 2.0
-		var rp := Toon.part(node, Toon.box(Vector3(w - 0.1, 0.05, 0.05)), rope, Vector3(c, 0.72, 0.05))
-		rp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var sh := Toon.part(node, Toon.box(Vector3(w + 0.3, 0.004, 1.1)), shade, Vector3(c, 0.012, 0))
-		sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_multi(node, stake_mesh, Toon.mat(Color("#231C1E"), true, 0.02), stakes)
-	var pm := Toon.mat(Color("#F1E6CC"), false)
-	pm.albedo_color = Color("#F1E6CC")
-	_multi(node, paper_mesh, pm, papers)
-	node.scale = Vector3(1, 0.02, 1)
-	node.visible = false
-	_barriers.append({"j": j, "node": node, "k": 0.0, "want": 0.0})
+			var h: float = 1.05 + rng.randf_range(-0.05, 0.05) if k % 2 == 0 else 0.88 + rng.randf_range(-0.03, 0.04)
+			var tb := Basis(Vector3(0, 0, 1), rng.randf_range(-0.05, 0.05)) * Basis(Vector3(1, 0, 0), rng.randf_range(-0.05, 0.05))
+			var z := rng.randf_range(-0.03, 0.03)
+			var d := 0.44 * (x - xmin) / span + rng.randf_range(0.0, 0.04)
+			var c: Color = pole_c.lightened(rng.randf_range(0.0, 0.14)) if rng.randf() < 0.5 else pole_c.darkened(rng.randf_range(0.0, 0.14))
+			poles.append([Transform3D(tb, Vector3(x, 0, z)), h, d, c])
+			if k % 2 == 0:
+				var bb := Basis(Vector3.UP, rng.randf_range(0.0, TAU)) * Basis.from_scale(Vector3(rng.randf_range(0.14, 0.24), 1, rng.randf_range(0.09, 0.16)))
+				blots.append([Transform3D(bb, Vector3(x + rng.randf_range(-0.05, 0.05), 0.014, z + rng.randf_range(-0.02, 0.1))), d])
+				for _q in 2:
+					drops.append([Vector3(x, 0.06, z + 0.03), Vector3(rng.randf_range(-0.7, 0.7), rng.randf_range(1.1, 1.9), rng.randf_range(0.1, 0.8)), d])
+		rails.append([piece.x + 0.06, piece.y - 0.06, 0.24, 0.055])
+		rails.append([piece.x + 0.06, piece.y - 0.06, 0.56, 0.055])
+		# shimenawa en festons, ofuda suspendus au creux de chaque feston
+		var spans := maxi(1, roundi((w - 0.24) / 1.15))
+		var path := PackedVector3Array()
+		for sp in spans:
+			var xa := lerpf(piece.x + 0.12, piece.y - 0.12, float(sp) / float(spans))
+			var xb := lerpf(piece.x + 0.12, piece.y - 0.12, float(sp + 1) / float(spans))
+			var sag := 0.05 + 0.04 * (xb - xa)
+			for q in 9:
+				if sp > 0 and q == 0:
+					continue
+				var tq := float(q) / 8.0
+				path.append(Vector3(lerpf(xa, xb, tq), rope_y - sag * sin(PI * tq), 0.1))
+			var no: int = 1 if xb - xa < 0.9 else 2
+			for oi in no:
+				var to := (float(oi) + 1.0) / float(no + 1)
+				ofuda.append([Vector3(lerpf(xa, xb, to), rope_y - sag * sin(PI * to) - 0.025, 0.14), rng.randf_range(0.0, TAU), rng.randf_range(0.0, 0.12)])
+		ropes.append(path)
+	_barriers.append({"j": j, "node": null, "k": 0.0, "want": 0.0, "mode": "", "zb": zb, "poles": poles,
+		"rails": rails, "ropes": ropes, "ofuda": ofuda, "blots": blots, "drops": drops, "mist": joins[j]})
 
 
-func _multi(parent: Node3D, mesh: Mesh, m: Material, xfs: Array) -> void:
-	if xfs.is_empty():
-		return
+## Teintes d'une haie selon le monde.
+func _barrier_style() -> Dictionary:
+	match world_id:
+		2:  # bambouseraie de Tanabata
+			return {"pole": Color("#6F9B4C"), "rope": Color("#D8C084"), "glow": Color("#FFE7A6"), "glow_e": 0.75,
+				"paper": Color("#F3ECD8"), "stripe": Color("#C8342A"), "ink": Color("#15211C"),
+				"mist": Color("#A9CFC2"), "mist_a": 0.3, "burn": Color("#FF9A45")}
+		3:  # corde de givre
+			return {"pole": Color("#A7BAC6"), "rope": Color("#DDEFF8"), "glow": Color("#8FD6FF"), "glow_e": 0.95,
+				"paper": Color("#F4F8FB"), "stripe": Color("#1F3A5F"), "ink": Color("#22303E"),
+				"mist": Color("#F2F7FB"), "mist_a": 0.5, "burn": Color("#9FE0FF")}
+		4:  # braises du Fuji
+			return {"pole": Color("#4A3530"), "rope": Color("#C99A60"), "glow": Color("#FF6A24"), "glow_e": 1.15,
+				"paper": Color("#F0E2C8"), "stripe": Color("#D7372B"), "ink": Color("#1A1010"),
+				"mist": Color("#7A3A2A"), "mist_a": 0.36, "burn": Color("#FF7A2E")}
+		5:  # monde d'encre
+			return {"pole": Color("#2B2729"), "rope": Color("#EDE2C8"), "glow": Color("#FFF1D6"), "glow_e": 0.6,
+				"paper": Color("#F5EEDD"), "stripe": Color("#D7372B"), "ink": Color("#0E0D10"),
+				"mist": Color("#1B1A1E"), "mist_a": 0.34, "burn": Color("#FF8A3A")}
+	return {"pole": Color("#C2A66E"), "rope": Color("#D9C38C"), "glow": Color("#FFD98A"), "glow_e": 0.55,
+		"paper": Color("#F4ECD8"), "stripe": Color("#D7372B"), "ink": Color("#1B1A1E"),
+		"mist": Color("#E8EEF2"), "mist_a": 0.42, "burn": Color("#FF8A3A")}
+
+
+## Maillages partagés des haies : bambou (nœuds), traverse (de x = 0 à 1), tache d'encre, goutte.
+func _barrier_meshes() -> Dictionary:
+	if _bar_meshes.has("pole"):
+		return _bar_meshes
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.append_from(Toon.cyl(0.036, 0.046, 1.0, 7), 0, Transform3D(Basis(), Vector3(0, 0.5, 0)))
+	st.append_from(Toon.cyl(0.052, 0.052, 0.035, 7), 0, Transform3D(Basis(), Vector3(0, 0.36, 0)))
+	st.append_from(Toon.cyl(0.05, 0.05, 0.035, 7), 0, Transform3D(Basis(), Vector3(0, 0.7, 0)))
+	_bar_meshes["pole"] = st.commit()
+	st = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.append_from(Toon.cyl(0.024, 0.024, 1.0, 6), 0, Transform3D(Basis(Vector3(0, 0, 1), -PI / 2.0), Vector3(0.5, 0, 0)))
+	_bar_meshes["rail"] = st.commit()
+	# tache d'encre au bord dentelé
+	st = SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7741
+	var seg := 14
+	var rim: Array = []
+	for i in seg:
+		var a := TAU * float(i) / float(seg)
+		var r: float = rng.randf_range(1.0, 1.35) if i % 3 == 0 else rng.randf_range(0.7, 1.0)
+		rim.append(Vector3(cos(a) * r, 0, sin(a) * r))
+	for i in seg:
+		for v in [Vector3.ZERO, rim[i], rim[(i + 1) % seg]]:
+			st.set_normal(Vector3.UP)
+			st.add_vertex(v)
+	_bar_meshes["blot"] = st.commit()
+	var dm := SphereMesh.new()
+	dm.radius = 0.032
+	dm.height = 0.064
+	dm.radial_segments = 6
+	dm.rings = 3
+	_bar_meshes["drop"] = dm
+	return _bar_meshes
+
+
+## Ofuda : bande de papier suspendue (pivot en haut), liseré, trait d'encre et sceau.
+func _bar_ofuda_mesh(sty: Dictionary) -> ArrayMesh:
+	var key: String = "ofuda" + str(world_id)
+	if _bar_meshes.has(key):
+		return _bar_meshes[key]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var paper: Color = sty["paper"]
+	var red: Color = sty["stripe"]
+	_st_box(st, Vector3(0, -0.15, 0), Vector3(0.095, 0.3, 0.01), paper)
+	_st_box(st, Vector3(0, -0.035, 0.0045), Vector3(0.097, 0.03, 0.005), red)
+	_st_box(st, Vector3(0, -0.165, 0.0045), Vector3(0.016, 0.15, 0.004), Toon.SUMI)
+	_st_box(st, Vector3(0, -0.12, 0.005), Vector3(0.05, 0.012, 0.004), Toon.SUMI)
+	_st_box(st, Vector3(0, -0.268, 0.0045), Vector3(0.032, 0.032, 0.004), red)
+	var m := st.commit()
+	_bar_meshes[key] = m
+	return m
+
+
+## Pavé à couleur de sommet (faces dans le sens horaire vu de l'extérieur).
+func _st_box(st: SurfaceTool, c: Vector3, s: Vector3, col: Color) -> void:
+	var h := s * 0.5
+	var fs: Array = [[Vector3.BACK, Vector3.RIGHT, Vector3.UP], [Vector3.FORWARD, Vector3.LEFT, Vector3.UP],
+		[Vector3.RIGHT, Vector3.FORWARD, Vector3.UP], [Vector3.LEFT, Vector3.BACK, Vector3.UP],
+		[Vector3.UP, Vector3.RIGHT, Vector3.FORWARD], [Vector3.DOWN, Vector3.RIGHT, Vector3.BACK]]
+	for f in fs:
+		var n: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var v: Vector3 = f[2]
+		var o := c + n * absf(n.dot(h))
+		var du := u * absf(u.dot(h))
+		var dv := v * absf(v.dot(h))
+		for p in [o - du - dv, o - du + dv, o + du + dv, o - du - dv, o + du + dv, o + du - dv]:
+			st.set_color(col)
+			st.set_normal(n)
+			st.add_vertex(p)
+
+
+## Shimenawa : tube torsadé (bandes de couleur en spirale) le long de chaque tracé.
+func _bar_rope_mesh(paths: Array, sty: Dictionary) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var ca: Color = sty["rope"]
+	var cb := ca.darkened(0.3)
+	var sides := 6
+	var r := 0.038
+	for path in paths:
+		var pts: PackedVector3Array = path
+		var n := pts.size()
+		if n < 2:
+			continue
+		var rings: Array = []
+		var along := 0.0
+		for i in n:
+			if i > 0:
+				along += pts[i].distance_to(pts[i - 1])
+			var t := (pts[mini(i + 1, n - 1)] - pts[maxi(i - 1, 0)]).normalized()
+			var s1 := t.cross(Vector3.UP).normalized()
+			var s2 := s1.cross(t)
+			var ps := PackedVector3Array()
+			var ns := PackedVector3Array()
+			var cs := PackedColorArray()
+			for q in sides:
+				var a := TAU * float(q) / float(sides)
+				var dir := s1 * cos(a) + s2 * sin(a)
+				ps.append(pts[i] + dir * r)
+				ns.append(dir)
+				cs.append(ca.lerp(cb, 0.5 + 0.5 * sin(a * 2.0 + along * 30.0)))
+			rings.append([ps, ns, cs])
+		for i in n - 1:
+			var ra: Array = rings[i]
+			var rb: Array = rings[i + 1]
+			for q in sides:
+				var q1 := (q + 1) % sides
+				_st_ring_v(st, ra, q)
+				_st_ring_v(st, ra, q1)
+				_st_ring_v(st, rb, q1)
+				_st_ring_v(st, ra, q)
+				_st_ring_v(st, rb, q1)
+				_st_ring_v(st, rb, q)
+	return st.commit()
+
+
+func _st_ring_v(st: SurfaceTool, ring: Array, q: int) -> void:
+	var ps: PackedVector3Array = ring[0]
+	var ns: PackedVector3Array = ring[1]
+	var cs: PackedColorArray = ring[2]
+	st.set_color(cs[q])
+	st.set_normal(ns[q])
+	st.add_vertex(ps[q])
+
+
+## Brume d'encre : trois voiles inclinés vers l'arrière, opacité en dégradé (bas doux, haut nul, bords fondus).
+func _bar_mist_mesh(pieces: Array) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var layers: Array = [[1.05, -0.14, 1.0], [1.4, -0.34, 0.75], [1.75, -0.56, 0.55]]  # hauteur, recul, opacité
+	var rows: Array = [0.0, 0.3, 1.0]
+	var row_a: Array = [0.5, 1.0, 0.0]
+	for pc in pieces:
+		var piece: Vector2 = pc
+		for li in layers.size():
+			var ly: Array = layers[li]
+			var hh: float = ly[0]
+			var z0: float = ly[1]
+			var la: float = ly[2]
+			var x0 := piece.x - 0.15 - 0.15 * float(li)
+			var x1 := piece.y + 0.15 + 0.15 * float(li)
+			var f := minf(0.7, (x1 - x0) * 0.3)
+			var cols: Array = [x0, x0 + f, x1 - f, x1]
+			var col_a: Array = [0.0, 1.0, 1.0, 0.0]
+			for ci in 3:
+				for ri in 2:
+					var xa: float = cols[ci]
+					var xb: float = cols[ci + 1]
+					var ya: float = rows[ri]
+					var yb: float = rows[ri + 1]
+					var a00: float = la * float(col_a[ci]) * float(row_a[ri])
+					var a01: float = la * float(col_a[ci]) * float(row_a[ri + 1])
+					var a11: float = la * float(col_a[ci + 1]) * float(row_a[ri + 1])
+					var a10: float = la * float(col_a[ci + 1]) * float(row_a[ri])
+					_st_mist_v(st, xa, ya, a00, hh, z0, li)
+					_st_mist_v(st, xa, yb, a01, hh, z0, li)
+					_st_mist_v(st, xb, yb, a11, hh, z0, li)
+					_st_mist_v(st, xa, ya, a00, hh, z0, li)
+					_st_mist_v(st, xb, yb, a11, hh, z0, li)
+					_st_mist_v(st, xb, ya, a10, hh, z0, li)
+	return st.commit()
+
+
+func _st_mist_v(st: SurfaceTool, x: float, fy: float, a: float, hh: float, z0: float, li: int) -> void:
+	var y := fy * hh
+	st.set_color(Color(1, 1, 1, a))
+	st.set_uv(Vector2(x * 0.32 + float(li) * 0.37, -y * 0.45 + float(li) * 0.21))
+	st.set_normal(Vector3.BACK)
+	st.add_vertex(Vector3(x, y, z0 - y * 0.42))
+
+
+## Bruit blanc à alpha variable : la brume s'effiloche.
+func _barrier_noise() -> NoiseTexture2D:
+	if _bar_noise != null:
+		return _bar_noise
+	var n := FastNoiseLite.new()
+	n.frequency = 0.045
+	n.fractal_octaves = 3
+	var g := Gradient.new()
+	g.colors = PackedColorArray([Color(1, 1, 1, 0.15), Color(1, 1, 1, 1)])
+	var t := NoiseTexture2D.new()
+	t.noise = n
+	t.seamless = true
+	t.color_ramp = g
+	t.width = 128
+	t.height = 128
+	_bar_noise = t
+	return t
+
+
+func _bar_mm(parent: Node3D, mesh: Mesh, m: Material, count: int, colors: Array, shadow: bool) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = not colors.is_empty()
 	mm.mesh = mesh
-	mm.instance_count = xfs.size()
-	for i in xfs.size():
-		mm.set_instance_transform(i, xfs[i])
+	mm.instance_count = count
+	for i in colors.size():
+		mm.set_instance_color(i, colors[i])
 	var mi := MultiMeshInstance3D.new()
 	mi.multimesh = mm
 	mi.material_override = m
+	if not shadow:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
+	return mi
+
+
+## Construit les nœuds d'une haie (une poignée d'appels de dessin) ; ils sont libérés à l'ouverture.
+func _barrier_show(b: Dictionary) -> void:
+	var cur = b["node"]
+	if is_instance_valid(cur):
+		return
+	var sty: Dictionary = _barrier_style()
+	b["style"] = sty
+	var ms: Dictionary = _barrier_meshes()
+	var node := Node3D.new()
+	_room_root.add_child(node)
+	node.position = Vector3(0, 0, float(b["zb"]))
+	b["node"] = node
+	# bambous : pieux et traverses, une teinte par instance
+	var bm := Toon.mat(Color.WHITE, true, 0.012)
+	bm.vertex_color_use_as_albedo = true
+	var poles: Array = b["poles"]
+	var pcol: Array = []
+	for pl in poles:
+		var pa: Array = pl
+		pcol.append(pa[3])
+	b["mm_p"] = _bar_mm(node, ms["pole"], bm, poles.size(), pcol, true).multimesh
+	var rails: Array = b["rails"]
+	var rcol: Array = []
+	var pole_c: Color = sty["pole"]
+	for i in rails.size():
+		rcol.append(pole_c.darkened(0.12))
+	var rmi := _bar_mm(node, ms["rail"], bm, rails.size(), rcol, true)
+	b["mm_r"] = rmi.multimesh
+	b["n_rails"] = rmi
+	# shimenawa lumineuse, sur un pivot (elle tombe à l'ouverture)
+	var rope := Node3D.new()
+	node.add_child(rope)
+	b["n_rope"] = rope
+	var rm := Toon.mat(Color.WHITE, true, 0.01)
+	rm.vertex_color_use_as_albedo = true
+	rm.emission_enabled = true
+	rm.emission = sty["glow"]
+	rm.emission_energy_multiplier = 0.0
+	b["m_rope"] = rm
+	var rmesh := Toon.part(rope, _bar_rope_mesh(b["ropes"], sty), rm, Vector3.ZERO)
+	rmesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# ofuda (ils brûlent à l'ouverture)
+	var om := Toon.mat(Color.WHITE, false)
+	om.vertex_color_use_as_albedo = true
+	om.cull_mode = BaseMaterial3D.CULL_DISABLED
+	om.emission_enabled = true
+	om.emission = sty["burn"]
+	om.emission_energy_multiplier = 0.0
+	b["m_ofuda"] = om
+	var ofs: Array = b["ofuda"]
+	b["mm_o"] = _bar_mm(node, _bar_ofuda_mesh(sty), om, ofs.size(), [], false).multimesh
+	# brume d'encre derrière la haie
+	var mm := StandardMaterial3D.new()
+	mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mm.vertex_color_use_as_albedo = true
+	mm.albedo_texture = _barrier_noise()
+	mm.disable_receive_shadows = true
+	b["m_mist"] = mm
+	var mist := Toon.part(node, _bar_mist_mesh(b["mist"]), mm, Vector3.ZERO)
+	mist.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	b["n_mist"] = mist
+	# taches et gouttes d'encre (même matériau, fondu commun)
+	var ic: Color = sty["ink"]
+	var im := Toon.flat(Color(ic.r, ic.g, ic.b, 0.0))
+	b["m_ink"] = im
+	var blots: Array = b["blots"]
+	b["mm_b"] = _bar_mm(node, ms["blot"], im, blots.size(), [], false).multimesh
+	var drops: Array = b["drops"]
+	var dmi := _bar_mm(node, ms["drop"], im, drops.size(), [], false)
+	b["mm_d"] = dmi.multimesh
+	b["n_drops"] = dmi
+
+
+func _barrier_hide(b: Dictionary) -> void:
+	var cur = b["node"]
+	if is_instance_valid(cur):
+		cur.queue_free()
+	b["node"] = null
+	b["mode"] = ""
+
+
+## Retombée avec léger dépassement (0 -> 1).
+static func _bar_back(q: float) -> float:
+	var c := q - 1.0
+	return 1.0 + 2.70158 * c * c * c + 1.70158 * c * c
+
+
+## Pose d'une haie : montée (mode "rise", k de 0 à 1) ou dissolution (mode "fall", k de 1 à 0).
+## `full` faux : haie dressée au repos, seuls les ofuda, la corde et la brume bougent.
+func _barrier_pose(b: Dictionary, full: bool) -> void:
+	var k: float = b["k"]
+	var rise: bool = str(b["mode"]) != "fall"
+	var p := 1.0 - k
+	var sty: Dictionary = b["style"]
+	var ph0: float = float(b["j"]) * 1.7
+	# shimenawa : descend en place en s'illuminant ; à l'ouverture elle tombe et s'enfonce
+	var rope: Node3D = b["n_rope"]
+	var rope_m: StandardMaterial3D = b["m_rope"]
+	var ge: float = sty["glow_e"]
+	var ry := 0.0
+	if rise:
+		var rr := clampf((k - 0.5) / 0.4, 0.0, 1.0)
+		ry = (1.0 - smoothstep(0.0, 1.0, rr)) * 0.3
+		rope.visible = rr > 0.0
+		rope.position = Vector3(0, ry, 0)
+		rope.rotation = Vector3.ZERO
+		rope_m.emission_energy_multiplier = ge * (rr + 1.4 * sin(PI * rr) + 0.25 * rr * sin(_t * 2.4 + ph0))
+	else:
+		var pr := clampf((p - 0.08) / 0.45, 0.0, 1.0)
+		ry = -0.7 * pr * pr - 0.35 * clampf((p - 0.55) / 0.4, 0.0, 1.0)
+		rope.position = Vector3(0, ry, 0.12 * pr)
+		rope.rotation = Vector3(0.3 * pr, 0, 0)
+		rope.visible = p < 0.97
+		rope_m.emission_energy_multiplier = ge * (1.0 - pr) + 2.2 * sin(PI * clampf(p / 0.25, 0.0, 1.0))
+	# ofuda : se déroulent sous la corde ; à l'ouverture ils s'embrasent et s'envolent
+	var om: StandardMaterial3D = b["m_ofuda"]
+	if not rise:
+		var burn := smoothstep(0.0, 1.0, clampf((p - 0.1) / 0.3, 0.0, 1.0))
+		om.albedo_color = Color.WHITE.lerp(Color(0.3, 0.2, 0.16), burn)
+		om.emission_energy_multiplier = 2.6 * sin(PI * clampf(p / 0.55, 0.0, 1.0))
+	elif full:
+		om.albedo_color = Color.WHITE
+		om.emission_energy_multiplier = 0.0
+	var mmo: MultiMesh = b["mm_o"]
+	var ofs: Array = b["ofuda"]
+	for i in ofs.size():
+		var oa: Array = ofs[i]
+		var pos: Vector3 = oa[0]
+		var oph: float = oa[1]
+		var od: float = oa[2]
+		var sx := 1.0
+		var sy := 1.0
+		var rx := 0.07 * sin(_t * 2.1 + oph)
+		var rz := 0.05 * sin(_t * 1.7 + oph * 1.3)
+		var at := pos + Vector3(0, ry, 0)
+		if rise:
+			var qo := clampf((k - 0.62 - od) / 0.25, 0.0, 1.0)
+			sy = maxf(smoothstep(0.0, 1.0, qo), 0.001)
+			rx += 0.25 * (1.0 - qo)
+		else:
+			var po := clampf((p - od * 1.2) / 0.42, 0.0, 1.0)
+			at = pos + Vector3(sin(oph + p * 9.0) * 0.14 * po, 0.25 * po + 0.9 * po * po, 0.2 * po)
+			rx += 0.7 * sin(oph + p * 14.0) * po
+			rz += 0.6 * po * (1.0 if i % 2 == 0 else -1.0)
+			sx = maxf(1.0 - 0.6 * po, 0.001)
+			sy = maxf(1.0 - po, 0.001)
+		var ob := Basis.from_euler(Vector3(rx, 0, rz)) * Basis.from_scale(Vector3(sx, sy, 1))
+		mmo.set_instance_transform(i, Transform3D(ob, at))
+	# brume : monte avec la haie, s'élève en se dissipant à l'ouverture
+	var mist_m: StandardMaterial3D = b["m_mist"]
+	var mist: Node3D = b["n_mist"]
+	var ma := 1.0
+	if rise:
+		ma = smoothstep(0.0, 1.0, clampf((k - 0.15) / 0.85, 0.0, 1.0))
+		mist.position = Vector3(0, -0.35 * (1.0 - ma), 0)
+	else:
+		ma = 1.0 - smoothstep(0.0, 1.0, clampf(p / 0.75, 0.0, 1.0))
+		mist.position = Vector3(0, 0.55 * p, 0)
+	var mc: Color = sty["mist"]
+	var mist_a: float = sty["mist_a"]
+	mist_m.albedo_color = Color(mc.r, mc.g, mc.b, mist_a * ma * (0.92 + 0.08 * sin(_t * 0.9 + ph0)))
+	mist_m.uv1_offset = Vector3(_t * 0.018 + ph0, _t * 0.05, 0)
+	mist.visible = ma > 0.01
+	if not full:
+		return
+	# bambous : vague de gauche à droite à la fermeture ; ils s'enfoncent en basculant à l'ouverture
+	var mmp: MultiMesh = b["mm_p"]
+	var poles: Array = b["poles"]
+	for i in poles.size():
+		var pl: Array = poles[i]
+		var tb: Transform3D = pl[0]
+		var h: float = pl[1]
+		var d: float = pl[2]
+		var bs := tb.basis
+		var org := tb.origin
+		var hy := h
+		if rise:
+			hy = h * _bar_back(clampf((k - d) / 0.42, 0.0, 1.0))
+		else:
+			var ps := smoothstep(0.0, 1.0, clampf((p - 0.15 - d * 0.1) / 0.75, 0.0, 1.0))
+			hy = h * (1.0 - ps)
+			bs = Basis(Vector3.RIGHT, -0.3 * ps) * bs
+			org.y -= 0.12 * ps
+		mmp.set_instance_transform(i, Transform3D(bs * Basis.from_scale(Vector3(1, maxf(hy, 0.001), 1)), org))
+	var rails: Array = b["rails"]
+	var mmr: MultiMesh = b["mm_r"]
+	var rail_n: Node3D = b["n_rails"]
+	var rk := smoothstep(0.0, 1.0, clampf((k - 0.25) / 0.55, 0.0, 1.0))
+	var rs := smoothstep(0.0, 1.0, clampf((p - 0.15) / 0.75, 0.0, 1.0))
+	rail_n.visible = not rise or rk > 0.0
+	for i in rails.size():
+		var rl: Array = rails[i]
+		var x0: float = rl[0]
+		var x1: float = rl[1]
+		var y: float = rl[2]
+		var z: float = rl[3]
+		var ln := x1 - x0
+		var yy := y
+		if rise:
+			ln *= rk
+		else:
+			yy = y * (1.0 - rs) - 0.12 * rs
+		mmr.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(maxf(ln, 0.001), 1, 1)), Vector3(x0, yy, z)))
+	# taches d'encre au pied des bambous, gouttes projetées pendant la montée
+	var im: StandardMaterial3D = b["m_ink"]
+	var ic: Color = sty["ink"]
+	var ia := 0.0
+	if rise:
+		ia = lerpf(0.85, 0.3, smoothstep(0.0, 1.0, clampf((k - 0.45) / 0.55, 0.0, 1.0)))
+	else:
+		ia = 0.3 * (1.0 - smoothstep(0.0, 1.0, clampf(p / 0.7, 0.0, 1.0)))
+	im.albedo_color = Color(ic.r, ic.g, ic.b, ia)
+	var mmb: MultiMesh = b["mm_b"]
+	var blots: Array = b["blots"]
+	for i in blots.size():
+		var bl: Array = blots[i]
+		var bt: Transform3D = bl[0]
+		var bd: float = bl[1]
+		var s := 1.0
+		if rise:
+			var qs := clampf((k - bd) / 0.16, 0.0, 1.0)
+			s = maxf(qs * (2.0 - qs) * (1.0 + 0.25 * sin(PI * qs)), 0.001)
+		mmb.set_instance_transform(i, Transform3D(bt.basis * Basis.from_scale(Vector3(s, 1, s)), bt.origin))
+	var dn: Node3D = b["n_drops"]
+	dn.visible = rise and k < 1.0
+	if dn.visible:
+		var mmd: MultiMesh = b["mm_d"]
+		var drops: Array = b["drops"]
+		for i in drops.size():
+			var dr: Array = drops[i]
+			var o: Vector3 = dr[0]
+			var v: Vector3 = dr[1]
+			var dd: float = dr[2]
+			var tt := (k - dd) * 0.55
+			var dp := o + v * tt + Vector3(0, -4.5 * tt * tt, 0)
+			var ds := 0.001
+			if tt > 0.0 and dp.y > 0.0:
+				ds = maxf(1.0 - tt, 0.001)
+			mmd.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3(ds, ds, ds)), dp))
+
+
+## Haies : elles se dressent (≈0,55 s) ou brûlent et s'enfoncent (≈0,6 s), puis leurs nœuds sont libérés.
+func _animate_barriers(delta: float) -> void:
+	for b in _barriers:
+		var cur = b["node"]
+		var has: bool = is_instance_valid(cur)
+		var k: float = b["k"]
+		if float(b["want"]) > 0.5:
+			if not has:
+				_barrier_show(b)
+			b["mode"] = "rise"
+			if k < 1.0:
+				b["k"] = minf(1.0, k + delta / 0.55)
+				_barrier_pose(b, true)
+			else:
+				_barrier_pose(b, false)
+		else:
+			if not has:
+				b["k"] = 0.0
+				continue
+			b["mode"] = "fall"
+			k = maxf(0.0, k - delta / 0.6)
+			b["k"] = k
+			if k <= 0.0:
+				_barrier_hide(b)
+			else:
+				_barrier_pose(b, true)
 
 
 ## Une haie est fermée si la zone au sud n'est pas nettoyée, ou si la zone au nord est en plein combat.
@@ -465,9 +984,12 @@ func refresh_barriers(snap := false) -> void:
 		b["want"] = 1.0 if closed else 0.0
 		if snap:
 			b["k"] = b["want"]
-			var nd: Node3D = b["node"]
-			nd.scale = Vector3(1, maxf(float(b["k"]), 0.02), 1)
-			nd.visible = float(b["k"]) > 0.03
+			if closed:
+				_barrier_show(b)
+				b["mode"] = "rise"
+				_barrier_pose(b, true)
+			else:
+				_barrier_hide(b)
 
 
 ## Cadre de marche hors combat : de l'arrivée jusqu'au nord de la première zone pas encore nettoyée.
@@ -1308,18 +1830,8 @@ func _process(delta: float) -> void:
 	if not _pending.is_empty():
 		var job: Dictionary = _pending.pop_front()
 		_build_chunk_decor(job)
-	# haies d'encre : elles sortent de terre ou s'y renfoncent
-	for b in _barriers:
-		var k: float = b["k"]
-		var want: float = b["want"]
-		if not is_equal_approx(k, want):
-			k = move_toward(k, want, delta * (3.0 if want > k else 1.6))
-			b["k"] = k
-			var nd: Node3D = b["node"]
-			if is_instance_valid(nd):
-				var e := k * k * (3.0 - 2.0 * k)
-				nd.scale = Vector3(1, maxf(e, 0.02), 1)
-				nd.visible = k > 0.03
+	# haies sacrées : elles se dressent ou brûlent et s'enfoncent
+	_animate_barriers(delta)
 	if is_instance_valid(_gate):
 		_animate_gate(delta)
 

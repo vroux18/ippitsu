@@ -358,8 +358,13 @@ func _tint(c: Color, alpha: float) -> void:
 			var m := mi.get_surface_override_material(i) as StandardMaterial3D
 			if m == null:
 				continue
-			m.albedo_color = Color(c.r, c.g, c.b, alpha)
-			if alpha >= 1.0:
+			# plus de transparence (source de scintillement) : un fantôme se lit par sa teinte claire et sa lueur
+			var lift := clampf(1.0 - alpha, 0.0, 1.0)
+			m.albedo_color = Color(c.r, c.g, c.b, 1.0).lerp(Color(1, 1, 1), lift * 0.35)
+			m.emission_enabled = true
+			m.emission = Color(c.r, c.g, c.b)
+			m.emission_energy_multiplier = maxf(m.emission_energy_multiplier, lift * 0.6)
+			if true:
 				continue
 			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS  # pas de scintillement entre les morceaux du modèle
 			# contour d'encre lui aussi estompé

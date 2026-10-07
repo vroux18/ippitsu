@@ -44,6 +44,8 @@ var _ui := FontVariation.new()
 var _title := FontVariation.new()
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 var _big := 40.0  # rayon du médaillon, commun aux cartes (fixé par la mise en page)
+var _title_text := ""  # titre imposé (rouleau « sans une égratignure »), vide : titre ordinaire
+var _sub_text := ""
 
 
 func _ready() -> void:
@@ -56,9 +58,11 @@ func _ready() -> void:
 	_title.spacing_glyph = 6
 
 
-func open(ids: Array, infos: Array) -> void:
+func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_ids = ids
 	_infos = infos
+	_title_text = title
+	_sub_text = sub
 	_t = 0.0
 	_down = -1
 	_sel = -1
@@ -183,7 +187,7 @@ func _draw() -> void:
 	var s := minf(u, cw / 116.0)
 	_big = minf(cw * 0.36, 44.0 * u)
 	var ch := 0.0
-	var bub_h := 70.0 * u  # au moins la place de l'invitation « Touche une carte »
+	var bub_h := 70.0 * u  # place réservée à la bulle de détail (la mise en page ne saute pas au toucher)
 	for i in n:
 		ch = maxf(ch, _need_h(_infos[i], _id(i), cw, _big, s))
 		bub_h = maxf(bub_h, _bubble_h(_infos[i], w - 28.0 * u, u))
@@ -219,6 +223,10 @@ func _draw() -> void:
 	if leg and not _curse_mode:
 		sub = "Un rouleau légendaire !"
 		title_col = Toon.WASHI.lerp(GOLD_HI, revealed)
+	if _title_text != "":
+		title = _title_text
+		sub = _sub_text
+		title_col = GOLD_HI
 	var tfs := int(28 * u)
 	var ty := gt + 22.0 * u - 16 * u * (1.0 - fade)
 	UiKit.text(self, _title, title, Vector2(w / 2.0, ty), tfs, Color(title_col, fade))
@@ -268,12 +276,6 @@ func _draw() -> void:
 		var sc: Rect2 = _rects[_sel]
 		_bubble(Rect2(bub.position, Vector2(bub.size.x, bh)), _infos[_sel], _id(_sel), sc.get_center().x, u, ba)
 		_confirm(u, ba)
-	elif _t >= _ready_time():
-		# invitation : on touche une carte pour la lire
-		var ia := fade * clampf((_t - _ready_time()) / 0.3, 0.0, 1.0)
-		var hc := Vector2(w / 2.0, bub.position.y + 26.0 * u)
-		UiKit.glyph(self, "t_touch", hc + Vector2(0, -2.0 * u * sin(_t * 4.0)), 9.0 * u, Toon.WASHI, UiKit.NONE, 0.7 * ia)
-		UiKit.text(self, _ui, "Touche une carte pour la lire", hc + Vector2(0, 28.0 * u), int(11 * u), Color(Toon.WASHI, 0.6 * ia))
 
 	# relance
 	_reroll_rect = Rect2()
@@ -415,7 +417,8 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 			var ang := _t * 0.5 + TAU * float(ray) / 10.0
 			var d := Vector2(cos(ang), sin(ang))
 			draw_line(mc + d * (big + 7.0 * u), mc + d * (big + 13.0 * u), Color(GOLD_HI, 0.45 * a), 2.0 * u)
-	var gname := "oni" if is_curse else ("path" if is_pass else UiKit.icon_of(id))
+	# chaque malédiction a son pictogramme (encre sèche, œil d'oni, pas lourd, hâte des morts)
+	var gname := String(info.get("icon", "oni")) if is_curse else ("path" if is_pass else UiKit.icon_of(id))
 	UiKit.glyph(self, gname, mc, big * 0.62, GOLD_HI if leg else Toon.WASHI, mcol, a)
 	# crans de niveau sur le bas du médaillon (le nouveau pulse)
 	var mx := int(info.get("max_level", 1))
@@ -517,11 +520,12 @@ func _need_h(info: Dictionary, id: String, cw: float, big: float, s: float) -> f
 	if rank < 0:
 		# malédiction ou « Passer » : lignes de _curse_lines, puis une marge
 		var t := _p(String(info.get("text", "")))
+		var curse := String(info.get("kanji", "")) == "鬼"
 		var count := 0
 		if t.contains("·"):
 			var parts := t.split("·")
 			for k in 2:
-				count += mini(_wrap(_ui, ("- " if k == 0 else "+ ") + String(parts[k]).strip_edges(), efs, tw).size(), 2)
+				count += mini(_wrap(_ui, _lead(k, curse) + String(parts[k]).strip_edges(), efs, tw).size(), 2)
 			y += lh * 0.4
 		else:
 			count = mini(_wrap(_ui, t, efs, tw).size(), 3)
@@ -642,15 +646,24 @@ func _affinity(r: Rect2, info: Dictionary, s: float, u: float, a: float, pulse: 
 		UiKit.text(self, _ui, bonus, Vector2(cx, pill.position.y + 7.0 * s + bfs * 0.36), bfs, Color(LEG_BODY, a))
 
 
-## Malédiction (malus en rouge, récompense en or) ou « Passer », centrés sur la carte.
+## Début de ligne d'une carte de sanctuaire : malus « - », récompense « + » (« Passer » : pas de malus).
+func _lead(k: int, is_curse: bool) -> String:
+	if k == 0:
+		return "- " if is_curse else ""
+	return "+ "
+
+
+## Malédiction (malus en rouge, récompense en or) ou « Passer » (sans pacte, petit bonus en or), centrés sur la carte.
 func _curse_lines(text: String, cx: float, y: float, width: float, fs: int, lh: float, a: float, is_curse: bool) -> void:
 	var t := _p(text)
 	var yy := y
 	if t.contains("·"):
 		var parts := t.split("·")
 		for k in 2:
-			var c: Color = RED_TXT if k == 0 else Toon.GOLD.lightened(0.25)
-			var ls := _wrap(_ui, ("- " if k == 0 else "+ ") + String(parts[k]).strip_edges(), fs, width)
+			var c: Color = Toon.GOLD.lightened(0.25)
+			if k == 0:
+				c = RED_TXT if is_curse else Color(Toon.WASHI, 0.75)
+			var ls := _wrap(_ui, _lead(k, is_curse) + String(parts[k]).strip_edges(), fs, width)
 			for line in ls.slice(0, 2):
 				UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(c, a))
 				yy += lh

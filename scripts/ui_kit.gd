@@ -743,6 +743,43 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 				_poly(ci, PackedVector2Array([c + Vector2(-0.42, 0.02) * s, c + Vector2(-0.1, 0.16) * s, c + Vector2(-0.36, 0.24) * s]), b)
 				_poly(ci, PackedVector2Array([c + Vector2(0.42, 0.02) * s, c + Vector2(0.36, 0.24) * s, c + Vector2(0.1, 0.16) * s]), b)
 				_box(ci, c, s, Vector2(-0.3, 0.44), Vector2(0.3, 0.58), b)
+		# malédictions du sanctuaire
+		"c_dry":
+			# encre sèche : goutte fendue sous un pinceau
+			_shp(ci, "drop", c, s, k, Vector2(-0.2, 0.18), 0.78)
+			if cut:
+				_pl(ci, c, s, PackedVector2Array([Vector2(-0.3, -0.22), Vector2(-0.12, 0.05), Vector2(-0.32, 0.28), Vector2(-0.16, 0.62)]), b, maxf(1.0, w * 0.8))
+			_ln(ci, c, s, Vector2(0.95, -0.95), Vector2(0.5, -0.5), k, w * 1.1)
+			_taper(ci, c, s, Vector2(0.55, -0.55), Vector2(0.28, -0.28), 0.26, 0.05, k)
+		"c_eye":
+			# œil d'oni : amande, iris, pupille fendue, deux cornes
+			var eye := PackedVector2Array()
+			for i in 13:
+				var t := float(i) / 12.0
+				eye.append(c + Vector2(-0.88 + 1.76 * t, 0.15 - 0.5 * sin(PI * t)) * s)
+			for i in range(11, 0, -1):
+				var t2 := float(i) / 12.0
+				eye.append(c + Vector2(-0.88 + 1.76 * t2, 0.15 + 0.4 * sin(PI * t2)) * s)
+			_poly(ci, eye, k)
+			if cut:
+				_dot(ci, c, s, Vector2(0, 0.12), 0.32, b)
+				_ellipse(ci, c, s, Vector2(0, 0.12), 0.08, 0.26, k)
+			_poly(ci, PackedVector2Array([c + Vector2(-0.62, -0.16) * s, c + Vector2(-0.8, -0.95) * s, c + Vector2(-0.3, -0.3) * s]), k)
+			_poly(ci, PackedVector2Array([c + Vector2(0.62, -0.16) * s, c + Vector2(0.3, -0.3) * s, c + Vector2(0.8, -0.95) * s]), k)
+		"c_heavy":
+			# pas lourd : poids de fonte à anneau
+			_poly(ci, PackedVector2Array([c + Vector2(-0.5, -0.22) * s, c + Vector2(0.5, -0.22) * s, c + Vector2(0.82, 0.8) * s, c + Vector2(-0.82, 0.8) * s]), k)
+			_arc(ci, c, s, Vector2(0, -0.42), 0.3, PI, TAU, k, w * 1.3)
+			_ln(ci, c, s, Vector2(-0.3, -0.42), Vector2(-0.3, -0.2), k, w * 1.3)
+			_ln(ci, c, s, Vector2(0.3, -0.42), Vector2(0.3, -0.2), k, w * 1.3)
+			if cut:
+				_ln(ci, c, s, Vector2(-0.4, 0.3), Vector2(0.4, 0.3), b, maxf(1.0, w * 0.8))
+		"c_haste":
+			# hâte des morts : sablier qui file
+			glyph(ci, "hourglass", c + Vector2(0.24, 0) * s, r * 0.78, col, bg, a)
+			_ln(ci, c, s, Vector2(-0.98, -0.4), Vector2(-0.5, -0.4), k, w)
+			_ln(ci, c, s, Vector2(-1.0, 0.0), Vector2(-0.42, 0.0), k, w)
+			_ln(ci, c, s, Vector2(-0.98, 0.4), Vector2(-0.5, 0.4), k, w)
 		"path":
 			_pl(ci, c, s, PackedVector2Array([Vector2(-0.7, -0.6), Vector2(-0.1, 0), Vector2(-0.7, 0.6)]), k, w * 1.4)
 			_pl(ci, c, s, PackedVector2Array([Vector2(0.0, -0.6), Vector2(0.6, 0), Vector2(0.0, 0.6)]), k, w * 1.4)
@@ -841,6 +878,98 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 			_dot(ci, c, s, Vector2.ZERO, 0.28, k)
 			_arc(ci, c, s, Vector2.ZERO, 0.6, 0.0, TAU, Color(k, k.a * 0.7), w * 0.8)
 			_arc(ci, c, s, Vector2.ZERO, 0.92, 0.0, TAU, Color(k, k.a * 0.4), w * 0.7)
+		# ------------------------------------------------ Atelier : lignes de la Pierre à encre, monnaies
+		"at_brush":
+			# pinceau long : manche, virole, pointe, et le trait qui file
+			_taper(ci, c, s, Vector2(0.92, -0.92), Vector2(0.12, -0.12), 0.2, 0.22, k)
+			_taper(ci, c, s, Vector2(0.14, -0.14), Vector2(-0.08, 0.08), 0.32, 0.32, k)
+			_taper(ci, c, s, Vector2(-0.06, 0.06), Vector2(-0.46, 0.46), 0.3, 0.03, k)
+			if cut:
+				_ln(ci, c, s, Vector2(0.72, -0.52), Vector2(0.52, -0.72), b, maxf(1.0, w * 0.45))
+				_ln(ci, c, s, Vector2(0.47, -0.27), Vector2(0.27, -0.47), b, maxf(1.0, w * 0.45))
+			_taper(ci, c, s, Vector2(-0.6, 0.7), Vector2(0.95, 0.7), 0.24, 0.04, k)
+			_dot(ci, c, s, Vector2(-0.6, 0.7), 0.12, k)
+		"at_ink":
+			# goutte d'encre et sa flèche de recharge
+			_shp(ci, "drop", c, s, k, Vector2(-0.12, 0.0), 0.86)
+			if cut:
+				_arc(ci, c, s, Vector2(-0.3, 0.3), 0.26, PI * 0.95, PI * 1.4, b, maxf(1.0, w * 0.6))
+				_dot(ci, c, s, Vector2(0.55, 0.55), 0.44, b)
+			var ik0 := -PI * 0.35
+			var ik1 := PI * 1.15
+			var ikd := Vector2(-sin(ik1), cos(ik1))
+			_arc(ci, c, s, Vector2(0.55, 0.55), 0.27, ik0, ik1, k, w * 0.75)
+			_head(ci, c, s, Vector2(0.55, 0.55) + Vector2.from_angle(ik1) * 0.27 + ikd * 0.1, ikd, 0.24, k)
+		"at_heart":
+			_shp(ci, "heart", c, s, k, Vector2(-0.1, 0.12), 0.82)
+			if cut:
+				_dot(ci, c, s, Vector2(0.58, -0.55), 0.4, b)
+			_ln(ci, c, s, Vector2(0.58, -0.78), Vector2(0.58, -0.32), k, w * 1.1)
+			_ln(ci, c, s, Vector2(0.35, -0.55), Vector2(0.81, -0.55), k, w * 1.1)
+		"at_breath":
+			# second souffle : un filet tendu, et ce qui y retombe
+			var nb_rim := PackedVector2Array()
+			var nb_low := PackedVector2Array()
+			for i in 9:
+				var nb_t := float(i) / 8.0
+				var nb_y := -0.05 + 0.5 * sin(PI * nb_t)
+				nb_rim.append(Vector2(-0.92 + 1.84 * nb_t, nb_y))
+				nb_low.append(Vector2(-0.92 + 1.84 * nb_t, nb_y + 0.32 * sin(PI * nb_t)))
+			_pl(ci, c, s, nb_rim, k, w)
+			_pl(ci, c, s, nb_low, k, w * 0.6)
+			for i in range(1, 8):
+				_ln(ci, c, s, nb_rim[i], nb_low[i - 1], k, w * 0.5)
+				_ln(ci, c, s, nb_rim[i], nb_low[i + 1], k, w * 0.5)
+			_dot(ci, c, s, Vector2(-0.92, -0.05), 0.11, k)
+			_dot(ci, c, s, Vector2(0.92, -0.05), 0.11, k)
+			_dot(ci, c, s, Vector2(0.0, -0.62), 0.22, k)
+			_ln(ci, c, s, Vector2(-0.3, -0.98), Vector2(-0.12, -0.82), k, w * 0.6)
+			_ln(ci, c, s, Vector2(0.3, -0.98), Vector2(0.12, -0.82), k, w * 0.6)
+		"at_purse":
+			# bourse nouée, une pièce dessus
+			_ellipse(ci, c, s, Vector2(0, 0.3), 0.74, 0.6, k)
+			_poly(ci, PackedVector2Array([c + Vector2(-0.56, -0.86) * s, c + Vector2(0.56, -0.86) * s, c + Vector2(0.24, -0.36) * s, c + Vector2(-0.24, -0.36) * s]), k)
+			_box(ci, c, s, Vector2(-0.3, -0.42), Vector2(0.3, -0.18), k)
+			if cut:
+				_ln(ci, c, s, Vector2(-0.3, -0.32), Vector2(0.3, -0.32), b, maxf(1.0, w * 0.55))
+				_arc(ci, c, s, Vector2(0, 0.36), 0.28, 0.0, TAU, b, maxf(1.0, w * 0.55))
+				_box(ci, c, s, Vector2(-0.08, 0.28), Vector2(0.08, 0.44), b)
+		"at_choice":
+			# une carte de plus
+			var ch_card := PackedVector2Array([Vector2(-0.36, -0.55), Vector2(0.36, -0.55), Vector2(0.36, 0.55), Vector2(-0.36, 0.55)])
+			_poly(ci, Transform2D(-0.28, Vector2(s, s), 0.0, c + Vector2(-0.3, 0.1) * s) * ch_card, Color(k, k.a * 0.5))
+			_poly(ci, Transform2D(0.12, Vector2(s, s), 0.0, c + Vector2(0.08, 0.14) * s) * ch_card, k)
+			if cut:
+				_shp(ci, "star4", c, s, b, Vector2(0.08, 0.14), 0.26)
+				_dot(ci, c, s, Vector2(0.6, -0.6), 0.4, b)
+			_ln(ci, c, s, Vector2(0.6, -0.84), Vector2(0.6, -0.36), k, w * 1.1)
+			_ln(ci, c, s, Vector2(0.36, -0.6), Vector2(0.84, -0.6), k, w * 1.1)
+		"at_drop":
+			_shp(ci, "drop", c, s, k, Vector2(0, 0.05), 0.95)
+			if cut:
+				_arc(ci, c, s, Vector2(-0.18, 0.38), 0.3, PI * 0.9, PI * 1.35, b, maxf(1.0, w * 0.7))
+		"at_seal":
+			_box(ci, c, s, Vector2(-0.78, -0.78), Vector2(0.78, 0.78), k)
+			if cut:
+				ci.draw_rect(Rect2(c + Vector2(-0.56, -0.56) * s, Vector2(1.12, 1.12) * s), b, false, maxf(1.0, w * 0.55))
+				_box(ci, c, s, Vector2(-0.3, -0.36), Vector2(0.3, -0.22), b)
+				_box(ci, c, s, Vector2(-0.07, -0.22), Vector2(0.07, 0.36), b)
+				_box(ci, c, s, Vector2(-0.34, 0.1), Vector2(0.34, 0.24), b)
+		"at_print":
+			ci.draw_rect(Rect2(c + Vector2(-0.82, -0.68) * s, Vector2(1.64, 1.36) * s), k, false, maxf(1.0, w * 0.8))
+			_poly(ci, PackedVector2Array([c + Vector2(-0.62, 0.5) * s, c + Vector2(-0.12, -0.3) * s, c + Vector2(0.08, -0.3) * s, c + Vector2(0.62, 0.5) * s]), k)
+			_dot(ci, c, s, Vector2(0.48, -0.36), 0.12, k)
+			if cut:
+				_poly(ci, PackedVector2Array([c + Vector2(-0.12, -0.3) * s, c + Vector2(0.08, -0.3) * s, c + Vector2(0.215, -0.1) * s,
+					c + Vector2(0.05, -0.16) * s, c + Vector2(-0.05, -0.08) * s, c + Vector2(-0.245, -0.1) * s]), b)
+		"at_lock":
+			_arc(ci, c, s, Vector2(0, -0.28), 0.4, PI, TAU, k, w * 1.2)
+			_ln(ci, c, s, Vector2(-0.4, -0.3), Vector2(-0.4, 0.0), k, w * 1.2)
+			_ln(ci, c, s, Vector2(0.4, -0.3), Vector2(0.4, 0.0), k, w * 1.2)
+			_box(ci, c, s, Vector2(-0.66, -0.04), Vector2(0.66, 0.88), k)
+			if cut:
+				_dot(ci, c, s, Vector2(0, 0.32), 0.13, b)
+				_box(ci, c, s, Vector2(-0.05, 0.36), Vector2(0.05, 0.62), b)
 		_:
 			if name != "ink":
 				glyph(ci, "ink", c, r, col, bg, a)

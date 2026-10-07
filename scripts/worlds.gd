@@ -145,7 +145,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.7,
 		"ambient_color": Color(1.0, 0.9, 0.9),
 		"ambient_energy": 0.35,
-		"ground": [Color("#C9B48E"), Color("#BFA983"), Color("#D2BE98"), Color("#B6A07A"), Color("#C5AF89")],  # papier vieilli, plus soutenu (le blanc saturait)
+		"ground": [Color("#B3A58C"), Color("#AA9C83"), Color("#BBAD94"), Color("#A3957C"), Color("#B0A289")],  # papier vieilli, plus soutenu (le blanc saturait)
 		"ground_style": "paper",
 		"edge": Color("#1B1A1E"),
 		"under": Color("#3A3530"),

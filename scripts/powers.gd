@@ -335,6 +335,44 @@ func offer(room_n: int = -1) -> Array:
 	return out
 
 
+## « Sans une égratignure » (gardien vaincu sans dégât) : trois rouleaux épiques ou légendaires, dont un
+## légendaire si la partie en permet encore un. Mêmes règles que offer() (sceaux de l'Atelier, plafond de
+## légendaires, écoles commencées) ; la pitié repart de zéro. S'il ne reste pas assez d'épiques, la rareté
+## la plus proche complète.
+func offer_flawless() -> Array:
+	# toujours offert après le gardien (mi-parcours) : épiques et légendaires y sont ouverts
+	var r := maxi(int(main.room) if main != null else 0, LEG_ROOM)
+	var lv := int(main.level) if main != null else 1
+	var pools := {"common": [], "rare": [], "epic": [], "legendary": []}
+	for key in Data.POWERS.keys():
+		var id := String(key)
+		if not _eligible(id, r, lv):
+			continue
+		var d: Dictionary = Data.POWERS[id]
+		var pl: Array = pools[String(d["rarity"])]
+		pl.append(id)
+	var out: Array = []
+	var leg_pool: Array = pools["legendary"]
+	if not leg_pool.is_empty():
+		var lid := _pick(pools, "legendary", out)
+		if lid != "":
+			out.append(lid)
+	var guard := 0
+	while out.size() < 3 and guard < 12:
+		guard += 1
+		var rar := "legendary" if randf() < 0.2 else "epic"
+		var id2 := _pick(pools, rar, out)
+		if id2 == "":
+			break
+		out.append(id2)
+	_offer_n += 1
+	_since_epic = 0
+	if _has_rank(out, 3):
+		_since_leg = 0
+	out.shuffle()
+	return out
+
+
 ## Rouleaux de figure : tant qu'aucune technique n'est débloquée, la 1re offre en montre une une fois sur deux
 ## et la 2e en montre toujours une.
 func _want_fig(out: Array) -> bool:
@@ -1349,7 +1387,7 @@ func _fig_enso(info: Dictionary, hp: Vector3) -> void:
 	_fig_enso_c = Vector3(c.x, 0, c.z)
 	_fig_enso_r = _fig_r(r)
 	_fig_enso_pending = true
-	main.hero.leap(_fig_enso_c, 0.45)
+	main.hero.leap(_fig_enso_c, 0.7)  # bond bien visible
 	main.sfx.play("whoosh", 0.8)
 
 
