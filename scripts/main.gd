@@ -17,6 +17,19 @@ const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashado
 	"ibaraki": preload("res://scripts/boss_mini_ibaraki.gd"), "bakekujira": preload("res://scripts/boss_mini_kujira.gd")}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
 # gardien de la salle MINI_ROOM : chacun enseigne le geste utile contre le boss de son monde
+# point faible de chaque boss, montré en astuce quand la lame ricoche
+const BOSS_HINTS := {
+	"okappa": "Frappe-le quand il sort de l'eau",
+	"uwabami": "Quand il fait surface : un long trait sur tout son corps",
+	"kyubi": "Entoure-le d'une boucle ou d'un ensō",
+	"gashadokuro": "Frappe la main posée au sol, puis la colonne de la queue au crâne",
+	"daidara": "Tranche ses cœurs lumineux dans l'ordre",
+	"kuronami": "Coupe ses griffes en longueur, renvoie les vagues d'un aller-retour",
+	"tsuchigumo": "Trace une boucle autour du cocon pour le déchirer",
+	"yukionna": "Après son souffle : tranche les cristaux du plus petit au plus grand",
+	"ibaraki": "Touche ses sceaux de braise dans l'ordre, d'un seul trait",
+	"bakekujira": "Un aller-retour devant sa tête la renvoie",
+}
 const MINI_BOSS := {1: "okappa", 2: "tsuchigumo", 3: "yukionna", 4: "ibaraki", 5: "bakekujira"}
 const Vfx = preload("res://scripts/vfx.gd")
 const Options = preload("res://scripts/options.gd")
@@ -171,6 +184,7 @@ var ult := 0.0  # jauge d'ultime (0..1), double tap quand elle est pleine
 var _dodge_cd := 0.0
 var _touch_ms := 0
 var _last_tap_ms := 0
+var _ricochets := {}  # ricochets sur les boss de la partie (astuces)
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
 var _spin_tick := 0.0
@@ -868,6 +882,7 @@ func _start(hub := true) -> void:
 	foam = 0
 	ult = 0.0
 	_dodge_cd = 0.0
+	_ricochets = {}
 	wave_wait = 0.8
 	room = 0
 	_room_queue = []
@@ -1778,7 +1793,24 @@ func _dmg_text(pos: Vector3, dmg: float, killed: bool) -> void:
 	effects.append({"node": l, "t": 0.0, "life": 0.7, "kind": "label"})
 
 
+## Lame qui ricoche sur un boss : au 2e ricochet, une astuce explique son point faible (une fois par boss),
+## et un mini-boss perd quand même un peu de vie pour ne jamais bloquer la partie.
+func _boss_ricochet() -> void:
+	for bo in bosses:
+		if not is_instance_valid(bo) or bo.dead:
+			continue
+		var k := String(bo.kind)
+		_ricochets[k] = int(_ricochets.get(k, 0)) + 1
+		if int(_ricochets[k]) == 2 and BOSS_HINTS.has(k):
+			hud.banner("ASTUCE", String(BOSS_HINTS[k]), Toon.GOLD, 3.6)
+		if is_mini_boss(k) and bo.has_method("_damage"):
+			bo.call("_damage", 0.5)
+		return
+
+
 func float_text(pos: Vector3, text: String, color: Color) -> void:
+	if text == "×0":
+		_boss_ricochet()
 	var l := Label3D.new()
 	# police du jeu (le web n'a pas de police de secours) : symboles et macrons ramenés à ce qu'elle contient
 	l.font = KANJI_FONT

@@ -1038,6 +1038,9 @@ func update(dt: float) -> void:
 func _update_burns(dt: float) -> void:
 	var fm := _fire_mult()
 	for k in _burn.keys():
+		# une explosion (Étincelles) peut tuer un autre brûlé pendant la boucle : il a pu disparaître
+		if not _burn.has(k):
+			continue
 		var b: Array = _burn[k]
 		var e = b[0]
 		b[1] = float(b[1]) - dt

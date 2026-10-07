@@ -190,6 +190,10 @@ func _guard_allowed() -> bool:
 
 
 func _on_room_change() -> void:
+	# stress : on compte au début de la salle suivante (salle précédente nettoyée, effets retombés)
+	if mode == "stress" and _last_room >= 1 and int(main.room) > _last_room:
+		_measure_room = _last_room
+		_measure()
 	if _last_room >= 1 and _room_t > 0.0:
 		_stat("rooms", 1)
 		_stat("time", _room_t)
@@ -217,9 +221,6 @@ func _on_room_change() -> void:
 func _on_room_end() -> void:
 	if mode == "powers":
 		_powers_room_end()
-	elif mode == "stress" and int(main.room) < int(main.ROOMS):
-		_measure_room = int(main.room)
-		_measure_t = 1.5
 
 
 func _kill_count() -> int:

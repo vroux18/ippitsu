@@ -358,7 +358,7 @@ func _tint(c: Color, alpha: float) -> void:
 			m.albedo_color = Color(c.r, c.g, c.b, alpha)
 			if alpha >= 1.0:
 				continue
-			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS  # pas de scintillement entre les morceaux du modèle
 			# contour d'encre lui aussi estompé
 			var o := m.next_pass as StandardMaterial3D
 			if o != null:
