@@ -143,6 +143,20 @@ static func power_school(id: String) -> String:
 	return String(d.get("school", "ink"))
 
 
+## Couleur d'un pouvoir : celle de son élément ; les rouleaux de figure prennent l'élément de leur technique
+## (boucle = vent, zigzag = foudre, retour = eau, crochet = ombre, trait droit et ensō = encre).
+const FIG_COLOR_SCHOOL := {"loop": "wind", "zigzag": "bolt", "return": "water", "hook": "shadow", "straight": "ink", "enso": "ink"}
+
+
+static func power_color(id: String) -> Color:
+	var school := power_school(id)
+	if school == "fig":
+		for f in FIG_COLOR_SCHOOL.keys():
+			if id.begins_with("fig_" + String(f)):
+				return school_color(String(FIG_COLOR_SCHOOL[f]))
+	return school_color(school)
+
+
 static func school_color(school: String) -> Color:
 	var sd: Dictionary = Data.SCHOOLS.get(school, {})
 	return sd.get("color", Toon.SUMI)
@@ -168,7 +182,7 @@ static func power_glyph(ci: CanvasItem, id: String, c: Vector2, r: float, col: C
 
 ## Pastille complète : disque de la couleur d'école, pictogramme du pouvoir en papier.
 static func power_icon(ci: CanvasItem, id: String, c: Vector2, r: float, a := 1.0) -> void:
-	var col := school_color(power_school(id))
+	var col := power_color(id)
 	ci.draw_circle(c, r, Color(col, a))
 	# léger relief : lune plus claire en haut
 	ci.draw_circle(c + Vector2(0, -r * 0.18), r * 0.78, Color(col.lightened(0.12), 0.5 * a))
@@ -830,3 +844,14 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 		_:
 			if name != "ink":
 				glyph(ci, "ink", c, r, col, bg, a)
+
+
+## Aire d'un polygone (formule du lacet) : sert à sauter les morceaux trop fins avant de les dessiner
+## (sinon la triangulation échoue et Godot écrit une erreur).
+static func poly_area(pp: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in pp.size():
+		var p0 := pp[i]
+		var p1 := pp[(i + 1) % pp.size()]
+		a += p0.x * p1.y - p1.x * p0.y
+	return absf(a * 0.5)

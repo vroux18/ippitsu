@@ -15,22 +15,75 @@ var _gem_mesh: SphereMesh
 var _coin_mesh: CylinderMesh
 var _gem_mat: StandardMaterial3D
 var _coin_mat: StandardMaterial3D
+var _hole_mesh: BoxMesh
+var _hole_mat: StandardMaterial3D
+var _disc_mesh: CylinderMesh
+var _gem_glow: StandardMaterial3D
+var _coin_glow: StandardMaterial3D
+var _star_mesh: QuadMesh
+var _star_mat: StandardMaterial3D
 var _gather := false
 
 
 func _ready() -> void:
+	# cristal de jade à facettes (octaèdre étiré) et pièce percée d'un trou carré, cerclés d'encre
 	_gem_mesh = SphereMesh.new()
-	_gem_mesh.radius = 0.13
-	_gem_mesh.height = 0.34
+	_gem_mesh.radius = 0.2
+	_gem_mesh.height = 0.56
 	_gem_mesh.radial_segments = 4
 	_gem_mesh.rings = 2
 	_coin_mesh = CylinderMesh.new()
-	_coin_mesh.top_radius = 0.16
-	_coin_mesh.bottom_radius = 0.16
-	_coin_mesh.height = 0.04
-	_coin_mesh.radial_segments = 12
-	_gem_mat = _emissive(JADE, 2.2)
-	_coin_mat = _emissive(Toon.GOLD, 1.8)
+	_coin_mesh.top_radius = 0.24
+	_coin_mesh.bottom_radius = 0.24
+	_coin_mesh.height = 0.06
+	_coin_mesh.radial_segments = 16
+	_gem_mat = _emissive(JADE, 2.4)
+	_coin_mat = _emissive(Toon.GOLD, 1.9)
+	_hole_mesh = BoxMesh.new()
+	_hole_mesh.size = Vector3(0.09, 0.08, 0.09)
+	_hole_mat = StandardMaterial3D.new()
+	_hole_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_hole_mat.albedo_color = Color("#3A2A10")
+	# halo coloré au sol, qui pulse
+	_disc_mesh = CylinderMesh.new()
+	_disc_mesh.top_radius = 1.0
+	_disc_mesh.bottom_radius = 1.0
+	_disc_mesh.height = 0.004
+	_disc_mesh.radial_segments = 20
+	_gem_glow = _glow(JADE)
+	_coin_glow = _glow(Toon.GOLD)
+	# étincelle qui scintille au-dessus
+	_star_mesh = QuadMesh.new()
+	_star_mesh.size = Vector2(0.32, 0.32)
+	_star_mat = StandardMaterial3D.new()
+	_star_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_star_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_star_mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	_star_mat.albedo_texture = _star_tex()
+	_star_mat.albedo_color = Color(1, 1, 1, 0.9)
+
+
+func _glow(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(c, 0.32)
+	m.render_priority = 1
+	return m
+
+
+## Petite étoile à 4 branches (texture générée une fois).
+func _star_tex() -> ImageTexture:
+	var n := 32
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var dx := absf(float(x) - 15.5) / 15.5
+			var dy := absf(float(y) - 15.5) / 15.5
+			var v := maxf(maxf(0.0, 1.0 - dx * 6.0) * maxf(0.0, 1.0 - dy), maxf(0.0, 1.0 - dy * 6.0) * maxf(0.0, 1.0 - dx))
+			v = maxf(v, maxf(0.0, 1.0 - sqrt(dx * dx + dy * dy) * 2.2))
+			img.set_pixel(x, y, Color(1, 1, 0.92, clampf(v, 0.0, 1.0)))
+	return ImageTexture.create_from_image(img)
 
 
 func _emissive(c: Color, energy: float) -> StandardMaterial3D:
@@ -40,6 +93,14 @@ func _emissive(c: Color, energy: float) -> StandardMaterial3D:
 	m.emission = c
 	m.emission_energy_multiplier = energy
 	m.roughness = 0.3
+	# contour d'encre
+	var o := StandardMaterial3D.new()
+	o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	o.albedo_color = Toon.SUMI
+	o.cull_mode = BaseMaterial3D.CULL_FRONT
+	o.grow = true
+	o.grow_amount = 0.025
+	m.next_pass = o
 	return m
 
 
@@ -52,9 +113,24 @@ func drop(pos: Vector3, kind: String, count: int, value := 1) -> void:
 		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(n)
 		n.position = pos + Vector3(0, 0.6, 0)
+		if kind != "xp":
+			var hole := MeshInstance3D.new()
+			hole.mesh = _hole_mesh
+			hole.material_override = _hole_mat
+			n.add_child(hole)
+		var disc := MeshInstance3D.new()
+		disc.mesh = _disc_mesh
+		disc.material_override = _gem_glow if kind == "xp" else _coin_glow
+		disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(disc)
+		var star := MeshInstance3D.new()
+		star.mesh = _star_mesh
+		star.material_override = _star_mat
+		star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(star)
 		var a := randf() * TAU
 		var v := Vector3(cos(a), 0, sin(a)) * randf_range(1.5, 3.2) + Vector3(0, randf_range(3.5, 5.5), 0)
-		_items.append({"node": n, "kind": kind, "value": value, "vel": v, "t": randf() * 3.0, "pull": false})
+		_items.append({"node": n, "disc": disc, "star": star, "kind": kind, "value": value, "vel": v, "t": randf() * 3.0, "pull": false})
 
 
 ## Fin de salle : tout le butin restant vole vers le héros.
@@ -66,8 +142,7 @@ func gather() -> void:
 
 func clear() -> void:
 	for it in _items:
-		var n: Node3D = it.node
-		n.queue_free()
+		_free_item(it)
 	_items.clear()
 	_gather = false
 
@@ -102,11 +177,32 @@ func _process(delta: float) -> void:
 			n.position += to.normalized() * minf(to.length(), spd * delta)
 			if to.length() < GRAB:
 				main.collect(String(it.kind), int(it.value))
-				n.queue_free()
+				if main.vfx != null:
+					main.vfx.sparks(n.position, Vector3.UP, 4, JADE if it.kind == "xp" else Toon.GOLD)
+				_free_item(it)
 				_items.remove_at(i)
 				continue
 		n.rotation.y += delta * (5.0 if it.kind == "coin" else 2.0)
 		if it.kind == "coin":
 			n.rotation.x = PI / 2.0
+		# halo au sol sous l'objet (s'efface quand il est aspiré), étincelle qui scintille
+		var disc: Node3D = it.disc
+		var star: Node3D = it.star
+		var pulse := 0.5 + 0.5 * sin(float(it.t) * 4.0)
+		var on_ground := not bool(it.pull)
+		disc.visible = on_ground
+		disc.position = Vector3(n.position.x, 0.03, n.position.z)
+		var dr := 0.32 + 0.08 * pulse
+		disc.scale = Vector3(dr, 1, dr)
+		star.position = n.position + Vector3(0.12, 0.3, 0)
+		var tw := maxf(0.0, sin(float(it.t) * 5.0 + float(i)))
+		star.scale = Vector3.ONE * (0.4 + 0.9 * tw * tw) * (1.6 if bool(it.pull) else 1.0)
 	if _items.is_empty():
 		_gather = false
+
+
+func _free_item(it: Dictionary) -> void:
+	for k in ["node", "disc", "star"]:
+		var nd = it.get(k)
+		if is_instance_valid(nd):
+			nd.queue_free()

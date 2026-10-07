@@ -83,6 +83,7 @@ const ELAN_REGEN := 9.0  # par seconde réelle, hors tracé
 const ELAN_PER_HIT := 3.5
 const DODGE_COST := 0.6
 const DODGE_DIST := 2.4
+const ENEMY_HP_MULT := 2.0
 const DODGE_COOLDOWN := 0.7  # esquive gratuite (sans encre), mais pas en rafale
 const ULT_DAMAGE := 4.0
 const HIT_REACH := 0.55
@@ -191,6 +192,7 @@ var _last_tap_ms := 0
 var _boss_seen: Node3D = null
 var _boss_hp_seen := 0.0
 var _boss_dry_t := 0.0  # temps sans dégât sur le boss (affiche son point faible)
+var _dmg_labels := {}  # id ennemi -> chiffre en cours (cumul des touches rapprochées)
 var _ricochets := {}  # ricochets sur les boss de la partie (astuces)
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
@@ -938,6 +940,7 @@ func _start(hub := true, tutorial := false) -> void:
 	foam = 0
 	ult = 0.0
 	_dodge_cd = 0.0
+	_dmg_labels.clear()
 	_ricochets = {}
 	wave_wait = 0.8
 	room = 0
@@ -1287,7 +1290,8 @@ func _spawn_list(list: Array) -> void:
 			e.hp *= 1.5
 		if "haste" in curses:
 			e.speed *= 1.25
-		e.hp *= float(Worlds.world(current_world).hp_mult)
+		# plus robustes : ×2, et +4 % par combat dans le monde
+		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + 0.04 * float(maxi(room - 1, 0)))
 		e.set_meta("max_hp", e.hp)
 		enemies.append(e)
 
@@ -1594,7 +1598,7 @@ func _build_segment() -> void:
 		_begin_room()
 	elif room > 0:
 		var wd: Dictionary = Worlds.world(current_world)
-		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, STAGE_PLAN.size()], "%d COMBATS  ·  FOUILLE LES RECOINS" % plan.size(), wd.color, 2.2)
+		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, STAGE_PLAN.size()], "%d COMBATS" % plan.size(), wd.color, 2.2)
 
 
 ## Numéro d'étape (1..8) du combat `r` (0 : pas encore parti).
@@ -2120,22 +2124,47 @@ func shape_text(pos: Vector3, kanji: String) -> void:
 
 
 ## Chiffre de dégâts au-dessus de l'ennemi : blanc cerclé d'encre, vermillon s'il tue ou en combo.
-func _dmg_text(pos: Vector3, dmg: float, killed: bool) -> void:
-	var txt := str(int(round(dmg))) if absf(dmg - round(dmg)) < 0.05 else "%.1f" % dmg
+## Chiffre de dégâts : encre épaisse, rebond à l'apparition, petite courbe en montant ; les touches
+## rapprochées sur un même ennemi s'additionnent. Blanc normal, or gros coup, vermillon coup fatal.
+func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> void:
+	var now := Time.get_ticks_msec()
+	var kid := key.get_instance_id() if key != null else -1
+	if kid != -1 and _dmg_labels.has(kid):
+		var prev: Dictionary = _dmg_labels[kid]
+		var pl = prev["fx"]["node"]
+		if is_instance_valid(pl) and now - int(prev["ms"]) < 380:
+			prev["sum"] = float(prev["sum"]) + dmg
+			prev["ms"] = now
+			_style_dmg(pl as Label3D, float(prev["sum"]), killed)
+			prev["fx"]["t"] = 0.0
+			return
 	var l := Label3D.new()
 	l.font = KANJI_FONT
-	l.text = txt
-	# taille de police fixe (les glyphes ne sont rendus qu'une fois), on grossit par pixel_size
 	l.font_size = 120
-	l.pixel_size = 0.006 * (90.0 + 14.0 * minf(dmg, 6.0)) / 120.0
-	l.modulate = Toon.VERMILION if killed or combo >= 3 else Color(1, 1, 1)
-	l.outline_modulate = Toon.SUMI
-	l.outline_size = 24
+	l.outline_size = 30
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
-	l.position = pos + Vector3(randf_range(-0.4, 0.4), 1.6, 0)
+	l.position = pos + Vector3(randf_range(-0.35, 0.35), 1.7, 0)
+	_style_dmg(l, dmg, killed)
 	add_child(l)
-	effects.append({"node": l, "t": 0.0, "life": 0.7, "kind": "label"})
+	var fx := {"node": l, "t": 0.0, "life": 0.8, "kind": "dmg", "vx": randf_range(-0.9, 0.9), "y0": l.position.y}
+	effects.append(fx)
+	if kid != -1:
+		_dmg_labels[kid] = {"fx": fx, "sum": dmg, "ms": now}
+
+
+func _style_dmg(l: Label3D, v: float, killed: bool) -> void:
+	l.text = str(int(round(v))) if absf(v - round(v)) < 0.05 else "%.1f" % v
+	var big := v >= 3.0
+	l.pixel_size = 0.006 * (100.0 + 16.0 * minf(v, 8.0)) / 120.0
+	if killed:
+		l.modulate = Toon.VERMILION
+	elif big:
+		l.modulate = Toon.GOLD.lightened(0.15)
+	else:
+		l.modulate = Color(1, 1, 1)
+	l.outline_modulate = Toon.SUMI
+	l.set_meta("big", big or killed)
 
 
 ## Lame qui ricoche sur un boss : au 2e ricochet, une astuce explique son point faible (une fois par boss),
@@ -2550,7 +2579,7 @@ func enemy_strike(center: Vector3, r: float) -> void:
 
 
 func chain_mult() -> float:
-	return 1.0 + minf(chain * 0.05, 1.0)
+	return 1.0 + minf(chain * 0.03, 0.5)  # plafond +50 % (le combat restait trop facile)
 
 
 func _add_chain(n: int) -> void:
@@ -2625,7 +2654,7 @@ func _check_slashes() -> void:
 		if Vector2(p.x - q.x, p.z - q.z).length() < e.radius + HIT_REACH:
 			e.last_stroke = stroke_id
 			combo += 1
-			var dmg := 1.0 * (1.0 + 0.5 * (combo - 1))
+			var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
 			var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			var piercing: bool = bool(_fig_mods.get("pierce", false))
 			if not piercing and e.blocks(dir):
@@ -2646,7 +2675,7 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
 			gain_ult(0.06 if killed else 0.03)
-			_dmg_text(p, dmg, killed)
+			_dmg_text(p, dmg, killed, e)
 			vfx.impact(p, dir, killed)
 			if killed:
 				_on_enemy_killed(e)
@@ -2673,7 +2702,7 @@ func _check_slashes() -> void:
 			continue
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
-			var bd := 1.0 * (1.0 + 0.5 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0))
+			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0))
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
@@ -2815,7 +2844,7 @@ func _update_effects(dt: float, real: float) -> void:
 	for i in range(effects.size() - 1, -1, -1):
 		var fx = effects[i]
 		var node: Node3D = fx.node
-		fx.t += real if fx.kind == "label" else dt
+		fx.t += real if fx.kind == "label" or fx.kind == "dmg" else dt
 		var k: float = fx.t / fx.life
 		match fx.kind:
 			"fade":
@@ -2826,6 +2855,15 @@ func _update_effects(dt: float, real: float) -> void:
 				node.scale = Vector3(1, 1, 1.0 + k)
 				for m in fx.mats:
 					m.albedo_color.a = fx.alpha * (1.0 - k)
+			"dmg":
+				# rebond (1.7 → 1), courbe latérale, montée qui ralentit, fondu final
+				var pop := 1.0 + 0.7 * maxf(0.0, 1.0 - k * 7.0) - 0.1 * maxf(0.0, sin(minf(k * 7.0, 1.0) * PI))
+				var big: bool = node.get_meta("big", false)
+				node.scale = Vector3.ONE * pop * (1.25 if big else 1.0)
+				node.position.x += float(fx.vx) * real * (1.0 - k)
+				node.position.y = float(fx.y0) + 1.1 * (1.0 - pow(1.0 - k, 2.0))
+				node.modulate.a = clampf((1.0 - k) * 3.5, 0.0, 1.0)
+				node.outline_modulate.a = node.modulate.a
 			"label":
 				node.position.y += real * 1.5
 				var s := 1.0 + 0.4 * maxf(0.0, 1.0 - k * 6.0)

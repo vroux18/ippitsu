@@ -566,7 +566,7 @@ func describe(id: String) -> Dictionary:
 		"text": _fill(id, String(d.get("text", "")), next, next),
 		"stat": _fill(id, String(d.get("stat", "")), cur, next),
 		"level": next, "kanji": String(d.get("kanji", sd["kanji"])),
-		"color": sd["color"], "school": school, "school_name": sd["name"], "school_kanji": sd["kanji"],
+		"color": UiKit.power_color(id), "school": school, "school_name": sd["name"], "school_kanji": sd["kanji"],
 		"rarity": rar, "rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),
 		"is_new": cur == 0, "cur_level": cur, "max_level": mx,
 		"aff": aff, "aff_next": aff_next, "aff_goal": aff_goal, "aff_hit": aff_hit, "aff_text": aff_text,
@@ -592,7 +592,7 @@ func recap_info(id: String) -> Dictionary:
 		"text": _fill(id, String(d.get("text", "")), cur, cur),
 		"stat": _fill(id, String(d.get("stat", "")), cur, cur),
 		"level": cur, "max_level": max_level(id), "kanji": String(d.get("kanji", sd["kanji"])),
-		"color": sd["color"], "school": school, "school_name": sd["name"],
+		"color": UiKit.power_color(id), "school": school, "school_name": sd["name"],
 		"rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),
 		"synergy": syn[0] if bool(syn[1]) else ""}
 

@@ -819,5 +819,5 @@ func _shine(r: Rect2, u: float, a: float, i: int, c: Color) -> void:
 	var rect := PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
 	for piece in Geometry2D.intersect_polygons(poly, rect):
 		var pp: PackedVector2Array = piece
-		if pp.size() >= 3:
+		if pp.size() >= 3 and UiKit.poly_area(pp) > 2.0:
 			draw_colored_polygon(pp, Color(c, c.a * a))
