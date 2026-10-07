@@ -719,6 +719,8 @@ func _step_world(w: int) -> bool:
 		return await _step_victory()
 	if w == 2:
 		return await _step_defeat()
+	if w == 3:
+		return await _step_defeat_atelier()
 	return await _quit_to_menu(w)
 
 
@@ -1068,6 +1070,10 @@ func _step_puzzles() -> bool:
 
 func _step_victory() -> bool:
 	await _settle_play("avant la victoire")
+	# progression remise au début : cette victoire doit ouvrir le monde 2 et le palier 1 des rouleaux
+	# (le robot joue avec tout débloqué, meta.test_unlock_all : seule la feuille de résultats en dépend)
+	main.meta.unlocked = 1
+	main.meta.power_tier = 0
 	# le boss tombe : salle 15 nettoyée, vrai chemin de fin (_room_cleared -> _victory -> _finish_run)
 	var t0 := Time.get_ticks_msec()
 	while String(main.state) == "play":
@@ -1090,8 +1096,48 @@ func _step_victory() -> bool:
 	if not await _until(func(): return String(main.state) == "over" and String(main.menu.mode) == "over", "victoire -> résultats"):
 		return false
 	_check(bool(main.menu.victory), "résultats de victoire", "menu.victory faux")
-	await _until(func(): return float(main.menu._t) >= 0.7, "résultats prêts")
-	await _press(main.menu._over_atelier, "ATELIER des résultats")
+	var menu = main.menu
+	var n_new: int = main.meta.powers_of_tier(1).size()
+	_check(int(menu.unlock_world) == 2 and menu.unlock_powers.size() == n_new and n_new > 0 and int(menu._unlock_rows()) == 2,
+		"résultats : DÉBLOQUÉ (monde 2, %d rouleaux « %s »)" % [menu.unlock_powers.size(), String(menu.unlock_family)],
+		"monde %d, %d rouleaux (attendu 2 et %d)" % [int(menu.unlock_world), menu.unlock_powers.size(), n_new])
+	_check(int(main.meta.unlocked) == 2 and int(main.meta.power_tier) == 1, "victoire : monde 2 et palier 1 enregistrés", "unlocked %d, palier %d" % [int(main.meta.unlocked), int(main.meta.power_tier)])
+	await _until(func(): return float(menu._t) >= 0.7, "résultats prêts")
+	_check(String(menu.next_label) == "DÉCOUVRIR LE MONDE SUIVANT" and menu._next.is_visible_in_tree() and menu._replay.is_visible_in_tree()
+		and menu._over_atelier.is_visible_in_tree() and menu._home.is_visible_in_tree() and String(menu._replay.style) == "ghost",
+		"résultats de victoire : DÉCOUVRIR LE MONDE SUIVANT, puis REJOUER / ATELIER / ACCUEIL", "bouton « %s », REJOUER %s" % [String(menu.next_label), String(menu._replay.style)])
+	# vers la carte : centrée sur le monde vaincu, elle se déroule jusqu'au monde 2 et brise son sceau
+	var wm = main.worldmap
+	await _press(menu._next, "DÉCOUVRIR LE MONDE SUIVANT")
+	if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "DÉCOUVRIR LE MONDE SUIVANT -> carte des mondes"):
+		return false
+	_check(int(wm._reveal_id) == 2 and int(wm._sel()) == 0 and bool(wm._locked(1)) and not wm._go.is_visible_in_tree(),
+		"carte : centrée sur le monde 1, monde 2 encore scellé, PARTIR caché", "révélé %d, centré %d" % [int(wm._reveal_id), int(wm._sel())])
+	if not await _until(func(): return bool(wm._rv_broken), "carte : le sceau du monde 2 se brise"):
+		return false
+	_check(int(wm._sel()) == 1 and not bool(wm._locked(1)), "carte : rouleau déroulé jusqu'au monde 2, sceau brisé", "centré %d" % int(wm._sel()))
+	if not await _until(func(): return float(wm._rv) >= float(wm.RV_CARD) + 0.5, "carte du monde 2 levée"):
+		return false
+	_ok("carte : carte du monde 2 (nom, ambiance, nouveaux rouleaux)")
+	_tap(wm, wm.size / 2.0)  # un toucher l'efface
+	if not await _until(func(): return bool(wm._reveal_done()) and wm._go.is_visible_in_tree(), "carte effacée -> PARTIR"):
+		return false
+	_ok("carte : révélation finie, PARTIR disponible sur le monde 2")
+	await _press(wm._back, "maison de la carte")
+	if not await _until(func(): return String(main.state) == "menu" and not bool(wm.visible), "carte : retour à l'accueil"):
+		return false
+	_ok("résultats de victoire -> carte -> accueil")
+	return true
+
+
+## Défaite au monde 3 : REJOUER reste le bouton principal ; ATELIER des résultats, puis accueil.
+func _step_defeat_atelier() -> bool:
+	if not await _die():
+		return false
+	var menu = main.menu
+	_check(not bool(menu.victory) and String(menu.next_label) == "" and not menu._next.is_visible_in_tree() and String(menu._replay.style) == "primary",
+		"résultats de défaite (monde 3) : REJOUER principal", "bouton suivant « %s »" % String(menu.next_label))
+	await _press(menu._over_atelier, "ATELIER des résultats")
 	if not await _until(func(): return bool(main.refuge.visible), "résultats : ATELIER"):
 		return false
 	await _until(func(): return float(main.refuge._t) >= 0.4, "atelier prêt")
@@ -1102,7 +1148,8 @@ func _step_victory() -> bool:
 	return true
 
 
-func _step_defeat() -> bool:
+## Le héros tombe par le vrai chemin (_hurt_hero) jusqu'aux résultats prêts.
+func _die() -> bool:
 	await _settle_play("avant la défaite")
 	bot.guard_all = false
 	var h = main.hero
@@ -1123,8 +1170,14 @@ func _step_defeat() -> bool:
 	bot.guard_all = true
 	if not await _until(func(): return String(main.state) == "over" and String(main.menu.mode) == "over", "défaite -> résultats"):
 		return false
-	_check(not bool(main.menu.victory), "résultats de défaite (coup fatal : %s%s)" % [String(main.menu.killer_name), String(main.menu.killer_kind)], "menu.victory vrai")
 	await _until(func(): return float(main.menu._t) >= 0.7, "résultats prêts")
+	return true
+
+
+func _step_defeat() -> bool:
+	if not await _die():
+		return false
+	_check(not bool(main.menu.victory) and not main.menu._next.is_visible_in_tree(), "résultats de défaite (coup fatal : %s%s)" % [String(main.menu.killer_name), String(main.menu.killer_kind)], "menu.victory vrai ou bouton monde suivant")
 	await _press(main.menu._replay, "REJOUER")
 	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "REJOUER -> sanctuaire"):
 		return false

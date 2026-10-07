@@ -16,7 +16,12 @@ const PER_ROW := 10
 # auteur du coup fatal (type d'ennemi), pour « VAINCU PAR … »
 const KILLER_NAMES := {"oni": "un oni", "brute": "une brute", "kappa": "un kappa", "tate": "un porte-bouclier",
 	"funa": "un funayūrei", "umibozu": "un umibōzu", "kitsunebi": "un kitsunebi", "kitsunebi_s": "un feu follet",
-	"yukionna": "une yuki-onna", "kasha": "un kasha", "kagebo": "ton double d'encre"}
+	"yukionna": "une yuki-onna", "kasha": "un kasha", "kagebo": "ton double d'encre",
+	"kappa_yumi": "un kappa archer", "ika": "un calmar d'encre", "umi_nyobo": "une umi-nyōbō", "kamaitachi": "un kamaitachi",
+	"tanuki": "un tanuki", "tanuki_d": "un leurre de tanuki", "kitsune_tsukai": "une prêtresse renarde", "yuki_warashi": "un yuki-warashi",
+	"tsurara": "des stalactites", "onryo": "un onryō", "hinotama": "un hinotama", "kanabo": "un oni à massue",
+	"tengu": "un tengu", "teppo": "un arquebusier", "sumidama": "une goutte d'encre", "sumidama_s": "une gouttelette d'encre",
+	"kasa": "un kasa-obake", "moryo": "un mōryō"}
 
 signal play_pressed
 signal home_pressed
@@ -29,6 +34,7 @@ signal tuto_pressed
 signal options_pressed
 signal powers_pressed
 signal dojo_pressed
+signal next_pressed  # résultats d'une victoire : vers le monde suivant
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -55,6 +61,15 @@ var affinities := {}  # école -> [nombre de pouvoirs, palier] (powers.affinitie
 var new_prints: Array = []  # Vues gagnées à cette partie (ids de meta.PRINTS)
 var killer_kind := ""  # type d'ennemi du coup fatal (vide : inconnu ou boss)
 var killer_name := ""  # nom du boss du coup fatal
+# victoire : bouton principal vers le monde suivant ("" : REJOUER reste le bouton principal)
+var next_label := ""
+# ce que la victoire a débloqué (rangée DÉBLOQUÉ) : monde ouvert (0 : aucun) et nouveaux rouleaux
+var unlock_world := 0
+var unlock_world_name := ""
+var unlock_world_kanji := ""
+var unlock_world_color := Toon.PRUSSIAN
+var unlock_powers: Array = []  # ids des pouvoirs du nouveau palier
+var unlock_family := ""  # nom de la famille de rouleaux (power_data.UNLOCK_NAMES)
 var _build_list: Array = []  # [id du pouvoir, couleur d'école, niveau, couleur de rareté, rang, niveau max, ordre d'école]
 var _over_atelier: Control
 
@@ -63,6 +78,7 @@ var _title := FontVariation.new()
 var _ui := FontVariation.new()
 var _play: Control
 var _replay: Control
+var _next: Control
 var _home: Control
 var _sound: Control
 var _atelier: Control
@@ -89,6 +105,9 @@ func _ready() -> void:
 	_play.pressed.connect(func(): play_pressed.emit())
 	_replay = _button("REJOUER", "primary")
 	_replay.pressed.connect(func(): play_pressed.emit())
+	_next = _button("MONDE SUIVANT", "primary")
+	_next.lead_icon = "play"
+	_next.pressed.connect(func(): next_pressed.emit())
 	_home = _button("ACCUEIL", "ghost")
 	_home.lead_icon = "home"
 	_home.pressed.connect(func(): home_pressed.emit())
@@ -131,6 +150,16 @@ func _button(label: String, style: String) -> Control:
 	b.font = _ui
 	add_child(b)
 	return b
+
+
+## Taille de police (<= fs) pour que le texte d'un bouton (et son icône) tienne dans max_w.
+func _fit_font(b: Control, fs: int, max_w: float) -> int:
+	var txt := String(b.get("text"))
+	var lead := fs * 0.42 * 3.4 if String(b.get("lead_icon")) != "" else 0.0
+	var tw := _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + lead
+	if tw > max_w and tw > 0.0:
+		return maxi(1, int(float(fs) * max_w / tw))
+	return maxi(1, fs)
 
 
 func _toggle_sound() -> void:
@@ -177,7 +206,9 @@ func _process(_delta: float) -> void:
 	var u := w / 400.0
 
 	_play.visible = mode == "home"
+	var has_next := next_label != ""
 	_replay.visible = mode == "over" and _t > 0.45
+	_next.visible = mode == "over" and _t > 0.45 and has_next
 	_home.visible = mode == "over" and _t > 0.45
 	_over_atelier.visible = mode == "over" and _t > 0.45
 	_worlds.visible = false
@@ -216,26 +247,46 @@ func _process(_delta: float) -> void:
 	_dojo.modulate.a = appear
 	_dojo.font_size = int(16 * u)
 
-	# fin de partie : REJOUER, puis ATELIER et ACCUEIL côte à côte (touches bloquées les 0,6 premières secondes)
+	# fin de partie : REJOUER, puis ATELIER et ACCUEIL côte à côte (touches bloquées les 0,6 premières secondes).
+	# Victoire avec un monde après : MONDE SUIVANT en grand, puis REJOUER, ATELIER et ACCUEIL.
 	var over_in := UiKit.ease_out(clampf((_t - 0.45) / 0.35, 0.0, 1.0))
-	var obw := w * 0.68
-	var ox := (w - obw) / 2.0
 	var by := h - BTN_H * u + 20.0 * u * (1.0 - over_in)
-	_replay.size = Vector2(obw, 56 * u)
-	_replay.position = Vector2(ox, by)
-	_replay.modulate.a = over_in
-	_replay.font_size = int(24 * u)
-	var hw := (obw - 10 * u) / 2.0
-	_over_atelier.size = Vector2(hw, 44 * u)
-	_over_atelier.position = Vector2(ox, by + 66 * u)
-	_over_atelier.modulate.a = over_in
-	_over_atelier.font_size = int(15 * u)
-	_home.size = Vector2(hw, 44 * u)
-	_home.position = Vector2(ox + hw + 10 * u, by + 66 * u)
-	_home.modulate.a = over_in
-	_home.font_size = int(15 * u)
+	if has_next:
+		var nbw := w * 0.86
+		var nx := (w - nbw) / 2.0
+		_next.text = next_label
+		_next.size = Vector2(nbw, 56 * u)
+		_next.position = Vector2(nx, by)
+		_next.modulate.a = over_in
+		_next.font_size = _fit_font(_next, int(20 * u), nbw - 40 * u)
+		var tw3 := (nbw - 16 * u) / 3.0
+		var row: Array = [_replay, _over_atelier, _home]
+		for i in row.size():
+			var rb: Control = row[i]
+			rb.size = Vector2(tw3, 44 * u)
+			rb.position = Vector2(nx + (tw3 + 8 * u) * i, by + 66 * u)
+			rb.modulate.a = over_in
+			rb.font_size = _fit_font(rb, int(14 * u), tw3 - 16 * u)
+		_replay.style = "ghost"
+	else:
+		var obw := w * 0.68
+		var ox := (w - obw) / 2.0
+		_replay.style = "primary"
+		_replay.size = Vector2(obw, 56 * u)
+		_replay.position = Vector2(ox, by)
+		_replay.modulate.a = over_in
+		_replay.font_size = int(24 * u)
+		var hw := (obw - 10 * u) / 2.0
+		_over_atelier.size = Vector2(hw, 44 * u)
+		_over_atelier.position = Vector2(ox, by + 66 * u)
+		_over_atelier.modulate.a = over_in
+		_over_atelier.font_size = int(15 * u)
+		_home.size = Vector2(hw, 44 * u)
+		_home.position = Vector2(ox + hw + 10 * u, by + 66 * u)
+		_home.modulate.a = over_in
+		_home.font_size = int(15 * u)
 	var live := mode == "over" and _t >= 0.6
-	for b in [_replay, _over_atelier, _home]:
+	for b in [_replay, _next, _over_atelier, _home]:
 		var bc: Control = b
 		if live:
 			bc.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -363,6 +414,9 @@ func _draw_results() -> void:
 	_draw_figures(x0, x1, y, u, v, a)
 	y += FIG_H * v
 	_draw_gains(x0, x1, y, u, v, a)
+	y += float(lay["gains_h"]) * v
+	if _unlock_rows() > 0:
+		_draw_unlocks(x0, x1, y, u, v, a)
 	if new_record:
 		_draw_record_stamp(Vector2(card.end.x - 52 * u, card.position.y + 46 * v), u, a)
 
@@ -374,11 +428,26 @@ func _results_layout(u: float) -> Dictionary:
 	if rows > 0:
 		build_h = 28.0 + 38.0 * rows + (26.0 if not affinities.is_empty() else 0.0)
 	var gains_h := 56.0 + 42.0 * mini(new_prints.size(), 3)
-	var content := HEAD_H + STATS_H + build_h + FIG_H + gains_h + 12.0
+	var unlock_h := 0.0
+	if _unlock_rows() > 0:
+		unlock_h = 26.0 + 42.0 * _unlock_rows()
+	var content := HEAD_H + STATS_H + build_h + FIG_H + gains_h + unlock_h + 12.0
 	var avail := size.y / u - 14.0 - BTN_H - 12.0
 	var k := clampf(avail / content, 0.72, 1.0)
 	var top := 14.0 + maxf(0.0, avail - content) * 0.35
-	return {"v": u * k, "top": top * u, "height": content * u * k, "build_h": build_h}
+	return {"v": u * k, "top": top * u, "height": content * u * k, "build_h": build_h, "gains_h": gains_h}
+
+
+## Lignes de la rangée DÉBLOQUÉ : le monde ouvert, la famille de rouleaux (victoire seulement).
+func _unlock_rows() -> int:
+	if not victory:
+		return 0
+	var n := 0
+	if unlock_world > 0:
+		n += 1
+	if not unlock_powers.is_empty():
+		n += 1
+	return n
 
 
 ## Titre de section : petit mot puis filet jusqu'au bord.
@@ -628,6 +697,55 @@ func _draw_gains(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 		var dc := Vector2(row.end.x - 16 * u, top + 19 * v)
 		draw_circle(dc, 8 * u, Color(Toon.SUMI, 0.8 * pa))
 		draw_circle(dc, 6.5 * u, Color(lc, pa))
+
+
+## DÉBLOQUÉ : le monde que la victoire ouvre (son sceau), puis la nouvelle famille de rouleaux
+## (quelques pictogrammes et « +N rouleaux »), qui glissent en place après les gains.
+func _draw_unlocks(x0: float, x1: float, y: float, u: float, v: float, a: float) -> void:
+	var t0 := 2.35 + 0.3 * mini(new_prints.size(), 3)
+	var hk := UiKit.ease_out(clampf((_t - t0) / 0.3, 0.0, 1.0))
+	if hk <= 0.0:
+		return
+	_section("DÉBLOQUÉ", x0, x1, y + 13 * v, u, a * hk)
+	var i := 0
+	if unlock_world > 0:
+		var pk := UiKit.ease_out(clampf((_t - t0 - 0.15) / 0.35, 0.0, 1.0))
+		if pk > 0.0:
+			var pa := a * pk
+			var top := y + 24 * v
+			var row := Rect2(Vector2(x0 - 4 * u + 30 * u * (1.0 - pk), top), Vector2(x1 - x0 + 8 * u, 38 * v))
+			draw_style_box(UiKit.box(_sb, Color(unlock_world_color, 0.1 * pa), int(8 * u), Color(unlock_world_color, 0.7 * pa), int(maxf(1.0, 1.2 * u))), row)
+			# sceau du monde, cerclé d'or
+			var sc := Vector2(row.position.x + 24 * u, top + 19 * v)
+			var sr := 14.0 * u
+			draw_circle(sc, sr + 2 * u, Color(Toon.GOLD, pa))
+			draw_circle(sc, sr, Color(unlock_world_color, pa))
+			UiKit.text(self, UiKit.TITLE_FONT, unlock_world_kanji, sc + Vector2(0, 6 * u), int(16 * u), Color(Toon.WASHI, pa))
+			var tx := sc.x + sr + 12 * u
+			draw_string(UiKit.TITLE_FONT, Vector2(tx, top + 17 * v), UiKit.plain(unlock_world_name), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Color(Toon.SUMI, pa))
+			draw_string(UiKit.UI_FONT, Vector2(tx, top + 31 * v), "NOUVEAU MONDE  ·  MONDE %d" % unlock_world, HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), Color(GOLD_INK, pa))
+		i += 1
+	if not unlock_powers.is_empty():
+		var qk := UiKit.ease_out(clampf((_t - t0 - 0.15 - 0.3 * i) / 0.35, 0.0, 1.0))
+		if qk > 0.0:
+			var qa := a * qk
+			var top2 := y + 24 * v + i * 42 * v
+			var row2 := Rect2(Vector2(x0 - 4 * u + 30 * u * (1.0 - qk), top2), Vector2(x1 - x0 + 8 * u, 38 * v))
+			draw_style_box(UiKit.box(_sb, Color(Toon.GOLD, 0.12 * qa), int(8 * u), Color(Toon.GOLD, 0.6 * qa), int(maxf(1.0, 1.2 * u))), row2)
+			# quelques pictogrammes des nouveaux rouleaux, en éventail
+			var shown := mini(unlock_powers.size(), 4)
+			var ir := 10.0 * u
+			for k in shown:
+				var ik := UiKit.ease_out(clampf((_t - t0 - 0.3 - 0.3 * i - 0.06 * k) / 0.25, 0.0, 1.0))
+				var ic := Vector2(row2.position.x + 16 * u + k * 15 * u, top2 + 19 * v)
+				draw_circle(ic, ir + 1.5 * u, Color(Toon.PAPER, qa * ik))
+				UiKit.power_icon(self, String(unlock_powers[k]), ic, ir * (0.6 + 0.4 * ik), qa * ik)
+			var tx2 := row2.position.x + 16 * u + (shown - 1) * 15 * u + ir + 12 * u
+			var fam := unlock_family if unlock_family != "" else "Nouveaux rouleaux"
+			draw_string(UiKit.TITLE_FONT, Vector2(tx2, top2 + 17 * v), UiKit.plain(fam), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Color(Toon.SUMI, qa))
+			var n := unlock_powers.size()
+			var sub := ("+%d ROULEAU" % n) if n == 1 else ("+%d ROULEAUX" % n)
+			draw_string(UiKit.UI_FONT, Vector2(tx2, top2 + 31 * v), sub + "  ·  DANS LES TIRAGES", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), Color(GOLD_INK, qa))
 
 
 ## Tampon « NOUVEAU RECORD » qui s'abat en haut à droite de la feuille.

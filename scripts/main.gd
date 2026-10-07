@@ -38,7 +38,10 @@ const Vfx = preload("res://scripts/vfx.gd")
 const Options = preload("res://scripts/options.gd")
 const Pickups = preload("res://scripts/pickups.gd")
 const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3,
-	"umibozu": 2, "kitsunebi": 2, "kitsunebi_s": 1, "yukionna": 3, "kasha": 3, "kagebo": 3}
+	"umibozu": 2, "kitsunebi": 2, "kitsunebi_s": 1, "yukionna": 3, "kasha": 3, "kagebo": 3,
+	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "tanuki_d": 0, "kitsune_tsukai": 3,
+	"yuki_warashi": 1, "tsurara": 2, "onryo": 3, "hinotama": 2, "teppo": 2, "tengu": 3, "kanabo": 5,
+	"sumidama": 2, "sumidama_s": 1, "kasa": 2, "moryo": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")
 const Intro = preload("res://scripts/intro.gd")
 const Music = preload("res://scripts/music_player.gd")
@@ -80,11 +83,18 @@ const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fin
 const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
 const CAM_LEAD := 2.4  # la caméra regarde un peu devant le héros (vers le fond de l'étape)
 const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
-	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3}
+	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3,
+	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 3,
+	"yuki_warashi": 1, "tsurara": 2, "onryo": 3, "hinotama": 2, "teppo": 2, "tengu": 3, "kanabo": 4,
+	"sumidama": 3, "kasa": 2, "moryo": 3}
 # première salle où chaque ennemi peut venir (ennemis signature : un par monde, vers la salle 3-4)
 const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4,
-	"umibozu": 3, "kitsunebi": 3, "yukionna": 4, "kasha": 4, "kagebo": 4}
-const UNLOCK_ALL := true  # prototype : tous les mondes ouverts pour les tester
+	"umibozu": 3, "kitsunebi": 3, "yukionna": 4, "kasha": 4, "kagebo": 4,
+	# bestiaire étendu : tireurs et coureurs tôt, soutiens et costauds plus tard
+	"kappa_yumi": 2, "ika": 3, "umi_nyobo": 5, "kamaitachi": 2, "tanuki": 3, "kitsune_tsukai": 5,
+	"yuki_warashi": 2, "tsurara": 6, "onryo": 4, "hinotama": 2, "teppo": 3, "tengu": 4, "kanabo": 6,
+	"sumidama": 2, "kasa": 3, "moryo": 5}
+const UNLOCK_ALL := false  # vrai : tous les mondes ouverts (prototype) ; sinon un monde vaincu ouvre le suivant
 const SAVE_PATH := "user://ippitsu.cfg"
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
@@ -285,6 +295,7 @@ func _ready() -> void:
 	menu.worlds_pressed.connect(_open_worlds)
 	menu.resume_pressed.connect(_on_resume)
 	menu.restart_pressed.connect(_on_restart)
+	menu.next_pressed.connect(_on_next_world)
 	hud.pause_pressed.connect(_on_pause)
 	pickups = Pickups.new()
 	pickups.main = self
@@ -336,12 +347,16 @@ func _ready() -> void:
 	map_layer.add_child(worldmap)
 	worldmap.world_chosen.connect(_on_world_chosen)
 	worldmap.closed.connect(_on_worldmap_closed)
+	worldmap.seal_broken.connect(_on_seal_broken)
 	_load()
 	get_viewport().size_changed.connect(_fit_camera)
 	# `?world=N` (web) : ouvre directement le monde N
 	var wsearch := str(JavaScriptBridge.eval("location.search", true)) if OS.has_feature("web") else ""
 	var wpos := wsearch.find("world=")
 	hud.show_fps = "fps" in wsearch
+	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
+	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
+		meta.test_unlock_all = true
 	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, 5) if wpos >= 0 else 1)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
@@ -397,13 +412,23 @@ func _warmup() -> void:
 	# dans le champ de la caméra d'accueil mais sous le sol : rendus (donc compilés) sans être vus
 	w.position = hero.position + Vector3(0, -0.7, -3.0)
 	var x := -3.0
-	for k in ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo"]:
+	for k in ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo",
+			"kappa_yumi", "ika", "umi_nyobo", "kamaitachi", "tanuki", "kitsune_tsukai", "yuki_warashi", "tsurara", "onryo",
+			"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo"]:
 		var e := Enemy.new()
 		e.setup(String(k), hero, self)
 		e.position = Vector3(x, 0, 0)
 		w.add_child(e)
 		e.process_mode = Node.PROCESS_MODE_DISABLED
-		x += 0.75
+		x += 0.35
+	# une élite blindée : bulle de bouclier et aura d'or compilées d'avance
+	var el := Enemy.new()
+	el.setup("oni", hero, self)
+	el.position = Vector3(0, 0, 0.6)
+	w.add_child(el)
+	el.process_mode = Node.PROCESS_MODE_DISABLED
+	el.promote(["blinde"], false)
+	el.give_shield(1.0)
 	var b := Node3D.new()
 	w.add_child(b)
 	Toon.part(b, Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Vector3.ZERO)
@@ -501,15 +526,43 @@ func _on_play() -> void:
 		_set_state("sail")
 
 
-func _open_worlds() -> void:
-	# choix du monde sur le rouleau
+## Choix du monde sur le rouleau, centré sur `center` (par défaut le monde en cours). `reveal` : monde que
+## la victoire vient d'ouvrir (le rouleau se déroule jusqu'à lui et brise son sceau), `reveal_powers` :
+## rouleaux débloqués avec lui (aperçu sur sa carte).
+func _open_worlds(center := -1, reveal := 0, reveal_powers := []) -> void:
 	_set_state("worlds")
-	var unlocked: int = 5 if UNLOCK_ALL else int(meta.unlocked)
+	var unlocked: int = 5 if UNLOCK_ALL or bool(meta.test_unlock_all) else int(meta.unlocked)
 	# records : meilleur combat atteint -> meilleure étape
 	var best := {}
 	for k in meta.world_best.keys():
 		best[k] = stage_of(int(meta.world_best[k]))
-	worldmap.open(Worlds.WORLDS, unlocked, best, current_world, STAGE_PLAN.size(), meta.owned_prints)
+	var c: int = center if center >= 1 else current_world
+	worldmap.open(Worlds.WORLDS, unlocked, best, c, STAGE_PLAN.size(), meta.owned_prints, reveal, reveal_powers)
+
+
+## Résultats d'une victoire : « DÉCOUVRIR LE MONDE SUIVANT » (le rouleau part du monde vaincu et révèle le
+## nouveau) ou « MONDE SUIVANT » (déjà ouvert : la carte s'ouvre sur lui).
+func _on_next_world() -> void:
+	sfx.play("whoosh", 1.0, -4.0)
+	var prev := current_world
+	var reveal := int(menu.unlock_world)
+	var ups: Array = menu.unlock_powers
+	var reveal_powers: Array = ups.duplicate()
+	var nxt := mini(prev + 1, Worlds.WORLDS.size())
+	_start()
+	_board_boat()
+	music.play_menu()
+	if reveal > 0:
+		_open_worlds(prev, reveal, reveal_powers)
+	else:
+		_open_worlds(nxt)
+
+
+## Sceau du monde révélé brisé sur la carte.
+func _on_seal_broken(_id: int) -> void:
+	sfx.play("strike", 1.1, -3.0)
+	sfx.play("levelup", 1.0, -4.0)
+	feel("hit")
 
 
 func _on_world_chosen(id: int) -> void:
@@ -1327,7 +1380,14 @@ func splash(pos: Vector3, color: Color, amount: int) -> void:
 
 
 func _spawn_list(list: Array) -> void:
+	# élite : dès le 4e combat (hors gardiens), au plus un par vague, plus fréquent dans les mondes avancés
+	var elite_at := -1
+	if room >= 4 and room != MINI_ROOM and room != ROOMS and not in_hub and not list.is_empty():
+		if randf() < Enemy.elite_chance(current_world):
+			elite_at = randi() % list.size()
+	var idx := -1
 	for k in list:
+		idx += 1
 		var e := Enemy.new()
 		e.setup(String(k), hero, self)
 		var p := Vector3.ZERO
@@ -1343,6 +1403,10 @@ func _spawn_list(list: Array) -> void:
 			e.speed *= 1.25
 		# plus robustes : ×2, et +4 % par combat dans le monde
 		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + 0.04 * float(maxi(room - 1, 0)))
+		if elite_at >= 0 and idx >= elite_at:
+			if e.can_be_elite():
+				e.promote(Enemy.roll_affixes(current_world))
+				elite_at = -1
 		e.set_meta("max_hp", e.hp)
 		enemies.append(e)
 
@@ -1888,13 +1952,13 @@ func _spawn_elite(p: Vector3) -> void:
 	e.setup("brute", hero, self)
 	e.position = arena.clamp_walk(p, 0.8)
 	add_child(e)
-	e.scale = Vector3.ONE * 1.22
-	e.radius *= 1.15
-	e.hp *= 2.4 * float(Worlds.world(current_world).hp_mult)
+	e.hp *= float(Worlds.world(current_world).hp_mult)
 	if "oni_eye" in curses:
 		e.hp *= 1.5
 	if "haste" in curses:
 		e.speed *= 1.25
+	# système d'élite commun : ×2.5 PV, ×1.25, bouclier, aura, affixes
+	e.promote(Enemy.roll_affixes(current_world))
 	e.set_meta("max_hp", e.hp)
 	e.set_meta("elite", true)
 	enemies.append(e)
@@ -2340,7 +2404,17 @@ func _slowmo_w() -> float:
 func _award(victory: bool) -> void:
 	var cleared := room if victory or _room_done else room - 1
 	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world)
-	meta.record_world(current_world, room, victory)
+	var un: Dictionary = meta.record_world(current_world, room, victory)
+	# ce que la victoire débloque : le monde suivant et une famille de rouleaux (rangée DÉBLOQUÉ des résultats)
+	menu.unlock_world = int(un.get("world", 0))
+	var ups: Array = un.get("powers", [])
+	menu.unlock_powers = ups.duplicate()
+	menu.unlock_family = String(un.get("family", ""))
+	if menu.unlock_world > 0:
+		var nw: Dictionary = Worlds.world(menu.unlock_world)
+		menu.unlock_world_name = String(nw.get("name", ""))
+		menu.unlock_world_kanji = String(nw.get("kanji", "道"))
+		menu.unlock_world_color = nw.get("color", Toon.PRUSSIAN)
 	# l'or ramassé devient de l'encre (2 pièces = 1 encre)
 	var bonus := run_gold / 2
 	meta.sumi += bonus
@@ -2421,6 +2495,10 @@ func _finish_run() -> void:
 	var won := _ending_victory
 	menu.victory = won
 	_award(won)
+	# victoire : le bouton principal mène au monde suivant (REJOUER sur le dernier monde, et en cas de défaite)
+	menu.next_label = ""
+	if won and current_world < Worlds.WORLDS.size():
+		menu.next_label = "DÉCOUVRIR LE MONDE SUIVANT" if int(menu.unlock_world) > 0 else "MONDE SUIVANT"
 	menu.new_record = room > record
 	if room > record:
 		record = room
@@ -2600,7 +2678,7 @@ func shape_text(pos: Vector3, kanji: String) -> void:
 	l.outline_size = 18
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
-	l.position = pos + Vector3(0, 1.6, 0)
+	l.position = pos + Vector3(0, 2.8, 0)
 	add_child(l)
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
@@ -2626,7 +2704,7 @@ func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> vo
 	l.outline_size = 30
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
-	l.position = pos + Vector3(randf_range(-0.35, 0.35), 1.7, 0)
+	l.position = pos + Vector3(randf_range(-0.35, 0.35), 2.7, 0)
 	_style_dmg(l, dmg, killed)
 	add_child(l)
 	var fx := {"node": l, "t": 0.0, "life": 0.8, "kind": "dmg", "vx": randf_range(-0.9, 0.9), "y0": l.position.y}
@@ -2676,7 +2754,7 @@ func float_text(pos: Vector3, text: String, color: Color) -> void:
 	l.outline_size = 20
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
-	l.position = pos + Vector3(0, 2.2, 0)
+	l.position = pos + Vector3(0, 3.3, 0)  # au-dessus des têtes, pas sur les corps
 	add_child(l)
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
@@ -3706,7 +3784,7 @@ func _process(_delta: float) -> void:
 		_cam_base = _cam_full.interpolate_with(_cam_pad, kp * kp * (3.0 - 2.0 * kp))
 	hud.in_play = state in IN_PLAY_STATES
 	if is_instance_valid(hero) and not cam.is_position_behind(hero.position):
-		hud.hero_screen = cam.unproject_position(hero.position + Vector3(0, 2.3, 0))
+		hud.hero_screen = cam.unproject_position(hero.position + Vector3(0, 3.6, 0))
 	hud.pause_enabled = state == "play"  # le bouton pause n'apparaît que là où il agit
 	var wd: Dictionary = Worlds.world(current_world)
 	hud.world_kanji = String(wd.kanji)
@@ -3725,9 +3803,12 @@ func _process(_delta: float) -> void:
 	for e in enemies:
 		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):
 			var mh: float = e.get_meta("max_hp")
-			if e.hp < mh - 0.01 and not cam.is_position_behind(e.position):
-				var top := 2.9 if e.kind == "brute" else 2.1
-				bars.append([cam.unproject_position(e.position + Vector3(0, top, 0)), e.hp / mh])
+			var sr: float = e.shield_ratio()
+			var el: bool = e.elite
+			# blessé, protégé par un bouclier, ou élite : barre affichée (bouclier en bleu par-dessus)
+			if (e.hp < mh - 0.01 or sr > 0.0 or el) and not cam.is_position_behind(e.position):
+				var top: float = e.bar_top()
+				bars.append([cam.unproject_position(e.position + Vector3(0, top, 0)), e.hp / mh, sr, el])
 	hud.enemy_bars = bars
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp

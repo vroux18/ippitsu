@@ -127,7 +127,9 @@ var runs := 0  # parties jouées
 var best_room := 0  # meilleure salle atteinte
 var wins := 0  # victoires (la première rapporte +2 sceaux)
 var ranks := {}  # id de ligne -> rang acheté
-var unlocked := 1  # mondes débloqués (1..5)
+var unlocked := 1  # mondes débloqués (1..5) : le monde N+1 s'ouvre quand le monde N est vaincu
+var power_tier := 0  # paliers de rouleaux débloqués (0..4) : monde N vaincu -> palier N (power_data « unlock »)
+var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers ouverts (jamais sauvegardé)
 var tuto_done := false  # tutoriel déjà fait (sinon il se lance au premier JOUER)
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var world_best := {}  # monde -> meilleure salle atteinte
@@ -155,6 +157,7 @@ func load_data() -> void:
 	best_room = maxi(0, int(cf.get_value("meta", "best_room", 0)))
 	wins = maxi(0, int(cf.get_value("meta", "wins", 0)))
 	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, 5)
+	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
 	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
 	intro_done = bool(cf.get_value("meta", "intro_done", tuto_done))
@@ -182,8 +185,24 @@ func load_data() -> void:
 				break
 			owned_prints[id] = true
 	prints = owned_prints.size()
-	if owns_seal("scroll") and not (String(start_power_id) in start_choices()):
+	_migrate_progress()
+	# rouleau de départ : on garde le choix même s'il n'est pas encore débloqué (start_power() le vérifie)
+	if owns_seal("scroll") and not Data.POWERS.has(start_power_id):
 		start_power_id = _first_choice()
+
+
+## Anciennes sauvegardes (mondes tous ouverts du prototype, paliers absents) : les victoires passées
+## ouvrent le monde suivant et leur palier de rouleaux ; tout monde déjà joué reste ouvert.
+func _migrate_progress() -> void:
+	var top_won := 0
+	var reached := 1
+	for wid in range(1, 6):
+		if world_won(wid):
+			top_won = wid
+		if int(world_best.get(wid, 0)) > 0:
+			reached = wid
+	unlocked = clampi(maxi(unlocked, maxi(top_won + 1, reached)), 1, 5)
+	power_tier = clampi(maxi(power_tier, top_won), 0, Data.UNLOCK_MAX)
 
 
 func save_data() -> void:
@@ -195,6 +214,7 @@ func save_data() -> void:
 	cf.set_value("meta", "best_room", best_room)
 	cf.set_value("meta", "wins", wins)
 	cf.set_value("meta", "unlocked", unlocked)
+	cf.set_value("meta", "power_tier", power_tier)
 	cf.set_value("meta", "tuto_done", tuto_done)
 	cf.set_value("meta", "intro_done", intro_done)
 	cf.set_value("meta", "start_power", start_power_id)
@@ -306,12 +326,12 @@ func buy_seal(id: String) -> bool:
 	return true
 
 
-## Rouleaux communs proposés au départ (ceux qui ne dépendent d'aucun autre pouvoir).
+## Rouleaux communs proposés au départ (débloqués, et qui ne dépendent d'aucun autre pouvoir).
 func start_choices() -> Array:
 	var out: Array = []
 	for key in Data.POWERS.keys():
 		var d: Dictionary = Data.POWERS[key]
-		if String(d.get("rarity", "")) == "common" and not d.has("needs"):
+		if String(d.get("rarity", "")) == "common" and not d.has("needs") and power_unlocked(String(key)):
 			out.append(String(key))
 	return out
 
@@ -325,7 +345,7 @@ func _first_choice() -> String:
 func start_power() -> String:
 	if not owns_seal("scroll"):
 		return ""
-	return start_power_id if Data.POWERS.has(start_power_id) else _first_choice()
+	return start_power_id if String(start_power_id) in start_choices() else _first_choice()
 
 
 ## Passe au rouleau de départ suivant (dir = 1) ou précédent (dir = -1).
@@ -339,16 +359,51 @@ func cycle_start_power(dir: int) -> void:
 	save_data()
 
 
-## Faux pour un légendaire encore scellé. powers.gd doit écarter ces pouvoirs de ses offres.
-func power_unlocked(id: String) -> bool:
+## Sceau de l'Atelier qui libère ce pouvoir ("" s'il n'en dépend pas).
+func _seal_of(id: String) -> String:
 	for sid in SEAL_ORDER:
 		var it: Dictionary = SEAL_ITEMS[sid]
 		if String(it.get("power", "")) == id:
-			return owns_seal(String(sid))
-	return true
+			return String(sid)
+	return ""
 
 
-## Pouvoirs encore verrouillés (légendaires à sceller).
+## Vrai pour un légendaire de l'Atelier dont le sceau n'est pas encore acheté.
+func power_sealed(id: String) -> bool:
+	var sid := _seal_of(id)
+	return sid != "" and not owns_seal(sid)
+
+
+## Palier de rouleaux effectif (tout ouvert pour le robot et les tests).
+func effective_tier() -> int:
+	return Data.UNLOCK_MAX if test_unlock_all else power_tier
+
+
+## Vrai si ce pouvoir peut sortir dans les rouleaux : légendaire de l'Atelier -> son sceau (quel que soit
+## le palier) ; sinon son palier « unlock » doit être atteint. powers.gd écarte les autres de ses offres.
+func power_unlocked(id: String) -> bool:
+	var sid := _seal_of(id)
+	if sid != "":
+		return owns_seal(sid)
+	return Data.unlock_tier(id) <= effective_tier()
+
+
+## Pouvoirs d'un palier (dans l'ordre de power_data), sans les légendaires des sceaux.
+func powers_of_tier(t: int) -> Array:
+	var out: Array = []
+	for key in Data.POWERS.keys():
+		var id := String(key)
+		if Data.unlock_tier(id) == t and _seal_of(id) == "":
+			out.append(id)
+	return out
+
+
+## Monde vaincu (Vue « w<id>_win »).
+func world_won(wid: int) -> bool:
+	return has_print("w%d_win" % wid)
+
+
+## Pouvoirs encore verrouillés par un sceau (légendaires à sceller).
 func locked_powers() -> Array:
 	var out: Array = []
 	for sid in SEAL_ORDER:
@@ -361,10 +416,9 @@ func locked_powers() -> Array:
 
 ## Tous les pouvoirs qui peuvent sortir dans les rouleaux.
 func unlocked_powers() -> Array:
-	var locked := locked_powers()
 	var out: Array = []
 	for key in Data.POWERS.keys():
-		if not (String(key) in locked):
+		if power_unlocked(String(key)):
 			out.append(String(key))
 	return out
 
@@ -582,9 +636,25 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 	return {"sumi": gained, "seals": new_seals, "print": not new_prints.is_empty(), "prints": new_prints}
 
 
-## Fin d'une partie dans un monde : record du monde, et le suivant s'ouvre en cas de victoire.
-func record_world(world_id: int, room_reached: int, victory: bool) -> void:
+## Fin d'une partie dans un monde : record du monde ; en cas de victoire, le monde suivant s'ouvre et le
+## palier de rouleaux du monde aussi. Renvoie ce que la victoire a débloqué :
+## {"world": monde ouvert (0 : aucun), "tier": nouveau palier (-1 : aucun), "powers": ids, "family": nom}.
+func record_world(world_id: int, room_reached: int, victory: bool) -> Dictionary:
+	var res := {"world": 0, "tier": -1, "powers": [], "family": ""}
 	world_best[world_id] = maxi(int(world_best.get(world_id, 0)), room_reached)
 	if victory:
+		var before := unlocked
 		unlocked = clampi(maxi(unlocked, world_id + 1), 1, 5)
+		if world_id + 1 <= 5 and before < world_id + 1:
+			res["world"] = world_id + 1
+		var tb := power_tier
+		power_tier = clampi(maxi(power_tier, world_id), 0, Data.UNLOCK_MAX)
+		if power_tier > tb:
+			var ids: Array = []
+			for t in range(tb + 1, power_tier + 1):
+				ids.append_array(powers_of_tier(t))
+			res["tier"] = power_tier
+			res["powers"] = ids
+			res["family"] = String(Data.UNLOCK_NAMES[power_tier])
 	save_data()
+	return res

@@ -89,6 +89,10 @@ func begin(m: Node) -> void:
 		alert("mode inconnu « %s » : campagne" % mode)
 		mode = "campaign"
 	print("BOT mode %s, graine %s" % [mode, seed_arg if seed_arg != "" else "aléatoire"])
+	# progression : le robot joue avec tous les mondes et tous les paliers de rouleaux ouverts (main._ready)
+	if not bool(main.meta.test_unlock_all):
+		main.meta.test_unlock_all = true
+		alert("progression : test_unlock_all n'était pas posé par main, forcé")
 	match mode:
 		"ui":
 			cinematics = true
@@ -435,7 +439,8 @@ func _play(dt: float) -> void:
 ## Ennemi immobile 8 s loin du héros (hors attaque) : coincé quelque part -> alerte.
 func _check_stuck(dt: float) -> void:
 	for e in main.enemies:
-		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa" or e.kind == "funa":
+		# kappa, funa : tireurs à distance ; tsurara : tourelle fixe (immobile par nature)
+		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa" or e.kind == "funa" or e.kind == "tsurara":
 			continue
 		var id: int = e.get_instance_id()
 		var p: Vector3 = e.position

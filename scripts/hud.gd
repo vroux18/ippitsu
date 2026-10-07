@@ -31,6 +31,9 @@ var boss_ratio := 1.0
 var wipe := 0.0  # rideau d'encre de la transition entre salles (0..1)
 # expédition (main) : avancée dans l'étape (0..1, < 0 = cachée), zones [début, fin, état 0/1/2], combats
 var stage_k := -1.0
+var _stage_vis_t := 0.0
+var _stage_seen_done := -1
+var _stage_seen_total := -1
 var top_off := 0.0  # marge du haut : encoche / barre d'état du téléphone (zone de sécurité) + un peu d'air
 var stage_marks: Array = []
 var enc_done := 0
@@ -48,7 +51,9 @@ var chain_left := 1.0  # temps restant avant extinction (0..1)
 var chain_mult := 1.0
 var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
 var chain_lost := 0
-var enemy_bars: Array = []  # [position écran, ratio de vie]
+var enemy_bars: Array = []  # [position écran, ratio de vie, (ratio de bouclier, élite)]
+const SHIELD_BAR := Color("#6FB7FF")
+const ELITE_MARK := Color("#FFB23E")
 var in_play := false
 var pause_enabled := true  # main : vrai seulement quand la pause est possible (état « play »)
 var level := 1
@@ -215,6 +220,7 @@ func _process(_delta: float) -> void:
 		if _toast_t > 1.4:
 			_toast_t = -1.0
 	_shape_t += real
+	_stage_vis_t = maxf(0.0, _stage_vis_t - real)
 	_real_dt = real
 	# premiers pouvoirs : on indique une fois qu'on peut toucher la colonne
 	if in_play and seals_tap and not _seal_hint_done and not power_seals.is_empty():
@@ -249,10 +255,26 @@ func _draw() -> void:
 	for b in enemy_bars:
 		var p: Vector2 = b[0]
 		var r: float = b[1]
-		var bw := 30.0 * u
+		# [position, vie] ou [position, vie, bouclier, élite]
+		var sr := 0.0
+		var el := false
+		if b.size() >= 4:
+			sr = float(b[2])
+			el = bool(b[3])
+		var bw := (40.0 if el else 30.0) * u
 		var rect := Rect2(p - Vector2(bw / 2.0, 0), Vector2(bw, 5 * u))
 		draw_rect(rect.grow(1.5 * u), Color(Toon.SUMI, 0.75))
 		draw_rect(Rect2(rect.position, Vector2(bw * clampf(r, 0.0, 1.0), rect.size.y)), Toon.VERMILION)
+		if sr > 0.0:
+			# bouclier : fine barre bleue posée sur la barre de vie
+			var srect := Rect2(rect.position - Vector2(0, 4.5 * u), Vector2(bw, 3 * u))
+			draw_rect(srect.grow(1.2 * u), Color(Toon.SUMI, 0.75))
+			draw_rect(Rect2(srect.position, Vector2(bw * clampf(sr, 0.0, 1.0), srect.size.y)), SHIELD_BAR)
+		if el:
+			# élite : losange d'or au bout de la barre
+			var c := rect.position + Vector2(-5.0 * u, rect.size.y * 0.5)
+			var d := 4.0 * u
+			draw_colored_polygon(PackedVector2Array([c + Vector2(0, -d), c + Vector2(d, 0), c + Vector2(0, d), c + Vector2(-d, 0)]), ELITE_MARK)
 
 	if in_play:
 		_draw_pad(u)
@@ -615,7 +637,7 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 	var r := 10.0 * u
 	var gap := 2.0 * r + 5.0 * u
 	var anchor := hero_screen if hero_screen.x > -9000.0 else Vector2(sz.x / 2.0, 150.0 * u)
-	var y := clampf(anchor.y - 16.0 * u, 60.0 * u + top_off, sz.y - 120.0 * u)
+	var y := clampf(anchor.y - 34.0 * u, 60.0 * u + top_off, sz.y - 120.0 * u)  # bien au-dessus de la tête
 	var x0 := clampf(anchor.x - (n - 1) * gap / 2.0, 14.0 * u, sz.x - 14.0 * u - (n - 1) * gap)
 	for i in n:
 		var sh: Array = _shapes[i]
@@ -902,7 +924,7 @@ func _draw_room(sz: Vector2, u: float) -> void:
 	draw_string(UiKit.TITLE_FONT, Vector2(cx - 10 * u, 38 * u), str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Toon.SUMI)
 	var nw := UiKit.TITLE_FONT.get_string_size(str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
 	draw_string(UiKit.UI_FONT, Vector2(cx - 8 * u + nw, 38 * u), "/ %d" % rooms_total, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(Toon.SUMI, 0.55))
-	if show_waves and waves_total > 1 and boss_name == "":
+	if false and show_waves:  # tirets des vagues retirés (indication inutile)
 		for i in waves_total:
 			var wp := Vector2(cx - 6 * u + i * 12 * u, 50 * u)
 			if i < wave_index:
@@ -1201,6 +1223,15 @@ func _update_safe_top() -> void:
 func _draw_stage_bar(sz: Vector2, u: float) -> void:
 	if stage_k < 0.0:
 		return
+	# seulement quelques secondes : en début d'étape et à la fin de chaque combat
+	if enc_done != _stage_seen_done or enc_total != _stage_seen_total:
+		_stage_seen_done = enc_done
+		_stage_seen_total = enc_total
+		_stage_vis_t = 3.2
+	if _stage_vis_t <= 0.0:
+		return
+	var sa := clampf(_stage_vis_t / 0.5, 0.0, 1.0) * clampf((3.2 - _stage_vis_t) / 0.25, 0.0, 1.0)
+	draw_set_transform(Vector2(-30.0 * u * (1.0 - sa), 0.0))
 	var x := 18.0 * u
 	var y0 := top_off + 236.0 * u
 	var y1 := y0 + 200.0 * u
@@ -1242,6 +1273,7 @@ func _draw_stage_bar(sz: Vector2, u: float) -> void:
 		var p2 := Vector2(x + 14.0 * u, y1 + 10.0 * u)
 		draw_string_outline(UiKit.UI_FONT, p2, "COMBATS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(8 * u), int(3 * u), Color(Toon.SUMI, 0.7))
 		draw_string(UiKit.UI_FONT, p2, "COMBATS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(8 * u), Color(Toon.WASHI, 0.9))
+	draw_set_transform(Vector2.ZERO)
 
 
 ## Rituel du torii : un lavis d'encre part de l'arche (wash_c) et couvre l'écran (bords qui bavent,

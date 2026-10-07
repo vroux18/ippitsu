@@ -11,6 +11,17 @@ extends Node3D
 ##  yukionna    — (3) fantôme des neiges : gèle une bande annoncée ; la glace freine la ruée qui la traverse
 ##  kasha       — (4) chat-charrette en feu : charge en ligne droite (couloir annoncé), laisse une traînée de feu
 ##  kagebo      — (5) double d'encre : rejoue plus tard le dernier trait du héros, tourné vers lui (chemin annoncé)
+## Bestiaire étendu (archétypes) :
+##  kappa_yumi  — (1) kappa archer : tir en ligne fine annoncée            teppo — (4) arquebusier : la ligne suit le héros puis se fige
+##  ika         — (1) calmar : obus d'encre en cloche sur un disque         umi_nyobo — (1) femme de la mer : soigne les alliés proches
+##  kamaitachi  — (2,3) belette : taille en zigzag annoncée, puis se pose   tanuki — (2) tambour du ventre + leurre (DORON), tanuki_d
+##  kitsune_tsukai — (2) montreur de renards : invoque des feux follets     yuki_warashi — (3) enfant des neiges : court et explose
+##  tsurara     — (3) stalactite : tourelle fixe, tirs de glace annoncés     onryo — (3) spectre : disparaît, surgit dans le dos du héros
+##  hinotama    — (4) boule de feu volante : piqué en ligne                 kanabo — (4) oni à massue : armure frontale, bouclier
+##  tengu       — (4) corbeau : lance des chausse-trapes (zones au sol)     sumidama — (5) goutte d'encre : flaque qui freine, se divise
+##  kasa        — (5) parapluie : bonds sur un disque, intouchable en l'air moryo — (5) esprit : pose des boucliers sur les alliés
+## Boucliers (barre bleue) : tant qu'il en reste, un coup n'entame que 25 % des PV ; figures et pouvoirs les usent ×2 ;
+## brisé : titube 0.8 s. Élites (main._spawn_list) : ×1.25, ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes.
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
@@ -125,6 +136,101 @@ const KAGE_SPEED := 14.0
 var _rec := PackedVector3Array()
 var _rec_id := -1
 
+# ------------------------------------------------------------------ bestiaire étendu
+const SHIELD_C := Color("#6FB7FF")
+const ELITE_C := Color("#FFB23E")
+const HEAL_C := Color("#7FE0A8")
+const INK_C := Color("#26222C")
+const ROGUE_GEAR := ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"]
+const KIND_H := {"oni": 1.6, "brute": 2.4, "kappa": 1.75, "tate": 1.9, "funa": 1.6, "umibozu": 1.75,
+	"kitsunebi": 1.35, "kitsunebi_s": 0.95, "yukionna": 1.85, "kasha": 1.7, "kagebo": 1.75}
+const NO_ELITE := ["kitsunebi_s", "tanuki_d", "sumidama_s", "tsurara"]
+const ELITE_NAMES := {"blinde": "BLINDÉ", "rapide": "RAPIDE", "vampire": "VAMPIRE", "explosif": "EXPLOSIF",
+	"invocateur": "INVOCATEUR", "enrage": "ENRAGÉ"}
+const ELITE_POOL := ["blinde", "rapide", "vampire", "explosif", "invocateur", "enrage"]
+const BLAST_R := 1.9
+const BLAST_T := 1.1
+# tireurs en ligne (kappa archer, arquebusier, stalactite)
+const SNIPE_W := 0.6
+const SNIPE_LEN := 11.0
+const SNIPE_WINDUP := 1.15
+const TEPPO_TRACK := 0.75
+const TEPPO_HOLD := 0.45
+const ICICLE_W := 0.7
+const ICICLE_LEN := 8.0
+const ICICLE_T := 1.2
+# calmar : obus en cloche
+const MORTAR_R := 1.3
+const MORTAR_T := 1.5
+# soutiens (soin, bouclier)
+const SUPPORT_R := 4.5
+const SUPPORT_CAST := 0.9
+# belette, boule de feu
+const WEASEL_T := 0.85
+const SWOOP_T := 0.95
+# tanuki, invocateur, enfant des neiges
+const DRUM_R := 2.0
+const DRUM_T := 1.0
+const SUMMON_CAST := 1.1
+const KAMI_R := 1.7
+const KAMI_T := 1.0
+# spectre
+const ONRYO_FADE := 0.35
+const ONRYO_GONE := 0.45
+const ONRYO_T := 0.8
+# tengu : chausse-trapes
+const TRAP_R := 0.7
+const TRAP_T := 1.0
+const TRAP_LIFE := 4.5
+# parapluie : bonds
+const HOP_R := 0.95
+const HOP_T := 0.85
+const HOP_GROUND := 0.9
+
+static var _res := {}  # maillages et matériaux partagés par tous les ennemis
+
+var shield := 0.0
+var shield_max := 0.0
+var elite := false
+var affixes: Array = []
+var minion := false  # invoqué (pas d'élite)
+var _shield_frac := 0.0  # bouclier de départ (fraction des PV max), posé à la première image
+var _bubble: MeshInstance3D
+var _bubble_base := Vector3.ONE
+var _aura: MeshInstance3D
+var _aura_r := 1.0
+var _tempo := 1.0  # Rapide / Enragé : tout son rythme accéléré
+var _enraged := false
+var _called := false
+var _blast_t := 0.0
+var _selfkill := false  # explosion volontaire, leurre dissipé : pas de butin
+var _h := 1.7  # hauteur du modèle
+var _rogue := false
+var _custom := false  # corps modelé (pas de squelette KayKit)
+var _scale_in := 0.0  # apparition par mise à l'échelle (durée)
+var _base_hp := 1.0
+var _summons: Array = []  # invocations (peuvent être libérées : jamais typées)
+var _summon_total := 0
+var _proj: MeshInstance3D
+var _proj_from := Vector3.ZERO
+var _belly: MeshInstance3D
+var _doron_cd := 0.0
+var _life := 0.0
+var _air := false
+var _hop_from := Vector3.ZERO
+var _hop_len := 0.6
+var _traps := PackedVector3Array()
+var _trap_t := 0.0
+var _trap_node: Node3D
+var _armour_t := -9.0
+var _ice_w := YUKI_W
+var _ice_word := "GIVRE"
+var _ice_col := ICE_C
+var _drift_p := Vector3.ZERO
+var _drift_t := 0.0
+var _corner_t := 0.0
+var _spark_t := -9.0
+
 
 func setup(k: String, h: Node3D, m: Node) -> void:
 	kind = k
@@ -140,6 +246,7 @@ func _ready() -> void:
 	body.add_child(ch)
 	_deco = Node3D.new()
 	body.add_child(_deco)
+	_h = float(KIND_H.get(kind, 1.7))
 	match kind:
 		"oni":
 			hp = 1.0
@@ -264,12 +371,19 @@ func _ready() -> void:
 			_tint(Color(0.3, 0.29, 0.34), 0.85)
 			ch.attach("handslot.r", _blade(0.85, Toon.SUMI))
 			_timer = randf_range(2.0, 3.0)
+		_:
+			_setup_extra()
 	# rythme un peu plus posé : marche -10 %, annonces des coups +15 %
 	speed *= 0.9
 	_windup *= 1.15
+	_base_hp = hp
+	if kind == "kagebo" or _rogue or _custom:
+		_scale_in = SPAWN_TIME
+	if kind == "kitsunebi_s" or kind == "sumidama_s":
+		_scale_in = 0.4
 	if _glow_a > 0.0:
 		_base_glow()
-	ch.idle = "Blocking" if kind == "tate" else ("Idle" if kind == "kagebo" else "Idle_Combat")
+	ch.idle = "Blocking" if kind == "tate" else ("Idle" if kind == "kagebo" or _rogue else "Idle_Combat")
 	_shadow = Toon.disc(self, radius * 0.95, Color(0, 0, 0, 0.12))
 	if kind == "funa":
 		# pas d'apparition au sol : il sort de l'eau au bord du ponton
@@ -282,9 +396,360 @@ func _ready() -> void:
 		_spawn = 0.0
 		_surface()
 		return
-	if kind == "kagebo" or kind == "kitsunebi_s":
+	if kind == "tanuki_d":
+		_spawn = 0.0  # le leurre prend la place du vrai, sans apparition
+		return
+	if _scale_in > 0.0:
+		if _scale_in < SPAWN_TIME:
+			_spawn = _scale_in
 		return  # apparition par mise à l'échelle (_process)
 	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / SPAWN_TIME, 0.0)
+
+
+## Bestiaire étendu : modèle, teinte, accessoires et réglages de chaque nouveau yōkai.
+func _setup_extra() -> void:
+	var red := load("res://assets/kaykit/tex/skeleton_red.png") as Texture2D
+	var ink := load("res://assets/kaykit/tex/skeleton_ink.png") as Texture2D
+	var gold := load("res://assets/kaykit/tex/skeleton_gold.png") as Texture2D
+	match kind:
+		"kappa_yumi":
+			# kappa archer : carapace sur le dos, coupelle sur le crâne, arbalète
+			hp = 1.0
+			speed = 1.7
+			radius = 0.42
+			_walk = "Walking_B"
+			_h = 1.55
+			_rogue = true
+			ch.setup(ROGUE, _h, [], _gear_except(["1H_Crossbow"]), Toon.GOLD)
+			_tint(Color("#7DB37A"), 1.0)
+			Toon.part(_deco, _sph(0.3), _pm(Color("#4E6B3A")), Vector3(0, 0.55 * _h, 0.13 * _h), Vector3(1.0, 1.15, 0.55))
+			Toon.part(_deco, _cyl(0.14, 0.11, 0.035, 12), _pm(Color("#DDE8D0")), Vector3(0, 1.0 * _h, 0.0))
+			_timer = randf_range(1.6, 2.4)
+		"teppo":
+			# arquebusier : long canon de fer, mèche rouge
+			hp = 1.5
+			speed = 1.5
+			radius = 0.5
+			_walk = "Walking_A"
+			_h = 1.85
+			ch.setup(WARRIOR, _h, [["Cloak", red], ["Helmet", ink]])
+			ch.attach("handslot.r", _rifle())
+			_timer = randf_range(1.8, 2.6)
+		"ika":
+			# calmar : manteau pointu sur la tête, tentacules à la taille
+			hp = 1.2
+			speed = 1.3
+			radius = 0.45
+			_h = 1.35
+			ch.setup(MINION, _h, [["", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
+			_tint(Color("#D59AC8"), 1.0)
+			var pink := _pm(Color("#C46FA8"))
+			Toon.part(_deco, _cyl(0.02, 0.2, 0.42, 10), pink, Vector3(0, 1.08 * _h, 0.03))
+			for i in 5:
+				var a := TAU * float(i) / 5.0
+				var t := Toon.part(_deco, _cap(0.045, 0.5), pink, Vector3(cos(a) * 0.17, 0.2, sin(a) * 0.17))
+				t.rotation = Vector3(sin(a) * 0.35, 0, -cos(a) * 0.35)
+			_timer = randf_range(1.5, 2.5)
+		"umi_nyobo":
+			# femme de la mer : pâle et verte, longue chevelure, perle de soin
+			hp = 1.4
+			speed = 1.6
+			radius = 0.45
+			_walk = "Walking_B"
+			_h = 1.75
+			ch.setup(MAGE, _h, [], ["Skeleton_Mage_Hat"], HEAL_C)
+			_tint(Color("#A8DCCB"), 0.8)
+			_glow_a = 0.25
+			_glow_c = HEAL_C
+			Toon.part(_deco, _box(Vector3(0.45, 0.95, 0.07)), _pm(Toon.SUMI), Vector3(0, 0.66 * _h, 0.17 * _h))
+			for s in [-1.0, 1.0]:
+				var w := Toon.part(_deco, _cap(0.035, 0.5), _pm(Color("#3F7A4E")), Vector3(float(s) * 0.2, 0.6 * _h, 0.0))
+				w.rotation.z = float(s) * 0.25
+			ch.attach("handslot.r", _orb(0.13, HEAL_C))
+			_timer = randf_range(1.5, 2.5)
+		"moryo":
+			# mōryō : petit démon d'encre aux longues oreilles, talisman au front
+			hp = 1.3
+			speed = 1.9
+			radius = 0.4
+			_h = 1.3
+			ch.setup(MINION, _h, [["", ink]], [], SHIELD_C)
+			_tint(Color("#7C6F86"), 0.85)
+			_glow_a = 0.2
+			_glow_c = SHIELD_C
+			for s in [-1.0, 1.0]:
+				var sx := float(s)
+				var e := Toon.part(_deco, _cyl(0.0, 0.06, 0.4, 6), _pm(Color("#3A3340")), Vector3(sx * 0.2, 0.9 * _h, 0.0))
+				e.rotation.z = -sx * 1.0
+			Toon.part(_deco, _box(Vector3(0.09, 0.22, 0.012)), _pm(Toon.WASHI), Vector3(0, 0.86 * _h, -0.15 * _h))
+			Toon.part(_deco, _box(Vector3(0.04, 0.16, 0.014)), _pm(Toon.VERMILION, false), Vector3(0, 0.86 * _h, -0.157 * _h))
+			_timer = randf_range(1.5, 2.5)
+		"kamaitachi":
+			# belette faucheuse : petite, fauve, deux lames, longue queue
+			hp = 0.9
+			speed = 2.6
+			radius = 0.38
+			_walk = "Walking_A"
+			_h = 1.25
+			_rogue = true
+			ch.setup(ROGUE, _h, [], _gear_except(["Knife", "Knife_Offhand"]), Toon.GOLD)
+			_tint(Color("#C99A62"), 1.0)
+			_ears(_h, Color("#8A5F35"))
+			var tail := Toon.part(_deco, _cap(0.08, 0.7), _pm(Color("#8A5F35")), Vector3(0, 0.3 * _h, 0.26 * _h))
+			tail.rotation.x = 1.1
+			_timer = randf_range(1.2, 2.0)
+		"tanuki", "tanuki_d":
+			# tanuki : ventru, chapeau de paille ; le leurre n'a pas de queue (le seul indice)
+			var decoy := kind == "tanuki_d"
+			hp = 0.05 if decoy else 1.8
+			speed = 2.0 if decoy else 1.6
+			radius = 0.55
+			_walk = "Walking_A"
+			_h = 1.45
+			ch.setup(WARRIOR, _h, [["", gold]])
+			_tint(Color("#A07850"), 1.0)
+			_ears(_h, Color("#5A4030"))
+			_belly = Toon.part(_deco, _sph(0.36), _pm(Color("#E8D2A8")), Vector3(0, 0.45 * _h, -0.12 * _h), Vector3(1, 1, 0.7))
+			Toon.part(_deco, _cyl(0.06, 0.36, 0.12, 12), _pm(Color("#C9A55A")), Vector3(0, 1.0 * _h, 0))
+			if decoy:
+				_life = 7.0
+			else:
+				var tl := Toon.part(_deco, _cap(0.13, 0.55), _pm(Color("#5A4030")), Vector3(0, 0.25 * _h, 0.3 * _h))
+				tl.rotation.x = 1.0
+			_doron_cd = 1.5
+		"kitsune_tsukai":
+			# montreur de renards : masque blanc, robe rouge, flamme bleue
+			hp = 1.5
+			speed = 1.5
+			radius = 0.45
+			_walk = "Walking_B"
+			_h = 1.75
+			ch.setup(MAGE, _h, [["Body", red]], ["Skeleton_Mage_Hat"], FOX_FIRE)
+			_tint(Color("#F0E2CC"), 0.9)
+			_glow_a = 0.2
+			_glow_c = FOX_FIRE
+			Toon.part(_deco, _box(Vector3(0.24, 0.22, 0.05)), _pm(Toon.WASHI), Vector3(0, 0.86 * _h, -0.14 * _h))
+			Toon.part(_deco, _box(Vector3(0.16, 0.025, 0.02)), _pm(Toon.VERMILION, false), Vector3(0, 0.89 * _h, -0.17 * _h))
+			_ears(_h, Color("#F4EBDD"))
+			ch.attach("handslot.r", _orb(0.12, FOX_FIRE))
+			_timer = randf_range(1.2, 2.0)
+		"yuki_warashi":
+			# enfant des neiges : petit, blanc, chapeau de paille et écharpe rouge
+			hp = 0.8
+			speed = 2.9
+			radius = 0.38
+			_h = 1.1
+			ch.setup(MINION, _h, [], [], ICE_C)
+			_tint(Color("#EEF6FF"), 0.8)
+			_glow_a = 0.25
+			_glow_c = ICE_C
+			Toon.part(_deco, _cyl(0.04, 0.38, 0.14, 12), _pm(Color("#D9C9A0")), Vector3(0, 1.02 * _h, 0))
+			Toon.part(_deco, _box(Vector3(0.34, 0.08, 0.24)), _pm(Toon.VERMILION), Vector3(0, 0.7 * _h, 0))
+		"tsurara":
+			# stalactite : tourelle de glace posée sur un tertre de neige
+			hp = 1.2
+			speed = 0.0
+			radius = 0.5
+			_h = 1.5
+			_custom = true
+			Toon.part(body, _sph(0.55), _pm(Color("#EAF4FF")), Vector3(0, 0.05, 0), Vector3(1, 0.4, 1))
+			var ice := _pm(Color("#A9DDF5"))
+			var spikes := [[0.0, 0.0, 0.26, 1.5], [0.24, 0.1, 0.17, 1.0], [-0.22, 0.14, 0.16, 0.9], [0.06, -0.26, 0.15, 0.8], [-0.12, -0.2, 0.12, 0.6]]
+			for sp in spikes:
+				var a: Array = sp
+				Toon.part(body, _cyl(0.0, float(a[2]), float(a[3]), 6), ice, Vector3(float(a[0]), float(a[3]) * 0.5, float(a[1])))
+			Toon.part(body, _sph(0.09), main.vfx.glow_mat(ICE_C, 2.5), Vector3(0, 0.55, -0.24))
+			_timer = randf_range(1.5, 2.5)
+		"hinotama":
+			# boule de feu : cœur ardent, yeux noirs, flammes
+			hp = 0.8
+			speed = 2.0
+			radius = 0.42
+			_h = 0.9
+			_custom = true
+			Toon.part(body, _sph(0.32), main.vfx.glow_mat(Color("#FF7A2A"), 2.6), Vector3(0, 0.45, 0))
+			Toon.part(body, _sph(0.2), main.vfx.glow_mat(Color("#FFD36A"), 2.4), Vector3(0, 0.47, -0.1))
+			for s in [-1.0, 1.0]:
+				Toon.part(body, _sph(0.05), _pm(Toon.SUMI, false), Vector3(float(s) * 0.1, 0.52, -0.29))
+			main.vfx.burner(body, 0.25, 5, Vector3(0, 0.55, 0))
+			body.position.y = 1.3
+			_timer = randf_range(1.5, 2.2)
+		"kanabo":
+			# oni à massue : rouge, cornes, massue de fer ; armure de face et bouclier
+			hp = 4.0
+			speed = 1.25
+			radius = 0.8
+			_zone_r = 1.6
+			_windup = 1.35
+			_attack = "2H_Melee_Attack_Chop"
+			_walk = "Walking_A"
+			_h = 2.5
+			ch.setup(WARRIOR, _h, [["Helmet", ink], ["Cloak", gold]])
+			_tint(Color("#E07A5F"), 1.0)
+			for s in [-1.0, 1.0]:
+				var sx := float(s)
+				var hn := Toon.part(_deco, _cyl(0.0, 0.08, 0.3, 6), _pm(Color("#EFE3C8")), Vector3(sx * 0.16 * _h, 0.98 * _h, -0.02))
+				hn.rotation.z = -sx * 0.4
+			ch.attach("handslot.r", _club())
+			_shield_frac = 0.35
+		"tengu":
+			# karasu-tengu : noir, bec d'or, petit bonnet rouge, ailes
+			hp = 1.3
+			speed = 2.0
+			radius = 0.45
+			_walk = "Walking_A"
+			_h = 1.65
+			_rogue = true
+			ch.setup(ROGUE, _h, [], ROGUE_GEAR.duplicate(), Toon.GOLD)
+			_tint(Color("#4A4A58"), 1.0)
+			var beak := Toon.part(_deco, _cyl(0.0, 0.07, 0.24, 6), _pm(Color("#E0A030")), Vector3(0, 0.84 * _h, -0.2 * _h))
+			beak.rotation.x = -PI / 2.0
+			Toon.part(_deco, _box(Vector3(0.1, 0.09, 0.1)), _pm(Toon.VERMILION), Vector3(0, 1.0 * _h, -0.06 * _h))
+			for s in [-1.0, 1.0]:
+				var sx := float(s)
+				var wg := Toon.part(_deco, _box(Vector3(0.5, 0.55, 0.04)), _pm(Color("#24222A")), Vector3(sx * 0.24, 0.62 * _h, 0.18 * _h))
+				wg.rotation = Vector3(0.2, sx * 0.5, sx * 0.4)
+			_timer = randf_range(1.5, 2.5)
+		"onryo":
+			# onryō : spectre pâle, cheveux noirs sur le visage, bandeau blanc
+			hp = 1.4
+			speed = 1.6
+			radius = 0.45
+			_walk = "Walking_B"
+			_h = 1.8
+			ch.setup(MAGE, _h, [], ["Skeleton_Mage_Hat"], Color("#C9B8FF"))
+			_tint(Color("#E4E8F2"), 0.7)
+			_glow_a = 0.3
+			_glow_c = Color("#B9A8E8")
+			Toon.part(_deco, _box(Vector3(0.42, 0.85, 0.06)), _pm(Toon.SUMI), Vector3(0, 0.66 * _h, 0.16 * _h))
+			Toon.part(_deco, _box(Vector3(0.3, 0.4, 0.04)), _pm(Toon.SUMI), Vector3(0, 0.78 * _h, -0.16 * _h))
+			Toon.part(_deco, _box(Vector3(0.12, 0.08, 0.02)), _pm(Toon.WASHI), Vector3(0, 0.98 * _h, -0.15 * _h))
+			_timer = randf_range(1.8, 2.6)
+		"sumidama", "sumidama_s":
+			# goutte d'encre : boule noire tremblotante à deux yeux
+			var small := kind == "sumidama_s"
+			var s := 0.6 if small else 1.0
+			hp = 0.55 if small else 1.6
+			speed = 2.6 if small else 1.4
+			radius = 0.35 if small else 0.55
+			_h = 0.9 * s
+			_custom = true
+			Toon.part(body, _sph(0.5 * s), _pm(INK_C), Vector3(0, 0.42 * s, 0), Vector3(1, 0.85, 1))
+			for e in [-1.0, 1.0]:
+				var ex := float(e)
+				Toon.part(body, _sph(0.09 * s), _pm(Toon.WASHI, false), Vector3(ex * 0.17 * s, 0.56 * s, -0.38 * s))
+				Toon.part(body, _sph(0.045 * s), _pm(Toon.SUMI, false), Vector3(ex * 0.17 * s, 0.56 * s, -0.46 * s))
+		"kasa":
+			# kasa-obake : parapluie rouge à un œil, une jambe, langue pendante
+			hp = 1.1
+			speed = 0.0
+			radius = 0.5
+			_h = 1.5
+			_custom = true
+			Toon.part(body, _cyl(0.06, 0.62, 0.45, 12), _pm(Color("#C8423A")), Vector3(0, 1.25, 0))
+			Toon.part(body, _cyl(0.63, 0.63, 0.04, 12), _pm(Toon.WASHI), Vector3(0, 1.03, 0))
+			Toon.part(body, _cyl(0.03, 0.03, 0.75, 6), _pm(Toon.WOOD), Vector3(0, 0.62, 0))
+			Toon.part(body, _cap(0.07, 0.5), _pm(Toon.SKIN), Vector3(0, 0.25, 0))
+			Toon.part(body, _sph(0.15), _pm(Toon.WASHI), Vector3(0, 1.17, -0.44))
+			Toon.part(body, _sph(0.075), _pm(Toon.SUMI, false), Vector3(0, 1.17, -0.57))
+			var tg := Toon.part(body, _box(Vector3(0.12, 0.025, 0.34)), _pm(Toon.VERMILION), Vector3(0, 0.98, -0.55))
+			tg.rotation.x = 0.6
+			_timer = 0.8
+
+
+## Rogue KayKit : ne garder que les armes listées.
+func _gear_except(keep: Array) -> Array:
+	var out: Array = []
+	for g in ROGUE_GEAR:
+		if not (g in keep):
+			out.append(g)
+	return out
+
+
+# maillages et matériaux partagés (créés une fois pour toute la partie)
+func _sph(r: float) -> Mesh:
+	var key := "s%.3f" % r
+	if not _res.has(key):
+		_res[key] = Toon.sphere(r)
+	return _res[key] as Mesh
+
+
+func _box(s: Vector3) -> Mesh:
+	var key := "b%.3f_%.3f_%.3f" % [s.x, s.y, s.z]
+	if not _res.has(key):
+		_res[key] = Toon.box(s)
+	return _res[key] as Mesh
+
+
+func _cyl(top: float, bottom: float, h: float, sides := 12) -> Mesh:
+	var key := "c%.3f_%.3f_%.3f_%d" % [top, bottom, h, sides]
+	if not _res.has(key):
+		_res[key] = Toon.cyl(top, bottom, h, sides)
+	return _res[key] as Mesh
+
+
+func _cap(r: float, h: float) -> Mesh:
+	var key := "p%.3f_%.3f" % [r, h]
+	if not _res.has(key):
+		_res[key] = Toon.capsule(r, h)
+	return _res[key] as Mesh
+
+
+func _torus() -> Mesh:
+	if not _res.has("torus"):
+		var t := TorusMesh.new()
+		t.inner_radius = 0.86
+		t.outer_radius = 1.0
+		t.rings = 28
+		t.ring_segments = 4
+		_res["torus"] = t
+	return _res["torus"] as Mesh
+
+
+func _pm(c: Color, outline := true) -> Material:
+	var key := "m%s%s" % [c.to_html(), "o" if outline else ""]
+	if not _res.has(key):
+		_res[key] = Toon.mat(c, outline, 0.02)
+	return _res[key] as Material
+
+
+func _fm(c: Color) -> Material:
+	var key := "f%s" % c.to_html()
+	if not _res.has(key):
+		_res[key] = Toon.flat(c)
+	return _res[key] as Material
+
+
+func _shield_mat() -> Material:
+	if not _res.has("bubble"):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.albedo_color = Color(SHIELD_C, 0.17)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.cull_mode = BaseMaterial3D.CULL_BACK
+		m.no_depth_test = false
+		_res["bubble"] = m
+	return _res["bubble"] as Material
+
+
+## Arquebuse : canon de fer, crosse de bois, bague d'or.
+func _rifle() -> Node3D:
+	var k := Node3D.new()
+	Toon.part(k, _box(Vector3(0.07, 0.32, 0.12)), _pm(Color("#4A3A2C")), Vector3(0, -0.05, 0))
+	Toon.part(k, _cyl(0.035, 0.035, 1.1, 8), _pm(Color("#3A3C42")), Vector3(0, 0.6, 0))
+	Toon.part(k, _cyl(0.05, 0.05, 0.06, 8), _pm(Toon.GOLD), Vector3(0, 0.3, 0))
+	return k
+
+
+## Kanabō : manche de bois, grosse tête de fer cloutée d'or.
+func _club() -> Node3D:
+	var k := Node3D.new()
+	Toon.part(k, _cyl(0.04, 0.04, 0.5, 8), _pm(Color("#4A3A2C")), Vector3(0, 0.1, 0))
+	Toon.part(k, _cyl(0.16, 0.1, 1.0, 8), _pm(Color("#3A3C42")), Vector3(0, 0.85, 0))
+	for i in 6:
+		var a := TAU * float(i) / 6.0
+		Toon.part(k, _sph(0.045), _pm(Toon.GOLD, false), Vector3(cos(a) * 0.15, 0.6 + 0.12 * float(i % 3), sin(a) * 0.15))
+	return k
 
 
 func _blade(blade_len: float, steel: Color) -> Node3D:
@@ -328,7 +793,7 @@ func _ladle() -> Node3D:
 ## Boule lumineuse tenue à la main (perle du moine, flamme du renard).
 func _orb(r: float, c: Color) -> Node3D:
 	var k := Node3D.new()
-	Toon.part(k, Toon.sphere(r), main.vfx.glow_mat(c, 3.0), Vector3(0, 0.15, 0))
+	Toon.part(k, _sph(r), main.vfx.glow_mat(c, 3.0), Vector3(0, 0.15, 0))
 	return k
 
 
@@ -389,6 +854,10 @@ func _make_zone(fixed := false) -> void:
 func is_harmless() -> bool:
 	if (kind == "funa" or kind == "umibozu") and _phase != "up":
 		return true
+	if kind == "kasa" and _air:
+		return true  # en l'air : hors d'atteinte
+	if kind == "onryo" and (_state == "fade" or _state == "gone"):
+		return true  # évanoui
 	return _spawn > 0.0 or dead
 
 
@@ -412,38 +881,306 @@ func shield_break() -> void:
 
 
 func take_hit(dmg: float, dir: Vector3) -> bool:
+	dmg = _armour(dmg, dir)
+	dmg = _absorb(dmg, _figure_hit())
 	hp -= dmg
 	_flash = 0.12
-	_knock = dir.normalized() * (3.0 if kind == "brute" else (4.5 if kind == "tate" or kind == "kasha" else 7.0))
-	if kind == "funa" or _state == "charge":
+	_knock = dir.normalized() * _knock_force()
+	if kind == "funa" or kind == "tsurara" or _state == "charge" or _air:
 		_knock = Vector3.ZERO
-	if _state == "windup" and kind != "brute":
+	if _state == "windup" and kind != "brute" and kind != "kanabo":
 		_cancel_attack()
 	if hp <= 0.0:
 		_die()
 		# mort sobre : petit recul (~0.5 m), pas de vrille
-		_knock = Vector3.ZERO if kind == "funa" else dir.normalized() * 4.0
+		_knock = Vector3.ZERO if kind == "funa" or kind == "tsurara" else dir.normalized() * 4.0
 		return true
 	ch.play_once("Hit_A", 1.6)
+	if _custom:
+		body.scale = Vector3(1.18, 0.85, 1.18)  # pas de squelette : le coup écrase la silhouette
 	if kind == "umibozu":
 		# touché sans être tranché net : il replonge aussitôt
 		_phase = "dive"
 		_ptimer = FUNA_DIVE
+	elif kind == "tanuki" and _doron_cd <= 0.0:
+		_doron_cd = 6.0
+		call_deferred("_doron")
+	_on_wounded()
 	return false
+
+
+func _knock_force() -> float:
+	var f := 7.0
+	match kind:
+		"brute":
+			f = 3.0
+		"kanabo":
+			f = 2.0
+		"tate", "kasha", "tanuki":
+			f = 4.5
+	if shield > 0.0:
+		f *= 0.5
+	return f
+
+
+## Kanabō : armure de face (35 % des dégâts), dos exposé (×1.4).
+func _armour(dmg: float, dir: Vector3) -> float:
+	if kind != "kanabo" or _stagger > 0.0:
+		return dmg
+	var d := Vector3(dir.x, 0, dir.z)
+	if d.length_squared() < 0.0001:
+		return dmg
+	var front := Vector3(-sin(body.rotation.y), 0, -cos(body.rotation.y))
+	var dot := d.normalized().dot(front)
+	if dot < -0.5:
+		main.vfx.sparks(position + Vector3(0, 1.4, 0) + front * 0.5, front, 6, Toon.GOLD)
+		if _t - _armour_t > 1.2:
+			_armour_t = _t
+			main.float_text(position, "ARMURE", Toon.GOLD)
+		return dmg * 0.35
+	if dot > 0.5:
+		return dmg * 1.4
+	return dmg
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ?
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Bouclier : renvoie les dégâts qui passent jusqu'aux PV (25 % tant qu'il tient, le surplus en entier).
+## `strong` (figures, pouvoirs) : le bouclier s'use deux fois plus vite.
+func _absorb(dmg: float, strong: bool) -> float:
+	if shield <= 0.0 or dmg <= 0.0:
+		return dmg
+	var mult := 2.0 if strong else 1.0
+	var sd := dmg * mult
+	if sd < shield:
+		shield -= sd
+		if _t - _spark_t > 0.25:
+			# étincelles bleues (limitées : les brûlures frappent à chaque image)
+			_spark_t = _t
+			main.vfx.sparks(position + Vector3(0, _h * 0.6, 0), Vector3.UP, 3, SHIELD_C)
+		return dmg * 0.25
+	var over := (sd - shield) / mult
+	shield = 0.0
+	_shield_broken()
+	return (dmg - over) * 0.25 + over
+
+
+func _shield_broken() -> void:
+	_stagger = maxf(_stagger, 0.8)
+	if _state == "windup" and not _air:
+		_cancel_attack()
+	if _bubble != null:
+		_bubble.visible = false
+	main.float_text(position, "BRISÉ", SHIELD_C)
+	main.vfx.ring(Vector3(position.x, 0.1, position.z), SHIELD_C, 1.3)
+	main.vfx.sparks(position + Vector3(0, _h * 0.6, 0), Vector3.UP, 10, SHIELD_C)
+	main.sfx.play("strike", 1.6, -5.0)
+	ch.play_once("Hit_A", 1.0)
+
+
+## Points de bouclier (soutien, élite, armure de départ).
+func give_shield(v: float) -> void:
+	if dead or v <= 0.0:
+		return
+	shield = maxf(shield, v)
+	shield_max = maxf(shield_max, shield)
+	_ensure_bubble()
+
+
+func shield_ratio() -> float:
+	if shield <= 0.0 or shield_max <= 0.0:
+		return 0.0
+	return clampf(shield / shield_max, 0.0, 1.0)
+
+
+## Hauteur de la barre de vie au-dessus de la tête.
+func bar_top() -> float:
+	return maxf(2.1, _h + 0.45) * scale.y + maxf(body.position.y, 0.0)
+
+
+## Soin d'un allié (umi-nyōbō) : faux s'il est déjà indemne.
+func heal_pct(f: float) -> bool:
+	if dead:
+		return false
+	var mh := float(get_meta("max_hp", hp))
+	if hp >= mh - 0.01:
+		return false
+	hp = minf(mh, hp + mh * f)
+	main.float_text(position, "+", HEAL_C)
+	return true
+
+
+func _ensure_bubble() -> void:
+	if _bubble != null:
+		_bubble.visible = shield > 0.0
+		return
+	var r := maxf(radius * 1.5, _h * 0.38)
+	_bubble_base = Vector3(r, _h * 0.62, r)
+	_bubble = Toon.part(self, _sph(1.0), _shield_mat(), Vector3(0, _h * 0.5, 0), _bubble_base)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_bubble.visible = shield > 0.0
+
+
+# ------------------------------------------------------------------ élites
+
+static func elite_chance(world: int) -> float:
+	return 0.06 + 0.025 * float(world)
+
+
+static func roll_affixes(world: int) -> Array:
+	var pool: Array = ELITE_POOL.duplicate()
+	pool.shuffle()
+	var n := 2 if randf() < 0.2 + 0.1 * float(world) else 1
+	return pool.slice(0, n)
+
+
+func can_be_elite() -> bool:
+	return not minion and not dummy and not elite and not (kind in NO_ELITE)
+
+
+## Élite : plus gros, ×2.5 PV, bouclier, aura et cornes d'or, affixes. Appelé avant la pose de max_hp.
+func promote(list: Array, announce := true) -> void:
+	elite = true
+	affixes = list.duplicate()
+	hp *= 2.5
+	scale = Vector3.ONE * 1.25
+	radius *= 1.15
+	_shield_frac += 0.6 if "blinde" in affixes else 0.3
+	if "rapide" in affixes:
+		_tempo *= 1.2
+		speed *= 1.2
+	_aura_r = radius * 1.4
+	_aura = Toon.part(self, _torus(), main.vfx.glow_mat(ELITE_C, 2.2), Vector3(0, 0.05, 0), Vector3(_aura_r, 0.06, _aura_r))
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		var horn := Toon.part(_deco, _cyl(0.0, 0.05, 0.22, 6), _pm(ELITE_C), Vector3(sx * 0.1, _h * 1.0, -0.02))
+		horn.rotation.z = -sx * 0.35
+	_ensure_bubble()
+	if announce:
+		var words := PackedStringArray(["ÉLITE"])
+		for a in affixes:
+			words.append(String(ELITE_NAMES.get(a, "")))
+		main.hud.toast(" · ".join(words))
+
+
+## Seuils de l'élite (Enragé, Invocateur) sous la moitié de sa vie.
+func _on_wounded() -> void:
+	if not elite or dead:
+		return
+	var mh := float(get_meta("max_hp", hp))
+	if hp > mh * 0.5:
+		return
+	if "enrage" in affixes and not _enraged:
+		_enraged = true
+		_tempo *= 1.35
+		_glow_a = maxf(_glow_a, 0.4)
+		_glow_c = Toon.VERMILION
+		_base_glow()
+		main.float_text(position, "ENRAGÉ", Toon.VERMILION)
+	if "invocateur" in affixes and not _called:
+		_called = true
+		call_deferred("_summon", _minion_kind(), 2, maxf(mh * 0.1, 0.8))
+
+
+func _minion_kind() -> String:
+	if kind in ["kitsunebi", "kitsune_tsukai", "onryo", "yukionna", "umi_nyobo"]:
+		return "kitsunebi_s"
+	if kind == "sumidama":
+		return "sumidama_s"
+	return "oni"
+
+
+## Coup porté par l'ennemi (Vampire : se soigne s'il touche).
+func _strike(center: Vector3, r: float) -> void:
+	var before: int = hero.hp
+	main.enemy_strike(center, r)
+	if elite and not dead and "vampire" in affixes and int(hero.hp) < before:
+		var mh := float(get_meta("max_hp", hp))
+		hp = minf(mh, hp + mh * 0.25)
+		main.float_text(position, "VAMPIRE", Toon.VERMILION)
+		main.splash(position + Vector3(0, 1.0, 0), Toon.VERMILION, 8)
+
+
+## Invocation : `n` créatures autour de lui (différée : jamais pendant un parcours de main.enemies).
+func _summon(k: String, n: int, hp_each: float) -> void:
+	if not is_instance_valid(main) or not is_inside_tree():
+		return
+	var sc = get_script()
+	var a0 := randf() * TAU
+	for i in n:
+		var a := a0 + TAU * float(i) / float(n)
+		var p: Vector3 = main.arena.clamp_walk(Vector3(position.x, 0, position.z) + Vector3(cos(a), 0, sin(a)) * 1.0, 0.35)
+		var hole: bool = main.hazards.is_hole(p, 0.1)
+		if hole:
+			p = Vector3(position.x, 0, position.z)
+		var e = sc.new()
+		e.setup(k, hero, main)
+		e.minion = true
+		e.position = p
+		main.add_child(e)
+		e.hp = hp_each
+		e.set_meta("max_hp", e.hp)
+		main.enemies.append(e)
+		_summons.append(e)
+	_puff(position, ELITE_C if elite else FOX_FIRE)
+
+
+func _alive_summons() -> int:
+	var n := 0
+	for s in _summons:
+		if is_instance_valid(s) and not s.dead:
+			n += 1
+	return n
+
+
+## PV d'une invocation : base × multiplicateurs du monde et de la salle portés par l'invocateur.
+func _minion_hp(base: float) -> float:
+	var mult := float(get_meta("max_hp", hp)) / maxf(_base_hp, 0.01)
+	if elite:
+		mult /= 2.5
+	return base * mult
+
+
+func _puff(p: Vector3, c: Color) -> void:
+	main.splash(p + Vector3(0, 0.6, 0), c, 10)
+	main.vfx.ring(Vector3(p.x, 0.08, p.z), c, 0.9)
 
 
 ## Zone d'attaque en préparation : [centre, rayon, temps restant], ou [] s'il n'y en a pas.
 func danger_zone() -> Array:
+	if _blast_t > 0.0:
+		return [_target, _zone_r, _blast_t]
+	if _state == "windup" and kind == "tengu" and _traps.size() > 0:
+		return [_closest_pt(_traps, _probe()), TRAP_R, _timer]
 	if _state == "windup" and _zone != null:
-		if kind == "funa" or kind == "umibozu" or kind == "kitsunebi" or kind == "kitsunebi_s":
-			return [_target, _zone_r, _timer]
 		if _lane.size() >= 2:
 			return [_lane_closest(_probe()), _lane_w * 0.5, _timer]
+		if _zone.top_level:
+			# zone fixe visée (noyé, moine, renard, obus, bond…)
+			return [_target, _zone_r, _timer]
 		return [position + _strike_dir * (_zone_r * 0.9), _zone_r, _timer]
 	if _fire_t > 0.0:
 		# traînée de feu encore chaude
 		return [_seg_closest(_probe(), _fire_a, _fire_b), 0.3, 0.0]
+	if _trap_t > 0.0 and _traps.size() > 0:
+		return [_closest_pt(_traps, _probe()), TRAP_R, 0.0]
 	return []
+
+
+func _closest_pt(pts: PackedVector3Array, p: Vector3) -> Vector3:
+	var best := pts[0]
+	var bd := INF
+	for q in pts:
+		var d := Vector2(q.x - p.x, q.z - p.z).length()
+		if d < bd:
+			bd = d
+			best = q
+	return best
 
 
 ## Point à tester pour l'alerte d'arrivée : la fin du trait en cours, sinon le héros.
@@ -459,12 +1196,14 @@ func _probe() -> Vector3:
 func hurt_dot(dmg: float) -> bool:
 	if dead or is_harmless():
 		return false
+	dmg = _absorb(dmg, true)
 	hp -= dmg
 	_flash = maxf(_flash, 0.05)
 	if hp <= 0.0:
 		_die()
 		_knock = Vector3.ZERO
 		return true
+	_on_wounded()
 	return false
 
 
@@ -474,16 +1213,40 @@ func _die() -> void:
 	_timer = 0.0
 	_thaw()
 	_clear_ice()
+	_clear_traps()
 	_fire_t = 0.0
+	_air = false
+	shield = 0.0
 	ch.hold()
-	ch.play_once("Death_A" if kind == "kagebo" else "Death_C_Skeletons", 2.4, 0.05)
+	ch.play_once("Death_A" if kind == "kagebo" or _rogue else "Death_C_Skeletons", 2.4, 0.05)
 	if kind == "kitsunebi":
 		call_deferred("_split")
+	elif kind == "sumidama":
+		call_deferred("_split_blob")
+	elif kind == "tanuki_d":
+		# leurre : fumée, rien d'autre
+		_puff(position, Toon.WASHI)
+		body.visible = false
+	elif kind == "hinotama":
+		main.vfx.fire_burst(Vector3(position.x, 0, position.z), 0.9)
+		body.visible = false
+	if elite and not _selfkill and not dummy and not has_meta("elite"):
+		# élite de vague : butin en plus (le défi d'un recoin a le sien, dans main)
+		main.pickups.drop(position, "coin", 4)
+		main.pickups.drop(position, "xp", 5)
+	if elite and "explosif" in affixes:
+		# Explosif : il éclate après sa mort (disque annoncé)
+		_blast_t = BLAST_T
+		_target = Vector3(position.x, 0, position.z)
+		_zone_r = BLAST_R
+		_make_zone(true)
+		_zone.global_position = _target
+		main.float_text(position, "EXPLOSIF", ELITE_C)
 
 
 func push(v: Vector3) -> void:
-	# un mort n'est plus projeté (fin sobre)
-	if kind != "brute" and kind != "funa" and not dead and _state != "charge":
+	# un mort n'est plus projeté (fin sobre) ; costauds et tourelle ne bougent pas
+	if kind != "brute" and kind != "funa" and kind != "kanabo" and kind != "tsurara" and not dead and _state != "charge" and not _air:
 		_knock += v
 
 
@@ -496,6 +1259,8 @@ func _cancel_attack() -> void:
 		_zone.queue_free()
 		_zone = null
 	_teles = []
+	_lane = PackedVector3Array()
+	_proj = null
 
 
 func _exit_tree() -> void:
@@ -504,14 +1269,33 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	# Rapide / Enragé : tout le rythme (marche, annonces, repos) accéléré
+	delta *= _tempo
 	_t += delta
+	if _shield_frac > 0.0:
+		# bouclier de départ : posé une fois les PV du monde appliqués
+		give_shield(float(get_meta("max_hp", hp)) * _shield_frac)
+		_shield_frac = 0.0
 	if _flash > 0.0:
 		_flash -= delta
 		ch.set_flash(1.0 if _flash > 0.0 else 0.0)
 		if _flash <= 0.0 and _glow_a > 0.0:
 			_base_glow()
+	if _bubble != null or _aura != null:
+		_update_marks()
 
 	if dead:
+		if _blast_t > 0.0:
+			# Explosif : le disque se remplit, puis éclate
+			_blast_t -= delta
+			main.vfx.tele_update(_tele, 1.0 - _blast_t / BLAST_T, _blast_t)
+			if _blast_t <= 0.0:
+				_blast_t = 0.0
+				main.enemy_strike(_target, _zone_r)
+				main.vfx.fire_burst(_target, _zone_r)
+				if _zone:
+					_zone.queue_free()
+					_zone = null
 		# mort sobre (0.6 s) : petit recul, bascule en arrière, puis s'enfonce dans le sol
 		position += _knock * delta
 		_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 8.0))
@@ -523,7 +1307,7 @@ func _process(delta: float) -> void:
 		body.scale = Vector3.ONE * (1.0 - 0.2 * sink)
 		if _shadow:
 			_shadow.visible = sink < 0.5
-		if _timer > 0.6:
+		if _timer > 0.6 and _blast_t <= 0.0:
 			queue_free()
 		return
 
@@ -532,9 +1316,8 @@ func _process(delta: float) -> void:
 		_deco.visible = _spawn <= 0.0
 		var to := hero.position - position
 		body.rotation.y = atan2(-to.x, -to.z)
-		if kind == "kagebo" or kind == "kitsunebi_s":
-			var full := 0.4 if kind == "kitsunebi_s" else SPAWN_TIME
-			body.scale = Vector3.ONE * (clampf(1.0 - _spawn / full, 0.05, 1.0) if _spawn > 0.0 else 1.0)
+		if _scale_in > 0.0:
+			body.scale = Vector3.ONE * (clampf(1.0 - _spawn / _scale_in, 0.05, 1.0) if _spawn > 0.0 else 1.0)
 		return
 
 	if kind == "funa":
@@ -550,8 +1333,12 @@ func _process(delta: float) -> void:
 		_update_fire(delta)
 	if _ice != null:
 		_update_ice(delta)
+	if _trap_t > 0.0:
+		_update_traps(delta)
 	if kind == "kagebo":
 		_record()
+	if _custom:
+		body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 8.0))
 
 	var to_hero := hero.position - position
 	to_hero.y = 0
@@ -559,13 +1346,13 @@ func _process(delta: float) -> void:
 	var dir := to_hero / maxf(dist, 0.001)
 
 	match kind:
-		"oni", "brute", "tate":
+		"oni", "brute", "tate", "kanabo":
 			_melee(delta, dir, dist)
 		"kappa":
 			_shooter(delta, dir, dist)
 		_:
 			if _stagger > 0.0:
-				# assommé (pouvoirs) : ni marche ni attaque
+				# assommé (pouvoirs, bouclier brisé) : ni marche ni attaque
 				_stagger -= delta
 				if _state == "charge":
 					_end_charge()
@@ -581,10 +1368,46 @@ func _process(delta: float) -> void:
 						_kasha(delta, dir, dist)
 					"kagebo":
 						_kagebo(delta, dir, dist)
+					"kappa_yumi", "teppo":
+						_sniper(delta, dir, dist)
+					"ika":
+						_mortar(delta, dir, dist)
+					"umi_nyobo", "moryo":
+						_support(delta, dir, dist)
+					"kamaitachi", "hinotama":
+						_swooper(delta, dir, dist)
+					"tanuki", "tanuki_d":
+						_tanuki(delta, dir, dist)
+					"kitsune_tsukai":
+						_summoner(delta, dir, dist)
+					"yuki_warashi", "sumidama", "sumidama_s":
+						_bomber(delta, dir, dist)
+					"tsurara":
+						_turret(delta, dir, dist)
+					"onryo":
+						_onryo(delta, dir, dist)
+					"tengu":
+						_trapper(delta, dir, dist)
+					"kasa":
+						_hopper(delta, dir, dist)
 
 	position += _knock * delta
 	_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 9.0))
 	main.clamp_to_arena(self, radius)
+
+
+## Bulle du bouclier et aura d'élite : légère pulsation, suivent un corps qui flotte.
+func _update_marks() -> void:
+	if _bubble != null:
+		if dead or shield <= 0.0:
+			_bubble.visible = false
+		elif _bubble.visible:
+			_bubble.position.y = body.position.y + _h * 0.5
+			_bubble.scale = _bubble_base * (1.0 + 0.03 * sin(_t * 5.0))
+	if _aura != null:
+		_aura.visible = not dead
+		var s := _aura_r * (1.0 + 0.08 * sin(_t * 4.0))
+		_aura.scale = Vector3(s, 0.06, s)
 
 
 func _face(dir: Vector3, delta: float, rate := 10.0) -> void:
@@ -600,7 +1423,7 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 	match _state:
 		"move":
 			# le porteur de bouclier pivote lentement : on peut le contourner
-			_face(dir, delta, 3.0 if kind == "tate" else 10.0)
+			_face(dir, delta, 3.0 if kind == "tate" else (2.5 if kind == "kanabo" else 10.0))
 			if dist > reach - 0.3:
 				# chemin : par la passerelle si le héros est sur une autre plateforme
 				# recalculé 5 fois par seconde seulement (parcours des plateformes)
@@ -637,7 +1460,12 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 			_timer -= delta
 			if _timer <= 0.0:
 				var center := position + _strike_dir * (_zone_r * 0.9)
-				main.enemy_strike(center, _zone_r)
+				_strike(center, _zone_r)
+				if kind == "kanabo":
+					# la massue fend le sol
+					main.vfx.ring(Vector3(center.x, 0.08, center.z), Toon.GOLD, _zone_r * 1.1)
+					main.vfx.scorch(center, _zone_r * 0.8, 1.0)
+					main.shake = maxf(float(main.shake), 0.25)
 				_cancel_attack()
 				_timer = 1.3
 		"recover":
@@ -707,9 +1535,11 @@ func _drift(delta: float, dir: Vector3, dist: float, near: float, far: float) ->
 	var side := Vector3(-dir.z, 0, dir.x) * sin(_t * 0.8)
 	var fwd := dir
 	var want := 0.0
-	if dist < near:
+	if _corner_t > 0.0:
+		_corner_t -= delta
+	if dist < near and _corner_t <= 0.0:
 		want = -1.0
-	elif dist > far:
+	elif dist > far or _corner_t > 0.0:
 		want = 1.0
 		_steer_t -= delta
 		if _steer_t <= 0.0:
@@ -722,6 +1552,13 @@ func _drift(delta: float, dir: Vector3, dist: float, near: float, far: float) ->
 		ch.play(_walk, 0.8)
 	else:
 		ch.play(ch.idle)
+	# coincé contre un bord ou dans un coin : il revient un moment vers le héros
+	_drift_t += delta
+	if _drift_t > 2.0:
+		if position.distance_to(_drift_p) < 0.5 and dist > 3.0:
+			_corner_t = 1.6
+		_drift_p = position
+		_drift_t = 0.0
 
 
 func _flat_dist(p: Vector3) -> float:
@@ -842,7 +1679,7 @@ func _charge(delta: float) -> void:
 	# contact : un seul coup tous les 0.6 s
 	if _hit_cd <= 0.0 and _flat_dist(hero.position) < radius + 0.4:
 		_hit_cd = 0.6
-		main.enemy_strike(Vector3(position.x, 0, position.z), radius + 0.25)
+		_strike(Vector3(position.x, 0, position.z), radius + 0.25)
 	if _li >= _lane.size() or _ctime <= 0.0:
 		_end_charge()
 
@@ -867,8 +1704,12 @@ func _end_charge() -> void:
 	elif kind == "kagebo":
 		for i in range(1, _lane.size()):
 			main.vfx.slash_line(_lane[i - 1], _lane[i])
+	elif kind == "kamaitachi":
+		main.vfx.wind_slash(position, _strike_dir)
+	elif kind == "hinotama":
+		main.vfx.embers(Vector3(position.x, 0, position.z), 0.6, 5)
 	_state = "recover"
-	_timer = 1.6 if kind == "kasha" else 1.5
+	_timer = 1.6 if kind == "kasha" else (1.8 if kind == "kamaitachi" else 1.5)
 	_lane = PackedVector3Array()
 
 
@@ -920,7 +1761,7 @@ func _umibozu(delta: float, dir: Vector3, dist: float) -> void:
 				main.vfx.tele_update(_tele, 1.0 - _timer / UMI_WINDUP, _timer)
 				_timer -= delta
 				if _timer <= 0.0:
-					main.enemy_strike(_target, _zone_r)
+					_strike(_target, _zone_r)
 					main.vfx.water_burst(_target, _zone_r)
 					_end_ghost_attack()
 					_surface()
@@ -989,7 +1830,7 @@ func _kitsune(delta: float, dir: Vector3, dist: float) -> void:
 				_blink_fx(position)
 				position = _target
 				_blink_fx(_target)
-				main.enemy_strike(_target, _zone_r)
+				_strike(_target, _zone_r)
 				_cancel_attack()
 				# reste un instant sur place : la fenêtre pour le trancher
 				_timer = 1.1 if mini else 1.5
@@ -1059,7 +1900,7 @@ func _yuki(delta: float, dir: Vector3, dist: float) -> void:
 			ch.set_glow(_glow_a + 0.8 * k, _glow_c)
 			_timer -= delta
 			if _timer <= 0.0:
-				main.enemy_strike(_lane_closest(hero.position), _lane_w * 0.5)
+				_strike(_lane_closest(hero.position), _lane_w * 0.5)
 				_freeze(_lane)
 				_cancel_attack()
 				_lane = PackedVector3Array()
@@ -1075,6 +1916,9 @@ func _yuki(delta: float, dir: Vector3, dist: float) -> void:
 func _freeze(pts: PackedVector3Array) -> void:
 	_clear_ice()
 	_ice_pts = pts.duplicate()
+	_ice_w = YUKI_W
+	_ice_word = "GIVRE"
+	_ice_col = ICE_C
 	_ice_t = ICE_TIME
 	_ice = Node3D.new()
 	_ice.top_level = true
@@ -1099,13 +1943,13 @@ func _update_ice(delta: float) -> void:
 		_thaw()
 	if on and sid != _slow_id and _ice_t > 0.0:
 		var q := _path_closest(_ice_pts, hero.position)
-		if Vector2(q.x - hero.position.x, q.z - hero.position.z).length() < YUKI_W * 0.5:
-			# la ruée patine sur le givre : ralentie jusqu'à la fin de ce trait
+		if Vector2(q.x - hero.position.x, q.z - hero.position.z).length() < _ice_w * 0.5:
+			# la ruée patine sur le givre (ou s'englue dans l'encre) : ralentie jusqu'à la fin de ce trait
 			_slow_id = sid
 			_slowed = true
 			hero.speed_mult *= ICE_SLOW
-			main.float_text(hero.position, "GIVRE", ICE_C)
-			main.splash(hero.position, ICE_C, 8)
+			main.float_text(hero.position, _ice_word, _ice_col)
+			main.splash(hero.position, _ice_col, 8)
 	if _ice_t <= 0.0:
 		_clear_ice()
 
@@ -1184,7 +2028,7 @@ func _update_fire(delta: float) -> void:
 	var q := _seg_closest(hero.position, _fire_a, _fire_b)
 	if Vector2(q.x - hero.position.x, q.z - hero.position.z).length() < 0.45:
 		_hit_cd = 0.8
-		main.enemy_strike(q, 0.3)
+		_strike(q, 0.3)
 
 
 # ------------------------------------------------------------------ kagebō
@@ -1290,6 +2134,747 @@ func _kagebo(delta: float, dir: Vector3, dist: float) -> void:
 				_timer = randf_range(2.4, 3.4)
 
 
+# ------------------------------------------------------------------ tireurs en ligne (kappa archer, arquebusier)
+
+## Ligne de tir droite depuis lui vers `dir` (coupée au bord du sol).
+func _beam(dir: Vector3, w: float, length: float) -> void:
+	var a := Vector3(position.x, 0, position.z) + dir * 0.5
+	var b := _cut_walkable(a, a + dir * length)
+	_make_lane(PackedVector3Array([a, b]), w)
+
+
+## Arquebusier : la ligne pivote vers le héros (longueur gardée).
+func _beam_aim(dir: Vector3, delta: float) -> void:
+	if _zone == null or _zone.get_child_count() == 0 or _lane.size() < 2:
+		return
+	var a := _lane[0]
+	var cur := _lane[1] - a
+	cur.y = 0.0
+	var l := cur.length()
+	var ang := lerp_angle(atan2(-cur.x, -cur.z), atan2(-dir.x, -dir.z), minf(1.0, delta * 5.0))
+	var seg := _zone.get_child(0) as Node3D
+	if seg != null:
+		seg.rotation.y = ang
+	var d := Vector3(-sin(ang), 0, -cos(ang))
+	_lane[1] = a + d * l
+	_strike_dir = d
+
+
+func _sniper(delta: float, dir: Vector3, dist: float) -> void:
+	var track := kind == "teppo"
+	var total := TEPPO_TRACK + TEPPO_HOLD if track else SNIPE_WINDUP
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 4.5, 7.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 11.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_beam(dir, SNIPE_W, SNIPE_LEN)
+				if _lane.size() < 2 or _path_len(_lane) < 2.5:
+					_cancel_attack()
+					return
+				_strike_dir = dir
+				_state = "windup"
+				_timer = total
+				ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / total)
+		"windup":
+			if track and _timer > TEPPO_HOLD:
+				_beam_aim(dir, delta)
+			_face(_strike_dir, delta, 12.0)
+			var k := 1.0 - _timer / total
+			_update_lane(k)
+			ch.set_glow(_glow_a + 0.9 * k, Toon.VERMILION)
+			_timer -= delta
+			if _timer <= 0.0:
+				var a := _lane[0]
+				var b := _lane[_lane.size() - 1]
+				_strike(_lane_closest(hero.position), SNIPE_W * 0.5)
+				main.vfx.slash_line(a, b)
+				_cancel_attack()
+				_timer = 1.0  # rechargement : la fenêtre pour le rejoindre
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.4, 3.4)
+
+
+# ------------------------------------------------------------------ calmar : obus d'encre en cloche
+
+func _mortar(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 4.0, 7.0)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 10.0:
+				var t: Vector3 = main.arena.clamp_walk(Vector3(hero.position.x, 0, hero.position.z), 0.3)
+				var hole: bool = main.hazards.is_hole(t, 0.1)
+				if hole or not main.take_token(self):
+					_timer = 0.4
+					return
+				_target = t
+				_zone_r = MORTAR_R
+				_make_zone(true)
+				_zone.global_position = _target
+				# l'obus vole pendant toute l'annonce (il tombe pile à la fin)
+				_proj = Toon.part(_zone, _sph(0.22), _pm(INK_C), Vector3.ZERO)
+				_proj.top_level = true
+				_proj_from = position + Vector3(0, 1.2, 0)
+				_proj.global_position = _proj_from
+				_state = "windup"
+				_timer = MORTAR_T
+				ch.play_once("Throw", ch.length("Throw") / 0.6)
+		"windup":
+			var k := 1.0 - _timer / MORTAR_T
+			main.vfx.tele_update(_tele, k, _timer)
+			if is_instance_valid(_proj):
+				var p := _proj_from.lerp(_target + Vector3(0, 0.2, 0), k)
+				p.y += 3.2 * 4.0 * k * (1.0 - k)
+				_proj.global_position = p
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				main.vfx.ink_wave(_target, _zone_r)
+				_cancel_attack()
+				_timer = 0.6
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.6, 3.6)
+
+
+# ------------------------------------------------------------------ soutiens : umi-nyōbō (soin), mōryō (bouclier)
+
+func _support(delta: float, dir: Vector3, dist: float) -> void:
+	var heal := kind == "umi_nyobo"
+	match _state:
+		"move":
+			_face(dir, delta, 5.0)
+			_drift(delta, dir, dist, 4.5, 8.0)
+			_timer -= delta
+			if _timer <= 0.0:
+				if _support_targets(heal) == 0:
+					_timer = 0.7
+					return
+				_state = "windup"
+				_timer = SUPPORT_CAST
+				ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / SUPPORT_CAST)
+		"windup":
+			var k := 1.0 - _timer / SUPPORT_CAST
+			ch.set_glow(_glow_a + 1.4 * k, HEAL_C if heal else SHIELD_C)
+			_timer -= delta
+			if _timer <= 0.0:
+				_support_cast(heal)
+				_base_glow()
+				_state = "recover"
+				_timer = 0.8
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(3.0, 3.8)
+
+
+func _ally_ok(e, heal: bool) -> bool:
+	if not is_instance_valid(e) or e == self or e.dead or e.dummy:
+		return false
+	var p: Vector3 = e.position
+	if Vector2(p.x - position.x, p.z - position.z).length() > SUPPORT_R:
+		return false
+	if heal:
+		return float(e.hp) < float(e.get_meta("max_hp", 1.0)) - 0.01
+	return float(e.shield) <= 0.0 and String(e.kind) != "moryo" and String(e.kind) != "tanuki_d"
+
+
+func _support_targets(heal: bool) -> int:
+	var n := 0
+	for e in main.enemies:
+		if _ally_ok(e, heal):
+			n += 1
+	return n
+
+
+func _support_cast(heal: bool) -> void:
+	var col := HEAL_C if heal else SHIELD_C
+	main.vfx.ring(Vector3(position.x, 0.08, position.z), col, SUPPORT_R)
+	main.sfx.play("shrine", 1.5, -8.0)
+	for e in main.enemies:
+		if not _ally_ok(e, heal):
+			continue
+		if heal:
+			e.heal_pct(0.3)
+		else:
+			e.give_shield(float(e.get_meta("max_hp", 1.0)) * 0.4)
+		var p: Vector3 = e.position
+		main.vfx.sparks(p + Vector3(0, 1.0, 0), Vector3.UP, 5, col)
+
+
+# ------------------------------------------------------------------ belette (zigzag au sol), boule de feu (piqué)
+
+func _swoop_path(dir: Vector3, dist: float, fly: bool) -> PackedVector3Array:
+	var a := Vector3(position.x, 0, position.z)
+	var out := PackedVector3Array([a])
+	var b := _cut_walkable(a, a + dir * clampf(dist + 1.5, 3.0, 8.0))
+	out.append(b)
+	if not fly:
+		# zigzag : la deuxième taille repart en biais
+		var side := 1.0 if randf() < 0.5 else -1.0
+		var d2 := dir.rotated(Vector3.UP, 0.9 * side)
+		var c := _cut_walkable(b, b + d2 * 3.0)
+		if c.distance_to(b) > 1.0:
+			out.append(c)
+	return out
+
+
+func _swooper(delta: float, dir: Vector3, dist: float) -> void:
+	var fly := kind == "hinotama"
+	var total := SWOOP_T if fly else WEASEL_T
+	if fly:
+		# vole haut, pique en rase-mottes, se pose un instant après
+		var want := 1.4
+		if _state == "charge":
+			want = 0.5
+		elif _state == "recover":
+			want = 0.35
+		body.position.y = lerpf(body.position.y, want + 0.1 * sin(_t * 3.0), minf(1.0, delta * 4.0))
+	match _state:
+		"move":
+			_face(dir, delta, 8.0)
+			_drift(delta, dir, dist, 3.0 if fly else 2.5, 5.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 9.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				var pts := _swoop_path(dir, dist, fly)
+				if pts.size() < 2 or _path_len(pts) < 2.0:
+					main.free_token(self)
+					_timer = 0.6
+					return
+				_strike_dir = dir
+				_make_lane(pts, 1.0 if fly else 0.9)
+				_state = "windup"
+				_timer = total
+		"windup":
+			if _lane.size() >= 2:
+				_face(_lane[1] - _lane[0], delta, 12.0)
+			var k := 1.0 - _timer / total
+			_update_lane(k)
+			ch.play(_walk, 2.4)
+			ch.set_glow(1.0 * k, Toon.GOLD)
+			_timer -= delta
+			if _timer <= 0.0:
+				_start_charge(11.0 if fly else 13.0)
+				ch.play_once("1H_Melee_Attack_Slice_Horizontal", 2.0)
+		"charge":
+			_charge(delta)
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(1.8, 2.6)
+
+
+# ------------------------------------------------------------------ tanuki : tambour du ventre, leurre
+
+func _tanuki(delta: float, dir: Vector3, dist: float) -> void:
+	var decoy := kind == "tanuki_d"
+	if decoy:
+		_life -= delta
+		if _life <= 0.0:
+			# le leurre se dissipe tout seul
+			_selfkill = true
+			_die()
+			return
+	else:
+		_doron_cd -= delta
+	match _state:
+		"move":
+			if dist > 1.6:
+				_walk_to_hero(delta, speed)
+			else:
+				_face(dir, delta, 8.0)
+				ch.play(ch.idle)
+			if not decoy and dist < 2.2:
+				if not main.take_token(self):
+					return
+				_target = Vector3(position.x, 0, position.z)
+				_zone_r = DRUM_R
+				_make_zone(true)
+				_zone.global_position = _target
+				_state = "windup"
+				_timer = DRUM_T
+		"windup":
+			_face(dir, delta, 6.0)
+			var k := 1.0 - _timer / DRUM_T
+			main.vfx.tele_update(_tele, k, _timer)
+			if _belly != null:
+				# il se tape le ventre, de plus en plus vite
+				var b := 1.0 + 0.12 * absf(sin(_t * (8.0 + 14.0 * k)))
+				_belly.scale = Vector3(b, b, 0.7 * b)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				main.vfx.ring(Vector3(_target.x, 0.08, _target.z), Toon.GOLD, _zone_r)
+				if _belly != null:
+					_belly.scale = Vector3(1, 1, 0.7)
+				_cancel_attack()
+				_timer = 1.3
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+
+
+## « Doron » : un leurre prend sa place, le vrai tanuki file un peu plus loin.
+func _doron() -> void:
+	if dead or not is_instance_valid(main) or not is_inside_tree():
+		return
+	if _state == "windup":
+		_cancel_attack()
+	var here := Vector3(position.x, 0, position.z)
+	_puff(here, Toon.WASHI)
+	var sc = get_script()
+	var e = sc.new()
+	e.setup("tanuki_d", hero, main)
+	e.minion = true
+	e.position = here
+	main.add_child(e)
+	e.set_meta("max_hp", e.hp)
+	main.enemies.append(e)
+	for attempt in 10:
+		var a := randf() * TAU
+		var p: Vector3 = main.arena.clamp_walk(here + Vector3(cos(a), 0, sin(a)) * 3.5, radius)
+		var hole: bool = main.hazards.is_hole(p, 0.1)
+		if not hole and p.distance_to(hero.position) > 2.5:
+			position = Vector3(p.x, position.y, p.z)
+			break
+	_puff(position, Toon.WASHI)
+	main.float_text(position, "DORON", Toon.GOLD)
+
+
+# ------------------------------------------------------------------ montreur de renards : invocations
+
+func _summoner(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 4.5, 7.5)
+			_timer -= delta
+			if _timer <= 0.0:
+				if _alive_summons() >= 2 or _summon_total >= 6:
+					_timer = 1.0
+					return
+				_state = "windup"
+				_timer = SUMMON_CAST
+				ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / SUMMON_CAST)
+		"windup":
+			var k := 1.0 - _timer / SUMMON_CAST
+			ch.set_glow(_glow_a + 1.4 * k, FOX_FIRE)
+			_timer -= delta
+			if _timer <= 0.0:
+				_summon_total += 2
+				call_deferred("_summon", "kitsunebi_s", 2, _minion_hp(0.5))
+				main.vfx.ring(Vector3(position.x, 0.08, position.z), FOX_FIRE, 1.4)
+				_base_glow()
+				_state = "recover"
+				_timer = 0.8
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(4.0, 5.0)
+
+
+# ------------------------------------------------------------------ enfant des neiges (explose), goutte d'encre (flaque)
+
+func _bomber(delta: float, dir: Vector3, dist: float) -> void:
+	var kami := kind == "yuki_warashi"
+	var total := KAMI_T if kami else 0.9
+	match _state:
+		"move":
+			var reach := 1.5 if kami else 1.4
+			if dist > reach:
+				var spd := speed
+				if not kami:
+					# la goutte avance par petits bonds mous
+					spd *= 0.6 + 0.8 * absf(sin(_t * 4.0))
+					var w := 0.1 * sin(_t * 8.0)
+					body.scale = Vector3(1.0 - w * 0.5, 1.0 + w, 1.0 - w * 0.5)
+				_walk_to_hero(delta, spd)
+			else:
+				_face(dir, delta, 8.0)
+				ch.play(ch.idle)
+			if dist <= reach + 0.3:
+				if not main.take_token(self):
+					var around := Vector3(-dir.z, 0, dir.x) * (1.0 if get_instance_id() % 2 == 0 else -1.0)
+					position += around * 1.0 * delta
+					return
+				_target = Vector3(position.x, 0, position.z)
+				_zone_r = KAMI_R if kami else (1.25 if kind == "sumidama" else 0.95)
+				_make_zone(true)
+				_zone.global_position = _target
+				_state = "windup"
+				_timer = total
+		"windup":
+			var k := 1.0 - _timer / total
+			main.vfx.tele_update(_tele, k, _timer)
+			if kami:
+				# il gonfle et blanchit avant d'éclater
+				body.scale = Vector3.ONE * (1.0 + 0.35 * k)
+				ch.set_glow(_glow_a + 1.6 * k, ICE_C)
+			else:
+				body.scale = Vector3(1.0 + 0.3 * k, 1.0 - 0.25 * k, 1.0 + 0.3 * k)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				if kami:
+					main.vfx.ring(Vector3(_target.x, 0.08, _target.z), ICE_C, _zone_r)
+					main.vfx.sparks(_target + Vector3(0, 0.6, 0), Vector3.UP, 12, ICE_C)
+					main.splash(_target + Vector3(0, 0.5, 0), Color.WHITE, 14)
+					_cancel_attack()
+					_selfkill = true
+					_die()
+					return
+				main.vfx.ink_wave(_target, _zone_r)
+				_puddle(_target, 2.2 if kind == "sumidama" else 1.4)
+				_cancel_attack()
+				_timer = 1.1
+		"recover":
+			if not _custom:
+				body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 8.0))
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+
+
+## Flaque d'encre ronde : freine la ruée qui la traverse (même mécanique que le givre).
+func _puddle(c: Vector3, w: float) -> void:
+	_clear_ice()
+	_ice_pts = PackedVector3Array([c, c])
+	_ice_w = w
+	_ice_word = "ENCRE"
+	_ice_col = Color("#8E7FA8")
+	_ice_t = ICE_TIME
+	_ice = Node3D.new()
+	_ice.top_level = true
+	add_child(_ice)
+	_ice_mat = Toon.flat(Color(INK_C, 0.55))
+	var mi := Toon.part(_ice, _cyl(1.0, 1.0, 0.01, 20), _ice_mat, Vector3(c.x, 0.05, c.z), Vector3(w * 0.5, 1, w * 0.5))
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## Mort de la grosse goutte : deux petites s'en échappent.
+func _split_blob() -> void:
+	if not is_instance_valid(main) or not is_inside_tree():
+		return
+	_summon("sumidama_s", 2, _minion_hp(0.55))
+	main.vfx.ink_wave(Vector3(position.x, 0, position.z), 1.0)
+
+
+# ------------------------------------------------------------------ stalactite : tourelle fixe
+
+func _turret(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_timer -= delta
+			if _timer <= 0.0 and dist < 11.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				if dist < 2.6:
+					# héros collé : couronne de pics autour d'elle
+					_lane = PackedVector3Array()
+					_target = Vector3(position.x, 0, position.z)
+					_zone_r = 1.8
+					_make_zone(true)
+					_zone.global_position = _target
+				else:
+					_beam(dir, ICICLE_W, ICICLE_LEN)
+					if _lane.size() < 2 or _path_len(_lane) < 2.0:
+						_cancel_attack()
+						return
+				_state = "windup"
+				_timer = ICICLE_T
+		"windup":
+			var k := 1.0 - _timer / ICICLE_T
+			if _lane.size() >= 2:
+				_update_lane(k)
+			else:
+				main.vfx.tele_update(_tele, k, _timer)
+			# la glace frémit avant de tirer
+			body.scale = Vector3.ONE * (1.0 + 0.05 * sin(_t * 40.0) * k)
+			_timer -= delta
+			if _timer <= 0.0:
+				if _lane.size() >= 2:
+					var a := _lane[0]
+					var b := _lane[_lane.size() - 1]
+					_strike(_lane_closest(hero.position), ICICLE_W * 0.5)
+					for i in 4:
+						main.vfx.sparks(a.lerp(b, (float(i) + 0.5) / 4.0) + Vector3(0, 0.3, 0), Vector3.UP, 4, ICE_C)
+				else:
+					_strike(_target, _zone_r)
+					main.vfx.ring(Vector3(_target.x, 0.08, _target.z), ICE_C, _zone_r)
+					main.vfx.sparks(_target + Vector3(0, 0.4, 0), Vector3.UP, 10, ICE_C)
+				_cancel_attack()
+				_timer = 0.8
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.6, 3.4)
+
+
+# ------------------------------------------------------------------ onryō : surgit dans le dos
+
+func _onryo(delta: float, dir: Vector3, dist: float) -> void:
+	body.position.y = lerpf(body.position.y, 0.2 + 0.08 * sin(_t * 2.5), minf(1.0, delta * 4.0))
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 2.5, 5.0)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 10.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_state = "fade"
+				_timer = ONRYO_FADE
+				_puff(position, Color("#B9A8E8"))
+		"fade":
+			_knock = Vector3.ZERO
+			_timer -= delta
+			body.scale = Vector3(1.0, maxf(_timer / ONRYO_FADE, 0.05), 1.0)
+			if _timer <= 0.0:
+				body.visible = false
+				_shadow.visible = false
+				_state = "gone"
+				_timer = ONRYO_GONE
+		"gone":
+			_knock = Vector3.ZERO
+			_timer -= delta
+			if _timer <= 0.0:
+				# dans le dos du héros (ou sur son flanc si le dos est un trou)
+				var f: Vector3 = hero.facing
+				f.y = 0.0
+				if f.length_squared() < 0.01:
+					f = Vector3(0, 0, -1)
+				f = f.normalized()
+				var hp0 := Vector3(hero.position.x, 0, hero.position.z)
+				var p: Vector3 = main.arena.clamp_walk(hp0 - f * 1.4, radius)
+				var hole: bool = main.hazards.is_hole(p, 0.1)
+				if hole:
+					p = main.arena.clamp_walk(hp0 + Vector3(f.z, 0, -f.x) * 1.4, radius)
+				position = Vector3(p.x, position.y, p.z)
+				body.visible = true
+				_shadow.visible = true
+				body.scale = Vector3.ONE
+				_face_hero_now()
+				_puff(position, Color("#B9A8E8"))
+				_target = hp0.lerp(Vector3(p.x, 0, p.z), 0.35)
+				_zone_r = 1.15
+				_make_zone(true)
+				_zone.global_position = _target
+				_state = "windup"
+				_timer = ONRYO_T
+				ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / ONRYO_T)
+		"windup":
+			var k := 1.0 - _timer / ONRYO_T
+			main.vfx.tele_update(_tele, k, _timer)
+			ch.set_glow(_glow_a + 1.2 * k, Toon.VERMILION)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				_cancel_attack()
+				_timer = 1.4
+		"recover":
+			body.visible = true
+			_shadow.visible = true
+			body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 10.0))
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.2, 3.2)
+
+
+# ------------------------------------------------------------------ tengu : chausse-trapes
+
+func _trapper(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 3.5, 6.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 9.5 and _trap_t <= 0.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				# trois poignées de makibishi autour du héros, chacune annoncée
+				_traps = PackedVector3Array()
+				_zone = Node3D.new()
+				_zone.top_level = true
+				add_child(_zone)
+				_tele = null
+				_teles = []
+				var c := Vector3(hero.position.x, 0, hero.position.z)
+				var a0 := randf() * TAU
+				for i in 3:
+					var off := Vector3.ZERO
+					if i > 0:
+						var a := a0 + PI * float(i)
+						off = Vector3(cos(a), 0, sin(a)) * 1.5
+					var p: Vector3 = main.arena.clamp_walk(c + off, 0.3)
+					var hole: bool = main.hazards.is_hole(p, 0.1)
+					if hole:
+						continue
+					_traps.append(p)
+					var holder := Node3D.new()
+					_zone.add_child(holder)
+					holder.position = p
+					_teles.append(main.vfx.tele_disc(holder, TRAP_R))
+				if _traps.is_empty():
+					_cancel_attack()
+					return
+				_state = "windup"
+				_timer = TRAP_T
+				ch.play_once("Throw", ch.length("Throw") * 0.5 / TRAP_T)
+		"windup":
+			_face(dir, delta, 8.0)
+			var k := 1.0 - _timer / TRAP_T
+			for tl in _teles:
+				main.vfx.tele_update(tl, k, _timer)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_closest_pt(_traps, hero.position), TRAP_R)
+				for p in _traps:
+					main.vfx.ring(Vector3(p.x, 0.08, p.z), Toon.SUMI, TRAP_R)
+				_lay_traps()
+				_cancel_attack()
+				_timer = 0.7
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(3.2, 4.2)
+
+
+## Les pointes restent au sol : finir son trait dessus fait mal (la ruée passe sans danger).
+func _lay_traps() -> void:
+	if _trap_node != null:
+		_trap_node.queue_free()
+	_trap_t = TRAP_LIFE
+	_trap_node = Node3D.new()
+	_trap_node.top_level = true
+	add_child(_trap_node)
+	var spike := _cyl(0.0, 0.07, 0.16, 4)
+	var iron := _pm(Color("#2A2830"))
+	for p in _traps:
+		var d := Toon.part(_trap_node, _cyl(TRAP_R, TRAP_R, 0.004, 20), _fm(Color(Toon.SUMI, 0.22)), Vector3(p.x, 0.02, p.z))
+		d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		for j in 5:
+			var a := TAU * float(j) / 5.0 + randf() * 0.5
+			var r := randf_range(0.12, TRAP_R * 0.75)
+			var s := Toon.part(_trap_node, spike, iron, Vector3(p.x + cos(a) * r, 0.08, p.z + sin(a) * r))
+			s.rotation = Vector3(randf_range(-0.4, 0.4), randf() * TAU, randf_range(-0.4, 0.4))
+			s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+func _update_traps(delta: float) -> void:
+	_trap_t -= delta
+	if _trap_t <= 0.0:
+		_clear_traps()
+		return
+	var on: bool = hero.dashing
+	if on or _hit_cd > 0.0:
+		return
+	for p in _traps:
+		if Vector2(p.x - hero.position.x, p.z - hero.position.z).length() < TRAP_R * 0.85:
+			_hit_cd = 0.8
+			main.enemy_strike(Vector3(hero.position.x, 0, hero.position.z), 0.3)
+			break
+
+
+func _clear_traps() -> void:
+	_trap_t = 0.0
+	_traps = PackedVector3Array()
+	if _trap_node != null:
+		_trap_node.queue_free()
+		_trap_node = null
+
+
+# ------------------------------------------------------------------ kasa-obake : bonds
+
+func _hopper(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			# au sol : il sautille sur place
+			body.position.y = absf(sin(_t * 6.0)) * 0.08
+			_face(dir, delta, 6.0)
+			_timer -= delta
+			if _timer <= 0.0:
+				var big: bool = dist < 7.0 and main.take_token(self)
+				var t := Vector3(hero.position.x, 0, hero.position.z)
+				if not big:
+					# petit bond sans attaque, vers le héros ou de biais
+					t = Vector3(position.x, 0, position.z) + dir.rotated(Vector3.UP, randf_range(-0.8, 0.8)) * 2.0
+				t = main.arena.clamp_walk(t, radius)
+				var hole: bool = main.hazards.is_hole(t, 0.1)
+				if hole:
+					if big:
+						main.free_token(self)
+					_timer = 0.3
+					return
+				_hop_from = Vector3(position.x, 0, position.z)
+				_target = t
+				_air = true
+				if big:
+					_zone_r = HOP_R
+					_make_zone(true)
+					_zone.global_position = _target
+					_state = "windup"
+					_hop_len = HOP_T
+				else:
+					_state = "hop"
+					_hop_len = 0.5
+				_timer = _hop_len
+		"windup", "hop":
+			var k := clampf(1.0 - _timer / _hop_len, 0.0, 1.0)
+			if _state == "windup":
+				main.vfx.tele_update(_tele, k, _timer)
+			var p := _hop_from.lerp(_target, k)
+			position = Vector3(p.x, position.y, p.z)
+			body.position.y = (2.2 if _state == "windup" else 0.9) * 4.0 * k * (1.0 - k)
+			body.rotation.y += delta * 9.0
+			_knock = Vector3.ZERO
+			_timer -= delta
+			if _timer <= 0.0:
+				_air = false
+				body.position.y = 0.0
+				position = Vector3(_target.x, position.y, _target.z)
+				if _state == "windup":
+					_strike(_target, _zone_r)
+					main.vfx.ring(Vector3(_target.x, 0.08, _target.z), Toon.SUMI, _zone_r)
+					main.splash(_target + Vector3(0, 0.3, 0), Toon.WASHI, 8)
+					_cancel_attack()
+					_timer = HOP_GROUND
+				else:
+					_state = "move"
+					_timer = randf_range(0.6, 0.9)
+		"recover":
+			# posé : la fenêtre pour le trancher
+			_air = false
+			body.position.y = lerpf(body.position.y, 0.0, minf(1.0, delta * 10.0))
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(0.5, 0.8)
+
+
 # ------------------------------------------------------------------ funa
 
 ## Point du bord le plus proche de `p` (les noyés sortent de l'eau, jamais du milieu du ponton).
@@ -1383,7 +2968,7 @@ func _ghost(delta: float) -> void:
 				main.vfx.tele_update(_tele, k, _timer)
 				_timer -= delta
 				if _timer <= 0.0:
-					main.enemy_strike(_target, _zone_r)
+					_strike(_target, _zone_r)
 					_end_ghost_attack()
 			if _ptimer <= 0.0:
 				_end_ghost_attack()

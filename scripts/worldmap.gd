@@ -2,6 +2,8 @@ extends Control
 ## Choix du monde façon emakimono : un rouleau peint horizontal se déroule entre deux baguettes de bois.
 ## Le paysage traverse les cinq mondes (vagues, bambous, neige, Fuji rouge, mer d'encre) le long d'un
 ## chemin d'encre ; on fait glisser le rouleau au doigt (inertie douce) ou aux flèches, PARTIR lance le monde centré.
+## Après une victoire qui ouvre un monde (open(..., reveal)), le rouleau part du monde vaincu, se déroule
+## jusqu'au nouveau, brise son cadenas (encre et or), puis sa carte se lève ; PARTIR vient ensuite.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -18,10 +20,16 @@ const WAVE := [Vector2(-70, 0), Vector2(-55, -28), Vector2(-38, -58), Vector2(-1
 	Vector2(16, -62), Vector2(6, -58), Vector2(0, -44), Vector2(2, -24), Vector2(10, 0)]
 const WAVE_FOAM := [Vector2(-56, -14), Vector2(-42, -40), Vector2(-24, -62), Vector2(-2, -76), Vector2(18, -76), Vector2(30, -66)]
 const MINI_ROOM := 4  # étape du gardien (main.STAGE_PLAN : 8 étapes, la 4e est son arène)
+# révélation d'un monde (secondes, comptées depuis la fin du déroulé) : glissé, bris du sceau, carte
+const RV_START := 1.05  # attente avant le glissé (le rouleau se déroule)
+const RV_BREAK := 0.95  # le cadenas se brise
+const RV_CARD := 1.55  # la carte du monde se lève
+const RV_HOLD := 3.4  # durée de la carte (un toucher l'abrège)
 const WAVE_CLAWS := [Vector2(6, -93), Vector2(16, -93), Vector2(27, -89), Vector2(36, -81), Vector2(43, -70), Vector2(45, -59), Vector2(40, -52)]
 
 signal world_chosen(id: int)
 signal closed
+signal seal_broken(id: int)  # le sceau du monde révélé vient de se briser (son et vibration)
 
 var _worlds: Array = []
 var _unlocked := 1
@@ -46,6 +54,14 @@ var _leave_t := 0.0
 var _chosen_id := 0
 var _unroll := 0.0  # 0 = rouleau fermé, 1 = déroulé
 var _fade := 1.0
+# révélation d'un monde ouvert par la victoire
+var _reveal_id := 0  # id du monde révélé (0 : aucun)
+var _reveal_i := -1
+var _reveal_powers: Array = []  # rouleaux débloqués avec lui (aperçu sur sa carte)
+var _rv := 0.0  # temps de la révélation (négatif : pas encore commencée)
+var _rv_glide := false
+var _rv_broken := false
+var _rv_out := 0.0  # instant où la carte s'efface
 
 # mise en page (recalculée à chaque image)
 var _u := 1.0
@@ -68,6 +84,7 @@ var _ui := FontVariation.new()
 var _box := StyleBoxFlat.new()
 var _paper: Control  # papier du rouleau (découpé à sa largeur déroulée)
 var _front: Control  # baguettes et flèches, par-dessus le papier
+var _overlay: Control  # carte du monde révélé, par-dessus tout
 var _go: InkButton
 var _back: InkButton
 
@@ -106,6 +123,11 @@ func _ready() -> void:
 	add_child(_back)
 	_back.pressed.connect(_on_back)
 
+	_overlay = Control.new()
+	_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_overlay)
+	_overlay.draw.connect(_draw_overlay)
+
 	_make_fibers()
 
 
@@ -113,7 +135,8 @@ func _ready() -> void:
 ## best : id -> meilleure salle atteinte ; current : id du monde centré à l'ouverture ;
 ## rooms : nombre de salles d'une partie ; wins : Vues possédées (meta.owned_prints : "w<id>_win",
 ## "w<id>_mini") ou id -> true. Vide : un monde compte comme fini dès que son record atteint « rooms ».
-func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms := 8, wins := {}) -> void:
+## reveal : id du monde que la victoire vient d'ouvrir (0 : aucun), reveal_powers : ses nouveaux rouleaux.
+func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms := 8, wins := {}, reveal := 0, reveal_powers := []) -> void:
 	_worlds = worlds
 	_unlocked = clampi(unlocked, 1, maxi(1, worlds.size()))
 	_best = best
@@ -138,6 +161,18 @@ func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms :=
 	_fade = 1.0
 	modulate.a = 1.0
 	_station_rects.clear()
+	_reveal_id = 0
+	_reveal_i = -1
+	for i in _worlds.size():
+		if reveal > 0 and _id(i) == reveal and i != start:
+			_reveal_id = reveal
+			_reveal_i = i
+	_reveal_powers = reveal_powers.duplicate()
+	_rv = -RV_START
+	_rv_glide = false
+	_rv_broken = false
+	_rv_out = RV_CARD + RV_HOLD
+	_go.visible = _reveal_done()
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = true
 
@@ -150,7 +185,26 @@ func _id(i: int) -> int:
 
 
 func _locked(i: int) -> bool:
+	if _id(i) == _reveal_id and _rv < RV_BREAK:
+		return true  # monde révélé : scellé jusqu'au bris de son cadenas
 	return _id(i) > _unlocked
+
+
+## Révélation finie (ou aucune) : la carte s'est effacée, PARTIR est permis.
+func _reveal_done() -> bool:
+	return _reveal_id == 0 or _rv >= _rv_out + 0.35
+
+
+## Un toucher pendant la révélation la fait avancer : bris du sceau, carte affichée, puis carte effacée.
+func _reveal_skip() -> void:
+	if _rv < RV_BREAK - 0.1:
+		_rv = RV_BREAK - 0.1
+		_target = float(_reveal_i)
+		_scroll = _target
+	elif _rv < RV_CARD + 0.35:
+		_rv = RV_CARD + 0.35
+	elif _rv < _rv_out:
+		_rv_out = _rv
 
 
 ## Indice de palette du paysage (0..4) pour l'étape i.
@@ -193,6 +247,15 @@ func _sel() -> int:
 
 func _gui_input(event: InputEvent) -> void:
 	if _leaving != 0 or _t < 0.35 or _worlds.is_empty():
+		return
+	if not _reveal_done():
+		# révélation en cours : pas de glissé, un toucher la fait avancer
+		if event is InputEventMouseButton:
+			var rb := event as InputEventMouseButton
+			if rb.button_index == MOUSE_BUTTON_LEFT and not rb.pressed:
+				_reveal_skip()
+		_pressing = false
+		accept_event()
 		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
@@ -278,7 +341,7 @@ func _tap(p: Vector2) -> void:
 
 
 func _on_go() -> void:
-	if _leaving != 0 or _worlds.is_empty() or _t < 0.35:
+	if _leaving != 0 or _worlds.is_empty() or _t < 0.35 or not _reveal_done():
 		return
 	var i := _sel()
 	if _locked(i):
@@ -307,6 +370,15 @@ func _process(_delta: float) -> void:
 	var real := UiKit.real_delta()
 	_t += real
 	_deny = maxf(0.0, _deny - real * 2.5)
+	if _reveal_id > 0 and _leaving == 0:
+		_rv += real
+		if _rv >= 0.0 and not _rv_glide:
+			# le rouleau glisse du monde vaincu jusqu'au monde ouvert
+			_rv_glide = true
+			_target = float(_reveal_i)
+		if _rv >= RV_BREAK and not _rv_broken:
+			_rv_broken = true
+			seal_broken.emit(_reveal_id)
 
 	if _pressing and _moved:
 		if real > 0.0:
@@ -340,6 +412,7 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 	_paper.queue_redraw()
 	_front.queue_redraw()
+	_overlay.queue_redraw()
 
 
 func _layout() -> void:
@@ -357,6 +430,8 @@ func _layout() -> void:
 	_paper.size = Vector2(_half * 2.0, _ph)
 	_front.position = Vector2.ZERO
 	_front.size = size
+	_overlay.position = Vector2.ZERO
+	_overlay.size = size
 
 	var n := _worlds.size()
 	_ready_k = clampf((_unroll - 0.85) / 0.15, 0.0, 1.0)
@@ -372,7 +447,11 @@ func _layout() -> void:
 	_go.position = Vector2((w - bw) / 2.0, _py0 + _ph + 46.0 * u + 14.0 * u * (1.0 - appear))
 	_go.font_size = maxi(1, int(22.0 * u))
 	var locked_sel := n > 0 and _locked(_sel())
-	_go.modulate.a = appear * (0.4 if locked_sel else 1.0)
+	var ga := appear
+	if _reveal_id > 0:
+		ga = minf(appear, UiKit.ease_out(clampf((_rv - _rv_out - 0.2) / 0.35, 0.0, 1.0)))
+	_go.visible = _reveal_done()
+	_go.modulate.a = ga * (0.4 if locked_sel else 1.0)
 	_back.size = Vector2(46.0, 46.0) * u
 	_back.position = Vector2(14.0, 14.0) * u
 	_back.modulate.a = appear
@@ -529,11 +608,11 @@ func _draw() -> void:
 
 	# indication sous PARTIR pour un monde verrouillé
 	var i_sel := _sel()
-	if _locked(i_sel):
+	if _locked(i_sel) and _reveal_done():
 		var hy := _go.position.y + _go.size.y + 24.0 * u
 		var hx := w / 2.0 + sin(_deny * 30.0) * 5.0 * u * _deny
 		var hc := Color(Toon.SUMI, 0.6 * ra).lerp(Color(Toon.VERMILION, ra), _deny)
-		_centered(self, _ui, "VAINCS LE MONDE %d POUR AVANCER" % _unlocked, Vector2(hx, hy), maxi(1, int(12.0 * u)), hc)
+		_centered_fit(self, _ui, "VAINCS LE BOSS FINAL DU MONDE %d POUR AVANCER" % _unlocked, Vector2(hx, hy), maxi(1, int(12.0 * u)), w - 40.0 * u, hc)
 
 
 # --- Dessin : baguettes et flèches (par-dessus le papier) ---------------------------
@@ -957,6 +1036,10 @@ func _path(ci: Control, x0: float, x1: float) -> void:
 			continue
 		var open_seg := not _locked(i + 1)
 		var col := Color(Toon.SUMI, 0.75 if open_seg else 0.28)
+		# révélation : l'encre gagne le chemin jusqu'au monde ouvert pendant le glissé
+		var ink_to := -1.0
+		if _id(i + 1) == _reveal_id and _rv < RV_BREAK:
+			ink_to = clampf(_rv / RV_BREAK, 0.0, 1.0)
 		var wav := _ph * 0.035 * (1.0 if i % 2 == 0 else -1.0)
 		var segs := 30
 		for k in segs:
@@ -966,7 +1049,10 @@ func _path(ci: Control, x0: float, x1: float) -> void:
 			var t1 := float(k + 1) / float(segs)
 			var p0 := a.lerp(b, t0) + Vector2(0, sin(t0 * TAU) * wav)
 			var p1 := a.lerp(b, t1) + Vector2(0, sin(t1 * TAU) * wav)
-			ci.draw_line(p0, p1, col, 3.0 * u, true)
+			var kc := col
+			if ink_to >= 0.0 and t0 < ink_to:
+				kc = Color(Toon.SUMI, 0.75)
+			ci.draw_line(p0, p1, kc, 3.0 * u, true)
 
 
 ## Une étape : sceau rond à l'idéogramme du monde et cartouche (nom, sous-titre, chemin des salles, record).
@@ -1004,6 +1090,10 @@ func _station(ci: Control, i: int) -> void:
 	# sceau
 	ci.draw_circle(p + Vector2(0, 4.0 * u * sc), r, Color(Toon.SUMI, 0.22))
 	var fill := Color(0.66, 0.64, 0.6) if locked else col
+	var rv_e := -1.0  # secondes depuis le bris du sceau (monde révélé)
+	if _id(i) == _reveal_id and _rv >= RV_BREAK:
+		rv_e = _rv - RV_BREAK
+		fill = Color(0.66, 0.64, 0.6).lerp(col, _smooth(rv_e / 0.35))
 	ci.draw_circle(p, r, fill)
 	if won:
 		# anneau entièrement doré
@@ -1023,7 +1113,13 @@ func _station(ci: Control, i: int) -> void:
 	_centered(ci, UiKit.TITLE_FONT, kanji, Vector2(p.x, p.y + (asc - desc) / 2.0), kfs, Color(Toon.WASHI, 0.55 if locked else 1.0))
 	if locked:
 		_barred_seal(ci, p + Vector2(-r * 0.74, -r * 0.74), 20.0 * u * sc)
-		_lock_icon(ci, p + Vector2(r * 0.6, r * 0.55), 14.0 * u * sc)
+		if _id(i) == _reveal_id:
+			# monde révélé : un grand cadenas sur le sceau, qui tremble avant de céder
+			var amp := clampf((_rv - (RV_BREAK - 0.45)) / 0.45, 0.0, 1.0)
+			var sh := Vector2(sin(_t * 46.0), cos(_t * 39.0) * 0.4) * 3.0 * u * amp
+			_lock_icon(ci, p + Vector2(0, r * 0.12) + sh, r * 0.62 * (1.0 + 0.1 * amp))
+		else:
+			_lock_icon(ci, p + Vector2(r * 0.6, r * 0.55), 14.0 * u * sc)
 
 	# numéro du monde au-dessus du sceau
 	var mc := Color(Toon.SUMI, 0.4 if locked else 0.6)
@@ -1087,7 +1183,7 @@ func _station(ci: Control, i: int) -> void:
 			if a_full > 0.5:
 				_lock_icon(ci, Vector2(cx + 7.0 * u * sc - lw / 2.0 - 9.0 * u * sc, y_path - 1.0 * u * sc), 8.0 * u * sc)
 			if _id(i) > 1:
-				_centered_fit(ci, _ui, "Vaincs le monde %d pour l'ouvrir" % (_id(i) - 1), Vector2(cx, y_rec), rfs, inner,
+				_centered_fit(ci, _ui, "Vaincs le boss final du monde %d" % (_id(i) - 1), Vector2(cx, y_rec), rfs, inner,
 					Color(Toon.VERMILION, 0.85 * a_full))
 		else:
 			_progress_path(ci, cx - inner / 2.0 + 5.0 * u * sc, cx + inner / 2.0 - 5.0 * u * sc, y_path, b, won, _mini_done(i), col, sc, a_full)
@@ -1140,6 +1236,10 @@ func _station(ci: Control, i: int) -> void:
 		var e := _stamp_elapsed(_id(i), focus)
 		if e >= 0.0:
 			_stamp(ci, p + Vector2(r * 0.05, r * 0.15), r, e)
+
+	# cadenas brisé : éclats, gouttes d'encre et gerbe d'or
+	if rv_e >= 0.0 and rv_e < 1.4:
+		_break_fx(ci, p + Vector2(0, r * 0.12), r, rv_e)
 
 	var hit_top := p.y - r - 28.0 * u
 	_station_rects[i] = Rect2(p.x - r, hit_top, r * 2.0, cbot - hit_top).merge(cr)
@@ -1325,6 +1425,118 @@ func _lock_icon(ci: Control, c: Vector2, s: float) -> void:
 	ci.draw_style_box(_box, body)
 	ci.draw_circle(Vector2(c.x, c.y + s * 0.2), s * 0.13, Toon.WASHI)
 	ci.draw_rect(Rect2(c.x - s * 0.05, c.y + s * 0.22, s * 0.1, s * 0.3), Toon.WASHI)
+
+
+## Bris du cadenas (e = secondes depuis le bris) : l'anse s'envole, le corps tombe, gouttes d'encre
+## projetées, anneau et rayons d'or, paillettes qui retombent.
+func _break_fx(ci: Control, c: Vector2, r: float, e: float) -> void:
+	var u := _u
+	# éclats du cadenas
+	var pk := clampf(e / 0.6, 0.0, 1.0)
+	if pk < 1.0:
+		var pa := 1.0 - pk
+		var s := r * 0.62
+		var up := c + Vector2(-r * 0.5 * pk, -r * 1.3 * pk + r * 0.9 * pk * pk) + Vector2(0, -s * 0.15)
+		ci.draw_arc(up, s * 0.4, PI + pk * 1.2, TAU + pk * 1.2, 16, Color(Toon.SUMI, pa), s * 0.2, true)
+		var body := Rect2(c.x - s * 0.6 + r * 0.45 * pk, c.y - s * 0.15 + r * 1.6 * pk * pk, s * 1.2, s * 0.95)
+		_box.set_border_width_all(0)
+		_box.bg_color = Color(Toon.SUMI, pa)
+		_box.set_corner_radius_all(maxi(1, int(s * 0.18)))
+		ci.draw_style_box(_box, body)
+	# gouttes d'encre projetées
+	var ik := clampf(e / 0.55, 0.0, 1.0)
+	if ik < 1.0:
+		for q in 14:
+			var ang := float(q) / 14.0 * TAU + _hash(q + 3) * 0.6
+			var dist := r * (0.9 + 1.3 * UiKit.ease_out(ik)) * (0.8 + 0.4 * _hash(q * 5 + 2))
+			var dr := (3.2 - 2.2 * ik) * u * (0.7 + 0.6 * _hash(q + 11))
+			ci.draw_circle(c + Vector2(cos(ang), sin(ang) * 0.8) * dist + Vector2(0, r * 0.4 * ik * ik), dr, Color(Toon.SUMI, 0.85 * (1.0 - ik)))
+	# anneau et rayons d'or
+	var gk := clampf(e / 0.8, 0.0, 1.0)
+	if gk < 1.0:
+		var ga := 1.0 - gk
+		ci.draw_arc(c, r * (1.0 + 1.5 * UiKit.ease_out(gk)), 0.0, TAU, 48, Color(Toon.GOLD, 0.9 * ga), (5.0 - 3.0 * gk) * u, true)
+		for q in 12:
+			var ang2 := float(q) / 12.0 * TAU + 0.26
+			var d0 := r * (1.05 + 0.6 * gk)
+			var d1 := r * (1.35 + 1.4 * UiKit.ease_out(gk))
+			var dv := Vector2.from_angle(ang2)
+			ci.draw_line(c + dv * d0, c + dv * d1, Color(Toon.GOLD, 0.85 * ga), maxf(1.0, (3.0 - 1.8 * gk) * u), true)
+	# paillettes d'or qui retombent
+	var sk := clampf(e / 1.4, 0.0, 1.0)
+	if sk < 1.0:
+		for q in 18:
+			var ang3 := _hash(q * 7 + 1) * TAU
+			var sp := r * (1.2 + 1.6 * _hash(q * 3 + 5))
+			var pos := c + Vector2(cos(ang3), sin(ang3) - 0.6) * sp * UiKit.ease_out(sk) + Vector2(0, r * 1.8 * sk * sk)
+			ci.draw_circle(pos, (1.2 + _hash(q + 50) * 1.6) * u, Color(Toon.GOLD, 0.95 * (1.0 - sk)))
+
+
+## Carte du monde révélé, au-dessus de la carte : « MONDE N DÉBLOQUÉ », sceau, nom, ambiance, et l'aperçu
+## des nouveaux rouleaux (pictogrammes, « +N rouleaux »).
+func _draw_overlay() -> void:
+	if _reveal_id == 0 or _reveal_i < 0 or size.x < 10.0:
+		return
+	var k_in := UiKit.ease_out(clampf((_rv - RV_CARD) / 0.35, 0.0, 1.0))
+	var k_out := 1.0 - UiKit.ease_out(clampf((_rv - _rv_out) / 0.35, 0.0, 1.0))
+	var k := minf(k_in, k_out)
+	if k <= 0.0:
+		return
+	var ci: Control = _overlay
+	var u := _u
+	var w := size.x
+	ci.draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.WASHI, 0.55 * k))
+	var d: Dictionary = _worlds[_reveal_i]
+	var col: Color = d.get("color", Toon.PRUSSIAN)
+	var has_p := not _reveal_powers.is_empty()
+	var cw := minf(w * 0.84, 330.0 * u)
+	var ch := (282.0 if has_p else 190.0) * u
+	var cy := _py0 + _ph * 0.5 - ch / 2.0 + 26.0 * u * (1.0 - k_in)
+	var card := Rect2((w - cw) / 2.0, cy, cw, ch)
+	# ombre, papier, bande du monde, filet d'or
+	UiKit.box(_box, Color(Toon.SUMI, 0.22 * k), maxi(1, int(14.0 * u)))
+	ci.draw_style_box(_box, Rect2(card.position + Vector2(0, 8.0 * u), card.size))
+	UiKit.box(_box, Color(Toon.PAPER, k), maxi(1, int(14.0 * u)), Color(Toon.SUMI, k), maxi(1, int(2.5 * u)))
+	ci.draw_style_box(_box, card)
+	_box.set_border_width_all(0)
+	ci.draw_rect(Rect2(card.position.x + 14.0 * u, card.position.y + 3.0 * u, cw - 28.0 * u, 5.0 * u), Color(col, k))
+	ci.draw_rect(card.grow(-7.0 * u), Color(Toon.GOLD, 0.6 * k), false, maxf(1.0, 1.2 * u))
+	var cx := card.get_center().x
+	var top := card.position.y
+	var inner := cw - 40.0 * u
+	_centered(ci, _ui, "MONDE %d DÉBLOQUÉ" % _reveal_id, Vector2(cx, top + 32.0 * u), maxi(1, int(11.0 * u)), Color(Toon.VERMILION, k))
+	# sceau du monde, cerclé d'or, qui se pose
+	var sk := UiKit.ease_out(clampf((_rv - RV_CARD - 0.15) / 0.3, 0.0, 1.0))
+	var sc := Vector2(cx, top + 76.0 * u)
+	var sr := 30.0 * u * (1.0 + 0.4 * (1.0 - sk))
+	ci.draw_circle(sc + Vector2(0, 3.0 * u), sr, Color(Toon.SUMI, 0.2 * k * sk))
+	ci.draw_circle(sc, sr + 3.0 * u, Color(Toon.GOLD, k * sk))
+	ci.draw_circle(sc, sr, Color(col, k * sk))
+	var kfs := maxi(1, int(sr * 1.05))
+	var asc := UiKit.TITLE_FONT.get_ascent(kfs)
+	var desc := UiKit.TITLE_FONT.get_descent(kfs)
+	_centered(ci, UiKit.TITLE_FONT, str(d.get("kanji", "道")), Vector2(sc.x, sc.y + (asc - desc) / 2.0), kfs, Color(Toon.WASHI, k * sk))
+	# nom et ambiance
+	_centered_fit(ci, _title, UiKit.plain(str(d.get("name", ""))), Vector2(cx, top + 140.0 * u), maxi(1, int(24.0 * u)), inner, Color(Toon.SUMI, k))
+	_centered_fit(ci, _ui, UiKit.plain(str(d.get("subtitle", ""))), Vector2(cx, top + 162.0 * u), maxi(1, int(11.0 * u)), inner, Color(Toon.SUMI, 0.65 * k))
+	if has_p:
+		ci.draw_line(Vector2(card.position.x + 30.0 * u, top + 180.0 * u), Vector2(card.end.x - 30.0 * u, top + 180.0 * u), Color(Toon.SUMI, 0.15 * k), maxf(1.0, 1.5 * u))
+		_centered(ci, _ui, "NOUVEAUX ROULEAUX", Vector2(cx, top + 200.0 * u), maxi(1, int(10.0 * u)), Color(Toon.GOLD.darkened(0.3), k))
+		var n := _reveal_powers.size()
+		var shown := mini(n, 6)
+		var ir := 13.0 * u
+		var gap := 32.0 * u
+		for q in shown:
+			var qk := UiKit.ease_out(clampf((_rv - RV_CARD - 0.35 - 0.07 * float(q)) / 0.25, 0.0, 1.0))
+			if qk <= 0.0:
+				continue
+			var ic := Vector2(cx + (float(q) - float(shown - 1) / 2.0) * gap, top + 228.0 * u)
+			UiKit.power_icon(ci, String(_reveal_powers[q]), ic, ir * (0.6 + 0.4 * qk), k * qk)
+		var more := ("+%d ROULEAU" % n) if n == 1 else ("+%d ROULEAUX" % n)
+		_centered(ci, _ui, more + "  ·  DANS LES TIRAGES", Vector2(cx, top + 264.0 * u), maxi(1, int(10.0 * u)), Color(Toon.SUMI, 0.6 * k))
+	# invitation à continuer
+	var pulse := 0.55 + 0.45 * sin(_t * 3.0)
+	_centered(ci, _ui, "TOUCHE POUR CONTINUER", Vector2(cx, card.end.y + 26.0 * u), maxi(1, int(10.0 * u)), Color(Toon.SUMI, 0.55 * k * pulse))
 
 
 # --- Utilitaires ---------------------------------------------------------------------

@@ -79,6 +79,7 @@ const FIG_PLAIN := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOU
 	"enso": "ENSŌ", "hook": "CROCHET"}
 var demo := false  # tutoriel : toutes les techniques prêtées (niveau 1)
 var _offer_n := 0  # offres de rouleaux depuis le début de la partie
+var _relax := false  # offre de secours : paliers de progression ignorés (sceaux de l'Atelier toujours respectés)
 var _fig_spin_tick := 0.0
 var _fig_spin_dmg := 0.0
 var _fig_pull_r := 3.0
@@ -289,17 +290,12 @@ func offer(room_n: int = -1) -> Array:
 		r = int(main.room) if main != null else 0
 	var lv := int(main.level) if main != null else 1
 	var w := _rarity_weights(r, lv)
-	var pools := {"common": [], "rare": [], "epic": [], "legendary": []}
+	var pools := _pools(r, lv, Data.RARITY_ORDER)
 	var owned_up: Array = []
-	for key in Data.POWERS.keys():
-		var id := String(key)
-		if not _eligible(id, r, lv):
-			continue
-		var d: Dictionary = Data.POWERS[id]
-		var pl: Array = pools[String(d["rarity"])]
-		pl.append(id)
-		if lvl(id) > 0:
-			owned_up.append(id)
+	for rk in Data.RARITY_ORDER:
+		for id in pools[rk]:
+			if lvl(String(id)) > 0:
+				owned_up.append(String(id))
 	var out: Array = []
 	if not owned_up.is_empty() and randf() < 0.65:
 		out.append(owned_up[randi() % owned_up.size()])
@@ -337,20 +333,13 @@ func offer(room_n: int = -1) -> Array:
 
 ## « Sans une égratignure » (gardien vaincu sans dégât) : trois rouleaux épiques ou légendaires, dont un
 ## légendaire si la partie en permet encore un. Mêmes règles que offer() (sceaux de l'Atelier, plafond de
-## légendaires, écoles commencées) ; la pitié repart de zéro. S'il ne reste pas assez d'épiques, la rareté
-## la plus proche complète.
+## légendaires, écoles commencées) ; la pitié repart de zéro. Moins de 3 épiques ou légendaires débloqués :
+## les paliers sont ignorés pour ce rouleau (_pools) ; s'il en manque encore, la rareté la plus proche complète.
 func offer_flawless() -> Array:
 	# toujours offert après le gardien (mi-parcours) : épiques et légendaires y sont ouverts
 	var r := maxi(int(main.room) if main != null else 0, LEG_ROOM)
 	var lv := int(main.level) if main != null else 1
-	var pools := {"common": [], "rare": [], "epic": [], "legendary": []}
-	for key in Data.POWERS.keys():
-		var id := String(key)
-		if not _eligible(id, r, lv):
-			continue
-		var d: Dictionary = Data.POWERS[id]
-		var pl: Array = pools[String(d["rarity"])]
-		pl.append(id)
+	var pools := _pools(r, lv, ["epic", "legendary"])
 	var out: Array = []
 	var leg_pool: Array = pools["legendary"]
 	if not leg_pool.is_empty():
@@ -371,6 +360,33 @@ func offer_flawless() -> Array:
 		_since_leg = 0
 	out.shuffle()
 	return out
+
+
+## Rouleaux permis, par rareté. S'il y en a moins de 3 dans les raretés `need` (début de la progression,
+## ou presque tout est déjà au maximum), on les reprend sans les paliers ; les sceaux restent exigés.
+func _pools(r: int, lv: int, need: Array) -> Dictionary:
+	var pools := _collect(r, lv)
+	var n := 0
+	for rk in need:
+		var pl: Array = pools[rk]
+		n += pl.size()
+	if n < 3:
+		_relax = true
+		pools = _collect(r, lv)
+		_relax = false
+	return pools
+
+
+func _collect(r: int, lv: int) -> Dictionary:
+	var pools := {"common": [], "rare": [], "epic": [], "legendary": []}
+	for key in Data.POWERS.keys():
+		var id := String(key)
+		if not _eligible(id, r, lv):
+			continue
+		var d: Dictionary = Data.POWERS[id]
+		var pl: Array = pools[String(d["rarity"])]
+		pl.append(id)
+	return pools
 
 
 ## Rouleaux de figure : tant qu'aucune technique n'est débloquée, la 1re offre en montre une une fois sur deux
@@ -464,9 +480,14 @@ func _has_rank(ids: Array, rank: int) -> bool:
 func _eligible(id: String, r: int, lv: int) -> bool:
 	if lvl(id) >= max_level(id):
 		return false
-	# légendaires verrouillés tant qu'on n'a pas acheté leur sceau à l'Atelier
-	if main != null and main.meta != null and not main.meta.power_unlocked(id):
-		return false
+	# palier de progression pas encore atteint, ou légendaire dont le sceau n'est pas acheté à l'Atelier
+	# (offre de secours : seul le sceau compte)
+	if main != null and main.meta != null:
+		if _relax:
+			if main.meta.power_sealed(id):
+				return false
+		elif not main.meta.power_unlocked(id):
+			return false
 	var d: Dictionary = Data.POWERS[id]
 	if d.has("needs"):
 		var ok := false
