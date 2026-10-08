@@ -274,15 +274,13 @@ class CpuMesh extends Mesh:
 
 static var _cpu: Dictionary = {}  # clé (paramètres ou identifiant) -> CpuMesh
 static var _unit_box: CpuMesh = null
-static var _cpu_ok := -1  # 1 : Mesh peut être étendu en script (sinon : ancien chemin, relecture GPU)
+static var _cpu_ok := 0  # désactivé : un Mesh écrit en script n'est pas accepté par SurfaceTool.append_from (ancien chemin)
 const CPU_MAX := 2048  # au-delà, le cache repart de zéro (maillages uniques jetables)
 
 
 ## Ajoute `mesh` (surface `surf`), placé par `xf`, au SurfaceTool `st` — sans relecture GPU.
 ## Les boîtes deviennent une boîte unité mise à l'échelle (mêmes sommets, normales dans le même sens).
 static func merge_into(st: SurfaceTool, mesh: Mesh, xf: Transform3D, surf := 0) -> void:
-	if _cpu_ok < 0:
-		_cpu_ok = 1 if ClassDB.can_instantiate("Mesh") else 0
 	if _cpu_ok == 0 or mesh is CpuMesh:
 		st.append_from(mesh, surf, xf)
 		return
@@ -314,8 +312,6 @@ static func _unit_ok(bm: BoxMesh) -> bool:
 
 ## Copie CPU d'un SurfaceTool qu'on vient de remplir (maillage jetable : rien n'est envoyé au GPU).
 static func cpu_from(st: SurfaceTool) -> Mesh:
-	if _cpu_ok < 0:
-		_cpu_ok = 1 if ClassDB.can_instantiate("Mesh") else 0
 	if _cpu_ok == 0:
 		return st.commit()
 	var c := CpuMesh.new()
