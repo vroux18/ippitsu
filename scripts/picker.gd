@@ -373,8 +373,8 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 	var col: Color = info.get("color", Toon.SUMI)
 	var rc: Color = info.get("rarity_color", Color(0.5, 0.5, 0.5))
 	var dark := leg or rank < 0
-	var body: Color = LEG_BODY if leg else (CURSE_BODY if is_curse else (PASS_BODY if is_pass else Toon.PAPER))
-	var ink: Color = Toon.WASHI if dark else Toon.SUMI
+	var body: Color = LEG_BODY if leg else (CURSE_BODY if is_curse else (PASS_BODY if is_pass else Toon.ui_paper))
+	var ink: Color = Toon.WASHI if dark else Toon.ui_ink
 	var radius := int(14 * u)
 	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
 	var sel := i == _sel
@@ -454,8 +454,8 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 	# déclencheur (en haut à gauche) et nouveauté / amélioration (en haut à droite)
 	if rank >= 0:
 		var tc := r.position + Vector2(15.0, 15.0) * s
-		draw_circle(tc, 11.0 * s, Color(GOLD_HI if leg else Toon.SUMI, a))
-		UiKit.trigger_icon(self, id, tc, 6.8 * s, LEG_BODY if leg else Toon.WASHI, GOLD_HI if leg else Toon.SUMI, a)
+		draw_circle(tc, 11.0 * s, Color(GOLD_HI if leg else Toon.ui_ink, a))
+		UiKit.trigger_icon(self, id, tc, 6.8 * s, LEG_BODY if leg else Toon.ui_wash, GOLD_HI if leg else Toon.ui_ink, a)
 		var nc := Vector2(r.end.x - 15.0 * s, r.position.y + 15.0 * s)
 		if bool(info.get("is_new", true)):
 			# étoile « nouveau » (pas de draw_set_transform : le légendaire est déjà écrasé pour son retournement)
@@ -490,7 +490,7 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 		_curse_lines(String(info.get("text", "")), cx, ey, tw, efs, lh, a, is_curse)
 		return
 	# effet en une ligne, le chiffre en couleur
-	var accent: Color = GOLD_HI if dark else Toon.VERMILION.darkened(0.12)
+	var accent: Color = GOLD_HI if dark or Toon.ui_dark else Toon.VERMILION.darkened(0.12)
 	var lines := _wrap(_ui, _short(id, info), efs, tw)
 	for k in mini(lines.size(), 3):
 		_rich(lines[k], cx, ey + float(k) * lh, efs, Color(ink, 0.9 * a), Color(accent, a))
@@ -629,7 +629,7 @@ func _affinity(r: Rect2, info: Dictionary, s: float, u: float, a: float, pulse: 
 			draw_circle(c, pr, Color(col.lightened(0.15) if dark else col, a))
 			UiKit.school_icon(self, school, c, pr * 0.62, Toon.WASHI, a)
 		else:
-			draw_arc(c, pr - 0.5 * u, 0.0, TAU, 18, Color(Toon.WASHI if dark else Toon.SUMI, 0.3 * a), 1.4 * u, true)
+			draw_arc(c, pr - 0.5 * u, 0.0, TAU, 18, Color(Toon.WASHI if dark else Toon.ui_ink, 0.3 * a), 1.4 * u, true)
 	if bool(info.get("aff_hit", false)):
 		var tiers: Array = Data.AFF_TIERS
 		var tier := maxi(0, tiers.find(goal))
@@ -705,24 +705,26 @@ func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: f
 	var box := Rect2(bub.position, Vector2(bub.size.x, minf(hgt, bub.size.y)))
 	# papier et pointe vers la carte levée
 	var tipx := clampf(px, box.position.x + 24.0 * u, box.end.x - 24.0 * u)
-	draw_colored_polygon(PackedVector2Array([Vector2(tipx, box.position.y - 9.0 * u), Vector2(tipx + 10.0 * u, box.position.y + 1.0), Vector2(tipx - 10.0 * u, box.position.y + 1.0)]), Color(Toon.PAPER, 0.97 * a))
-	UiKit.box(_sb, Color(Toon.PAPER, 0.97 * a), int(12 * u))
+	draw_colored_polygon(PackedVector2Array([Vector2(tipx, box.position.y - 9.0 * u), Vector2(tipx + 10.0 * u, box.position.y + 1.0), Vector2(tipx - 10.0 * u, box.position.y + 1.0)]), Color(Toon.ui_paper, 0.97 * a))
+	UiKit.box(_sb, Color(Toon.ui_paper, 0.97 * a), int(12 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.35 * a)
 	_sb.shadow_size = int(10 * u)
 	_sb.shadow_offset = Vector2(0, 4 * u)
 	draw_style_box(_sb, box)
 	var x := box.position.x + pad
 	var y := box.position.y + pad
-	var ink := Toon.SUMI
+	var ink: Color = Toon.ui_ink
+	var nite: bool = Toon.ui_dark  # papier sombre : accents clairs
+	var gold_ink := GOLD_HI if nite else Color("#9A6B12")
 	if rank >= 0:
 		# déclencheur en clair, avec son pictogramme, puis rareté et niveau
 		var when := _p(String(info.get("when", "")))
 		var wfs := int(8.5 * u)
 		var chip_w := _ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x + 30.0 * u
 		var chip := Rect2(Vector2(x, y - 2.0 * u), Vector2(chip_w, 17.0 * u))
-		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, a), 999), chip)
-		UiKit.trigger_icon(self, id, Vector2(chip.position.x + 10.0 * u, chip.get_center().y), 5.5 * u, Toon.WASHI, Toon.SUMI, a)
-		draw_string(_ui, Vector2(chip.position.x + 20.0 * u, chip.get_center().y + wfs * 0.36), when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs, Color(Toon.WASHI, a))
+		draw_style_box(UiKit.box(_sb, Color(ink, a), 999), chip)
+		UiKit.trigger_icon(self, id, Vector2(chip.position.x + 10.0 * u, chip.get_center().y), 5.5 * u, Toon.ui_wash, ink, a)
+		draw_string(_ui, Vector2(chip.position.x + 20.0 * u, chip.get_center().y + wfs * 0.36), when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs, Color(Toon.ui_wash, a))
 		var rc: Color = info.get("rarity_color", Toon.SUMI)
 		var lvl_txt := String(info.get("rarity_name", ""))
 		var mx := int(info.get("max_level", 1))
@@ -730,12 +732,12 @@ func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: f
 			lvl_txt += "  ·  NOUVEAU"
 		elif mx > 1:
 			lvl_txt += "  ·  NIVEAU %d → %d" % [int(info.get("cur_level", 0)), int(info.get("level", 1))]
-		_line_fit(lvl_txt, Vector2(chip.end.x + 8.0 * u, chip.get_center().y + 3.0 * u), box.end.x - pad - chip.end.x - 8.0 * u, int(8.5 * u), Color(rc.darkened(0.15), a))
+		_line_fit(lvl_txt, Vector2(chip.end.x + 8.0 * u, chip.get_center().y + 3.0 * u), box.end.x - pad - chip.end.x - 8.0 * u, int(8.5 * u), Color(rc.lightened(0.25) if nite else rc.darkened(0.15), a))
 		y += 22.0 * u
 	# nom japonais et sous-titre
 	var nm := _p(String(info.get("name", "")))
 	var nfs := int(15 * u)
-	draw_string(UiKit.TITLE_FONT, Vector2(x, y + 12.0 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(Toon.VERMILION.darkened(0.2) if rank < 0 else ink, a))
+	draw_string(UiKit.TITLE_FONT, Vector2(x, y + 12.0 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color((RED_TXT if nite else Toon.VERMILION.darkened(0.2)) if rank < 0 else ink, a))
 	var sub := _p(String(info.get("sub", "")))
 	if sub != "":
 		var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
@@ -748,13 +750,13 @@ func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: f
 	y += 4.0 * u
 	if stat != "" and rank >= 0:
 		y += 18.0 * u
-		_bold_fit(stat, Vector2(x, y), tw, int(12 * u), Color(Toon.VERMILION.darkened(0.12), a))
+		_bold_fit(stat, Vector2(x, y), tw, int(12 * u), Color(GOLD_HI if nite else Toon.VERMILION.darkened(0.12), a))
 	if aff_line != "":
 		y += 15.0 * u
-		_line_fit(aff_line, Vector2(x, y), tw, int(9.5 * u), Color(Color("#9A6B12") if aff_on else Color(ink, 0.6), a))
+		_line_fit(aff_line, Vector2(x, y), tw, int(9.5 * u), Color(gold_ink if aff_on else Color(ink, 0.6), a))
 	if syn != "":
 		y += 15.0 * u
-		_line_fit(syn, Vector2(x, y), tw, int(9.5 * u), Color(Color("#9A6B12"), a))
+		_line_fit(syn, Vector2(x, y), tw, int(9.5 * u), Color(gold_ink, a))
 
 
 ## Bouton CHOISIR (ACCEPTER au sanctuaire, PASSER pour refuser), sous la bulle.

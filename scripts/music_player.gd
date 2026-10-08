@@ -10,6 +10,7 @@ extends Node
 ##  - fichier absent (version locale sans CI) : silence, sans erreur.
 
 const DIR := "res://assets/music/"
+const WORLDS := 8  # mondes ayant leur boucle (w1…w8) et leur gardien (boss1…boss8)
 const FADE := 1.2
 const DUCK_DB := -4.0
 
@@ -21,11 +22,17 @@ const TRACKS := {
 	"w3": true,
 	"w4": true,
 	"w5": true,
+	"w6": true,
+	"w7": true,
+	"w8": true,
 	"boss1": true,
 	"boss2": true,
 	"boss3": true,
 	"boss4": true,
 	"boss5": true,
+	"boss6": true,
+	"boss7": true,
+	"boss8": true,
 	"mini": true,
 	"win": false,
 	"lose": false,
@@ -39,11 +46,17 @@ const LOOP_START := {
 	"w3": 8.0 * 60.0 / 66.0,
 	"w4": 8.0 * 60.0 / 120.0,
 	"w5": 8.0 * 60.0 / 76.0,
+	"w6": 8.0 * 60.0 / 80.0,
+	"w7": 8.0 * 60.0 / 70.0,
+	"w8": 8.0 * 60.0 / 60.0,
 	"boss1": 4.0 * 60.0 / 132.0,
 	"boss2": 4.0 * 60.0 / 128.0,
 	"boss3": 4.0 * 60.0 / 120.0,
 	"boss4": 4.0 * 60.0 / 144.0,
 	"boss5": 4.0 * 60.0 / 136.0,
+	"boss6": 4.0 * 60.0 / 140.0,
+	"boss7": 4.0 * 60.0 / 126.0,
+	"boss8": 4.0 * 60.0 / 132.0,
 	"mini": 4.0 * 60.0 / 150.0,
 }
 
@@ -100,9 +113,9 @@ func play_menu() -> void:
 	_go("menu", 0.0, FADE)
 
 
-## Boucle du monde id (1..5), depuis son introduction. Précharge aussi ses gardiens et les jingles.
+## Boucle du monde id (1..WORLDS), depuis son introduction. Précharge aussi ses gardiens et les jingles.
 func play_world(id: int) -> void:
-	_world = clampi(id, 1, 5)
+	_world = clampi(id, 1, WORLDS)
 	_boss = false
 	_resume_pos = 0.0
 	_go("w%d" % _world, 0.0, FADE)
@@ -111,14 +124,14 @@ func play_world(id: int) -> void:
 
 ## Précharge en arrière-plan les pistes du monde id (boucle, gardiens, jingles).
 func prepare(id: int) -> void:
-	var w := clampi(id, 1, 5)
+	var w := clampi(id, 1, WORLDS)
 	for t in ["w%d" % w, "boss%d" % w, "mini", "win", "lose"]:
 		_request(String(t))
 
 
 ## Thème de combat : gardien du monde id, ou gardien de salle (mini = true).
 func play_boss(id: int, mini := false) -> void:
-	_world = clampi(id, 1, 5)
+	_world = clampi(id, 1, WORLDS)
 	if not _boss:
 		_resume_pos = _position_of("w%d" % _world)
 	_boss = true

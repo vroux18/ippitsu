@@ -6,6 +6,7 @@ extends Node
 ## à temps : « BOT ALERTE ui: … », puis retour à l'accueil et étape suivante.
 
 const Meta = preload("res://scripts/meta.gd")
+const Worlds = preload("res://scripts/worlds.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Options = preload("res://scripts/options.gd")
 const TIMEOUT := 15.0  # secondes réelles
@@ -36,7 +37,7 @@ func run() -> void:
 		await _recover()
 	if not await _step_dojo():
 		await _recover()
-	for w in range(1, 6):
+	for w in range(1, Worlds.WORLDS.size() + 1):
 		if not await _step_world(w):
 			await _recover()
 	print("BOT UI bilan : %d étape(s) en échec" % _fails)

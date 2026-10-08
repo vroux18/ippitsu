@@ -1,6 +1,8 @@
 extends Node
 ## Robot testeur (CI) : `-- --bot [--mode=campaign|powers|ui|stress] [--seed=N]`.
-##  campaign (défaut) : les 5 mondes d'affilée, sanctuaire compris, puis une partie où il doit mourir.
+##  campaign (défaut) : les 8 mondes d'affilée, sanctuaire compris, puis une partie où il doit mourir.
+##    Les boss (gardiens compris) disent eux-mêmes quel trait les blesse (bot_stroke) : boucles,
+##    perles et bulles dans l'ordre, chaînes et fils tranchés en travers, tornade traversée.
 ##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement à 1 cœur). Bilan par monde.
 ##  powers : chaque pouvoir, à chaque niveau, actif pendant une salle de combat entière (gardien et boss
 ##    compris) ; les six figures, des esquives, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
@@ -14,10 +16,11 @@ const Meta = preload("res://scripts/meta.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const BotShapes = preload("res://scripts/bot_shapes.gd")
 const BotUi = preload("res://scripts/bot_ui.gd")
+const Worlds = preload("res://scripts/worlds.gd")
 const MODES := ["campaign", "powers", "ui", "stress"]
 const ROOM_TIMEOUT := {"campaign": 90.0, "powers": 120.0, "stress": 170.0}  # secondes de jeu avant de déclarer un combat bloqué (marche de l'étape comprise)
-const GAME_LIMIT := {"campaign": 5200.0, "powers": 14000.0, "stress": 3800.0, "ui": 1.0e9}  # secondes de jeu
-const WALL_LIMIT := 900.0  # secondes réelles (le CI coupe à 16 min)
+const GAME_LIMIT := {"campaign": 8600.0, "powers": 14000.0, "stress": 3800.0, "ui": 1.0e9}  # secondes de jeu
+const WALL_LIMIT := 1440.0  # secondes réelles (le CI coupe à 25 min)
 const STROKE_KINDS := ["plain", "loop", "zigzag", "straight", "return", "enso", "hook"]
 const POWER_GROUP := 6  # pouvoirs suivis par partie (mode powers)
 const MAX_POWER_RUNS := 14
@@ -107,7 +110,7 @@ func begin(m: Node) -> void:
 			world = 1
 			_new_run()
 		"stress":
-			world = 1 + randi() % 5
+			world = 1 + randi() % Worlds.WORLDS.size()
 			_new_run()
 		_:
 			_new_run()
@@ -330,7 +333,7 @@ func _over() -> void:
 		finish()
 		return
 	world += 1
-	if world > 5:
+	if world > Worlds.WORLDS.size():
 		# dernière partie : le héros doit mourir (mort, ralenti, résultats)
 		_death_test = true
 		world = 1
@@ -338,7 +341,7 @@ func _over() -> void:
 
 
 func _print_stats() -> void:
-	for w in range(1, 6):
+	for w in range(1, Worlds.WORLDS.size() + 1):
 		if not _stats.has(w):
 			continue
 		var d: Dictionary = _stats[w]
@@ -775,7 +778,7 @@ func _powers_run_end() -> void:
 	var left := _uncovered()
 	print("BOT POUVOIRS partie %d finie : %d/%d pouvoirs couverts" % [_runs, _order.size() - left.size(), _order.size()])
 	if not left.is_empty() and _runs < MAX_POWER_RUNS:
-		world = 1 + (_runs % 5)
+		world = 1 + (_runs % 5)  # (mondes 1 à 5 : budget de temps du mode inchangé)
 		_new_run()
 		return
 	for id in left:

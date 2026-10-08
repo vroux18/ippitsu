@@ -206,7 +206,8 @@ func _make_hole(c: Vector3, r: float) -> void:
 	n.position = c
 	var w := 1
 	if main != null:
-		w = clampi(int(main.current_world), 1, 5)
+		# mondes 6 à 8 : sol de pierre (Kurama, palais de Ryūgū) ou d'encre (Yomi)
+		w = [1, 1, 2, 3, 4, 5, 2, 2, 5][clampi(int(main.current_world), 1, 8)]
 	var pal: Dictionary = HOLE_STYLES[w]
 	var flat := Mb.new()  # aplats : fond, parois, liserés, encre
 	var relief := Mb.new()  # reliefs cernés d'encre : échardes, cailloux, plaques

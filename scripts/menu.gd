@@ -21,7 +21,10 @@ const KILLER_NAMES := {"oni": "un oni", "brute": "une brute", "kappa": "un kappa
 	"tanuki": "un tanuki", "tanuki_d": "un leurre de tanuki", "kitsune_tsukai": "une prêtresse renarde", "yuki_warashi": "un yuki-warashi",
 	"tsurara": "des stalactites", "onryo": "un onryō", "hinotama": "un hinotama", "kanabo": "un oni à massue",
 	"tengu": "un tengu", "teppo": "un arquebusier", "sumidama": "une goutte d'encre", "sumidama_s": "une gouttelette d'encre",
-	"kasa": "un kasa-obake", "moryo": "un mōryō"}
+	"kasa": "un kasa-obake", "moryo": "un mōryō",
+	"karasu": "un karasu-tengu", "yamabushi": "un yamabushi-tengu", "konoha": "un konoha-tengu",
+	"kani": "un crabe heikegani", "ningyo": "une ningyo", "fugu": "un fugu",
+	"gaki": "un gaki affamé", "gokusotsu": "un geôlier des enfers", "shiryo": "un shiryō"}
 
 signal play_pressed
 signal home_pressed

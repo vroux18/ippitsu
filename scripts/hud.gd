@@ -267,7 +267,7 @@ func _draw() -> void:
 		_draw_pad(u)
 		# voile de papier en dégradé derrière le bandeau du haut : lisible sur n'importe quel décor
 		var top_h := 96.0 * u + top_off
-		var paper := Color(Toon.PAPER, 0.88)
+		var paper := Color(Toon.ui_paper, 0.88)
 		draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0), Vector2(sz.x, top_h * 0.55), Vector2(0, top_h * 0.55)]),
 			PackedColorArray([paper, paper, paper, paper]))
 		draw_polygon(PackedVector2Array([Vector2(0, top_h * 0.55), Vector2(sz.x, top_h * 0.55), Vector2(sz.x, top_h), Vector2(0, top_h)]),
@@ -650,9 +650,9 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 
 ## Symbole d'une figure au pinceau, dans un sceau rond de rayon r.
 func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
-	draw_circle(c, r + 2.5 * r / 30.0, Color(Toon.SUMI, 0.85 * a))
-	draw_circle(c, r, Color(Toon.PAPER, 0.95 * a))
-	var ink := Color(Toon.SUMI, a)
+	draw_circle(c, r + 2.5 * r / 30.0, Color(Toon.ui_ink, 0.85 * a))
+	draw_circle(c, r, Color(Toon.ui_paper, 0.95 * a))
+	var ink := Color(Toon.ui_ink, a)
 	var w := 4.0 * r / 30.0
 	var s := r * 0.62
 	match shape:
@@ -804,9 +804,9 @@ func _draw_room(sz: Vector2, u: float) -> void:
 	var kw := UiKit.TITLE_FONT.get_string_size(world_kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs).x
 	draw_string(UiKit.TITLE_FONT, Vector2(seal.get_center().x - kw / 2.0, seal.get_center().y + kfs * 0.36), world_kanji, HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Toon.WASHI)
 	var tfs := int(22 * u)
-	draw_string(UiKit.TITLE_FONT, Vector2(cx - 10 * u, 38 * u), str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Toon.SUMI)
+	draw_string(UiKit.TITLE_FONT, Vector2(cx - 10 * u, 38 * u), str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Toon.ui_ink)
 	var nw := UiKit.TITLE_FONT.get_string_size(str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	draw_string(UiKit.UI_FONT, Vector2(cx - 8 * u + nw, 38 * u), "/ %d" % rooms_total, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(Toon.SUMI, 0.55))
+	draw_string(UiKit.UI_FONT, Vector2(cx - 8 * u + nw, 38 * u), "/ %d" % rooms_total, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(Toon.ui_ink, 0.55))
 
 
 ## Jauge d'encre : verticale sur le bord droit, encre bleue vive cerclée de blanc (lisible sur tous les mondes).
@@ -887,7 +887,7 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 	var bn := plain(boss_name)
 	var nw := UiKit.TITLE_FONT.get_string_size(bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
 	var name_y := by - (16.0 if boss_has_shield else 7.0) * u
-	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, name_y), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
+	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, name_y), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.ui_ink)
 	if boss_has_shield:
 		_draw_boss_shield(Vector2(bx, by - 11.0 * u), bw, u, vuln, pulse)
 	# rouleau : deux baguettes et la barre d'encre vermillon (dorée et pulsante quand il est vulnérable)

@@ -53,6 +53,9 @@ const FLAVOR := {
 	3: ["moat", "ring", "ell"],
 	4: ["zigzag", "stairs", "hourglass", "islands"],
 	5: ["cross", "pond", "diamond", "spine"],
+	6: ["stairs", "terraces", "ell", "twin"],
+	7: ["pond", "moat", "ring", "islands"],
+	8: ["hourglass", "cross", "zigzag", "spine"],
 }
 const MAX_USES := 2  # une forme au plus deux fois par partie
 const BRIDGE_W := 2.7  # un rectangle plus étroit que ça est une passerelle (pont de bois au-dessus du vide)
@@ -537,6 +540,18 @@ func _barrier_style() -> Dictionary:
 			return {"pole": Color("#2B2729"), "rope": Color("#EDE2C8"), "glow": Color("#FFF1D6"), "glow_e": 0.6,
 				"paper": Color("#F5EEDD"), "stripe": Color("#D7372B"), "ink": Color("#0E0D10"),
 				"mist": Color("#1B1A1E"), "mist_a": 0.34, "burn": Color("#FF8A3A")}
+		6:  # cordes de Kurama, ofuda vermillon
+			return {"pole": Color("#5A3A2A"), "rope": Color("#D8C084"), "glow": Color("#FFD27A"), "glow_e": 0.65,
+				"paper": Color("#F3ECD8"), "stripe": Color("#B8352A"), "ink": Color("#1A1E1A"),
+				"mist": Color("#C9D2BF"), "mist_a": 0.4, "burn": Color("#FF8A3A")}
+		7:  # cordes d'algues du palais, lueur de perle
+			return {"pole": Color("#B8452E"), "rope": Color("#6A8E5A"), "glow": Color("#9FF0E6"), "glow_e": 0.85,
+				"paper": Color("#EAF4EE"), "stripe": Color("#C49A45"), "ink": Color("#10262A"),
+				"mist": Color("#7FC0BE"), "mist_a": 0.36, "burn": Color("#7FE8FF")}
+		8:  # cordes de Yomi, feu des âmes
+			return {"pole": Color("#3A3440"), "rope": Color("#8E8A94"), "glow": Color("#C9B8FF"), "glow_e": 0.9,
+				"paper": Color("#E8E2EE"), "stripe": Color("#5A3A7A"), "ink": Color("#0E0C10"),
+				"mist": Color("#4A4452"), "mist_a": 0.42, "burn": Color("#B98AFF")}
 	return {"pole": Color("#C2A66E"), "rope": Color("#D9C38C"), "glow": Color("#FFD98A"), "glow_e": 0.55,
 		"paper": Color("#F4ECD8"), "stripe": Color("#D7372B"), "ink": Color("#1B1A1E"),
 		"mist": Color("#E8EEF2"), "mist_a": 0.42, "burn": Color("#FF8A3A")}
@@ -1802,6 +1817,12 @@ func _mote_color() -> Color:
 			return Color("#F4FBFF")  # neige
 		4:
 			return Color("#FF8A3A")  # braises
+		6:
+			return Color("#B9D98A")  # lucioles de la forêt
+		7:
+			return Color("#BFF4EC")  # bulles
+		8:
+			return Color("#C9B8FF")  # âmes
 	return Color("#2A2830")  # encre
 
 

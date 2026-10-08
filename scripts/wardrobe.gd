@@ -124,8 +124,7 @@ func _gui_input(event: InputEvent) -> void:
 	if mb.button_index != MOUSE_BUTTON_LEFT:
 		return
 	accept_event()
-	# position de la souris du viewport (comme les boutons) : mb.position dérive sur le web tactile
-	var mp := get_local_mouse_position()
+	var mp := mb.position
 	if mb.pressed:
 		# le toucher qui a ouvert la garde-robe n'agit pas
 		_pressed = _target_at(mp) if _t >= 0.3 else ""

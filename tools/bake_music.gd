@@ -2,7 +2,7 @@ extends SceneTree
 ## Fabrique la musique une fois pour toutes (lancé par le CI, pas dans le jeu) :
 ##   godot --headless --path . --script tools/bake_music.gd
 ## Écrit assets/music/<piste>.wav pour chaque piste de scripts/music_player.gd (TRACKS) :
-## menu, w1…w5 (mondes), boss1…boss5 (gardiens), mini (gardien de salle), win / lose (jingles).
+## menu, w1…w8 (mondes), boss1…boss8 (gardiens), mini (gardien de salle), win / lose (jingles).
 ## Le CI les convertit ensuite en OGG.
 
 const MP = preload("res://scripts/music_player.gd")

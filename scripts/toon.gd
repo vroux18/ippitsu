@@ -16,6 +16,7 @@ const VEIL := Color("#110E11")  # voile d'encre derrière les fenêtres
 static var ui_paper := PAPER
 static var ui_wash := WASHI
 static var ui_ink := SUMI
+static var ui_dark := false  # papier sombre, encre claire (Nuit) : les accents foncés passent au clair
 static var ui_rev := 0  # change à chaque thème : les écrans qui ne se redessinent pas seuls le guettent
 
 
@@ -24,6 +25,7 @@ static func set_ui_theme(d: Dictionary) -> void:
 	ui_paper = d.get("paper", PAPER)
 	ui_wash = d.get("wash", WASHI)
 	ui_ink = d.get("ink", SUMI)
+	ui_dark = ui_ink.get_luminance() > ui_paper.get_luminance()
 	ui_rev += 1
 
 

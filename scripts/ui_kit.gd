@@ -62,9 +62,9 @@ static func box(sb: StyleBoxFlat, bg: Color, radius := 0, border := Color(0, 0, 
 
 ## Symbole d'une figure au pinceau, dans un sceau rond de rayon r (même dessin que le HUD).
 static func figure(ci: CanvasItem, shape: String, c: Vector2, r: float, a: float) -> void:
-	ci.draw_circle(c, r + 2.5 * r / 30.0, Color(Toon.SUMI, 0.85 * a))
-	ci.draw_circle(c, r, Color(Toon.PAPER, 0.95 * a))
-	var ink := Color(Toon.SUMI, a)
+	ci.draw_circle(c, r + 2.5 * r / 30.0, Color(Toon.ui_ink, 0.85 * a))
+	ci.draw_circle(c, r, Color(Toon.ui_paper, 0.95 * a))
+	var ink := Color(Toon.ui_ink, a)
 	var w := 4.0 * r / 30.0
 	var s := r * 0.62
 	match shape:

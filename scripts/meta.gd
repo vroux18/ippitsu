@@ -148,7 +148,8 @@ var runs := 0  # parties jouées
 var best_room := 0  # meilleure salle atteinte
 var wins := 0  # victoires (la première rapporte +2 sceaux)
 var ranks := {}  # id de ligne -> rang acheté
-var unlocked := 1  # mondes débloqués (1..5) : le monde N+1 s'ouvre quand le monde N est vaincu
+const WORLD_COUNT := 8  # mondes du jeu (worlds.gd WORLDS) : bornes des déblocages
+var unlocked := 1  # mondes débloqués (1..WORLD_COUNT) : le monde N+1 s'ouvre quand le monde N est vaincu
 var power_tier := 0  # paliers de rouleaux débloqués (0..4) : monde N vaincu -> palier N (power_data « unlock »)
 var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers ouverts (jamais sauvegardé)
 var tuto_done := false  # tutoriel déjà fait (sinon il se lance au premier JOUER)
@@ -180,13 +181,13 @@ func load_data() -> void:
 	runs = maxi(0, int(cf.get_value("meta", "runs", 0)))
 	best_room = maxi(0, int(cf.get_value("meta", "best_room", 0)))
 	wins = maxi(0, int(cf.get_value("meta", "wins", 0)))
-	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, 5)
+	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, WORLD_COUNT)
 	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
 	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
 	intro_done = bool(cf.get_value("meta", "intro_done", tuto_done))
 	start_power_id = String(cf.get_value("meta", "start_power", ""))
-	for wid in range(1, 6):
+	for wid in range(1, WORLD_COUNT + 1):
 		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
 	for id in ORDER:
 		ranks[id] = clampi(int(cf.get_value("stone", id, 0)), 0, max_rank(id))
@@ -230,12 +231,13 @@ func load_data() -> void:
 func _migrate_progress() -> void:
 	var top_won := 0
 	var reached := 1
-	for wid in range(1, 6):
+	for wid in range(1, WORLD_COUNT + 1):
 		if world_won(wid):
 			top_won = wid
 		if int(world_best.get(wid, 0)) > 0:
 			reached = wid
-	unlocked = clampi(maxi(unlocked, maxi(top_won + 1, reached)), 1, 5)
+	# (les Vues « w<id>_win » n'existent que pour les mondes 1 à 5 : au-delà, unlocked fait foi)
+	unlocked = clampi(maxi(unlocked, maxi(top_won + 1, reached)), 1, WORLD_COUNT)
 	power_tier = clampi(maxi(power_tier, top_won), 0, Data.UNLOCK_MAX)
 
 
@@ -830,8 +832,8 @@ func record_world(world_id: int, room_reached: int, victory: bool) -> Dictionary
 	world_best[world_id] = maxi(int(world_best.get(world_id, 0)), room_reached)
 	if victory:
 		var before := unlocked
-		unlocked = clampi(maxi(unlocked, world_id + 1), 1, 5)
-		if world_id + 1 <= 5 and before < world_id + 1:
+		unlocked = clampi(maxi(unlocked, world_id + 1), 1, WORLD_COUNT)
+		if world_id + 1 <= WORLD_COUNT and before < world_id + 1:
 			res["world"] = world_id + 1
 		var tb := power_tier
 		power_tier = clampi(maxi(power_tier, world_id), 0, Data.UNLOCK_MAX)

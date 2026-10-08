@@ -402,20 +402,20 @@ func _draw() -> void:
 	var a := clampf(_t / 0.25, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
 	var card := _card
-	UiKit.box(_sb, Color(Toon.PAPER, a), int(18 * u))
+	UiKit.box(_sb, Color(Toon.ui_paper, a), int(18 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
 	_sb.shadow_size = int(20 * u)
 	draw_style_box(_sb, card)
 	# titre et nombre de pouvoirs
 	var cxc := card.get_center().x
-	UiKit.text(self, _title, "MES POUVOIRS", Vector2(cxc + 10 * u, card.position.y + 48 * u), int(22 * u), Color(Toon.SUMI, a))
+	UiKit.text(self, _title, "MES POUVOIRS", Vector2(cxc + 10 * u, card.position.y + 48 * u), int(22 * u), Color(Toon.ui_ink, a))
 	draw_line(Vector2(cxc - 20 * u, card.position.y + 60 * u), Vector2(cxc + 40 * u, card.position.y + 60 * u), Color(Toon.VERMILION, a), 2 * u)
 	var sub: String = "%d POUVOIR%s" % [_count, "S" if _count > 1 else ""] if _count > 0 else "AUCUN POUVOIR"
-	UiKit.text(self, _ui, sub, Vector2(cxc + 10 * u, card.position.y + 78 * u), int(10 * u), Color(Toon.SUMI, 0.5 * a))
+	UiKit.text(self, _ui, sub, Vector2(cxc + 10 * u, card.position.y + 78 * u), int(10 * u), Color(Toon.ui_ink, 0.5 * a))
 	# retour : ensō et flèche en haut à gauche de la carte (comme les options)
 	var bc := _back.get_center()
 	var k: float = 0.92 if _pressed == BACK_TARGET else 1.0
-	draw_arc(bc, 16 * u * k, -PI * 0.35, PI * 1.45, 28, Color(Toon.SUMI, a), 3.5 * u, true)
+	draw_arc(bc, 16 * u * k, -PI * 0.35, PI * 1.45, 28, Color(Toon.ui_ink, a), 3.5 * u, true)
 	var head := bc + Vector2(-7, 0) * u * k
 	draw_line(bc + Vector2(8, 0) * u * k, head, Color(Toon.VERMILION, a), 3 * u, true)
 	draw_line(head, head + Vector2(5, -5) * u * k, Color(Toon.VERMILION, a), 3 * u, true)
@@ -441,9 +441,9 @@ func _draw_list() -> void:
 		_draw_tile(i, Rect2(r.position + Vector2(0.0, oy), r.size), u, a)
 	# bonus d'école
 	var sy := _sec_y + oy
-	UiKit.text(_list, _title, "BONUS D'ÉCOLE", Vector2(W / 2.0, sy + 18.0 * u), int(13 * u), Toon.SUMI)
+	UiKit.text(_list, _title, "BONUS D'ÉCOLE", Vector2(W / 2.0, sy + 18.0 * u), int(13 * u), Toon.ui_ink)
 	_list.draw_line(Vector2(W / 2.0 - 20 * u, sy + 26 * u), Vector2(W / 2.0 + 20 * u, sy + 26 * u), Toon.VERMILION, 2 * u)
-	UiKit.text(_list, _ui, "2 ou 4 pouvoirs d'une école : un bonus", Vector2(W / 2.0, sy + 41 * u), int(9 * u), Color(Toon.SUMI, 0.5))
+	UiKit.text(_list, _ui, "2 ou 4 pouvoirs d'une école : un bonus", Vector2(W / 2.0, sy + 41 * u), int(9 * u), Color(Toon.ui_ink, 0.5))
 	for k in _school_c.size():
 		var c: Vector2 = _school_c[k]
 		_draw_school(k, c + Vector2(0.0, oy), u)
@@ -462,7 +462,7 @@ func _draw_list() -> void:
 	# fondus du papier en haut et en bas quand il reste à faire défiler
 	var vh := _list.size.y
 	var fade := 16.0 * u
-	var paper := Toon.PAPER
+	var paper: Color = Toon.ui_paper
 	if _scroll > 1.0:
 		_list.draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(W, 0), Vector2(W, fade), Vector2(0, fade)]),
 			PackedColorArray([paper, paper, Color(paper, 0.0), Color(paper, 0.0)]))
@@ -473,17 +473,17 @@ func _draw_list() -> void:
 	if _content_h > vh + 1.0:
 		var th := maxf(24.0 * u, vh * vh / _content_h)
 		var ks := clampf(_scroll / maxf(1.0, _max_scroll()), 0.0, 1.0)
-		_list.draw_rect(Rect2(Vector2(W - 3 * u, (vh - th) * ks), Vector2(2.5 * u, th)), Color(Toon.SUMI, 0.25))
+		_list.draw_rect(Rect2(Vector2(W - 3 * u, (vh - th) * ks), Vector2(2.5 * u, th)), Color(Toon.ui_ink, 0.25))
 
 
 ## Aucun pouvoir : rouleau fermé qui flotte dans un ensō, sceau vermillon, et une phrase pour en obtenir.
 func _draw_empty(W: float, y: float, u: float) -> void:
 	var c := Vector2(W / 2.0, y + 70.0 * u)
-	_list.draw_circle(c, 52.0 * u, Color(Toon.SUMI, 0.05))
-	_list.draw_arc(c, 44.0 * u, -PI * 0.42, PI * 1.45, 48, Color(Toon.SUMI, 0.28), 4.0 * u, true)
-	_list.draw_arc(c, 40.0 * u, PI * 1.1, PI * 1.42, 12, Color(Toon.SUMI, 0.16), 2.0 * u, true)
+	_list.draw_circle(c, 52.0 * u, Color(Toon.ui_ink, 0.05))
+	_list.draw_arc(c, 44.0 * u, -PI * 0.42, PI * 1.45, 48, Color(Toon.ui_ink, 0.28), 4.0 * u, true)
+	_list.draw_arc(c, 40.0 * u, PI * 1.1, PI * 1.42, 12, Color(Toon.ui_ink, 0.16), 2.0 * u, true)
 	var bob := Vector2(0.0, sin(_t * 1.6) * 3.0 * u)
-	UiKit.glyph(_list, "scroll", c + bob, 26.0 * u, Color(Toon.SUMI, 0.45))
+	UiKit.glyph(_list, "scroll", c + bob, 26.0 * u, Color(Toon.ui_ink, 0.45))
 	# sceau (hanko) posé de biais
 	var hc := c + Vector2(30.0, 28.0) * u
 	var hs := 7.0 * u
@@ -497,8 +497,13 @@ func _draw_empty(W: float, y: float, u: float) -> void:
 		var sp: Vector2 = spots[k]
 		var tw := 0.5 + 0.5 * sin(_t * 2.4 + float(k) * 2.1)
 		UiKit.glyph(_list, "star", c + sp * u, (3.0 + 2.0 * tw) * u, Color(Toon.GOLD, 0.35 + 0.45 * tw))
-	UiKit.text(_list, UiKit.TITLE_FONT, "Aucun rouleau pour l'instant", Vector2(W / 2.0, y + 146.0 * u), int(15 * u), Color(Toon.SUMI, 0.8))
-	UiKit.text(_list, _ui, "Gagne un niveau pour choisir ton premier rouleau.", Vector2(W / 2.0, y + 164.0 * u), int(10 * u), Color(Toon.SUMI, 0.55))
+	UiKit.text(_list, UiKit.TITLE_FONT, "Aucun rouleau pour l'instant", Vector2(W / 2.0, y + 146.0 * u), int(15 * u), Color(Toon.ui_ink, 0.8))
+	UiKit.text(_list, _ui, "Gagne un niveau pour choisir ton premier rouleau.", Vector2(W / 2.0, y + 164.0 * u), int(10 * u), Color(Toon.ui_ink, 0.55))
+
+
+## Or lisible sur le papier du thème (foncé sur papier clair, vif sur papier sombre).
+func _gold_ink() -> Color:
+	return GOLD_HI if Toon.ui_dark else GOLD_INK
 
 
 ## Une tuile : médaillon (halo d'élément, anneau de rareté, pictogramme), déclencheur en badge, crans de niveau, nom court.
@@ -519,7 +524,7 @@ func _draw_tile(i: int, r: Rect2, u: float, a: float) -> void:
 	if leg:
 		_list.draw_style_box(UiKit.box(_sb, Color(GOLD_HI, (0.10 + 0.05 * pulse) * a), radius), r)
 	if sel:
-		_list.draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.05 * a), radius, Color(Toon.VERMILION, a), maxi(1, int(2.5 * u))), r)
+		_list.draw_style_box(UiKit.box(_sb, Color(Toon.ui_ink, 0.05 * a), radius, Color(Toon.VERMILION, a), maxi(1, int(2.5 * u))), r)
 	# lueurs : or (légendaire), couleur de rareté (épique), halo de l'élément
 	if leg:
 		_list.draw_circle(mc, big * (1.45 + 0.06 * pulse), Color(GOLD_HI, 0.18 * a))
@@ -542,9 +547,9 @@ func _draw_tile(i: int, r: Rect2, u: float, a: float) -> void:
 	# déclencheur : petit badge en haut à gauche du médaillon
 	var tc := mc + Vector2(-big * 0.82, -big * 0.82)
 	var tr := 8.5 * u
-	_list.draw_circle(tc, tr + 1.5 * u, Color(Toon.PAPER, a))
-	_list.draw_circle(tc, tr, Color(GOLD_HI if leg else Toon.SUMI, a))
-	UiKit.trigger_icon(_list, id, tc, tr * 0.62, BUB_BODY if leg else Toon.WASHI, GOLD_HI if leg else Toon.SUMI, a)
+	_list.draw_circle(tc, tr + 1.5 * u, Color(Toon.ui_paper, a))
+	_list.draw_circle(tc, tr, Color(GOLD_HI if leg else Toon.ui_ink, a))
+	UiKit.trigger_icon(_list, id, tc, tr * 0.62, BUB_BODY if leg else Toon.ui_wash, GOLD_HI if leg else Toon.ui_ink, a)
 	# crans de niveau sur le bas du médaillon (en or quand le pouvoir est au maximum)
 	var mx := int(info.get("max_level", 1))
 	if mx > 1:
@@ -566,7 +571,7 @@ func _draw_tile(i: int, r: Rect2, u: float, a: float) -> void:
 		nfs = int(11 * u)
 		lines = _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 6.0 * u)
 	var ny := mc.y + _med_r + 20.0 * u
-	var ncol: Color = GOLD_INK if leg else Toon.SUMI
+	var ncol: Color = _gold_ink() if leg else Toon.ui_ink
 	for kk in mini(lines.size(), 2):
 		UiKit.text(_list, UiKit.TITLE_FONT, lines[kk], Vector2(r.get_center().x, ny + float(kk) * 13.0 * u), nfs, Color(ncol, a))
 
@@ -592,14 +597,14 @@ func _draw_school(k: int, c: Vector2, u: float) -> void:
 	if _sel == SCHOOL_BASE + k:
 		_list.draw_arc(c, rr + 8.0 * u, 0.0, TAU, 40, Toon.VERMILION, 2.0 * u, true)
 	# anneau : fond pâle, progression de la couleur d'école (or quand l'école est complète)
-	_list.draw_arc(c, rr, 0.0, TAU, 48, Color(Toon.SUMI, 0.12), 4.0 * u, true)
+	_list.draw_arc(c, rr, 0.0, TAU, 48, Color(Toon.ui_ink, 0.12), 4.0 * u, true)
 	var f := float(mini(n, top)) / float(maxi(top, 1))
 	if f > 0.0:
 		_list.draw_arc(c, rr, -PI / 2.0, -PI / 2.0 + TAU * f, maxi(8, int(48.0 * f)), GOLD_HI if done else col, 4.0 * u, true)
 	for th in tiers:
 		var d := Vector2.from_angle(-PI / 2.0 + TAU * float(th) / float(maxi(top, 1)))
-		_list.draw_circle(c + d * rr, 3.8 * u, Toon.PAPER)
-		_list.draw_circle(c + d * rr, 2.7 * u, GOLD_HI if n >= int(th) else Color(Toon.SUMI, 0.35))
+		_list.draw_circle(c + d * rr, 3.8 * u, Toon.ui_paper)
+		_list.draw_circle(c + d * rr, 2.7 * u, GOLD_HI if n >= int(th) else Color(Toon.ui_ink, 0.35))
 	# pastille de l'école (pâle tant qu'aucun pouvoir n'y compte)
 	var al: float = 1.0 if n > 0 else 0.4
 	_list.draw_circle(c, sr, Color(col, al))
@@ -608,7 +613,7 @@ func _draw_school(k: int, c: Vector2, u: float) -> void:
 	if done:
 		UiKit.glyph(_list, "star", c + Vector2(rr * 0.74, -rr * 0.74), 6.5 * u, GOLD_HI)
 	var cnt := "%d/%d" % [mini(n, top), top]
-	UiKit.text(_list, _ui, cnt, Vector2(c.x, c.y + rr + 15.0 * u), int(10 * u), GOLD_INK if tier > 0 else Color(Toon.SUMI, 0.55))
+	UiKit.text(_list, _ui, cnt, Vector2(c.x, c.y + rr + 15.0 * u), int(10 * u), _gold_ink() if tier > 0 else Color(Toon.ui_ink, 0.55))
 
 
 # ------------------------------------------------------------------ bulles

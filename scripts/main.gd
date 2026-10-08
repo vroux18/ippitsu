@@ -20,8 +20,12 @@ const BOSS_PATHS := {"kyubi": "res://scripts/boss_kyubi.gd", "gashadokuro": "res
 	"bakekujira": "res://scripts/boss_mini_kujira.gd",
 	# (ceux-ci préchargent un squelette : après les autres, le temps qu'il arrive en arrière-plan)
 	"tsuchigumo": "res://scripts/boss_mini_tsuchigumo.gd", "yukionna": "res://scripts/boss_mini_yukionna.gd",
-	"ibaraki": "res://scripts/boss_mini_ibaraki.gd"}
-const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
+	"ibaraki": "res://scripts/boss_mini_ibaraki.gd",
+	# mondes 6 à 8 (Kurama, Ryūgū-jō, Yomi)
+	"karasu_o": "res://scripts/boss_mini_karasu.gd", "sojobo": "res://scripts/boss_sojobo.gd",
+	"umibozu_o": "res://scripts/boss_mini_umibozu.gd", "ryujin": "res://scripts/boss_ryujin.gd",
+	"gaki_o": "res://scripts/boss_mini_gaki.gd", "izanami": "res://scripts/boss_izanami.gd"}
+const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami", 6: "sojobo", 7: "ryujin", 8: "izanami"}
 # gardien de la salle MINI_ROOM : chacun enseigne le geste utile contre le boss de son monde
 # point faible de chaque boss, montré en astuce quand la lame ricoche
 const BOSS_HINTS := {
@@ -35,8 +39,14 @@ const BOSS_HINTS := {
 	"yukionna": "après son souffle, tranche les cristaux du plus petit au plus grand",
 	"ibaraki": "Touche ses sceaux de braise dans l'ordre, d'un seul trait",
 	"bakekujira": "quand elle charge, trace un aller-retour juste devant sa tête",
+	"karasu_o": "Quand il se pose, trace une boucle autour de lui",
+	"sojobo": "Tranche sa tornade de plumes, puis entoure-le d'une boucle",
+	"umibozu_o": "Crève ses bulles d'écume dans l'ordre, d'un seul trait",
+	"ryujin": "Tranche ses cinq perles dans l'ordre, d'un seul trait",
+	"gaki_o": "Tranche ses trois chaînes en travers",
+	"izanami": "Coupe les fils des huit dieux du tonnerre, puis entoure-la d'un ensō",
 }
-const MINI_BOSS := {1: "okappa", 2: "tsuchigumo", 3: "yukionna", 4: "ibaraki", 5: "bakekujira"}
+const MINI_BOSS := {1: "okappa", 2: "tsuchigumo", 3: "yukionna", 4: "ibaraki", 5: "bakekujira", 6: "karasu_o", 7: "umibozu_o", 8: "gaki_o"}
 const Vfx = preload("res://scripts/vfx.gd")
 const Options = preload("res://scripts/options.gd")
 const Pickups = preload("res://scripts/pickups.gd")
@@ -44,7 +54,8 @@ const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3,
 	"umibozu": 2, "kitsunebi": 2, "kitsunebi_s": 1, "yukionna": 3, "kasha": 3, "kagebo": 3,
 	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "tanuki_d": 0, "kitsune_tsukai": 3,
 	"yuki_warashi": 1, "tsurara": 2, "onryo": 3, "hinotama": 2, "teppo": 2, "tengu": 3, "kanabo": 5,
-	"sumidama": 2, "sumidama_s": 1, "kasa": 2, "moryo": 3}
+	"sumidama": 2, "sumidama_s": 1, "kasa": 2, "moryo": 3,
+	"karasu": 2, "yamabushi": 3, "konoha": 2, "kani": 3, "ningyo": 2, "fugu": 2, "gaki": 1, "gokusotsu": 4, "shiryo": 2}
 const Tutorial = preload("res://scripts/tutorial.gd")
 const Intro = preload("res://scripts/intro.gd")
 const Music = preload("res://scripts/music_player.gd")
@@ -88,14 +99,16 @@ const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
 	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3,
 	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 3,
 	"yuki_warashi": 1, "tsurara": 2, "onryo": 3, "hinotama": 2, "teppo": 2, "tengu": 3, "kanabo": 4,
-	"sumidama": 3, "kasa": 2, "moryo": 3}
+	"sumidama": 3, "kasa": 2, "moryo": 3,
+	"karasu": 2, "yamabushi": 3, "konoha": 2, "kani": 3, "ningyo": 2, "fugu": 2, "gaki": 1, "gokusotsu": 4, "shiryo": 2}
 # première salle où chaque ennemi peut venir (ennemis signature : un par monde, vers la salle 3-4)
 const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4,
 	"umibozu": 3, "kitsunebi": 3, "yukionna": 4, "kasha": 4, "kagebo": 4,
 	# bestiaire étendu : tireurs et coureurs tôt, soutiens et costauds plus tard
 	"kappa_yumi": 2, "ika": 3, "umi_nyobo": 5, "kamaitachi": 2, "tanuki": 3, "kitsune_tsukai": 5,
 	"yuki_warashi": 2, "tsurara": 6, "onryo": 4, "hinotama": 2, "teppo": 3, "tengu": 4, "kanabo": 6,
-	"sumidama": 2, "kasa": 3, "moryo": 5}
+	"sumidama": 2, "kasa": 3, "moryo": 5,
+	"karasu": 2, "yamabushi": 4, "konoha": 3, "kani": 3, "ningyo": 2, "fugu": 3, "gaki": 2, "gokusotsu": 5, "shiryo": 3}
 const UNLOCK_ALL := false  # vrai : tous les mondes ouverts (prototype) ; sinon un monde vaincu ouvre le suivant
 const SAVE_PATH := "user://ippitsu.cfg"
 
@@ -388,7 +401,7 @@ func _ready() -> void:
 	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
 	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
 		meta.test_unlock_all = true
-	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, 5) if wpos >= 0 else 1)
+	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, Worlds.WORLDS.size()) if wpos >= 0 else 1)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
@@ -488,7 +501,8 @@ func _boss_script(k: String) -> GDScript:
 
 const WARM_KINDS := ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo",
 	"kappa_yumi", "ika", "umi_nyobo", "kamaitachi", "tanuki", "kitsune_tsukai", "yuki_warashi", "tsurara", "onryo",
-	"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo"]
+	"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo",
+	"karasu", "yamabushi", "konoha", "kani", "ningyo", "fugu", "gaki", "gokusotsu", "shiryo"]
 const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins un ennemi
 
 
@@ -640,7 +654,7 @@ func _on_play() -> void:
 ## rouleaux débloqués avec lui (aperçu sur sa carte).
 func _open_worlds(center := -1, reveal := 0, reveal_powers := []) -> void:
 	_set_state("worlds")
-	var unlocked: int = 5 if UNLOCK_ALL or bool(meta.test_unlock_all) else int(meta.unlocked)
+	var unlocked: int = Worlds.WORLDS.size() if UNLOCK_ALL or bool(meta.test_unlock_all) else int(meta.unlocked)
 	# records : meilleur combat atteint -> meilleure étape
 	var best := {}
 	for k in meta.world_best.keys():
@@ -1217,6 +1231,8 @@ func _build_boat_fx(id: int) -> void:
 	var k := 0.6 if _light_mode else 1.0
 	var c := MENU_BOAT + Vector3(0, 1.4, -3.0)
 	var ext := Vector3(4.0, 1.6, 4.5)
+	if Worlds.boat_fx(id, _boat_fx, c, ext, k):
+		return  # mondes 6 à 8 : aiguilles de cèdre, bulles, âmes
 	match clampi(id, 1, 5):
 		1:
 			Decor.petals(_boat_fx, AABB(MENU_BOAT + Vector3(-4.0, -0.4, -7.5), Vector3(8.0, 3.6, 9.0)))
@@ -1387,6 +1403,7 @@ func _setup_wardrobe() -> void:
 	wardrobe.connect("closed", _on_wardrobe_closed)
 	menu.wardrobe_pressed.connect(_open_wardrobe)
 	menu.apply_theme(meta.theme_colors())
+	Toon.set_ui_theme(meta.theme_colors())
 
 
 func _open_wardrobe() -> void:
@@ -1403,6 +1420,7 @@ func _on_wardrobe_changed(cat: String) -> void:
 	meta.apply_look(hero)
 	if cat == "theme":
 		menu.apply_theme(meta.theme_colors())
+		Toon.set_ui_theme(meta.theme_colors())
 	sfx.play("empty", 1.3, -6.0)
 	feel("kill")
 
@@ -1807,6 +1825,12 @@ const BOSS_CARDS := {
 	"gashadokuro": ["餓者髑髏", "GASHADOKURO", "le squelette des affamés"],
 	"daidara": ["大太法師", "DAIDARABOTCHI", "le géant qui façonne les monts"],
 	"kuronami": ["黒波", "KURO-NAMI", "la vague noire"],
+	"karasu_o": ["烏天狗", "KARASU-TENGU", "le chef des corbeaux du Kurama"],
+	"sojobo": ["僧正坊", "SŌJŌBŌ", "le roi des tengu du mont Kurama"],
+	"umibozu_o": ["海坊主", "UMIBŌZU", "le moine géant des abysses"],
+	"ryujin": ["龍神", "RYŪJIN", "le roi dragon de la mer"],
+	"gaki_o": ["餓鬼王", "GAKI-Ō", "le roi des affamés"],
+	"izanami": ["伊邪那美", "IZANAMI", "la reine du pays des morts"],
 }
 var _intro_boss: Node3D = null  # boss qui attend son entrée en scène (figé)
 var _intro_wave: Array = []  # première vague, lâchée à la fin de l'entrée

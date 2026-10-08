@@ -20,6 +20,12 @@ extends Node3D
 ##  hinotama    — (4) boule de feu volante : piqué en ligne                 kanabo — (4) oni à massue : armure frontale, bouclier
 ##  tengu       — (4) corbeau : lance des chausse-trapes (zones au sol)     sumidama — (5) goutte d'encre : flaque qui freine, se divise
 ##  kasa        — (5) parapluie : bonds sur un disque, intouchable en l'air moryo — (5) esprit : pose des boucliers sur les alliés
+## Mondes 6 à 8 :
+##  karasu      — (6) karasu-tengu : corbeau qui plonge en piqué (couloir)   yamabushi — (6) tengu ascète : rafale de son éventail (cône)
+##  konoha      — (6) tengu-feuille : feuilles lancées en éventail          kani — (7) crabe heike : carapace de face (comme le porte-bouclier)
+##  ningyo      — (7) sirène : jet d'eau en ligne annoncée                   fugu — (7) poisson-globe : gonfle, frappe autour de lui, épines
+##  gaki        — (8) affamé : rapide, se soigne à chaque coup porté         gokusotsu — (8) geôlier : chaîne en couloir, armure de départ
+##  shiryo      — (8) feu d'âme : cercle de feu froid sous le héros
 ## Boucliers (barre bleue) : tant qu'il en reste, un coup n'entame que 25 % des PV ; figures et pouvoirs les usent ×2 ;
 ## brisé : titube 0.8 s. Élites (main._spawn_list) : ×1.25, ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes.
 
@@ -189,6 +195,18 @@ const TRAP_LIFE := 4.5
 const HOP_R := 0.95
 const HOP_T := 0.85
 const HOP_GROUND := 0.9
+# mondes 6 à 8 : rafale d'éventail, feuilles, poisson-globe, chaîne, feu d'âme
+const GUST_T := 1.0
+const GUST_LEN := 5.5
+const GUST_HALF := 0.55  # demi-angle du cône (rad)
+const LEAF_T := 0.8
+const PUFF_T := 1.1
+const PUFF_R := 1.5
+const CHAIN_T := 1.1
+const CHAIN_W := 1.0
+const WISP_T := 1.2
+const WISP_R := 1.1
+const YOMI_C := Color("#B9A8E8")
 
 static var _res := {}  # maillages et matériaux partagés par tous les ennemis
 
@@ -233,6 +251,7 @@ var _drift_p := Vector3.ZERO
 var _drift_t := 0.0
 var _corner_t := 0.0
 var _spark_t := -9.0
+var _wings: Array = []  # pivots des ailes (karasu) : battement
 
 
 func setup(k: String, h: Node3D, m: Node) -> void:
@@ -676,6 +695,168 @@ func _setup_extra() -> void:
 			var tg := Toon.part(body, _box(Vector3(0.12, 0.025, 0.34)), _pm(Toon.VERMILION), Vector3(0, 0.98, -0.55))
 			tg.rotation.x = 0.6
 			_timer = 0.8
+		"karasu":
+			# karasu-tengu : corbeau noir au bec d'or, tokin rouge, grandes ailes ; plonge en piqué
+			hp = 0.9
+			speed = 2.2
+			radius = 0.42
+			_h = 1.0
+			_custom = true
+			var black := _pm(Color("#1E1C22"))
+			Toon.part(body, _sph(0.3), black, Vector3(0, 0.5, 0), Vector3(1.0, 1.0, 1.35))
+			Toon.part(body, _sph(0.18), black, Vector3(0, 0.78, -0.22))
+			var kbeak := Toon.part(body, _cyl(0.0, 0.07, 0.26, 6), _pm(Toon.GOLD), Vector3(0, 0.76, -0.46))
+			kbeak.rotation.x = -PI / 2.0
+			Toon.part(body, _box(Vector3(0.12, 0.1, 0.12)), _pm(Toon.VERMILION), Vector3(0, 0.98, -0.2))
+			for s in [-1.0, 1.0]:
+				var ksx := float(s)
+				Toon.part(body, _sph(0.035), _pm(Toon.GOLD, false), Vector3(ksx * 0.09, 0.82, -0.36))
+				var pivot := Node3D.new()
+				pivot.position = Vector3(ksx * 0.22, 0.6, 0.0)
+				body.add_child(pivot)
+				var wing := Toon.part(pivot, _box(Vector3(0.7, 0.05, 0.36)), _pm(Color("#24222A")), Vector3(ksx * 0.35, 0, 0.05))
+				wing.rotation.y = ksx * 0.2
+				_wings.append(pivot)
+			var ktail := Toon.part(body, _box(Vector3(0.22, 0.04, 0.34)), black, Vector3(0, 0.45, 0.42))
+			ktail.rotation.x = 0.3
+			_timer = randf_range(1.5, 2.3)
+		"yamabushi":
+			# yamabushi-tengu : visage rouge au long nez, tokin noir, pompons d'ascète, éventail de plumes
+			hp = 1.6
+			speed = 1.6
+			radius = 0.48
+			_walk = "Walking_B"
+			_h = 1.8
+			ch.setup(MAGE, _h, [["Body", red]], ["Skeleton_Mage_Hat"], Toon.GOLD)
+			_tint(Color("#E8DCC8"), 1.0)
+			var ynose := Toon.part(_deco, _cyl(0.025, 0.06, 0.3, 6), _pm(Color("#C8423A")), Vector3(0, 0.86 * _h, -0.2 * _h))
+			ynose.rotation.x = -PI / 2.0
+			Toon.part(_deco, _box(Vector3(0.12, 0.1, 0.12)), _pm(Toon.SUMI), Vector3(0, 1.0 * _h, -0.05 * _h))
+			for i in 3:
+				Toon.part(_deco, _sph(0.06), _pm(Color("#E9E4D8")), Vector3((float(i) - 1.0) * 0.1, 0.62 * _h, -0.16 * _h))
+			ch.attach("handslot.r", _fan())
+			_timer = randf_range(1.6, 2.4)
+		"konoha":
+			# konoha-tengu : petit tengu-feuille au bec jaune, ailes de feuilles ; feuilles lancées en éventail
+			hp = 1.0
+			speed = 2.0
+			radius = 0.4
+			_walk = "Walking_A"
+			_h = 1.3
+			_rogue = true
+			ch.setup(ROGUE, _h, [], ROGUE_GEAR.duplicate(), Toon.GOLD)
+			_tint(Color("#7FA65A"), 1.0)
+			var cbeak := Toon.part(_deco, _cyl(0.0, 0.06, 0.2, 6), _pm(Color("#E0A030")), Vector3(0, 0.84 * _h, -0.2 * _h))
+			cbeak.rotation.x = -PI / 2.0
+			for s in [-1.0, 1.0]:
+				var csx := float(s)
+				var leaf := Toon.part(_deco, _box(Vector3(0.42, 0.5, 0.03)), _pm(Color("#4E7A3A")), Vector3(csx * 0.22, 0.62 * _h, 0.16 * _h))
+				leaf.rotation = Vector3(0.2, csx * 0.5, csx * 0.5)
+			_timer = randf_range(1.4, 2.2)
+		"kani":
+			# heikegani : crabe rouge à carapace-masque de samouraï, pinces levées ; carapace de face
+			hp = 2.0
+			speed = 1.7
+			radius = 0.58
+			_zone_r = 1.0
+			_windup = 1.0
+			_h = 0.9
+			_custom = true
+			var shell := _pm(Color("#B8452E"))
+			var claw := _pm(Color("#6E2A1E"))
+			Toon.part(body, _sph(0.5), shell, Vector3(0, 0.45, 0), Vector3(1.25, 0.55, 1.0))
+			Toon.part(body, _box(Vector3(0.5, 0.06, 0.04)), _pm(Toon.SUMI, false), Vector3(0, 0.55, -0.5))
+			for s in [-1.0, 1.0]:
+				var nsx := float(s)
+				Toon.part(body, _sph(0.06), _pm(Toon.SUMI, false), Vector3(nsx * 0.15, 0.68, -0.44))
+				Toon.part(body, _cyl(0.06, 0.06, 0.35, 6), claw, Vector3(nsx * 0.48, 0.5, -0.38))
+				Toon.part(body, _sph(0.2), shell, Vector3(nsx * 0.5, 0.72, -0.5), Vector3(0.8, 1.0, 1.2))
+				for i in 3:
+					var leg := Toon.part(body, _cyl(0.03, 0.045, 0.6, 5), claw, Vector3(nsx * 0.62, 0.3, -0.15 + 0.2 * float(i)))
+					leg.rotation.z = nsx * 1.0
+		"ningyo":
+			# ningyo : sirène pâle à queue de poisson, longue chevelure ; jet d'eau en ligne
+			hp = 1.3
+			speed = 1.5
+			radius = 0.45
+			_walk = "Walking_B"
+			_h = 1.7
+			ch.setup(MAGE, _h, [], ["Skeleton_Mage_Hat"], Color("#7FE8FF"))
+			_tint(Color("#BFE6DF"), 0.8)
+			_glow_a = 0.2
+			_glow_c = Color("#7FE8FF")
+			Toon.part(_deco, _box(Vector3(0.42, 0.9, 0.06)), _pm(Color("#1E3A3E")), Vector3(0, 0.66 * _h, 0.16 * _h))
+			var nfin := Toon.part(_deco, _cyl(0.0, 0.26, 0.4, 6), _pm(Color("#3E8C86")), Vector3(0, 0.14 * _h, 0.18 * _h))
+			nfin.rotation.x = 2.2
+			ch.attach("handslot.r", _orb(0.12, Color("#9FF0E6")))
+			_timer = randf_range(1.6, 2.4)
+		"fugu":
+			# fugu : poisson-globe qui gonfle ; à pleine taille il frappe autour de lui et projette ses épines
+			hp = 1.4
+			speed = 1.4
+			radius = 0.5
+			_h = 1.0
+			_custom = true
+			_belly = Toon.part(body, _sph(0.42), _pm(Color("#D9B870")), Vector3(0, 0.6, 0), Vector3(1.0, 0.9, 1.15))
+			Toon.part(body, _sph(0.3), _pm(Color("#F1E8D6")), Vector3(0, 0.48, -0.1), Vector3(1.1, 0.7, 1.2))
+			for e in [-1.0, 1.0]:
+				var fe := float(e)
+				Toon.part(body, _sph(0.08), _pm(Toon.WASHI, false), Vector3(fe * 0.2, 0.74, -0.32))
+				Toon.part(body, _sph(0.045), _pm(Toon.SUMI, false), Vector3(fe * 0.2, 0.74, -0.39))
+				var pfin := Toon.part(body, _cyl(0.0, 0.12, 0.2, 4), _pm(Color("#B8952E")), Vector3(fe * 0.42, 0.6, 0.05))
+				pfin.rotation.z = -fe * 1.3
+			var ptail := Toon.part(body, _cyl(0.0, 0.18, 0.26, 4), _pm(Color("#B8952E")), Vector3(0, 0.6, 0.5))
+			ptail.rotation.x = -1.4
+			for i in 8:
+				var a := TAU * float(i) / 8.0
+				var spine := Toon.part(body, _cyl(0.0, 0.035, 0.14, 4), _pm(Color("#6E5A2E")), Vector3(cos(a) * 0.4, 0.6 + sin(a) * 0.34, 0.0))
+				spine.rotation.z = a - PI / 2.0
+			body.position.y = 0.3
+			_timer = randf_range(1.0, 1.8)
+		"gaki":
+			# gaki : affamé décharné au ventre gonflé ; se rue, mord et se soigne de chaque coup porté
+			hp = 0.9
+			speed = 2.7
+			radius = 0.42
+			_zone_r = 0.85
+			_windup = 0.75
+			_h = 1.45
+			ch.setup(MINION, _h, [["", ink]], [], Color("#C9FF8A"))
+			_tint(Color("#BFB8A6"), 0.9)
+			_glow_a = 0.15
+			_glow_c = Color("#9AE070")
+			_belly = Toon.part(_deco, _sph(0.26), _pm(Color("#A89E8A")), Vector3(0, 0.45 * _h, -0.08 * _h), Vector3(1, 1, 0.85))
+		"gokusotsu":
+			# gokusotsu : geôlier des enfers, oni bleu cornu à la chaîne de fer ; armure de départ
+			hp = 3.0
+			speed = 1.4
+			radius = 0.7
+			_walk = "Walking_A"
+			_h = 2.3
+			ch.setup(WARRIOR, _h, [["Helmet", ink], ["Cloak", ink]])
+			_tint(Color("#6E8AB8"), 1.0)
+			for s in [-1.0, 1.0]:
+				var gsx := float(s)
+				var ghorn := Toon.part(_deco, _cyl(0.0, 0.08, 0.3, 6), _pm(Color("#EFE3C8")), Vector3(gsx * 0.16 * _h, 0.98 * _h, -0.02))
+				ghorn.rotation.z = -gsx * 0.4
+			ch.attach("handslot.r", _chain_weapon())
+			_shield_frac = 0.25
+			_timer = randf_range(1.6, 2.4)
+		"shiryo":
+			# shiryō : feu d'âme violet à longue traîne ; annonce un cercle de feu froid sous le héros
+			hp = 1.0
+			speed = 1.8
+			radius = 0.4
+			_h = 1.1
+			_custom = true
+			Toon.part(body, _sph(0.3), main.vfx.glow_mat(YOMI_C, 2.2), Vector3(0, 0.5, 0))
+			Toon.part(body, _sph(0.18), main.vfx.glow_mat(Color("#F0E8FF"), 2.4), Vector3(0, 0.52, -0.08))
+			var strail := Toon.part(body, _cyl(0.0, 0.26, 0.6, 7), main.vfx.glow_mat(YOMI_C, 1.6), Vector3(0, 0.55, 0.42))
+			strail.rotation.x = PI / 2.0
+			for e in [-1.0, 1.0]:
+				Toon.part(body, _sph(0.05), _pm(Toon.SUMI, false), Vector3(float(e) * 0.1, 0.56, -0.27))
+			body.position.y = 0.9
+			_timer = randf_range(1.6, 2.4)
 
 
 ## Rogue KayKit : ne garder que les armes listées.
@@ -787,6 +968,27 @@ func _staff() -> Node3D:
 	return k
 
 
+## Éventail de plumes (hauchiwa) du yamabushi-tengu.
+func _fan() -> Node3D:
+	var k := Node3D.new()
+	Toon.part(k, _cyl(0.02, 0.02, 0.35, 6), _pm(Color("#3B2E25")), Vector3(0, 0.1, 0))
+	for i in 7:
+		var a := deg_to_rad(-54.0 + 18.0 * float(i))
+		var f := Toon.part(k, _box(Vector3(0.07, 0.38, 0.015)), _pm(Color("#2E2A30")), Vector3(sin(a) * 0.19, 0.42 + cos(a) * 0.19, 0))
+		f.rotation.z = -a
+	return k
+
+
+## Chaîne de fer et boulet du geôlier des enfers.
+func _chain_weapon() -> Node3D:
+	var k := Node3D.new()
+	var iron := _pm(Color("#3A3C42"))
+	for i in 5:
+		Toon.part(k, _sph(0.04), iron, Vector3(0, 0.1 + 0.08 * float(i), 0))
+	Toon.part(k, _sph(0.16), iron, Vector3(0, 0.6, 0))
+	return k
+
+
 ## Grand bouclier rond : disque de bois aplati, bordure sumi, bosse dorée au centre.
 func _shield() -> Node3D:
 	var k := Node3D.new()
@@ -876,7 +1078,7 @@ func is_harmless() -> bool:
 
 ## Vrai si un coup venant dans la direction `dir` (ruée du héros) frappe le bouclier (cône frontal 120°).
 func blocks(dir: Vector3) -> bool:
-	if kind != "tate" or dead or _stagger > 0.0:
+	if (kind != "tate" and kind != "kani") or dead or _stagger > 0.0:
 		return false
 	var d := Vector3(dir.x, 0, dir.z)
 	if d.length_squared() < 0.0001:
@@ -929,8 +1131,10 @@ func _knock_force() -> float:
 			f = 3.0
 		"kanabo":
 			f = 2.0
-		"tate", "kasha", "tanuki":
+		"tate", "kasha", "tanuki", "kani":
 			f = 4.5
+		"gokusotsu":
+			f = 3.0
 	if shield > 0.0:
 		f *= 0.5
 	return f
@@ -1117,6 +1321,11 @@ func _strike(center: Vector3, r: float) -> void:
 		hp = minf(mh, hp + mh * 0.25)
 		main.float_text(position, "VAMPIRE", Toon.VERMILION)
 		main.splash(position + Vector3(0, 1.0, 0), Toon.VERMILION, 8)
+	elif kind == "gaki" and not dead and int(hero.hp) < before:
+		# l'affamé dévore : il reprend des forces
+		var gmh := float(get_meta("max_hp", hp))
+		hp = minf(gmh, hp + gmh * 0.35)
+		main.float_text(position, "VORACE", Color("#9AE070"))
 
 
 ## Invocation : `n` créatures autour de lui (différée : jamais pendant un parcours de main.enemies).
@@ -1170,6 +1379,11 @@ func danger_zone() -> Array:
 		return [_target, _zone_r, _blast_t]
 	if _state == "windup" and kind == "tengu" and _traps.size() > 0:
 		return [_closest_pt(_traps, _probe()), TRAP_R, _timer]
+	if _state == "windup" and kind == "yamabushi" and _zone != null:
+		# rafale : point de l'axe du cône le plus proche, demi-largeur du cône à cet endroit
+		var gq := _probe()
+		var gt := clampf(Vector3(gq.x - _target.x, 0, gq.z - _target.z).dot(_strike_dir), 0.3, GUST_LEN)
+		return [_target + _strike_dir * gt, gt * tan(GUST_HALF), _timer]
 	if _state == "windup" and _zone != null:
 		if _lane.size() >= 2:
 			return [_lane_closest(_probe()), _lane_w * 0.5, _timer]
@@ -1243,6 +1457,15 @@ func _die() -> void:
 	elif kind == "hinotama":
 		main.vfx.fire_burst(Vector3(position.x, 0, position.z), 0.9)
 		body.visible = false
+	elif kind == "karasu":
+		# nuée de plumes noires
+		main.splash(position + Vector3(0, body.position.y + 0.5, 0), Toon.SUMI, 12)
+		body.visible = false
+	elif kind == "shiryo":
+		_puff(position + Vector3(0, body.position.y, 0), YOMI_C)
+		body.visible = false
+	elif kind == "fugu":
+		main.vfx.water_burst(Vector3(position.x, 0, position.z), 0.7)
 	if elite and not _selfkill and not dummy and not has_meta("elite"):
 		# élite de vague : butin en plus (le défi d'un recoin a le sien, dans main)
 		main.pickups.drop(position, "coin", 4)
@@ -1352,6 +1575,8 @@ func _process(delta: float) -> void:
 		_record()
 	if _custom:
 		body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 8.0))
+	if not _wings.is_empty():
+		_flap()
 
 	var to_hero := hero.position - position
 	to_hero.y = 0
@@ -1359,7 +1584,7 @@ func _process(delta: float) -> void:
 	var dir := to_hero / maxf(dist, 0.001)
 
 	match kind:
-		"oni", "brute", "tate", "kanabo":
+		"oni", "brute", "tate", "kanabo", "kani", "gaki":
 			_melee(delta, dir, dist)
 		"kappa":
 			_shooter(delta, dir, dist)
@@ -1381,13 +1606,13 @@ func _process(delta: float) -> void:
 						_kasha(delta, dir, dist)
 					"kagebo":
 						_kagebo(delta, dir, dist)
-					"kappa_yumi", "teppo":
+					"kappa_yumi", "teppo", "ningyo":
 						_sniper(delta, dir, dist)
 					"ika":
 						_mortar(delta, dir, dist)
 					"umi_nyobo", "moryo":
 						_support(delta, dir, dist)
-					"kamaitachi", "hinotama":
+					"kamaitachi", "hinotama", "karasu":
 						_swooper(delta, dir, dist)
 					"tanuki", "tanuki_d":
 						_tanuki(delta, dir, dist)
@@ -1403,6 +1628,16 @@ func _process(delta: float) -> void:
 						_trapper(delta, dir, dist)
 					"kasa":
 						_hopper(delta, dir, dist)
+					"yamabushi":
+						_gust(delta, dir, dist)
+					"konoha":
+						_leaves(delta, dir, dist)
+					"fugu":
+						_puffer(delta, dir, dist)
+					"gokusotsu":
+						_jailer(delta, dir, dist)
+					"shiryo":
+						_wisp(delta, dir, dist)
 
 	position += _knock * delta
 	_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 9.0))
@@ -1436,7 +1671,7 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 	match _state:
 		"move":
 			# le porteur de bouclier pivote lentement : on peut le contourner
-			_face(dir, delta, 3.0 if kind == "tate" else (2.5 if kind == "kanabo" else 10.0))
+			_face(dir, delta, 3.0 if kind == "tate" or kind == "kani" else (2.5 if kind == "kanabo" else 10.0))
 			if dist > reach - 0.3:
 				# chemin : par la passerelle si le héros est sur une autre plateforme
 				# recalculé 5 fois par seconde seulement (parcours des plateformes)
@@ -1721,6 +1956,8 @@ func _end_charge() -> void:
 		main.vfx.wind_slash(position, _strike_dir)
 	elif kind == "hinotama":
 		main.vfx.embers(Vector3(position.x, 0, position.z), 0.6, 5)
+	elif kind == "karasu":
+		main.vfx.wind_slash(position, _strike_dir, 0.8)
 	_state = "recover"
 	_timer = 1.6 if kind == "kasha" else (1.8 if kind == "kamaitachi" else 1.5)
 	_lane = PackedVector3Array()
@@ -2206,6 +2443,8 @@ func _sniper(delta: float, dir: Vector3, dist: float) -> void:
 				var b := _lane[_lane.size() - 1]
 				_strike(_lane_closest(hero.position), SNIPE_W * 0.5)
 				main.vfx.slash_line(a, b)
+				if kind == "ningyo":
+					main.vfx.water_burst(b, 0.7)
 				_cancel_attack()
 				_timer = 1.0  # rechargement : la fenêtre pour le rejoindre
 		"recover":
@@ -2345,7 +2584,7 @@ func _swoop_path(dir: Vector3, dist: float, fly: bool) -> PackedVector3Array:
 
 
 func _swooper(delta: float, dir: Vector3, dist: float) -> void:
-	var fly := kind == "hinotama"
+	var fly := kind == "hinotama" or kind == "karasu"
 	var total := SWOOP_T if fly else WEASEL_T
 	if fly:
 		# vole haut, pique en rase-mottes, se pose un instant après
@@ -2886,6 +3125,234 @@ func _hopper(delta: float, dir: Vector3, dist: float) -> void:
 			if _timer <= 0.0:
 				_state = "move"
 				_timer = randf_range(0.5, 0.8)
+
+
+# ------------------------------------------------------------------ mondes 6 à 8
+
+## Karasu : battement des ailes (plus serré pendant le piqué).
+func _flap() -> void:
+	var rate := 16.0 if _state == "charge" else 9.0
+	var amp := 0.25 if _state == "charge" else 0.55
+	for i in _wings.size():
+		var w: Node3D = _wings[i]
+		var sx := -1.0 if i % 2 == 0 else 1.0
+		w.rotation.z = sx * sin(_t * rate) * amp
+
+
+## Yamabushi-tengu : rafale de l'éventail dans un cône annoncé devant lui.
+func _gust(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 3.0, 5.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < GUST_LEN + 0.5:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_strike_dir = dir
+				_target = Vector3(position.x, 0, position.z)
+				_zone = Node3D.new()
+				_zone.top_level = true
+				add_child(_zone)
+				_zone.global_position = _target
+				_zone.rotation.y = atan2(dir.x, dir.z)
+				_tele = main.vfx.tele_fan(_zone, GUST_HALF, GUST_LEN)
+				_state = "windup"
+				_timer = GUST_T
+				ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / GUST_T)
+			elif _timer <= 0.0:
+				_timer = 0.5
+		"windup":
+			_face(_strike_dir, delta, 8.0)
+			var k := 1.0 - _timer / GUST_T
+			main.vfx.tele_update(_tele, k, _timer)
+			ch.set_glow(_glow_a + 0.9 * k, Toon.GOLD)
+			_timer -= delta
+			if _timer <= 0.0:
+				if _in_gust(hero.position):
+					_strike(Vector3(hero.position.x, 0, hero.position.z), 0.4)
+				main.vfx.wind_slash(_target + _strike_dir * 1.5, _strike_dir, 1.4)
+				main.vfx.wind_slash(_target + _strike_dir * 3.5, _strike_dir, 1.1)
+				_cancel_attack()
+				_timer = 1.2
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.4, 3.2)
+
+
+## Vrai si p est dans le cône de la rafale (sommet _target, axe _strike_dir).
+func _in_gust(p: Vector3) -> bool:
+	var v := Vector3(p.x - _target.x, 0, p.z - _target.z)
+	var l := v.length()
+	if l < 0.3:
+		return true
+	if l > GUST_LEN:
+		return false
+	return v.dot(_strike_dir) / l > cos(GUST_HALF)
+
+
+## Konoha-tengu : trois feuilles lancées en éventail après une courte lueur.
+func _leaves(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 4.0, 6.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 10.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_strike_dir = dir
+				_state = "windup"
+				_timer = LEAF_T
+				ch.play_once("Throw", ch.length("Throw") * 0.5 / LEAF_T)
+		"windup":
+			_face(dir, delta, 8.0)
+			var k := 1.0 - _timer / LEAF_T
+			ch.set_glow(_glow_a + 0.8 * k, Color("#9FD86A"))
+			_timer -= delta
+			if _timer <= 0.0:
+				for i in 3:
+					var d := dir.rotated(Vector3.UP, deg_to_rad(-20.0 + 20.0 * float(i)))
+					main.spawn_bullet(position + Vector3(0, 1.0, 0) + d * 0.5, d)
+				main.free_token(self)
+				_base_glow()
+				_state = "recover"
+				_timer = 0.6
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.6, 3.4)
+
+
+## Fugu : il approche, gonfle (disque annoncé autour de lui), frappe et projette six épines.
+func _puffer(delta: float, dir: Vector3, dist: float) -> void:
+	body.position.y = lerpf(body.position.y, 0.3 + 0.1 * sin(_t * 2.6), minf(1.0, delta * 4.0))
+	match _state:
+		"move":
+			if dist > 2.0:
+				_walk_to_hero(delta, speed)
+			else:
+				_face(dir, delta, 6.0)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 2.8:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_target = Vector3(position.x, 0, position.z)
+				_zone_r = PUFF_R
+				_make_zone(true)
+				_zone.global_position = _target
+				_state = "windup"
+				_timer = PUFF_T
+		"windup":
+			var k := 1.0 - _timer / PUFF_T
+			main.vfx.tele_update(_tele, k, _timer)
+			body.scale = Vector3.ONE * (1.0 + 0.55 * k)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				for i in 6:
+					var a := TAU * float(i) / 6.0 + _t
+					var d := Vector3(cos(a), 0, sin(a))
+					main.spawn_bullet(position + Vector3(0, 0.6, 0) + d * 0.7, d)
+				main.vfx.water_burst(_target, _zone_r)
+				_cancel_attack()
+				_timer = 1.6
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(1.6, 2.4)
+
+
+## Gokusotsu : il marche sur le héros puis fouette sa chaîne dans un couloir annoncé.
+func _jailer(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			if dist > 3.0:
+				_walk_to_hero(delta, speed)
+			else:
+				_face(dir, delta, 4.0)
+				ch.play(ch.idle)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 6.5:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				var a := Vector3(position.x, 0, position.z) + dir * 0.5
+				var b := _cut_walkable(a, a + dir * clampf(dist + 1.5, 3.0, 6.5))
+				if a.distance_to(b) < 1.5:
+					main.free_token(self)
+					_timer = 0.6
+					return
+				_strike_dir = dir
+				_make_lane(PackedVector3Array([a, b]), CHAIN_W)
+				_state = "windup"
+				_timer = CHAIN_T
+				ch.play_once("2H_Melee_Attack_Chop", ch.length("2H_Melee_Attack_Chop") * 0.5 / CHAIN_T)
+		"windup":
+			_face(_strike_dir, delta, 8.0)
+			var k := 1.0 - _timer / CHAIN_T
+			_update_lane(k)
+			ch.set_glow(_glow_a + 0.8 * k, Color("#9AB8FF"))
+			_timer -= delta
+			if _timer <= 0.0:
+				var la := _lane[0]
+				var lb := _lane[_lane.size() - 1]
+				_strike(_lane_closest(hero.position), CHAIN_W * 0.5)
+				main.vfx.slash_line(la, lb)
+				for i in 4:
+					main.vfx.sparks(la.lerp(lb, (float(i) + 0.5) / 4.0) + Vector3(0, 0.3, 0), Vector3.UP, 3, Color("#9AB8FF"))
+				_cancel_attack()
+				_timer = 1.3
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.0, 2.8)
+
+
+## Shiryō : il flotte à distance et annonce un cercle de feu froid sous le héros.
+func _wisp(delta: float, dir: Vector3, dist: float) -> void:
+	body.position.y = lerpf(body.position.y, 0.9 + 0.15 * sin(_t * 2.2), minf(1.0, delta * 4.0))
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 3.5, 6.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 10.0:
+				var t: Vector3 = main.arena.clamp_walk(Vector3(hero.position.x, 0, hero.position.z), 0.3)
+				var hole: bool = main.hazards.is_hole(t, 0.1)
+				if hole or not main.take_token(self):
+					_timer = 0.4
+					return
+				_target = t
+				_zone_r = WISP_R
+				_make_zone(true)
+				_zone.global_position = _target
+				_state = "windup"
+				_timer = WISP_T
+		"windup":
+			var k := 1.0 - _timer / WISP_T
+			main.vfx.tele_update(_tele, k, _timer)
+			body.scale = Vector3.ONE * (1.0 + 0.3 * k)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				main.vfx.ring(Vector3(_target.x, 0.08, _target.z), YOMI_C, _zone_r)
+				main.vfx.sparks(_target + Vector3(0, 0.4, 0), Vector3.UP, 10, YOMI_C)
+				_cancel_attack()
+				_timer = 0.9
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.4, 3.2)
 
 
 # ------------------------------------------------------------------ funa

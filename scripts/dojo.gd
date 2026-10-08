@@ -388,13 +388,13 @@ func _draw() -> void:
 	var u := size.x / 400.0
 	var card := _card_rect()
 	var a := clampf(_t / 0.3, 0.0, 1.0)
-	UiKit.box(_sb, Color(Toon.PAPER, 0.96 * a), int(14 * u))
+	UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.3 * a)
 	_sb.shadow_size = int(12 * u)
 	draw_style_box(_sb, card)
 	# en-tête : titre et défis relevés
 	var tx := card.position.x + 54 * u
-	draw_string(UiKit.TITLE_FONT, Vector2(tx, card.position.y + 27 * u), "Dojo", HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.SUMI, a))
+	draw_string(UiKit.TITLE_FONT, Vector2(tx, card.position.y + 27 * u), "Dojo", HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.ui_ink, a))
 	var dl := "DÉFIS %d / %d" % [done.size(), CHALLENGES.size()]
 	draw_string(_ui, Vector2(tx, card.position.y + 43 * u), dl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(9.5 * u), Color(Toon.VERMILION, a))
 	var ka := a * clampf((_open_k - 0.6) / 0.4, 0.0, 1.0)
@@ -408,7 +408,7 @@ func _draw_book(card: Rect2, u: float, a: float) -> void:
 	var x0 := card.position.x + 16 * u
 	var x1 := card.end.x - 16 * u
 	var y0 := card.position.y + HEAD_H * u
-	draw_line(Vector2(x0, y0), Vector2(x1, y0), Color(Toon.SUMI, 0.15 * a), 1.5 * u)
+	draw_line(Vector2(x0, y0), Vector2(x1, y0), Color(Toon.ui_ink, 0.15 * a), 1.5 * u)
 	_section("FIGURES", x0, x1, y0 + 17 * u, u, a)
 	var step := (x1 - x0) / float(UiKit.FIGURES.size())
 	for i in UiKit.FIGURES.size():
@@ -417,15 +417,15 @@ func _draw_book(card: Rect2, u: float, a: float) -> void:
 		var c := Vector2(x0 + step * (i + 0.5), y0 + 44 * u)
 		var fa: float = a * (1.0 if n > 0 else 0.3)
 		UiKit.figure(self, sh, c, 14 * u, fa)
-		UiKit.text(self, UiKit.TITLE_FONT, "×%d" % n, Vector2(c.x, y0 + 76 * u), int(12 * u), Color(Toon.SUMI, fa))
+		UiKit.text(self, UiKit.TITLE_FONT, "×%d" % n, Vector2(c.x, y0 + 76 * u), int(12 * u), Color(Toon.ui_ink, fa))
 	var cols := [["ESQUIVES", dodges], ["ZONES", zones_ok], ["ULTIMES", ults]]
 	var cw := (x1 - x0) / float(cols.size())
 	for i in cols.size():
 		var col: Array = cols[i]
 		var cx := x0 + cw * (i + 0.5)
-		UiKit.text(self, _ui, "%s  %d" % [String(col[0]), int(col[1])], Vector2(cx, y0 + 100 * u), int(10 * u), Color(Toon.SUMI, 0.8 * a))
+		UiKit.text(self, _ui, "%s  %d" % [String(col[0]), int(col[1])], Vector2(cx, y0 + 100 * u), int(10 * u), Color(Toon.ui_ink, 0.8 * a))
 		if i > 0:
-			draw_line(Vector2(x0 + cw * i, y0 + 89 * u), Vector2(x0 + cw * i, y0 + 103 * u), Color(Toon.SUMI, 0.12 * a), 1.5 * u)
+			draw_line(Vector2(x0 + cw * i, y0 + 89 * u), Vector2(x0 + cw * i, y0 + 103 * u), Color(Toon.ui_ink, 0.12 * a), 1.5 * u)
 	_section("DÉFIS", x0, x1, y0 + 124 * u, u, a)
 	for i in CHALLENGES.size():
 		var ch: Dictionary = CHALLENGES[i]
@@ -436,16 +436,16 @@ func _draw_book(card: Rect2, u: float, a: float) -> void:
 			draw_circle(bc, 6.5 * u, Color(Toon.VERMILION, a))
 			UiKit.glyph(self, "check", bc, 4.2 * u, Toon.WASHI, UiKit.NONE, a)
 		else:
-			draw_arc(bc, 6 * u, 0, TAU, 20, Color(Toon.SUMI, 0.35 * a), 1.5 * u, true)
-		draw_string(UiKit.UI_FONT, Vector2(x0 + 19 * u, y), UiKit.plain(String(ch["text"])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(10.5 * u), Color(Toon.SUMI, (0.45 if ok else 0.85) * a))
+			draw_arc(bc, 6 * u, 0, TAU, 20, Color(Toon.ui_ink, 0.35 * a), 1.5 * u, true)
+		draw_string(UiKit.UI_FONT, Vector2(x0 + 19 * u, y), UiKit.plain(String(ch["text"])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(10.5 * u), Color(Toon.ui_ink, (0.45 if ok else 0.85) * a))
 
 
 ## Titre de section : petit mot puis filet jusqu'au bord.
 func _section(label: String, x0: float, x1: float, y: float, u: float, a: float) -> void:
 	var fs := int(9 * u)
-	draw_string(_ui, Vector2(x0, y), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.SUMI, 0.55 * a))
+	draw_string(_ui, Vector2(x0, y), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.ui_ink, 0.55 * a))
 	var tw := _ui.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	draw_line(Vector2(x0 + tw + 6 * u, y - fs * 0.35), Vector2(x1, y - fs * 0.35), Color(Toon.SUMI, 0.15 * a), 1.5 * u)
+	draw_line(Vector2(x0 + tw + 6 * u, y - fs * 0.35), Vector2(x1, y - fs * 0.35), Color(Toon.ui_ink, 0.15 * a), 1.5 * u)
 
 
 ## Verdict du dernier trait : figure ratée (la plus proche, pâlie, et ce qui manque),

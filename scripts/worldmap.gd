@@ -1,7 +1,8 @@
 extends Control
 ## Choix du monde façon emakimono : un rouleau peint horizontal se déroule entre deux baguettes de bois.
-## Le paysage traverse les cinq mondes (vagues, bambous, neige, Fuji rouge, mer d'encre) le long d'un
-## chemin d'encre ; on fait glisser le rouleau au doigt (inertie douce) ou aux flèches, PARTIR lance le monde centré.
+## Le paysage traverse les huit mondes (vagues, bambous, neige, Fuji rouge, mer d'encre, forêt de cèdres
+## de Kurama, palais sous la mer, pays des morts) le long d'un chemin d'encre ; on fait glisser le rouleau
+## au doigt (inertie douce) ou aux flèches, PARTIR lance le monde centré.
 ## Après une victoire qui ouvre un monde (open(..., reveal)), le rouleau part du monde vaincu, se déroule
 ## jusqu'au nouveau, brise son cadenas (encre et or), puis sa carte se lève ; PARTIR vient ensuite.
 
@@ -10,9 +11,12 @@ const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 
 # teintes du paysage par monde (indice = id - 1) : ciel, plan lointain, premier plan
-const SKY := [Color("#D3DEE6"), Color("#DCE2C8"), Color("#C3CCD6"), Color("#AFC2D0"), Color("#DCCBC4")]
-const FAR := [Color("#7F9BB3"), Color("#93A86C"), Color("#A9BED0"), Color("#9C3B2A"), Color("#6E6A80")]
-const NEAR := [Color("#1F3A5F"), Color("#5E7F4A"), Color("#E3EAEF"), Color("#5A5550"), Color("#0E1A2E")]
+const SKY := [Color("#D3DEE6"), Color("#DCE2C8"), Color("#C3CCD6"), Color("#AFC2D0"), Color("#DCCBC4"),
+	Color("#CFD8C8"), Color("#A9D6CF"), Color("#9A90A4")]
+const FAR := [Color("#7F9BB3"), Color("#93A86C"), Color("#A9BED0"), Color("#9C3B2A"), Color("#6E6A80"),
+	Color("#4E6656"), Color("#2E7A7A"), Color("#4A4452")]
+const NEAR := [Color("#1F3A5F"), Color("#5E7F4A"), Color("#E3EAEF"), Color("#5A5550"), Color("#0E1A2E"),
+	Color("#2F4A34"), Color("#1E5A5E"), Color("#2A2430")]
 const TANZAKU := [Color("#E9C46A"), Color("#9EC1CF"), Color("#E7B3C3"), Color("#F1EDE4"), Color("#B5C99A")]
 # la Grande Vague (contour, ligne d'écume intérieure, griffes), en unités locales
 const WAVE := [Vector2(-70, 0), Vector2(-55, -28), Vector2(-38, -58), Vector2(-18, -80), Vector2(4, -90),
@@ -205,9 +209,9 @@ func _reveal_skip() -> void:
 		_rv_out = _rv
 
 
-## Indice de palette du paysage (0..4) pour l'étape i.
+## Indice de palette du paysage (0..SKY.size() - 1) pour l'étape i.
 func _pal(i: int) -> int:
-	return clampi(_id(i) - 1, 0, 4)
+	return clampi(_id(i) - 1, 0, SKY.size() - 1)
 
 
 func _best_of(i: int) -> int:
@@ -230,6 +234,8 @@ func _won(i: int) -> bool:
 		return false
 	if _flag(_id(i), "win"):
 		return true
+	if _id(i) > 5 and _id(i) < _unlocked:
+		return true  # mondes 6 et plus (sans Vue « w<id>_win ») : le suivant ne s'ouvre qu'en le gagnant
 	return _wins.is_empty() and _best_of(i) >= _rooms
 
 
@@ -504,6 +510,18 @@ func _prof(far: bool, i: int, f: float) -> float:
 			if far:
 				return 0.45 + 0.02 * sin(f * 9.0)
 			return 0.68 + 0.03 * sin(f * 20.0 - _t * 1.8)
+		5:  # Kurama : crêtes boisées, sous-bois en pente douce
+			if far:
+				return 0.4 + 0.06 * sin(f * 7.0 + 0.4) - 0.03 * absf(sin(f * 23.0))
+			return 0.72 + 0.02 * sin(f * 9.0)
+		6:  # Ryūgū-jō : récifs bas, fond de sable qui ondule
+			if far:
+				return 0.47 + 0.03 * sin(f * 11.0)
+			return 0.74 + 0.02 * sin(f * 14.0 + _t * 0.8)
+		7:  # Yomi : pentes de cendre déchiquetées
+			if far:
+				return 0.43 + 0.05 * absf(sin(f * 6.0))
+			return 0.72 + 0.015 * sin(f * 8.0)
 	return 0.5
 
 
@@ -538,8 +556,8 @@ func _far_y(x: float) -> float:
 func _make_fibers() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 2207
-	for k in 150:
-		var f := rng.randf_range(-1.6, 6.6)
+	for k in 240:
+		var f := rng.randf_range(-1.6, 9.6)
 		var y := rng.randf()
 		var ang := rng.randf_range(-0.5, 0.5) + (PI if rng.randf() < 0.5 else 0.0)
 		var ln := rng.randf_range(6.0, 26.0)
@@ -859,6 +877,31 @@ func _motif_back(ci: Control, i: int, sx: float) -> void:
 			ci.draw_arc(ec + Vector2(1.5, 0.5) * u, 19.5 * u, 1.2, TAU - 0.6, 36, Color(Toon.SUMI, 0.5), 3.0 * u, true)
 			var wx := sx - 0.40 * s
 			_great_wave(ci, Vector2(wx, _far_y(wx) + 6.0 * u), 0.9 * u, Color(Color("#0E1A2E"), 0.9))
+		5:
+			# temple vermillon de Kurama sur la crête, corbeaux
+			var px := sx + 0.34 * s
+			_pagoda(ci, Vector2(px, _far_y(px) + 6.0 * u), u, Color("#8E2A1E"))
+			for k in 5:
+				var bp := Vector2(sx + (_hash(k * 9 + 4) - 0.5) * s * 0.9 + sin(_t * 0.6 + float(k)) * 8.0 * u,
+					top + (0.12 + _hash(k * 3 + 7) * 0.18) * _ph)
+				var wing := 5.0 * u * (0.8 + 0.4 * absf(sin(_t * 3.0 + float(k))))
+				ci.draw_polyline(PackedVector2Array([bp + Vector2(-wing, -2.0 * u), bp, bp + Vector2(wing, -2.0 * u)]), Color(Toon.SUMI, 0.8), maxf(1.0, 1.5 * u), true)
+		6:
+			# palais du roi dragon et rayons de lumière qui tombent de la surface
+			for k in 3:
+				var rx := sx + (-0.3 + 0.3 * float(k)) * s
+				ci.draw_colored_polygon(PackedVector2Array([Vector2(rx - 6.0 * u, top), Vector2(rx + 6.0 * u, top),
+					Vector2(rx + 26.0 * u, top + _ph * 0.5), Vector2(rx + 10.0 * u, top + _ph * 0.5)]), Color(1, 1, 1, 0.12))
+			var gx := sx + 0.3 * s
+			_pagoda(ci, Vector2(gx, _far_y(gx) + 6.0 * u), u * 1.1, Color("#B8452E"))
+			ci.draw_circle(Vector2(gx, _far_y(gx) - 58.0 * u), 6.0 * u, Color(Toon.GOLD, 0.8))
+		7:
+			# lune voilée et torii noirs sur la pente des morts
+			ci.draw_circle(Vector2(sx + 0.3 * s, top + 0.16 * _ph), 14.0 * u, Color(Color("#E6E0EE"), 0.75))
+			ci.draw_circle(Vector2(sx + 0.3 * s, top + 0.16 * _ph), 20.0 * u, Color(Color("#C9B8FF"), 0.15))
+			for k in 2:
+				var tx := sx + (-0.36 + 0.2 * float(k)) * s
+				_torii_sil(ci, Vector2(tx, _far_y(tx) + 4.0 * u), u * (1.0 - 0.25 * float(k)), Color(Toon.SUMI, 0.85))
 
 
 ## Motifs de premier plan (devant le sol, derrière le chemin et les étapes).
@@ -928,6 +971,59 @@ func _motif_front(ci: Control, i: int, sx: float) -> void:
 				var outline := pts.duplicate()
 				outline.append(pts[0])
 				ci.draw_polyline(outline, Color(Toon.SUMI, 0.6), maxf(1.0, u), true)
+		5:
+			# grands cèdres du Kurama et lanterne vermillon
+			var offs := [-0.48, -0.36, 0.38, 0.5]
+			for k in offs.size():
+				var o: float = offs[k]
+				var cx := sx + o * s
+				_cedar(ci, Vector2(cx, _ground_y(cx) + 6.0 * u), u * (1.1 - 0.12 * float(k % 2)))
+			var lx := sx - 0.22 * s
+			var ly := _ground_y(lx)
+			ci.draw_line(Vector2(lx, ly + 4.0 * u), Vector2(lx, ly - 16.0 * u), Color(Toon.SUMI, 0.8), 2.0 * u, true)
+			ci.draw_circle(Vector2(lx, ly - 21.0 * u), 6.0 * u, Color(Toon.VERMILION, 0.9))
+			ci.draw_circle(Vector2(lx, ly - 21.0 * u), 9.0 * u, Color(Toon.GOLD, 0.15))
+		6:
+			# coraux, varech qui ondule et bulles qui montent
+			for k in 4:
+				var kx := sx + (-0.5 + 0.33 * float(k)) * s + 6.0 * u
+				var base := Vector2(kx, _ground_y(kx) + 6.0 * u)
+				var prev := base
+				for j in 5:
+					var q := base + Vector2(sin(_t * 1.4 + float(j) * 0.8 + float(k)) * 4.0 * u, -float(j + 1) * 10.0 * u)
+					ci.draw_line(prev, q, Color(Color("#4E7A4A"), 0.9), (3.0 - 0.4 * float(j)) * u, true)
+					prev = q
+			for k in 3:
+				var cx2 := sx + (-0.35 + 0.35 * float(k)) * s
+				var cb := Vector2(cx2, _ground_y(cx2) + 4.0 * u)
+				var cc: Color = [Color("#D9705E"), Color("#E39A6A"), Color("#C2456A")][k]
+				for j in 3:
+					var a := -PI * 0.5 + (float(j) - 1.0) * 0.5
+					ci.draw_line(cb, cb + Vector2(cos(a), sin(a)) * 12.0 * u, cc, 3.0 * u, true)
+			for k in 14:
+				var hx := _hash(k * 7 + 13)
+				var hy := _hash(k * 5 + 3)
+				var span := _ph * 0.65
+				var rise := fposmod(hy * span + _t * (0.5 + _hash(k + 61)) * 22.0 * u, span)
+				var p := Vector2(sx + (hx - 0.5) * s * 1.05 + sin(_t * 1.6 + float(k)) * 3.0 * u, bot - _ph * 0.18 - rise)
+				ci.draw_arc(p, (1.6 + _hash(k + 21) * 1.6) * u, 0.0, TAU, 10, Color(1, 1, 1, 0.8 * (1.0 - rise / span)), maxf(1.0, 0.9 * u), true)
+		7:
+			# pins morts, lanternes flottantes et feux d'âmes
+			for k in 2:
+				var dx := sx + (-0.46 if k == 0 else 0.44) * s
+				_dead_tree(ci, Vector2(dx, _ground_y(dx) + 4.0 * u), u * (1.0 - 0.15 * float(k)))
+			for k in 4:
+				var lx2 := sx + (-0.25 + 0.17 * float(k)) * s
+				var ly2 := _ground_y(lx2) + 14.0 * u + sin(_t * 1.2 + float(k)) * 2.0 * u
+				ci.draw_rect(Rect2(lx2 - 3.5 * u, ly2 - 6.0 * u, 7.0 * u, 6.0 * u), Color(Color("#F0E6C8"), 0.9))
+				ci.draw_circle(Vector2(lx2, ly2 - 3.0 * u), 7.0 * u, Color(Toon.GOLD, 0.12))
+			for k in 6:
+				var hx2 := _hash(k * 11 + 2)
+				var span2 := _ph * 0.5
+				var rise2 := fposmod(_hash(k * 3 + 9) * span2 + _t * 14.0 * u, span2)
+				var wp := Vector2(sx + (hx2 - 0.5) * s, bot - _ph * 0.25 - rise2)
+				ci.draw_circle(wp, 4.0 * u, Color(Color("#C9B8FF"), 0.2 * (1.0 - rise2 / span2)))
+				ci.draw_circle(wp, 1.8 * u, Color(Color("#E6DCFF"), 0.85 * (1.0 - rise2 / span2)))
 
 
 func _great_wave(ci: Control, base: Vector2, s: float, body: Color) -> void:
@@ -1007,6 +1103,38 @@ func _pine(ci: Control, base: Vector2, s: float) -> void:
 		ci.draw_colored_polygon(PackedVector2Array([Vector2(base.x - hw, y), Vector2(base.x, y - 16.0 * s), Vector2(base.x + hw, y)]), dark)
 		ci.draw_colored_polygon(PackedVector2Array([Vector2(base.x - hw * 0.45, y - 9.0 * s), Vector2(base.x, y - 16.0 * s),
 			Vector2(base.x + hw * 0.45, y - 9.0 * s)]), Color(1, 1, 1, 0.95))
+
+
+## Cèdre du Japon : tronc roux, étages triangulaires sombres.
+func _cedar(ci: Control, base: Vector2, s: float) -> void:
+	ci.draw_line(base, base + Vector2(0, -14.0 * s), Color("#5A3A2A"), 3.5 * s)
+	var dark := Color(Color("#22382A"), 0.95)
+	for k in 4:
+		var y := base.y - 10.0 * s - float(k) * 12.0 * s
+		var hw := (15.0 - float(k) * 3.0) * s
+		ci.draw_colored_polygon(PackedVector2Array([Vector2(base.x - hw, y), Vector2(base.x, y - 18.0 * s), Vector2(base.x + hw, y)]), dark)
+		ci.draw_line(Vector2(base.x - hw * 0.5, y - 4.0 * s), Vector2(base.x + hw * 0.2, y - 6.0 * s), Color(Color("#4E6E5B"), 0.8), maxf(1.0, 1.2 * s))
+
+
+## Pin mort : tronc tordu et branches nues.
+func _dead_tree(ci: Control, base: Vector2, s: float) -> void:
+	var col := Color(Color("#141018"), 0.9)
+	var p1 := base + Vector2(4.0 * s, -26.0 * s)
+	var p2 := p1 + Vector2(-8.0 * s, -20.0 * s)
+	var p3 := p2 + Vector2(6.0 * s, -14.0 * s)
+	ci.draw_polyline(PackedVector2Array([base, p1, p2, p3]), col, 4.0 * s, true)
+	ci.draw_line(p1, p1 + Vector2(16.0 * s, -8.0 * s), col, 2.2 * s, true)
+	ci.draw_line(p2, p2 + Vector2(-15.0 * s, -6.0 * s), col, 2.0 * s, true)
+	ci.draw_line(p2 + Vector2(1.0 * s, -6.0 * s), p2 + Vector2(13.0 * s, -16.0 * s), col, 1.6 * s, true)
+
+
+## Torii en silhouette (deux poteaux, kasagi relevé, nuki).
+func _torii_sil(ci: Control, base: Vector2, s: float, col: Color) -> void:
+	ci.draw_line(base + Vector2(-9.0 * s, 0), base + Vector2(-8.0 * s, -26.0 * s), col, 3.0 * s, true)
+	ci.draw_line(base + Vector2(9.0 * s, 0), base + Vector2(8.0 * s, -26.0 * s), col, 3.0 * s, true)
+	ci.draw_colored_polygon(PackedVector2Array([base + Vector2(-15.0 * s, -27.0 * s), base + Vector2(15.0 * s, -27.0 * s),
+		base + Vector2(17.0 * s, -31.0 * s), base + Vector2(-17.0 * s, -31.0 * s)]), col)
+	ci.draw_line(base + Vector2(-11.0 * s, -21.0 * s), base + Vector2(11.0 * s, -21.0 * s), col, 2.0 * s, true)
 
 
 func _torch(ci: Control, base: Vector2, s: float, k: int) -> void:

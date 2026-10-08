@@ -38,6 +38,8 @@ var font_size := 34:
 			queue_redraw()
 var _down := false
 var _press := 0.0
+var _rev := -1  # thème d'interface dessiné (Toon.ui_rev)
+var _hole := Toon.WASHI  # découpes des pictogrammes (engrenage, porte) : couleur du fond
 var _box := StyleBoxFlat.new()
 
 
@@ -72,6 +74,9 @@ func _gui_input(event: InputEvent) -> void:
 func _process(_delta: float) -> void:
 	if not is_visible_in_tree():
 		return
+	if _rev != Toon.ui_rev:
+		_rev = Toon.ui_rev
+		queue_redraw()
 	var target := 1.0 if _down else 0.0
 	if _press != target:
 		_press = move_toward(_press, target, UiKit.real_delta() * 12.0)
@@ -85,6 +90,7 @@ func _draw() -> void:
 	_box.set_corner_radius_all(rad)
 	_box.set_border_width_all(0)
 	_box.shadow_size = 0
+	_hole = Toon.WASHI
 	match style:
 		"primary":
 			# ombre portée, corps d'encre, reflet haut, liseré vermillon à gauche
@@ -96,18 +102,20 @@ func _draw() -> void:
 			draw_rect(Rect2(r.position + Vector2(maxf(8.0, rad * 0.6), r.size.y * 0.3), Vector2(3, r.size.y * 0.4)), Toon.VERMILION)
 			_label(r, Toon.WASHI)
 		"ghost":
-			_box.bg_color = Color(Toon.WASHI, 0.92)
-			_box.border_color = Color(Toon.SUMI, 0.85)
+			_hole = Toon.ui_wash
+			_box.bg_color = Color(Toon.ui_wash, 0.92)
+			_box.border_color = Color(Toon.ui_ink, 0.85)
 			_box.set_border_width_all(2)
 			draw_style_box(_box, r)
-			_label(r, Toon.SUMI)
+			_label(r, Toon.ui_ink)
 		"round":
 			var c := r.get_center()
 			var rr := minf(r.size.x, r.size.y) / 2.0
 			draw_circle(c + Vector2(0, 2), rr, Color(0, 0, 0, 0.2))
-			draw_circle(c, rr, Color(Toon.WASHI, 0.95))
-			draw_arc(c, rr - 1.0, 0, TAU, 40, Color(Toon.SUMI, 0.75), 2.0, true)
-			_icon(icon, c, rr * 0.5, Toon.SUMI)
+			_hole = Toon.ui_wash
+			draw_circle(c, rr, Color(Toon.ui_wash, 0.95))
+			draw_arc(c, rr - 1.0, 0, TAU, 40, Color(Toon.ui_ink, 0.75), 2.0, true)
+			_icon(icon, c, rr * 0.5, Toon.ui_ink)
 
 
 func _label(r: Rect2, c: Color) -> void:
@@ -147,7 +155,7 @@ func _icon(kind: String, c: Vector2, s: float, ink: Color) -> void:
 				var ang := TAU * k / 8.0
 				draw_line(c + Vector2.from_angle(ang) * s * 0.55, c + Vector2.from_angle(ang) * s * 0.95, ink, s * 0.32, true)
 			draw_circle(c, s * 0.62, ink)
-			draw_circle(c, s * 0.26, Toon.WASHI)
+			draw_circle(c, s * 0.26, _hole)
 		"help":
 			var fs := int(s * 2.0)
 			if font and fs > 0:
@@ -160,4 +168,4 @@ func _icon(kind: String, c: Vector2, s: float, ink: Color) -> void:
 		"home":
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-s, -s * 0.05), c + Vector2(0, -s), c + Vector2(s, -s * 0.05)]), ink)
 			draw_rect(Rect2(c + Vector2(-s * 0.7, -s * 0.1), Vector2(s * 1.4, s * 0.95)), ink)
-			draw_rect(Rect2(c + Vector2(-s * 0.18, s * 0.3), Vector2(s * 0.36, s * 0.55)), Toon.WASHI)
+			draw_rect(Rect2(c + Vector2(-s * 0.18, s * 0.3), Vector2(s * 0.36, s * 0.55)), _hole)

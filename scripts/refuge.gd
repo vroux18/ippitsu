@@ -505,10 +505,21 @@ func _medal(ci: CanvasItem, c: Vector2, rad: float, col: Color, ring: Color, u: 
 	ci.draw_arc(c + Vector2(rad * 0.1, rad * 0.05), rad * 0.72, PI * 0.15, PI * 0.5, 10, Color(0, 0, 0, 0.12 * a), 3.0 * u, true)
 
 
+## Or lisible sur le papier du thème (foncé sur papier clair, vif sur papier sombre).
+func _gold_ink() -> Color:
+	return GOLD_HI if Toon.ui_dark else GOLD_INK
+
+
+## Chiffre mis en avant sur le papier du thème.
+func _hot() -> Color:
+	return GOLD_HI if Toon.ui_dark else Toon.VERMILION.darkened(0.15)
+
+
 ## Bouton de prix : « buy » (vermillon), « lack » (grisé), « owned » / « max » (liseré).
 ## Contenu : libellé facultatif, pictogramme de monnaie, montant.
 func _button(ci: CanvasItem, r: Rect2, mode: String, label: String, glyph: String, amount: String, u: float, a: float, dark := false) -> void:
 	var rad := r.size.y / 2.0
+	var dk: bool = dark or Toon.ui_dark  # papier sombre (thème Nuit) : comme une carte légendaire
 	var fs := int(r.size.y * 0.46)
 	var ink: Color = Toon.WASHI
 	var gbg: Color = UiKit.NONE
@@ -519,15 +530,15 @@ func _button(ci: CanvasItem, r: Rect2, mode: String, label: String, glyph: Strin
 			ci.draw_rect(Rect2(r.position + Vector2(rad, 2.0 * u), Vector2(maxf(0.0, r.size.x - rad * 2.0), 1.5 * u)), Color(1, 1, 1, 0.2 * a))
 			gbg = Toon.VERMILION
 		"lack":
-			var base: Color = Toon.WASHI if dark else Toon.SUMI
+			var base: Color = Toon.WASHI if dk else Toon.ui_ink
 			_panel(ci, r, Color(base, 0.09 * a), rad)
 			ink = Color(base, 0.4)
 		"max":
 			_panel(ci, r, Color(GOLD_HI, 0.12 * a), rad, Color(GOLD_HI, a), 1.5 * u)
-			ink = GOLD_HI if dark else GOLD_INK
+			ink = GOLD_HI if dk else GOLD_INK
 		_:
-			_panel(ci, r, Color(0, 0, 0, 0), rad, Color(GOLD_HI if dark else Toon.VERMILION, a), 1.5 * u)
-			ink = GOLD_HI if dark else Toon.VERMILION
+			_panel(ci, r, Color(0, 0, 0, 0), rad, Color(GOLD_HI if dk else Toon.VERMILION, a), 1.5 * u)
+			ink = GOLD_HI if dk else Toon.VERMILION
 	var gap := 5.0 * u
 	var lw := 0.0
 	if label != "":
@@ -625,13 +636,13 @@ func _draw_header(w: float, u: float) -> void:
 	var rr := 23.0 * u * (0.94 if _pressed == "back" else 1.0)
 	_back_rect = Rect2(Vector2(10, 10) * u, Vector2(54, 54) * u)
 	draw_circle(c + Vector2(0, 2 * u), rr, Color(0, 0, 0, 0.25 * a))
-	draw_circle(c, rr, Color(Toon.WASHI, 0.95 * a))
-	draw_arc(c, rr - 1.0, 0, TAU, 40, Color(Toon.SUMI, 0.75 * a), 2.0, true)
+	draw_circle(c, rr, Color(Toon.ui_wash, 0.95 * a))
+	draw_arc(c, rr - 1.0, 0, TAU, 40, Color(Toon.ui_ink, 0.75 * a), 2.0, true)
 	var s := rr * 0.5
-	var ink := Color(Toon.SUMI, a)
+	var ink := Color(Toon.ui_ink, a)
 	draw_colored_polygon(PackedVector2Array([c + Vector2(-s, -s * 0.05), c + Vector2(0, -s), c + Vector2(s, -s * 0.05)]), ink)
 	draw_rect(Rect2(c + Vector2(-s * 0.7, -s * 0.1), Vector2(s * 1.4, s * 0.95)), ink)
-	draw_rect(Rect2(c + Vector2(-s * 0.18, s * 0.3), Vector2(s * 0.36, s * 0.55)), Color(Toon.WASHI, a))
+	draw_rect(Rect2(c + Vector2(-s * 0.18, s * 0.3), Vector2(s * 0.36, s * 0.55)), Color(Toon.ui_wash, a))
 	var ty := 45.0 * u - 8.0 * u * (1.0 - a)
 	UiKit.text(self, _title, "ATELIER", Vector2(w / 2.0 + 3 * u, ty), int(22 * u), Color(Toon.WASHI, a))
 	draw_line(Vector2(w / 2.0 - 12 * u, ty + 9 * u), Vector2(w / 2.0 + 12 * u, ty + 9 * u), Color(Toon.VERMILION, a), 2.0 * u)
@@ -684,21 +695,21 @@ func _draw_tabs(w: float, u: float) -> void:
 	_panel(self, bar, Color(Toon.SUMI, 0.55 * a), bar.size.y / 2.0, Color(Toon.WASHI, 0.08 * a), 1.0)
 	var sw := (bar.size.x - 6.0 * u) / float(TABS.size())
 	var slide := Rect2(Vector2(bar.position.x + 3 * u + _seg * sw, bar.position.y + 3 * u), Vector2(sw, bar.size.y - 6 * u))
-	_panel(self, slide, Color(Toon.PAPER, a), slide.size.y / 2.0, Color(0, 0, 0, 0), 0.0, 0.3 * a, u * 0.5)
+	_panel(self, slide, Color(Toon.ui_paper, a), slide.size.y / 2.0, Color(0, 0, 0, 0), 0.0, 0.3 * a, u * 0.5)
 	var fs := int(10.5 * u)
 	for i in TABS.size():
 		var key := "tab:%d" % i
 		var r := Rect2(Vector2(bar.position.x + 3 * u + float(i) * sw, bar.position.y + 3 * u), Vector2(sw, bar.size.y - 6 * u))
 		_hits.append([r, key])
 		var on := clampf(1.0 - absf(_seg - float(i)), 0.0, 1.0)
-		var col := Color(Toon.WASHI, 0.7).lerp(Toon.SUMI, on)
+		var col := Color(Toon.WASHI, 0.7).lerp(Toon.ui_ink, on)
 		if _pressed == key:
 			col.a *= 0.6
 		var lab := _p(String(TABS[i]))
 		var lw := _tabf.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var gr := 5.5 * u
 		var x0 := r.get_center().x - (lw + gr * 2.0 + 5.0 * u) / 2.0
-		var gbg: Color = Toon.PAPER if on > 0.5 else UiKit.NONE
+		var gbg: Color = Toon.ui_paper if on > 0.5 else UiKit.NONE
 		UiKit.glyph(self, String(TAB_GLYPHS[i]), Vector2(x0 + gr, r.get_center().y), gr, col, gbg, a)
 		draw_string(_tabf, Vector2(x0 + gr * 2.0 + 5.0 * u, r.get_center().y + fs * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(col, col.a * a))
 		var dot := false
@@ -708,7 +719,7 @@ func _draw_tabs(w: float, u: float) -> void:
 			dot = meta.any_seal_affordable()
 		if dot:
 			var dc := Vector2(r.end.x - 9 * u, r.position.y + 7 * u)
-			draw_circle(dc, 4.5 * u, Color(Toon.PAPER if on > 0.5 else Toon.SUMI, a))
+			draw_circle(dc, 4.5 * u, Color(Toon.ui_paper if on > 0.5 else Toon.SUMI, a))
 			draw_circle(dc, 3.2 * u, Color(Toon.VERMILION, a))
 
 
@@ -778,14 +789,14 @@ func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
 			_panel(self, rr.grow(g), Color(0, 0, 0, 0), radius + g, Color(GOLD_HI, (0.22 - 0.08 * float(k)) * a), 2.5 * u)
 	if sel:
 		_panel(self, rr.grow(5.0 * u), Color(0, 0, 0, 0), radius + 5.0 * u, Color(GOLD_HI, (0.7 + 0.3 * pulse) * a), 3.0 * u)
-	_panel(self, rr, Color(Toon.PAPER, a), radius, Color(frame, a), (2.5 if rank > 0 else 1.5) * u, 0.42 * a, u)
+	_panel(self, rr, Color(Toon.ui_paper, a), radius, Color(frame, a), (2.5 if rank > 0 else 1.5) * u, 0.42 * a, u)
 	var cx := rr.get_center().x
 	var y0 := rr.position.y
 	# rang en haut à droite
 	var rfs := int(9 * s)
 	var rt := "%d/%d" % [rank, maxr]
 	var rtw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
-	draw_string(_ui, Vector2(rr.end.x - 12 * s - rtw, y0 + 18 * s), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(GOLD_INK if maxed else Toon.SUMI, 0.55 * a))
+	draw_string(_ui, Vector2(rr.end.x - 12 * s - rtw, y0 + 18 * s), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(_gold_ink() if maxed else Toon.ui_ink, 0.55 * a))
 	# médaillon et pictogramme
 	var mr := 26.0 * s
 	var mc := Vector2(cx, y0 + 14.0 * s + mr)
@@ -794,9 +805,9 @@ func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
 	# nom et ce que la ligne améliore
 	var nm := _p(String(line["name"]))
 	var nfs := _fit(UiKit.TITLE_FONT, nm, int(15 * s), rr.size.x - 16 * s, int(11 * s))
-	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(cx, mc.y + mr + 22 * s), nfs, Color(Toon.SUMI, a))
+	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(cx, mc.y + mr + 22 * s), nfs, Color(Toon.ui_ink, a))
 	var lab := _p(String(LINE_LABELS[id]))
-	UiKit.text(self, _ui, lab, Vector2(cx, mc.y + mr + 36 * s), int(9 * s), Color(Toon.SUMI, 0.5 * a))
+	UiKit.text(self, _ui, lab, Vector2(cx, mc.y + mr + 36 * s), int(9 * s), Color(Toon.ui_ink, 0.5 * a))
 	# barre de niveau segmentée (le prochain cran pulse quand la tuile est choisie)
 	var bx := rr.position.x + 16 * s
 	var bw := rr.size.x - 32 * s
@@ -805,7 +816,7 @@ func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
 	var segw := (bw - sg * float(maxr - 1)) / float(maxr)
 	for k in maxr:
 		var sr := Rect2(Vector2(bx + float(k) * (segw + sg), by), Vector2(segw, 7 * s))
-		var fill := Color(Toon.SUMI, 0.12 * a)
+		var fill := Color(Toon.ui_ink, 0.12 * a)
 		if k < rank:
 			fill = Color(GOLD_HI if maxed else col, a)
 		elif k == rank and sel and afford:
@@ -817,10 +828,10 @@ func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
 	var vfs := int(13 * s)
 	var vy := y0 + 136 * s
 	if maxed:
-		_parts(self, UiKit.UI_FONT, [[_p(_val(id, rank)), Color(GOLD_INK, a)]], Vector2(cx, vy), vfs)
+		_parts(self, UiKit.UI_FONT, [[_p(_val(id, rank)), Color(_gold_ink(), a)]], Vector2(cx, vy), vfs)
 	else:
-		_parts(self, UiKit.UI_FONT, [[_val(id, rank), Color(Toon.SUMI, 0.45 * a)], ["  →  ", Color(Toon.SUMI, 0.35 * a)],
-			[_val(id, rank + 1), Color(Toon.VERMILION.darkened(0.15), a)]], Vector2(cx, vy), vfs)
+		_parts(self, UiKit.UI_FONT, [[_val(id, rank), Color(Toon.ui_ink, 0.45 * a)], ["  →  ", Color(Toon.ui_ink, 0.35 * a)],
+			[_val(id, rank + 1), Color(_hot(), a)]], Vector2(cx, vy), vfs)
 	# bouton de prix
 	var br := Rect2(Vector2(rr.position.x + 12 * s, y0 + 146 * s), Vector2(rr.size.x - 24 * s, 24 * s))
 	if maxed:
@@ -864,10 +875,10 @@ func _draw_filters(w: float, u: float) -> void:
 		var on := i == _filter
 		var rr := r.grow(-1.0 * u) if _pressed == key else r
 		if on:
-			_panel(self, rr, Color(Toon.PAPER, a), hgt / 2.0)
+			_panel(self, rr, Color(Toon.ui_paper, a), hgt / 2.0)
 		else:
 			_panel(self, rr, Color(Toon.SUMI, 0.5 * a), hgt / 2.0, Color(Toon.WASHI, 0.14 * a), 1.0)
-		var tc: Color = Toon.SUMI if on else Color(Toon.WASHI, 0.75)
+		var tc: Color = Toon.ui_ink if on else Color(Toon.WASHI, 0.75)
 		UiKit.text(self, _tabf, _p(String(FILTERS[i])), Vector2(rr.get_center().x, rr.get_center().y + fs * 0.36), fs, Color(tc, tc.a * a))
 
 
@@ -1070,8 +1081,8 @@ func _seal_tile(id: String, r: Rect2, u: float) -> void:
 		rr = Rect2(rr.get_center() - rr.size * 0.485, rr.size * 0.97)
 	var radius := 14.0 * u
 	var frame: Color = GOLD_HI if leg else (C_RARE if owned else C_COMMON)
-	var body: Color = LEG_BODY if leg else Toon.PAPER
-	var ink: Color = Toon.WASHI if leg else Toon.SUMI
+	var body: Color = LEG_BODY if leg else Toon.ui_paper
+	var ink: Color = Toon.WASHI if leg else Toon.ui_ink
 	if sel:
 		_panel(_list, rr.grow(5.0 * u), Color(0, 0, 0, 0), radius + 5.0 * u, Color(GOLD_HI, 0.7 + 0.3 * pulse), 3.0 * u)
 	elif leg and owned:
@@ -1128,7 +1139,7 @@ func _seal_tile(id: String, r: Rect2, u: float) -> void:
 ## Choix du rouleau de départ : flèches rondes de part et d'autre du pouvoir choisi.
 func _scroll_chooser(r: Rect2, u: float) -> void:
 	var sp: String = meta.start_power()
-	_panel(_list, r, Toon.PAPER, 14 * u, Color(C_RARE, 1.0), 2.0 * u, 0.4, u)
+	_panel(_list, r, Toon.ui_paper, 14 * u, Color(C_RARE, 1.0), 2.0 * u, 0.4, u)
 	var cy := r.get_center().y
 	var lc := Vector2(r.position.x + 28 * u, cy)
 	var rc := Vector2(r.end.x - 28 * u, cy)
@@ -1136,8 +1147,8 @@ func _scroll_chooser(r: Rect2, u: float) -> void:
 		var c: Vector2 = side[0]
 		var dir: float = side[1]
 		var k := 0.88 if _pressed == String(side[2]) else 1.0
-		_list.draw_circle(c, 16 * u * k, Toon.SUMI)
-		_list.draw_colored_polygon(PackedVector2Array([c + Vector2(6 * dir, 0) * u * k, c + Vector2(-4 * dir, -6.5) * u * k, c + Vector2(-4 * dir, 6.5) * u * k]), Toon.WASHI)
+		_list.draw_circle(c, 16 * u * k, Toon.ui_ink)
+		_list.draw_colored_polygon(PackedVector2Array([c + Vector2(6 * dir, 0) * u * k, c + Vector2(-4 * dir, -6.5) * u * k, c + Vector2(-4 * dir, 6.5) * u * k]), Toon.ui_wash)
 	var lab := _p("ROULEAU DE DÉPART")
 	var lfs := int(8 * u)
 	var maxw := r.size.x - 120 * u
@@ -1153,8 +1164,8 @@ func _scroll_chooser(r: Rect2, u: float) -> void:
 	var x0 := r.get_center().x - (30 * u + nw) / 2.0
 	if Data.POWERS.has(sp):
 		UiKit.power_icon(_list, sp, Vector2(x0 + 12 * u, cy), 12.0 * u)
-	_list.draw_string(_ui, Vector2(x0 + 30 * u, cy - 4 * u), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, GOLD_INK)
-	_list.draw_string(UiKit.TITLE_FONT, Vector2(x0 + 30 * u, cy + 12 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.SUMI)
+	_list.draw_string(_ui, Vector2(x0 + 30 * u, cy - 4 * u), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, _gold_ink())
+	_list.draw_string(UiKit.TITLE_FONT, Vector2(x0 + 30 * u, cy + 12 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.ui_ink)
 	_list_hits.append([_to_screen(Rect2(lc - Vector2(22, 22) * u, Vector2(44, 44) * u)), "prev"])
 	_list_hits.append([_to_screen(Rect2(rc - Vector2(22, 22) * u, Vector2(44, 44) * u)), "next"])
 
@@ -1269,7 +1280,7 @@ func _print_card(pid: String, r: Rect2, art_h: float, u: float) -> void:
 	if owned:
 		if tier == GOLD_HI:
 			_panel(_list, rr.grow(3.0 * u), Color(0, 0, 0, 0), radius + 3.0 * u, Color(GOLD_HI, 0.25), 2.0 * u)
-		_panel(_list, rr, Toon.PAPER, radius, tier, 2.0 * u, 0.4, u)
+		_panel(_list, rr, Toon.ui_paper, radius, tier, 2.0 * u, 0.4, u)
 		_art(_list, art, p, u)
 		# récompense : pastille de l'apparence, en haut à droite
 		var sc := art.position + Vector2(art.size.x - 10 * u, 10 * u)
@@ -1286,13 +1297,13 @@ func _print_card(pid: String, r: Rect2, art_h: float, u: float) -> void:
 			_list.draw_string(_ui, Vector2(rib.position.x + 15 * u, rib.get_center().y + efs * 0.36), et, HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Toon.WASHI)
 		var nm := _p(String(p["name"]))
 		var nfs := _fit(UiKit.TITLE_FONT, nm, int(10.5 * u), rr.size.x - 10 * u, int(7 * u))
-		UiKit.text(_list, UiKit.TITLE_FONT, nm, Vector2(cx, art.end.y + 18 * u), nfs, Toon.SUMI)
+		UiKit.text(_list, UiKit.TITLE_FONT, nm, Vector2(cx, art.end.y + 18 * u), nfs, Toon.ui_ink)
 		var ln := _p(String(p["look"]))
 		var lfs := _fit(UiKit.UI_FONT, ln, int(8.5 * u), rr.size.x - 26 * u, int(7 * u))
 		var lw := UiKit.UI_FONT.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
 		var lx := cx - (lw + 14 * u) / 2.0
 		_look_swatch(_list, Vector2(lx + 5 * u, art.end.y + 32 * u), kind, col, 0.5 * u, true)
-		_list.draw_string(UiKit.UI_FONT, Vector2(lx + 14 * u, art.end.y + 32 * u + lfs * 0.36), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.SUMI, 0.6))
+		_list.draw_string(UiKit.UI_FONT, Vector2(lx + 14 * u, art.end.y + 32 * u + lfs * 0.36), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.ui_ink, 0.6))
 	else:
 		# silhouette au lavis, cadenas, et la condition en court
 		_panel(_list, rr, LOCK_BODY, radius, Color(Toon.WASHI, 0.12), 1.5 * u, 0.35, u)
@@ -1339,13 +1350,13 @@ func _draw_sheet() -> void:
 	var k := UiKit.ease_out(_sheet_t / 0.25)
 	_sheet.draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.72 * k))
 	var pr := _sheet_panel
-	_panel(_sheet, pr, Toon.PAPER, 18 * u, tier, 2.5 * u, 0.5, u * 1.5)
+	_panel(_sheet, pr, Toon.ui_paper, 18 * u, tier, 2.5 * u, 0.5, u * 1.5)
 	var cx := pr.get_center().x
-	_panel(_sheet, Rect2(Vector2(cx - 18 * u, pr.position.y + 8 * u), Vector2(36 * u, 4 * u)), Color(Toon.SUMI, 0.15), 2 * u)
+	_panel(_sheet, Rect2(Vector2(cx - 18 * u, pr.position.y + 8 * u), Vector2(36 * u, 4 * u)), Color(Toon.ui_ink, 0.15), 2 * u)
 	# fermer
 	var xc := _sheet_x.get_center()
-	_sheet.draw_circle(xc, 14 * u, Color(Toon.SUMI, 0.08 if _pressed != "sheet:close" else 0.16))
-	UiKit.glyph(_sheet, "cross", xc, 6.0 * u, Color(Toon.SUMI, 0.6))
+	_sheet.draw_circle(xc, 14 * u, Color(Toon.ui_ink, 0.08 if _pressed != "sheet:close" else 0.16))
+	UiKit.glyph(_sheet, "cross", xc, 6.0 * u, Color(Toon.ui_ink, 0.6))
 	# grande estampe
 	var art := Rect2(Vector2(pr.position.x + 22 * u, pr.position.y + 46 * u), Vector2(pr.size.x - 44 * u, 168 * u))
 	_panel(_sheet, art.grow(6 * u), Toon.WASHI, 6 * u, Color(tier, 0.9), 1.5 * u, 0.25, u)
@@ -1372,31 +1383,31 @@ func _draw_sheet() -> void:
 		sub += "  ·  MONDE %d, %s" % [wi, String(Meta.WORLD_NAMES[wi - 1]).to_upper()]
 	sub = _p(sub)
 	var sfs := _fit(_ui, sub, int(8.5 * u), pr.size.x - 40 * u, int(7 * u))
-	UiKit.text(_sheet, _ui, sub, Vector2(cx, art.end.y + 24 * u), sfs, Color(Toon.SUMI, 0.5))
+	UiKit.text(_sheet, _ui, sub, Vector2(cx, art.end.y + 24 * u), sfs, Color(Toon.ui_ink, 0.5))
 	var nm := _p(String(p["name"]))
 	var nfs := _fit(UiKit.TITLE_FONT, nm, int(19 * u), pr.size.x - 40 * u, int(12 * u))
-	UiKit.text(_sheet, UiKit.TITLE_FONT, nm, Vector2(cx, art.end.y + 46 * u), nfs, Toon.SUMI)
+	UiKit.text(_sheet, UiKit.TITLE_FONT, nm, Vector2(cx, art.end.y + 46 * u), nfs, Toon.ui_ink)
 	# comment l'obtenir
 	var hb := Rect2(Vector2(pr.position.x + 20 * u, art.end.y + 58 * u), Vector2(pr.size.x - 40 * u, 46 * u))
-	_panel(_sheet, hb, Color(Toon.SUMI, 0.06), 10 * u)
+	_panel(_sheet, hb, Color(Toon.ui_ink, 0.06), 10 * u)
 	var cd := _cond(p)
 	var gc := hb.position + Vector2(20 * u, hb.size.y / 2.0)
 	_sheet.draw_circle(gc, 13 * u, tier)
 	UiKit.glyph(_sheet, String(cd[0]), gc, 7.5 * u, Toon.WASHI, tier)
 	var hx := hb.position.x + 40 * u
 	var hw := hb.end.x - 8 * u - hx
-	_sheet.draw_string(_ui, Vector2(hx, hb.position.y + 14 * u), _p("OBTENUE" if owned else "POUR L'OBTENIR"), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7.5 * u), Color(Toon.SUMI, 0.45))
+	_sheet.draw_string(_ui, Vector2(hx, hb.position.y + 14 * u), _p("OBTENUE" if owned else "POUR L'OBTENIR"), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7.5 * u), Color(Toon.ui_ink, 0.45))
 	var how := _p(String(meta.print_how(pid)))
-	_sheet.draw_multiline_string(UiKit.UI_FONT, Vector2(hx, hb.position.y + 28 * u), how, HORIZONTAL_ALIGNMENT_LEFT, hw, int(9.5 * u), 2, Toon.SUMI)
+	_sheet.draw_multiline_string(UiKit.UI_FONT, Vector2(hx, hb.position.y + 28 * u), how, HORIZONTAL_ALIGNMENT_LEFT, hw, int(9.5 * u), 2, Toon.ui_ink)
 	# récompense
 	var rb := Rect2(Vector2(pr.position.x + 20 * u, hb.end.y + 8 * u), Vector2(pr.size.x - 40 * u, 38 * u))
-	_panel(_sheet, rb, Color(Toon.SUMI, 0.06), 10 * u)
+	_panel(_sheet, rb, Color(Toon.ui_ink, 0.06), 10 * u)
 	var rc := rb.position + Vector2(20 * u, rb.size.y / 2.0)
 	_sheet.draw_circle(rc, 13 * u, Toon.WASHI)
 	_sheet.draw_arc(rc, 13 * u, 0.0, TAU, 24, Color(Toon.SUMI, 0.4), 1.0 * u, true)
 	_look_swatch(_sheet, rc, kind, col, 0.95 * u, true)
-	_sheet.draw_string(_ui, Vector2(hx, rb.position.y + 14 * u), _p("RÉCOMPENSE  ·  " + String(KIND_LABELS[kind])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7.5 * u), Color(Toon.SUMI, 0.45))
-	_sheet.draw_string(UiKit.TITLE_FONT, Vector2(hx, rb.position.y + 30 * u), _p(String(p["look"])), HORIZONTAL_ALIGNMENT_LEFT, hw, int(12 * u), Toon.SUMI)
+	_sheet.draw_string(_ui, Vector2(hx, rb.position.y + 14 * u), _p("RÉCOMPENSE  ·  " + String(KIND_LABELS[kind])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7.5 * u), Color(Toon.ui_ink, 0.45))
+	_sheet.draw_string(UiKit.TITLE_FONT, Vector2(hx, rb.position.y + 30 * u), _p(String(p["look"])), HORIZONTAL_ALIGNMENT_LEFT, hw, int(12 * u), Toon.ui_ink)
 	# ÉQUIPER / RETIRER / verrouillée
 	var br := _sheet_btn
 	if _shake_key == _sel and _shake > 0.0:

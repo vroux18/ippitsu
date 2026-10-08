@@ -76,8 +76,8 @@ jobs:
 
       - name: Musique (fabriquée une fois, en OGG)
         run: |
-          timeout 300 godot --headless --path . --script tools/bake_music.gd || timeout 300 godot --headless --path . --script tools/bake_music.gd
-          which ffmpeg || (timeout 240 sudo apt-get update -qq; timeout 240 sudo apt-get install -y -qq ffmpeg)
+          timeout 420 godot --headless --path . --script tools/bake_music.gd || timeout 420 godot --headless --path . --script tools/bake_music.gd
+          for i in 1 2 3; do which ffmpeg && break; timeout 180 sudo apt-get update -qq || true; timeout 240 sudo apt-get install -y -qq ffmpeg || true; done; which ffmpeg
           for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           ls -la assets/music
           du -ch assets/music/*.ogg | tail -1
@@ -148,12 +148,12 @@ jobs:
           path: build/web
 
   # robots testeurs (en parallèle de l'export, ne bloquent pas l'APK) : un job par mode et par graine
-  #   campaign : les 5 mondes + une partie perdue ; powers : chaque pouvoir à chaque niveau ;
+  #   campaign : les 8 mondes + une partie perdue ; powers : chaque pouvoir à chaque niveau ;
   #   ui : parcours de tous les écrans ; stress : vagues doublées, 16 pouvoirs, fuites de nœuds
   bot:
     name: bot ${{ matrix.mode }} ${{ matrix.seed }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -191,15 +191,15 @@ jobs:
         run: |
           echo "$HOME/godot-bin" >> $GITHUB_PATH
           export PATH="$HOME/godot-bin:$PATH"
-          timeout 300 godot --headless --path . --script tools/bake_music.gd || timeout 300 godot --headless --path . --script tools/bake_music.gd
-          which ffmpeg || (timeout 240 sudo apt-get update -qq; timeout 240 sudo apt-get install -y -qq ffmpeg)
+          timeout 420 godot --headless --path . --script tools/bake_music.gd || timeout 420 godot --headless --path . --script tools/bake_music.gd
+          for i in 1 2 3; do which ffmpeg && break; timeout 180 sudo apt-get update -qq || true; timeout 240 sudo apt-get install -y -qq ffmpeg || true; done; which ffmpeg
           for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           timeout 300 godot --headless --path . --import || timeout 300 godot --headless --path . --import || true
 
       - name: Robot ${{ matrix.mode }} (graine ${{ matrix.seed }})
         run: |
           log=bot-${{ matrix.mode }}-${{ matrix.seed }}.log
-          timeout 960 godot --headless --path . --fixed-fps 30 -- --bot --mode=${{ matrix.mode }} --seed=${{ matrix.seed }} > $log 2>&1 || true
+          timeout 1500 godot --headless --path . --fixed-fps 30 -- --bot --mode=${{ matrix.mode }} --seed=${{ matrix.seed }} > $log 2>&1 || true
           grep -E "^BOT|SCRIPT ERROR|Invalid call|Invalid access" $log | head -800
           # (sous bash -e, « ! cmd » ne fait pas échouer l'étape : on teste explicitement)
           fail=0

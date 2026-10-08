@@ -86,7 +86,13 @@ func render(tname: String) -> AudioStreamWAV:
 			c = _w4(rng)
 		"w5":
 			c = _w5(rng)
-		"boss1", "boss2", "boss3", "boss4", "boss5":
+		"w6":
+			c = _w6(rng)
+		"w7":
+			c = _w7(rng)
+		"w8":
+			c = _w8(rng)
+		"boss1", "boss2", "boss3", "boss4", "boss5", "boss6", "boss7", "boss8":
 			c = _boss(rng, tname.right(1).to_int())
 		"mini":
 			c = _mini(rng)
@@ -1039,13 +1045,17 @@ func _w5(rng: RandomNumberGenerator) -> Dictionary:
 # appel de shakuhachi (ou fue) ; couleur du monde (ressac, clochettes, bonshō, enclume, pinceau).
 # Intro 1 mesure (roulement), corps 24 mesures (A, B en doubles croches, A').
 func _boss(rng: RandomNumberGenerator, w: int) -> Dictionary:
-	var roots := [146.83, 146.83, 164.81, 146.83, 146.83, 110.0]
-	var bpms := [132.0, 132.0, 128.0, 120.0, 144.0, 136.0]
-	var wi := clampi(w, 1, 5)
+	var roots := [146.83, 146.83, 164.81, 146.83, 146.83, 110.0, 146.83, 164.81, 138.59]
+	var bpms := [132.0, 132.0, 128.0, 120.0, 144.0, 136.0, 140.0, 126.0, 132.0]
+	var wi := clampi(w, 1, 8)
 	var root: float = roots[wi]
 	var bpm: float = bpms[wi]
 	var bs := 60.0 / bpm
-	var sc: Array = HIRA if wi == 4 else IN_SC
+	var sc: Array = IN_SC
+	if wi == 4 or wi == 6:
+		sc = HIRA
+	elif wi == 7:
+		sc = KUMOI
 	var lroot: float = root * 2.0 if root < 130.0 else root
 	_intro_mode = true
 	for k in 7:
@@ -1101,7 +1111,23 @@ func _boss(rng: RandomNumberGenerator, w: int) -> Dictionary:
 				_ev(K_HYO, b0 + 3.0, 2600.0, 0.15, 0.05)
 				if bar % 4 == 3:
 					_gliss(K_KOTO, lroot, sc, b0 + 2.0, 9, 8, -1, 0.125, 0.1)
-	var lead: int = K_FUE if (wi == 2 or wi == 4) else K_SHAKU
+			6:
+				# anneaux du shakujō des yamabushi, conque horagai en appel
+				for j in 3:
+					_ev(K_SUZU, b0 + 1.5 + j * 0.05, 2300.0 + 160.0 * j, 0.6, 0.05)
+				if bar % 8 == 4:
+					_ev(K_SHAKU, b0, _f(root, sc, 0), _q(3.0 * bs), 0.12)
+			7:
+				# vagues du palais englouti, clochettes de perle
+				if bar % 2 == 0:
+					_gliss(K_KOTO, root * 2.0, sc, b0 + 2.5, 2, 6, 1, 0.125, 0.08)
+				_ev(K_SUZU, b0 + 3.75, 3100.0, 0.6, 0.04)
+			8:
+				# bonshō des morts, claquoirs, grappes graves
+				if bar % 4 == 0:
+					_ev(K_KANE, b0, root * 0.5, 7.0, 0.24)
+				_ev(K_HYO, b0 + 3.0, 1700.0, 0.15, 0.1)
+	var lead: int = K_FUE if (wi == 2 or wi == 4 or wi == 6) else K_SHAKU
 	var m1 := _phrase(rng, 15.0, 7, 4, 10, [1.0, 0.5, 0.5, 2.0, 1.5], 0.1)
 	var m2 := _vary(rng, m1, 0.5)
 	_put(lead, m1, 16.0, lroot, sc, 0, 0.22, bs)
@@ -1122,8 +1148,133 @@ func _boss(rng: RandomNumberGenerator, w: int) -> Dictionary:
 	elif wi == 4:
 		bed = BED_DRONE
 		bed_amp = 0.06
+	elif wi == 6:
+		bed = BED_WIND
+		bed_amp = 0.03
+	elif wi == 7:
+		bed = BED_SURF
+		bed_amp = 0.035
+	elif wi == 8:
+		bed = BED_DRONE
+		bed_amp = 0.05
 	return {"bpm": bpm, "beats": 96.0, "intro": 4.0, "echo": 0.5, "fb": 0.15,
 		"bed": bed, "bed_amp": bed_amp, "waves": 4, "drone": root, "rms": 0.15}
+
+
+# Monde 6, Kurama (forêt de cèdres, temple de montagne, tengu) : gamme kumoi en sol, 80 BPM, vent.
+# Intro (conque horagai, anneaux du shakujō) ; A (shakuhachi sur koto lent, taiko lointain) ;
+# B (vol des corbeaux : fue vif, koto étouffé en croches, shime) ; A' (cloche du temple, shō).
+func _w6(rng: RandomNumberGenerator) -> Dictionary:
+	var root := 196.0
+	var bs := 60.0 / 80.0
+	_intro_mode = true
+	_ev(K_SHAKU, -8.0, _f(root, KUMOI, -5), _q(4.0 * bs), 0.2)
+	for j in 4:
+		_ev(K_SUZU, -3.5 + j * 0.06, 2300.0 + 150.0 * j, 0.6, 0.06)
+	_ev(K_TAIKO, -1.0, 70.0, 1.0, 0.25)
+	_intro_mode = false
+	var prog := [0, 0, -1, 0, -2, -1, 0, 0]
+	for bar in 20:
+		var b0 := bar * 4.0
+		var base: int = int(prog[bar % 8]) - 5
+		var crows := bar >= 8 and bar < 14
+		if not crows:
+			_ev(K_KOTO, b0, _f(root, KUMOI, base), 1.6, 0.13)
+			_ev(K_KOTO, b0 + 2.0, _f(root, KUMOI, base + 2), 1.6, 0.08)
+			if bar % 2 == 0:
+				_ev(K_TAIKO, b0, 68.0, 1.0, 0.26)
+		else:
+			for k in 8:
+				_ev(K_TAIKO, b0 + k * 0.5, 230.0, 0.25, 0.12 if k % 2 == 0 else 0.07)
+			_ev(K_TAIKO, b0, 64.0, 1.0, 0.32)
+		if bar % 4 == 3:
+			for j in 3:
+				_ev(K_SUZU, b0 + 3.5 + j * 0.06, 2400.0 + 140.0 * j, 0.6, 0.05)
+	# A (0-7) : shakuhachi
+	var m1 := _phrase(rng, 14.0, 4, 0, 7, [2.0, 1.0, 1.0, 3.0, 1.0], 0.12)
+	_put(K_SHAKU, m1, 0.5, root, KUMOI, 0, 0.28, bs)
+	_put(K_SHAKU, _cadence(_vary(rng, m1, 0.4), 0), 16.5, root, KUMOI, 0, 0.27, bs)
+	# B (8-13) : le vol des corbeaux
+	var fx := _phrase(rng, 7.0, 6, 4, 10, [0.5, 0.5, 1.0, 0.5, 1.5], 0.1)
+	for k in 3:
+		_put(K_FUE, _vary(rng, fx, 0.3), 32.0 + 8.0 * k, root, KUMOI, k - 1, 0.19, bs)
+	_arp(K_KOTO_S, root, KUMOI, 8, 6, [0, 0, 1, -1, 0, 1], [0, 2, 4, 2, 3, 2, 4, 1], 0.5, 0.06, -5)
+	# A' (14-19) : cloche du temple, shō
+	_ev(K_KANE, 56.0, root * 0.5, 7.0, 0.22)
+	_pad_prog(root, KUMOI, 14, 6, [0, -1, -2], [0, 2, 4], 0.03, bs, 2)
+	_put(K_SHAKU, _vary(rng, m1, 0.3), 58.5, root, KUMOI, 0, 0.27, bs)
+	_put(K_SHAKU, _cadence(_phrase(rng, 6.0, 2, 0, 6, [1.0, 2.0, 1.5], 0.0), 0), 72.0, root, KUMOI, 0, 0.26, bs)
+	return {"bpm": 80.0, "beats": 80.0, "intro": 8.0, "echo": 0.9, "fb": 0.3,
+		"bed": BED_WIND, "bed_amp": 0.045, "rms": 0.12}
+
+
+# Monde 7, Ryūgū-jō (palais du roi dragon sous la mer) : gamme yo en la, 70 BPM, houle lointaine.
+# Intro (shō, glissando de koto qui descend vers le fond) ; A (koto en arpèges d'eau, clochettes de perle) ;
+# B (le palais : shō en nappe, shakuhachi chantant) ; A' (le motif reprend, plus haut).
+func _w7(rng: RandomNumberGenerator) -> Dictionary:
+	var root := 220.0
+	var bs := 60.0 / 70.0
+	_intro_mode = true
+	for c in [0, 2, 4]:
+		_ev(K_SHO, -8.0, _f(root, YO, int(c)), _q(8.0 * bs - 0.4), 0.04)
+	_gliss(K_KOTO, root, YO, -4.0, 10, 10, -1, 0.25, 0.13)
+	_intro_mode = false
+	var prog := [0, 0, -1, 1, 0, -2, -1, 0]
+	_arp(K_KOTO, root, YO, 0, 8, prog, [0, 2, 4, 5, 4, 2], 0.66, 0.1, -5)
+	var m := _phrase(rng, 13.0, 5, 3, 9, [1.0, 1.5, 0.5, 2.0, 1.0], 0.08)
+	_put(K_KOTO, m, 2.0, root, YO, 0, 0.16, bs)
+	_put(K_KOTO, _cadence(_vary(rng, m, 0.35), 5), 18.0, root, YO, 0, 0.15, bs)
+	for bar in 18:
+		var b0 := bar * 4.0
+		if rng.randf() < 0.6:
+			_ev(K_SUZU, b0 + float(rng.randi_range(1, 7)) * 0.5, 2900.0 + 120.0 * float(rng.randi_range(0, 3)), 0.6, 0.045)
+		if bar % 4 == 0:
+			_ev(K_TAIKO, b0, 62.0, 1.2, 0.2)
+	# B (8-13) : le palais
+	_pad_prog(root, YO, 8, 6, [0, -1, 1], [0, 2, 4], 0.034, bs, 2)
+	var s := _phrase(rng, 11.0, 4, 1, 8, [1.0, 2.0, 1.5, 3.0], 0.1)
+	_put(K_SHAKU, s, 32.5, root, YO, 0, 0.25, bs)
+	_put(K_SHAKU, _cadence(_vary(rng, s, 0.4), 0), 44.5, root, YO, 0, 0.25, bs)
+	_arp(K_KOTO, root, YO, 8, 6, [0, -1, 1, 0, -2, 0], [0, 4, 2, 4], 1.0, 0.06, -5)
+	# A' (14-17) : le motif plus haut, qui s'efface
+	_put(K_KOTO, _vary(rng, m, 0.3), 56.0, root, YO, 2, 0.15, bs)
+	_gliss(K_KOTO, root, YO, 70.0, 9, 8, -1, 0.25, 0.1)
+	return {"bpm": 70.0, "beats": 72.0, "intro": 8.0, "echo": 1.25, "fb": 0.36,
+		"bed": BED_SURF, "bed_amp": 0.035, "waves": 5, "rms": 0.12}
+
+
+# Monde 8, Yomi (le pays des morts) : gamme in en do dièse grave, 60 BPM, bourdon.
+# Intro (bonshō, claquoirs) ; A (shamisen rare, shakuhachi qui pleure) ; B (procession des âmes :
+# shō en grappe dissonante, kane lointain) ; A' (le shamisen revient, seul).
+func _w8(rng: RandomNumberGenerator) -> Dictionary:
+	var root := 138.59
+	var bs := 1.0
+	_intro_mode = true
+	_ev(K_KANE, -8.0, root * 0.5, 7.0, 0.3)
+	_ev(K_HYO, -2.0, 1700.0, 0.15, 0.18)
+	_ev(K_HYO, -1.75, 1700.0, 0.15, 0.14)
+	_intro_mode = false
+	var la := _shami_line(rng, 4, 0.25, 0, 6)
+	_put_shami(la, 0.0, root, IN_SC, 0.24)
+	_put_shami(_vary(rng, la, 0.35), 16.0, root, IN_SC, 0.22)
+	var g := _phrase(rng, 12.0, 4, 1, 7, [2.0, 3.0, 1.0, 2.0], 0.12)
+	_put(K_SHAKU, g, 2.0, root, IN_SC, 0, 0.2, bs)
+	_ev(K_KANE, 0.0, root * 0.5, 7.0, 0.24)
+	_ev(K_KANE, 16.0, root * 0.75, 7.0, 0.18)
+	# B (8-13) : procession des âmes
+	_pad_prog(root * 2.0, IN_SC, 8, 6, [0, 0, -1], [0, 1, 2], 0.024, bs, 2)
+	_put(K_SHAKU, _cadence(_vary(rng, g, 0.45), 0), 34.0, root, IN_SC, 1, 0.19, bs)
+	for bar in range(8, 14):
+		var b0 := bar * 4.0
+		_ev(K_TAIKO, b0, 58.0, 1.4, 0.22)
+		if bar % 2 == 1:
+			_ev(K_HYO, b0 + 3.0, 1700.0, 0.15, 0.1)
+			_ev(K_HYO, b0 + 3.25, 1700.0, 0.15, 0.08)
+	_ev(K_KANE, 40.0, root * 0.5, 7.0, 0.2)
+	# A' (14-17) : le shamisen revient, seul
+	_put_shami(la, 56.0, root, IN_SC, 0.2)
+	return {"bpm": 60.0, "beats": 72.0, "intro": 8.0, "echo": 1.5, "fb": 0.28,
+		"bed": BED_DRONE, "bed_amp": 0.05, "drone": root * 0.5, "rms": 0.11}
 
 
 # Gardien de salle (Ō-kappa) : court et nerveux, 150 BPM, gamme in en sol.

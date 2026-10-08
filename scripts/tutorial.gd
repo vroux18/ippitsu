@@ -338,7 +338,7 @@ func _draw() -> void:
 	var s: Dictionary = STEPS[step]
 	var card := _card_rect()
 	var a := clampf(_t / 0.3, 0.0, 1.0)
-	UiKit.box(_sb, Color(Toon.PAPER, 0.96 * a), int(14 * u))
+	UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.3 * a)
 	_sb.shadow_size = int(12 * u)
 	draw_style_box(_sb, card)
@@ -349,12 +349,12 @@ func _draw() -> void:
 	# texte
 	var tx := card.position.x + 16 * u
 	draw_string(_ui, Vector2(tx, card.position.y + 24 * u), UiKit.plain("ÉTAPE %d / %d" % [step + 1, STEPS.size()]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(10 * u), Color(Toon.VERMILION, a))
-	draw_string(UiKit.TITLE_FONT, Vector2(tx, card.position.y + 46 * u), UiKit.plain(String(s.title)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.SUMI, a))
-	draw_multiline_string(UiKit.UI_FONT, Vector2(tx, card.position.y + 64 * u), UiKit.plain(String(s.hint)), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 124 * u, int(11 * u), 3, Color(Toon.SUMI, 0.75 * a))
+	draw_string(UiKit.TITLE_FONT, Vector2(tx, card.position.y + 46 * u), UiKit.plain(String(s.title)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.ui_ink, a))
+	draw_multiline_string(UiKit.UI_FONT, Vector2(tx, card.position.y + 64 * u), UiKit.plain(String(s.hint)), HORIZONTAL_ALIGNMENT_LEFT, card.size.x - 124 * u, int(11 * u), 3, Color(Toon.ui_ink, 0.75 * a))
 	# progression
 	for i in STEPS.size():
 		var c := Vector2(tx + i * 12 * u + 3 * u, card.end.y - 10 * u)
-		draw_circle(c, 3 * u, Color(Toon.SUMI, (1.0 if i <= step else 0.2) * a))
+		draw_circle(c, 3 * u, Color(Toon.ui_ink, (1.0 if i <= step else 0.2) * a))
 
 
 ## Le geste se dessine en boucle, un doigt (point vermillon) en tête.
