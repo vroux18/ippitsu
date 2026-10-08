@@ -480,9 +480,12 @@ func _warmup() -> void:
 	var t_max := 0
 	var t0 := Time.get_ticks_usec()
 	var w := Node3D.new()
-	add_child(w)
-	# dans le champ de la caméra d'accueil mais sous le sol : rendus (donc compilés) sans être vus
-	w.position = hero.position + Vector3(0, -0.7, -3.0)
+	# accroché à la caméra, en miniature : dessinés (donc shaders compilés) mais invisibles à l'œil,
+	# où que soit le héros (la barque de l'accueil est en pleine mer)
+	cam.add_child(w)
+	w.position = Vector3(0, 0, -2.0)
+	w.scale = Vector3.ONE * 0.002
+	var fxp: Vector3 = hero.position + Vector3(0, -3.0, 0)  # effets sous l'eau opaque
 	var x := -3.0
 	for k in WARM_KINDS:
 		var e := Enemy.new()
@@ -523,11 +526,11 @@ func _warmup() -> void:
 	var l2 := l.duplicate() as Label3D
 	l2.font_size = 110
 	w.add_child(l2)
-	_splash(w.position, Toon.VERMILION, 8)
-	_blot(w.position, Toon.SUMI, 0.3, 0.5)
-	_slash_mark(w.position, Vector3.FORWARD)
-	vfx.impact(w.position, Vector3.FORWARD, true)
-	vfx.kill_burst(w.position, Vector3.FORWARD, true)
+	_splash(fxp, Toon.VERMILION, 8)
+	_blot(fxp, Toon.SUMI, 0.3, 0.5)
+	_slash_mark(fxp, Vector3.FORWARD)
+	vfx.impact(fxp, Vector3.FORWARD, true)
+	vfx.kill_burst(fxp, Vector3.FORWARD, true)
 	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
 	var spent_end := Time.get_ticks_usec() - t0
 	t_cpu += spent_end
