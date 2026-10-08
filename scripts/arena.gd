@@ -4,6 +4,9 @@ extends Node3D
 ## et sanctuaire de départ (build_hub : place, dojo, torii). Chaque forme jouable est une union de rectangles,
 ## avec son sol selon le monde, son décor et le torii de sortie qui s'allume quand le combat est fini.
 ## Le vide (eau, lave, encre…) se comporte comme un trou : on peut tracer au-dessus, pas y finir.
+## Les tronçons d'étape mêlent les formes fixes et des formes générées (GEN : places octogonales, L, T,
+## escaliers, îles, chemins qui se séparent, pont cassé…) ; des pièces de décor du monde (bateaux, bosquets,
+## étangs gelés…) y bloquent la marche : `rects` est le sol praticable, `floor_rects` le sol dessiné.
 
 const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
@@ -58,6 +61,30 @@ const FLAVOR := {
 	8: ["hourglass", "cross", "zigzag", "spine"],
 }
 const MAX_USES := 2  # une forme au plus deux fois par partie
+const MAX_USES_GEN := 3  # forme générée : tirée au hasard à chaque fois, elle peut revenir un peu plus
+# formes générées des étapes : famille (jamais deux fois de suite) et palier (0 simple -> 2 morcelée)
+const GEN := {
+	"g_oct": {"fam": "plaza", "tier": 0},
+	"g_twin_oct": {"fam": "plaza2", "tier": 1},
+	"g_ell": {"fam": "ell", "tier": 0},
+	"g_tee": {"fam": "tee", "tier": 0},
+	"g_plus": {"fam": "plus", "tier": 1},
+	"g_diag": {"fam": "diag", "tier": 1},
+	"g_terrace": {"fam": "terrace", "tier": 0},
+	"g_alcove": {"fam": "alcove", "tier": 1},
+	"g_isles": {"fam": "isles", "tier": 1},
+	"g_split": {"fam": "split", "tier": 2},
+	"g_broken": {"fam": "broken", "tier": 2},
+}
+const SIDED := ["g_ell", "g_diag", "g_broken"]  # formes à côté d'entrée : on les retourne vers le passage d'arrivée
+# formes fixes : [famille, palier]
+const LAYOUT_FAM := {
+	"full": ["open", 0], "islands": ["isles", 1], "cross": ["plus", 0], "ring": ["ring", 2], "zigzag": ["diag", 1],
+	"hourglass": ["neck", 1], "twin": ["twin", 1], "pond": ["ring", 0], "terraces": ["terrace", 0], "ell": ["ell", 1],
+	"stairs": ["diag", 1], "diamond": ["isles", 2], "spine": ["alcove", 1], "quad": ["isles", 2], "moat": ["ring", 2],
+}
+const RING_LIKE := ["ring", "pond", "moat", "islands"]  # anneau autour d'une fosse, longue jetée : moins souvent
+const PIECE_GAP := 1.6  # passage laissé autour d'une pièce de décor, dans chaque plateforme qu'elle touche
 const BRIDGE_W := 2.7  # un rectangle plus étroit que ça est une passerelle (pont de bois au-dessus du vide)
 const WOOD := [Color("#8E6B3E"), Color("#A88452"), Color("#7A5A34")]
 const MIN_AREA := 70.0  # surface jouable minimale d'une forme (m²)
@@ -97,7 +124,13 @@ var pieces: Array = []  # sol découpé sans recouvrement : [Rect2, passerelle ?
 var bridges: Array = []  # morceaux de passerelle au-dessus du vide (Rect2)
 var layout := "full"
 var mirrored := false
-var rects: Array = []
+var rects: Array = []  # sol praticable (étape : découpé autour des pièces de décor)
+var floor_rects: Array = []  # sol dessiné (sans découpe)
+var set_pieces: Array = []  # pièces de décor posées sur la terre ferme : [Rect2 empreinte, nom, tronçon, quart de tour ?]
+var _steps: Array = []  # marches peintes entre terrasses : Vector3(x0, x1, z)
+var _gaps: Array = []  # trouées des ponts cassés (Rect2) : planches à la dérive
+var _stage_n := 0  # rang de l'étape dans le monde (formes plus morcelées ensuite)
+var _adj: Array = []  # voisinage des plateformes de `_act` (chemin des ennemis), calculé à la demande
 var _used := {}  # forme -> nombre d'utilisations pendant la partie
 var _last := ""  # dernière forme hors boss
 var start := Vector3(0, 0, 6.1)
@@ -208,6 +241,7 @@ func build_room(room: int, rooms: int, rng_seed: int, mini_room := 8) -> void:
 	# miroir gauche/droite (sans effet sur les formes symétriques), jamais pour un boss
 	mirrored = layout != BOSS_LAYOUT and rng.randf() < 0.5
 	rects = _layout_rects(layout, mirrored)
+	floor_rects = rects
 	_single_frame()
 	_finish_room(Worlds.world(world_id), rng, rng_seed)
 
@@ -228,6 +262,9 @@ func _clear_room() -> void:
 	zone_state = []
 	pocket_spots = []
 	joins = []
+	set_pieces = []
+	_steps = []
+	_gaps = []
 
 
 ## Salle unique : cadre classique autour de l'origine (boss, hub, tutoriel).
@@ -241,6 +278,7 @@ func _single_frame() -> void:
 func _set_bounds(b: Rect2) -> void:
 	bounds = b
 	_act = []
+	_adj = []
 	for r in rects:
 		var rr: Rect2 = r
 		var ri := rr.intersection(b)
@@ -253,43 +291,63 @@ func _set_bounds(b: Rect2) -> void:
 ## Étape (expédition) : un tronçon d'arrivée calme puis `n_enc` tronçons, chacun une zone de combat,
 ## empilés vers le fond. Passages larges entre tronçons, haies d'encre qui ferment les zones,
 ## torii de sortie au nord du dernier tronçon. `first` : première étape du monde (formes faciles au départ).
+## Les formes générées et les pièces de décor tirent à part (`grng`) : la suite de `rng` garde son ordre.
 func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 	_clear_room()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = rng_seed
 	_stage_seed = rng_seed
+	var grng := RandomNumberGenerator.new()
+	grng.seed = rng_seed + 104729
 	if first:
 		_used.clear()
 		_last = ""
+		_stage_n = 0
+	else:
+		_stage_n += 1
 	stage = true
 	chunks = maxi(1, n_enc) + 1
 	rects = []
 	layout = ""
 	var prev: Array = []
 	var per_chunk: Array = []
+	var fams := {}  # familles déjà vues dans l'étape
+	var last_fam := ""
 	for i in chunks:
 		var key := ""
 		var mir := false
 		var local: Array = []
+		var extra: Dictionary = {}
 		if i == 0 and first:
 			key = String(FIRST_LAYOUTS[rng.randi() % FIRST_LAYOUTS.size()])
 			mir = rng.randf() < 0.5
 			local = _layout_rects(key, mir)
 		else:
+			var run := _entry_run(prev)
 			for attempt in 12:
-				key = _pick_key(rng)
+				key = _pick_chunk(rng, i, fams, last_fam)
 				mir = rng.randf() < 0.5
-				local = _layout_rects(key, mir)
-				if prev.is_empty() or not _join_pieces(prev, local).is_empty():
+				if GEN.has(key):
+					mir = false  # la forme générée choisit elle-même ses côtés
+					extra = _gen_layout(key, grng, run)
+					var gl: Array = extra["rects"]
+					local = gl
+				else:
+					extra = {}
+					local = _layout_rects(key, mir)
+				if not local.is_empty() and (prev.is_empty() or not _join_pieces(prev, local).is_empty()):
 					break
 				key = ""
 			if key == "":
 				# repli sûr : la forme pleine se raccorde à toutes les autres
 				key = BOSS_LAYOUT
 				mir = false
+				extra = {}
 				local = _layout_rects(key, mir)
 		_used[key] = int(_used.get(key, 0)) + 1
 		_last = key
+		last_fam = _family(key)
+		fams[last_fam] = true
 		if not prev.is_empty():
 			joins.append(_join_pieces(prev, local))
 		layout += ("" if i == 0 else "+") + key + ("~" if mir else "")
@@ -300,7 +358,16 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 			mine.append(Rect2(rr.position.x, rr.position.y + dz, rr.size.x, rr.size.y))
 		per_chunk.append(mine)
 		rects.append_array(mine)
+		# marches peintes et trouées de pont cassé de la forme générée
+		if not extra.is_empty():
+			for s in extra["steps"]:
+				var sv: Vector3 = s
+				_steps.append(Vector3(sv.x, sv.y, sv.z + dz))
+			for gp in extra["gaps"]:
+				var gr: Rect2 = gp
+				_gaps.append(Rect2(gr.position.x, gr.position.y + dz, gr.size.x, gr.size.y))
 		prev = local
+	floor_rects = rects.duplicate()
 	mirrored = false
 	var top := -HALF.y - float(chunks - 1) * CHUNK_L
 	stage_rect = Rect2(-HALF.x, top, HALF.x * 2.0, HALF.y - top)
@@ -314,7 +381,7 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 	var w: Dictionary = Worlds.world(world_id)
 	_build_floor(w, rng)
 	_flush_tiles()
-	var ends: Array = _ends(rects)
+	var ends: Array = _ends(floor_rects)
 	start = ends[0]
 	gate_pos = ends[1]
 	_build_gate(w)
@@ -323,6 +390,17 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 	pocket_spots = []
 	for i in chunks:
 		pocket_spots.append(_pocket_spot(per_chunk[i], -float(i) * CHUNK_L, rng))
+	# pièces de décor sur la terre ferme : elles découpent le sol praticable (`rects`)
+	_place_set_pieces(per_chunk, grng, first)
+	var chunk_pieces: Array = []
+	for i in chunks:
+		chunk_pieces.append([])
+	for sp in set_pieces:
+		var spa: Array = sp
+		var fp: Rect2 = spa[0]
+		var ci: int = spa[2]
+		var lst: Array = chunk_pieces[ci]
+		lst.append([Rect2(fp.position.x, fp.position.y + float(ci) * CHUNK_L, fp.size.x, fp.size.y), spa[1], spa[3]])
 	_set_bounds(_roam_bounds())
 	# haies d'encre aux passages entre tronçons
 	for j in joins.size():
@@ -332,7 +410,7 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 	# (et en deux temps : décor, puis fosses, pour de plus petites images)
 	var high: Rect2 = ends[3]
 	for i in chunks:
-		var job := {"i": i, "rs": per_chunk[i], "high": high if i == chunks - 1 else Rect2()}
+		var job := {"i": i, "rs": per_chunk[i], "high": high if i == chunks - 1 else Rect2(), "pieces": chunk_pieces[i]}
 		if i < 2:
 			_build_chunk_decor(job)
 		else:
@@ -367,8 +445,10 @@ func _chunk_props(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> vo
 	if high.has_area():
 		prs.append(Rect2(high.position.x, high.position.y - dz, high.size.x, high.size.y))
 	prs.append(frame)
-	# une seule lumière ponctuelle par tronçon (une étape en compte 3 ou 4 à l'écran au plus)
-	Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1)
+	# une seule lumière ponctuelle par tronçon (une étape en compte 3 ou 4 à l'écran au plus) ;
+	# les pièces de décor du tronçon partagent les lots (matériaux) du décor
+	var pcs: Array = job.get("pieces", [])
+	Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1, pcs)
 
 
 func _chunk_pits(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> void:
@@ -1160,6 +1240,7 @@ func build_hub(rng_seed: int) -> void:
 	rects = []
 	for r in HUB_RECTS:
 		rects.append(r)
+	floor_rects = rects
 	var dojo: Rect2 = HUB_RECTS[HUB_DOJO]
 	hub_training_center = Vector3(dojo.get_center().x, 0, dojo.get_center().y + 0.2)
 	hub_training_radius = minf(dojo.size.x, dojo.size.y) * 0.5 - 0.55
@@ -1174,7 +1255,7 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> v
 	_build_floor(w, rng)
 	_flush_tiles()
 	# départ au sud de la plateforme la plus basse, sortie au nord de la plus haute
-	var ends: Array = _ends(rects)
+	var ends: Array = _ends(floor_rects)
 	start = ends[0]
 	gate_pos = ends[1]
 	# le décor reste hors du cadre de l'arène (rien dans les canaux entre plateformes) :
@@ -1183,7 +1264,7 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> v
 	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
 	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed)
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
-	_pits = Worlds.build_pits(world_id, _room_root, rects, void_rects(rects), rng_seed)
+	_pits = Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed)
 	_build_gate(w)
 
 
@@ -1299,7 +1380,7 @@ static func _ends(rs: Array) -> Array:
 ## ni z-fighting, ni bord dessiné à l'intérieur) ; le bord d'encre suit le vrai contour ;
 ## les passerelles au-dessus du vide deviennent des ponts de planches, au niveau du sol.
 func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
-	var dec: Dictionary = _decompose(rects)
+	var dec: Dictionary = _decompose(floor_rects)
 	pieces = dec["pieces"]
 	bridges = []
 	var style := String(w.ground_style)
@@ -1331,6 +1412,42 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 			_floor_piece(r, style, mats, rng)
 			_floor_dressing(r, style, look)
 	_build_edges(dec, w, woods[2])
+	_build_steps(w)
+
+
+## Marches entre terrasses peintes au sol (nez clair, contremarche sombre ; la marche reste plate pour
+## marcher) ; à Kurama, une volée de trois marches de pierre. Planches à la dérive sous les ponts cassés.
+func _build_steps(w: Dictionary) -> void:
+	if _steps.is_empty() and _gaps.is_empty():
+		return
+	var gcols: Array = w.ground
+	var g0: Color = gcols[0]
+	var nose := _shared_mat(g0.lightened(0.22), true)
+	var riser := _shared_mat(g0.darkened(0.5), true)
+	var flight := 3 if world_id == 6 else 1
+	for s in _steps:
+		var sv: Vector3 = s
+		var l := sv.y - sv.x
+		var cx := (sv.x + sv.y) * 0.5
+		for k in flight:
+			var z := sv.z + 0.34 * float(k)
+			_tile(Vector3(l, 0.03, 0.14), Vector3(cx, 0.008, z - 0.07), nose)
+			_tile(Vector3(l, 0.03, 0.09), Vector3(cx, 0.006, z + 0.045), riser)
+	for gp in _gaps:
+		var r: Rect2 = gp
+		var c := r.get_center()
+		for k in 3:
+			var m := _shared_mat(WOOD[k % WOOD.size()], true)
+			var p := Vector3(c.x + _deco_rng.randf_range(-0.3, 0.3) * r.size.x, -0.5, c.y + _deco_rng.randf_range(-0.3, 0.3) * r.size.y)
+			_tile(Vector3(r.size.x * 0.45, 0.05, 0.16), p, m, _deco_rng.randf_range(-0.6, 0.6))
+		# bouts de planches éclatés qui dépassent du tablier, de part et d'autre de la trouée
+		var dark := _shared_mat(WOOD[2], true)
+		for q in 3:
+			var x := lerpf(r.position.x + 0.3, r.end.x - 0.3, float(q) / 2.0)
+			var ln := _deco_rng.randf_range(0.12, 0.3)
+			_tile(Vector3(0.16, 0.06, ln), Vector3(x, -0.07, r.position.y + ln * 0.5), dark)
+			ln = _deco_rng.randf_range(0.12, 0.3)
+			_tile(Vector3(0.16, 0.06, ln), Vector3(x, -0.07, r.end.y - ln * 0.5), dark)
 
 
 ## Matière du sol (shaders/ground.gdshader), partagée par couleur, style et monde.
@@ -1450,8 +1567,8 @@ func _bridge_planks(r: Rect2, woods: Array, rng: RandomNumberGenerator) -> void:
 ## Sens de la marche d'un morceau de passerelle : vers les côtés qui touchent la terre ferme.
 func _bridge_along_x(r: Rect2) -> bool:
 	var c := r.get_center()
-	var we := _in_any(rects, Vector2(r.position.x - 0.1, c.y)) or _in_any(rects, Vector2(r.end.x + 0.1, c.y))
-	var ns := _in_any(rects, Vector2(c.x, r.position.y - 0.1)) or _in_any(rects, Vector2(c.x, r.end.y + 0.1))
+	var we := _in_any(floor_rects, Vector2(r.position.x - 0.1, c.y)) or _in_any(floor_rects, Vector2(r.end.x + 0.1, c.y))
+	var ns := _in_any(floor_rects, Vector2(c.x, r.position.y - 0.1)) or _in_any(floor_rects, Vector2(c.x, r.end.y + 0.1))
 	if we and not ns:
 		return true
 	if ns and not we:
@@ -1635,20 +1752,55 @@ static func _decompose(rs: Array) -> Dictionary:
 	var zs: Array = []
 	for r in rs:
 		var rr: Rect2 = r
-		_add_coord(xs, rr.position.x)
-		_add_coord(xs, rr.end.x)
-		_add_coord(zs, rr.position.y)
-		_add_coord(zs, rr.end.y)
-	xs.sort()
-	zs.sort()
+		xs.append(rr.position.x)
+		xs.append(rr.end.x)
+		zs.append(rr.position.y)
+		zs.append(rr.end.y)
+	xs = _uniq_sorted(xs)
+	zs = _uniq_sorted(zs)
 	var nx := xs.size() - 1
 	var nz := zs.size() - 1
+	# chaque rectangle couvre des cellules entières de la grille : on les marque (la terre l'emporte
+	# sur la passerelle), au lieu de tester chaque cellule contre chaque rectangle (étapes longues)
 	var kinds: Array = []
-	for j in nz:
-		for i in nx:
-			var p := Vector2((float(xs[i]) + float(xs[i + 1])) / 2.0, (float(zs[j]) + float(zs[j + 1])) / 2.0)
-			kinds.append(_cell_kind(rs, p))
+	kinds.resize(maxi(nx * nz, 0))
+	kinds.fill(0)
+	for r in rs:
+		var rr: Rect2 = r
+		var land := not _is_bridge_rect(rr)
+		var i0 := _coord_idx(xs, rr.position.x)
+		var i1 := _coord_idx(xs, rr.end.x)
+		var j0 := _coord_idx(zs, rr.position.y)
+		var j1 := _coord_idx(zs, rr.end.y)
+		for j in range(j0, j1):
+			for i in range(i0, i1):
+				var k := j * nx + i
+				if land:
+					kinds[k] = 1
+				elif int(kinds[k]) == 0:
+					kinds[k] = 2
 	return {"xs": xs, "zs": zs, "kinds": kinds, "pieces": _merge_cells(xs, zs, kinds)}
+
+
+## Valeurs triées sans doublon (à 0.001 près, comme _add_coord).
+static func _uniq_sorted(vals: Array) -> Array:
+	vals.sort()
+	var out: Array = []
+	for v in vals:
+		var f := float(v)
+		if out.is_empty() or f - float(out[out.size() - 1]) >= 0.001:
+			out.append(f)
+	return out
+
+
+## Indice de la coordonnée la plus proche de `v` dans `arr` (trié).
+static func _coord_idx(arr: Array, v: float) -> int:
+	var i := arr.bsearch(v)
+	if i >= arr.size():
+		return arr.size() - 1
+	if i > 0 and absf(float(arr[i - 1]) - v) < absf(float(arr[i]) - v):
+		return i - 1
+	return i
 
 
 ## Vides intérieurs de l'arène (cadre HALF moins les plateformes ; le dessous des ponts compte comme vide),
@@ -2116,15 +2268,25 @@ func steer(from: Vector3, to: Vector3) -> Vector3:
 	var b := _rect_of(to)
 	if a == b:
 		return to
-	# parcours en largeur sur les plateformes qui se touchent (celles du cadre courant)
+	# parcours en largeur sur les plateformes qui se touchent (celles du cadre courant ; voisinage gardé
+	# jusqu'au prochain changement de cadre : plus de plateformes autour des pièces de décor)
+	if _adj.size() != _act.size():
+		_adj = []
+		for i in _act.size():
+			var nb: Array = []
+			for j in _act.size():
+				if _touch(i, j):
+					nb.append(j)
+			_adj.append(nb)
 	var prev := {a: -1}
 	var queue: Array = [a]
 	while not queue.is_empty():
 		var cur: int = queue.pop_front()
 		if cur == b:
 			break
-		for j in _act.size():
-			if not prev.has(j) and _touch(cur, j):
+		var nbs: Array = _adj[cur]
+		for j in nbs:
+			if not prev.has(j):
 				prev[j] = cur
 				queue.append(j)
 	if not prev.has(b):
@@ -2193,6 +2355,17 @@ func is_bridge(p: Vector3, margin := 0.0) -> bool:
 	for b in bridges:
 		var br: Rect2 = b
 		if br.grow(margin).has_point(Vector2(p.x, p.z)):
+			return true
+	return false
+
+
+## Vrai si `p` est sur une pièce de décor (bateau, bosquet, étang gelé…) ou à moins de `margin` :
+## ce n'est pas du vide (hazards : on ne s'y noie pas, pas de trou à côté).
+func on_set_piece(p: Vector3, margin := 0.0) -> bool:
+	for sp in set_pieces:
+		var spa: Array = sp
+		var fp: Rect2 = spa[0]
+		if fp.grow(margin).has_point(Vector2(p.x, p.z)):
 			return true
 	return false
 

@@ -15,6 +15,7 @@ var idle := "Idle"
 var _mats: Array[StandardMaterial3D] = []
 var _current := ""
 var _once := false
+var _slots := {}  # os -> support déjà accroché (un seul BoneAttachment3D par os)
 
 
 ## `looks` : liste de [motif du nom de maillage, texture recolorée] — le premier motif trouvé s'applique.
@@ -94,13 +95,39 @@ func attach(bone: String, node: Node3D) -> void:
 	if skeleton == null or skeleton.find_bone(bone) < 0:
 		add_child(node)
 		return
-	var ba := BoneAttachment3D.new()
-	ba.bone_name = bone
-	skeleton.add_child(ba)
-	var holder := Node3D.new()
-	holder.scale = Vector3.ONE / scale_factor
-	ba.add_child(holder)
+	var holder: Node3D = _slots.get(bone)
+	if holder == null:
+		var ba := BoneAttachment3D.new()
+		ba.bone_name = bone
+		skeleton.add_child(ba)
+		holder = Node3D.new()
+		holder.scale = Vector3.ONE / scale_factor
+		ba.add_child(holder)
+		_slots[bone] = holder
 	holder.add_child(node)
+
+
+## Accroche un maillage partagé (unités du monde) à un os ; `shadow` : projette une ombre.
+func attach_mesh(bone: String, mesh: Mesh, material: Material, shadow := true) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = material
+	if not shadow:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	attach(bone, mi)
+	return mi
+
+
+## Cache après coup les sous-maillages dont le nom contient un des motifs (l'échelle de setup ne change pas).
+func hide_meshes(patterns: Array) -> void:
+	if model == null or patterns.is_empty():
+		return
+	for n in model.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		for p in patterns:
+			if String(p) in String(mi.name):
+				mi.visible = false
+				break
 
 
 func length(a: String) -> float:

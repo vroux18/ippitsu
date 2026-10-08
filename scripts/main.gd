@@ -69,6 +69,7 @@ const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
 const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
+const UiKit = preload("res://scripts/ui_kit.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus", "icon": "c_dry"},
@@ -209,6 +210,8 @@ var waves_total := 1
 var wave_index := 1
 var _room_done := false
 var _rebuilt := false
+var _dash_prev := Vector3.ZERO  # garde-fou des ruées bloquées
+var _dash_stall := 0.0
 var _intro_world := 0  # monde choisi sur la carte, construit sous le rideau de l'intro
 var _intro_swapped := false
 var worldmap: Control
@@ -2417,6 +2420,12 @@ func _enter_zone(i: int) -> void:
 	_enc = i
 	arena.begin_zone(i)
 	hero.position = _clamp_point(hero.position)
+	if hero.dashing:
+		# le reste du trait (tracé avant la haie) est ramené dans la zone
+		var pth: PackedVector3Array = hero.path
+		for k in range(pth.size()):
+			pth[k] = _clamp_point(pth[k])
+		hero.path = pth
 	_prev_hero = hero.position
 	shake = maxf(shake, 0.2)
 	sfx.play("strike", 0.55, -2.0)
@@ -3515,6 +3524,11 @@ func _touch_move(sp: Vector2) -> void:
 	var used: float = stroke.extend_to(target, budget)
 	if not _explore:
 		elan -= used
+	# figure reconnue en direct : l'encre se teinte (testé tous les 30 cm de trait)
+	if used > 0.0 and float(stroke.length) - float(stroke.probe_len) >= 0.3:
+		stroke.probe_len = stroke.length
+		var live: Dictionary = StrokeShapes.detect(stroke.points) if float(stroke.length) >= 2.0 else {}
+		stroke.set_figure(String(live.get("shape", "")))
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
@@ -3757,6 +3771,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
 	_shape = StrokeShapes.detect(s.points) if s.length >= 2.0 else {}
+	s.set_figure(String(_shape.get("shape", "")))
 	_fig_mods = {}
 	if not _shape.is_empty():
 		shape_text(s.last(), String(SHAPE_KANJI.get(_shape.shape, "")))
@@ -4308,6 +4323,16 @@ func _process(_delta: float) -> void:
 			var hb: Rect2 = arena.bounds
 			if hero.position.z < hb.position.y + 0.3 or hero.position.z > hb.end.y - 0.3:
 				hero.position.z = clampf(hero.position.z, hb.position.y + 0.3, hb.end.y - 0.3)
+		# garde-fou : une ruée qui n'avance plus (cible hors de la zone, bord, haie) s'arrête,
+		# sinon le héros resterait figé en « ruée » sans encre ni nouveau trait possible
+		if hero.dashing and hero.position.distance_squared_to(_dash_prev) < 0.0004:
+			_dash_stall += dt  # temps de jeu : un arrêt sur image ne compte pas
+			if _dash_stall > 0.3:
+				hero.stop_dash()
+				_dash_stall = 0.0
+		else:
+			_dash_stall = 0.0
+		_dash_prev = hero.position
 		_update_pockets()
 		if not _waves_left.is_empty() and alive <= 1:
 			# vague suivante

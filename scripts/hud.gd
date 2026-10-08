@@ -283,8 +283,8 @@ func _draw() -> void:
 		_draw_gauge(sz, u)
 		if gate_hint:
 			_draw_gate_hint(sz, u)
-		if _combo_t > 0.0 and _combo_shown >= 2:
-			_draw_combo(sz, u)
+		# le combo du trait n'a plus de tache flottante à gauche (« ×2 » sans contexte) :
+		# il s'affiche sur les ennemis touchés (à partir de 3) et dans la chaîne
 
 	if screen_flash > 0.0:
 		draw_rect(Rect2(Vector2.ZERO, sz), Color(1.0, 0.97, 0.9, screen_flash * 0.5))

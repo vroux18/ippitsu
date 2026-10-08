@@ -1,5 +1,5 @@
 extends Node3D
-## Squelettes de samouraï (KayKit) :
+## Squelettes KayKit habillés en yōkai (yokai_parts.gd : masques, cornes, chapeaux, queues posés sur les os) :
 ##  oni   — Minion : fonce sur le héros, frappe une zone annoncée par un disque qui se remplit
 ##  kappa — Mage : garde ses distances et lance de grosses boules lentes
 ##  brute — Warrior : grand, lent et costaud (il faut l'enchaîner dans un combo)
@@ -31,6 +31,7 @@ extends Node3D
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 const ROGUE = preload("res://assets/kaykit/Rogue_Hooded.glb")  # (aussi le héros : chargé au démarrage)
 # squelettes : pas préchargés (démarrage plus court), lus en arrière-plan pendant l'accueil (request_models)
 const MINION_PATH := "res://assets/kaykit/Skeleton_Minion.glb"
@@ -294,7 +295,7 @@ func _ready() -> void:
 			radius = 0.45
 			_windup = 1.0
 			ch.setup(MINION, 1.6, [["Cloak", load("res://assets/kaykit/tex/skeleton_red.png")]])
-			ch.attach("handslot.r", _blade(0.75, Color("#8A8F96")))
+			_tint(Color("#E0705A"), 1.0)
 		"brute":
 			hp = 3.5
 			speed = 1.4
@@ -304,14 +305,13 @@ func _ready() -> void:
 			_attack = "2H_Melee_Attack_Chop"
 			_walk = "Walking_A"
 			ch.setup(WARRIOR, 2.4, [["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")], ["Cloak", load("res://assets/kaykit/tex/skeleton_ink.png")]])
-			ch.attach("handslot.r", _blade(1.25, Color("#6E747C")))
 		"kappa":
 			hp = 1.0
 			speed = 1.6
 			radius = 0.45
 			_walk = "Walking_B"
 			ch.setup(MAGE, 1.75, [["Hat", load("res://assets/kaykit/tex/skeleton_prussian.png")], ["Body", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
-			ch.attach("handslot.r", _staff())
+			_tint(Color("#86B878"), 1.0)
 			_timer = 1.4 + randf() * 1.5
 		"tate":
 			hp = 2.0
@@ -321,8 +321,6 @@ func _ready() -> void:
 			_windup = 1.0
 			_walk = "Walking_A"
 			ch.setup(WARRIOR, 1.9, [["Cloak", load("res://assets/kaykit/tex/skeleton_ink.png")], ["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")]])
-			ch.attach("handslot.l", _shield())
-			ch.attach("handslot.r", _blade(0.8, Color("#8A8F96")))
 		"funa":
 			hp = 1.0
 			speed = 0.0
@@ -330,7 +328,6 @@ func _ready() -> void:
 			_zone_r = 1.2
 			_windup = 1.1
 			ch.setup(MINION, 1.6, [])
-			ch.attach("handslot.r", _ladle())
 			_ghostify()
 		"umibozu":
 			# moine de mer : crâne lisse bleu nuit, yeux d'or, perle lumineuse à la main
@@ -357,9 +354,6 @@ func _ready() -> void:
 			_glow_a = 0.45
 			_glow_c = FOX_FIRE
 			ch.attach("handslot.r", _orb(0.1 if mini else 0.15, FOX_FIRE))
-			_ears(h, Color("#F4EBDD"))
-			var tail := Toon.part(_deco, Toon.capsule(0.1 * h, 0.55 * h), Toon.mat(Color("#F4EBDD")), Vector3(0, 0.3 * h, 0.22 * h))
-			tail.rotation.x = 0.8
 			_timer = randf_range(1.2, 2.0)
 			if mini:
 				_spawn = 0.4
@@ -374,10 +368,9 @@ func _ready() -> void:
 			_tint(Color("#E8F4FF"), 0.7)
 			_glow_a = 0.3
 			_glow_c = ICE_C
-			Toon.part(_deco, Toon.box(Vector3(0.26 * hy, 0.5 * hy, 0.04 * hy)), Toon.mat(Toon.SUMI), Vector3(0, 0.68 * hy, 0.17 * hy))
 			_timer = randf_range(1.5, 2.5)
 		"kasha":
-			# chat-charrette : squelette rouge, oreilles de chat, deux roues en feu
+			# chat-charrette : squelette rouge, tête de chat noir aux mèches de feu, deux queues, deux roues en feu
 			hp = 2.5
 			speed = 1.7
 			radius = 0.6
@@ -386,7 +379,6 @@ func _ready() -> void:
 			ch.setup(WARRIOR, hk, [["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")], ["", load("res://assets/kaykit/tex/skeleton_red.png")]])
 			_glow_a = 0.2
 			_glow_c = KASHA_FIRE
-			_ears(hk, Toon.SUMI)
 			for s in [-1.0, 1.0]:
 				var sx := float(s)
 				var spin := Node3D.new()
@@ -413,6 +405,8 @@ func _ready() -> void:
 			_timer = randf_range(2.0, 3.0)
 		_:
 			_setup_extra()
+	if not _custom:
+		_dress()
 	# rythme un peu plus posé : marche -10 %, annonces des coups +15 %
 	speed *= 0.9
 	_windup *= 1.15
@@ -466,8 +460,6 @@ func _setup_extra() -> void:
 			_rogue = true
 			ch.setup(ROGUE, _h, [], _gear_except(["1H_Crossbow"]), Toon.GOLD)
 			_tint(Color("#7DB37A"), 1.0)
-			Toon.part(_deco, _sph(0.3), _pm(Color("#4E6B3A")), Vector3(0, 0.55 * _h, 0.13 * _h), Vector3(1.0, 1.15, 0.55))
-			Toon.part(_deco, _cyl(0.14, 0.11, 0.035, 12), _pm(Color("#DDE8D0")), Vector3(0, 1.0 * _h, 0.0))
 			_timer = randf_range(1.6, 2.4)
 		"teppo":
 			# arquebusier : long canon de fer, mèche rouge
@@ -477,7 +469,6 @@ func _setup_extra() -> void:
 			_walk = "Walking_A"
 			_h = 1.85
 			ch.setup(WARRIOR, _h, [["Cloak", red], ["Helmet", ink]])
-			ch.attach("handslot.r", _rifle())
 			_timer = randf_range(1.8, 2.6)
 		"ika":
 			# calmar : manteau pointu sur la tête, tentacules à la taille
@@ -487,12 +478,6 @@ func _setup_extra() -> void:
 			_h = 1.35
 			ch.setup(MINION, _h, [["", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
 			_tint(Color("#D59AC8"), 1.0)
-			var pink := _pm(Color("#C46FA8"))
-			Toon.part(_deco, _cyl(0.02, 0.2, 0.42, 10), pink, Vector3(0, 1.08 * _h, 0.03))
-			for i in 5:
-				var a := TAU * float(i) / 5.0
-				var t := Toon.part(_deco, _cap(0.045, 0.5), pink, Vector3(cos(a) * 0.17, 0.2, sin(a) * 0.17))
-				t.rotation = Vector3(sin(a) * 0.35, 0, -cos(a) * 0.35)
 			_timer = randf_range(1.5, 2.5)
 		"umi_nyobo":
 			# femme de la mer : pâle et verte, longue chevelure, perle de soin
@@ -505,10 +490,6 @@ func _setup_extra() -> void:
 			_tint(Color("#A8DCCB"), 0.8)
 			_glow_a = 0.25
 			_glow_c = HEAL_C
-			Toon.part(_deco, _box(Vector3(0.45, 0.95, 0.07)), _pm(Toon.SUMI), Vector3(0, 0.66 * _h, 0.17 * _h))
-			for s in [-1.0, 1.0]:
-				var w := Toon.part(_deco, _cap(0.035, 0.5), _pm(Color("#3F7A4E")), Vector3(float(s) * 0.2, 0.6 * _h, 0.0))
-				w.rotation.z = float(s) * 0.25
 			ch.attach("handslot.r", _orb(0.13, HEAL_C))
 			_timer = randf_range(1.5, 2.5)
 		"moryo":
@@ -521,12 +502,6 @@ func _setup_extra() -> void:
 			_tint(Color("#7C6F86"), 0.85)
 			_glow_a = 0.2
 			_glow_c = SHIELD_C
-			for s in [-1.0, 1.0]:
-				var sx := float(s)
-				var e := Toon.part(_deco, _cyl(0.0, 0.06, 0.4, 6), _pm(Color("#3A3340")), Vector3(sx * 0.2, 0.9 * _h, 0.0))
-				e.rotation.z = -sx * 1.0
-			Toon.part(_deco, _box(Vector3(0.09, 0.22, 0.012)), _pm(Toon.WASHI), Vector3(0, 0.86 * _h, -0.15 * _h))
-			Toon.part(_deco, _box(Vector3(0.04, 0.16, 0.014)), _pm(Toon.VERMILION, false), Vector3(0, 0.86 * _h, -0.157 * _h))
 			_timer = randf_range(1.5, 2.5)
 		"kamaitachi":
 			# belette faucheuse : petite, fauve, deux lames, longue queue
@@ -538,9 +513,6 @@ func _setup_extra() -> void:
 			_rogue = true
 			ch.setup(ROGUE, _h, [], _gear_except(["Knife", "Knife_Offhand"]), Toon.GOLD)
 			_tint(Color("#C99A62"), 1.0)
-			_ears(_h, Color("#8A5F35"))
-			var tail := Toon.part(_deco, _cap(0.08, 0.7), _pm(Color("#8A5F35")), Vector3(0, 0.3 * _h, 0.26 * _h))
-			tail.rotation.x = 1.1
 			_timer = randf_range(1.2, 2.0)
 		"tanuki", "tanuki_d":
 			# tanuki : ventru, chapeau de paille ; le leurre n'a pas de queue (le seul indice)
@@ -552,17 +524,12 @@ func _setup_extra() -> void:
 			_h = 1.45
 			ch.setup(WARRIOR, _h, [["", gold]])
 			_tint(Color("#A07850"), 1.0)
-			_ears(_h, Color("#5A4030"))
 			_belly = Toon.part(_deco, _sph(0.36), _pm(Color("#E8D2A8")), Vector3(0, 0.45 * _h, -0.12 * _h), Vector3(1, 1, 0.7))
-			Toon.part(_deco, _cyl(0.06, 0.36, 0.12, 12), _pm(Color("#C9A55A")), Vector3(0, 1.0 * _h, 0))
 			if decoy:
 				_life = 7.0
-			else:
-				var tl := Toon.part(_deco, _cap(0.13, 0.55), _pm(Color("#5A4030")), Vector3(0, 0.25 * _h, 0.3 * _h))
-				tl.rotation.x = 1.0
 			_doron_cd = 1.5
 		"kitsune_tsukai":
-			# montreur de renards : masque blanc, robe rouge, flamme bleue
+			# montreur de renards : eboshi noir, demi-masque de renard, robe rouge, lanterne de feu bleu
 			hp = 1.5
 			speed = 1.5
 			radius = 0.45
@@ -572,10 +539,7 @@ func _setup_extra() -> void:
 			_tint(Color("#F0E2CC"), 0.9)
 			_glow_a = 0.2
 			_glow_c = FOX_FIRE
-			Toon.part(_deco, _box(Vector3(0.24, 0.22, 0.05)), _pm(Toon.WASHI), Vector3(0, 0.86 * _h, -0.14 * _h))
-			Toon.part(_deco, _box(Vector3(0.16, 0.025, 0.02)), _pm(Toon.VERMILION, false), Vector3(0, 0.89 * _h, -0.17 * _h))
-			_ears(_h, Color("#F4EBDD"))
-			ch.attach("handslot.r", _orb(0.12, FOX_FIRE))
+			ch.attach("handslot.r", _lantern_glow())
 			_timer = randf_range(1.2, 2.0)
 		"yuki_warashi":
 			# enfant des neiges : petit, blanc, chapeau de paille et écharpe rouge
@@ -587,8 +551,6 @@ func _setup_extra() -> void:
 			_tint(Color("#EEF6FF"), 0.8)
 			_glow_a = 0.25
 			_glow_c = ICE_C
-			Toon.part(_deco, _cyl(0.04, 0.38, 0.14, 12), _pm(Color("#D9C9A0")), Vector3(0, 1.02 * _h, 0))
-			Toon.part(_deco, _box(Vector3(0.34, 0.08, 0.24)), _pm(Toon.VERMILION), Vector3(0, 0.7 * _h, 0))
 		"tsurara":
 			# stalactite : tourelle de glace posée sur un tertre de neige
 			hp = 1.2
@@ -596,12 +558,7 @@ func _setup_extra() -> void:
 			radius = 0.5
 			_h = 1.5
 			_custom = true
-			Toon.part(body, _sph(0.55), _pm(Color("#EAF4FF")), Vector3(0, 0.05, 0), Vector3(1, 0.4, 1))
-			var ice := _pm(Color("#A9DDF5"))
-			var spikes := [[0.0, 0.0, 0.26, 1.5], [0.24, 0.1, 0.17, 1.0], [-0.22, 0.14, 0.16, 0.9], [0.06, -0.26, 0.15, 0.8], [-0.12, -0.2, 0.12, 0.6]]
-			for sp in spikes:
-				var a: Array = sp
-				Toon.part(body, _cyl(0.0, float(a[2]), float(a[3]), 6), ice, Vector3(float(a[0]), float(a[3]) * 0.5, float(a[1])))
+			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
 			Toon.part(body, _sph(0.09), main.vfx.glow_mat(ICE_C, 2.5), Vector3(0, 0.55, -0.24))
 			_timer = randf_range(1.5, 2.5)
 		"hinotama":
@@ -619,7 +576,7 @@ func _setup_extra() -> void:
 			body.position.y = 1.3
 			_timer = randf_range(1.5, 2.2)
 		"kanabo":
-			# oni à massue : rouge, cornes, massue de fer ; armure de face et bouclier
+			# oni à massue : ao-oni bleu à crinière blanche, plastron de fer, kanabō ; armure de face et bouclier
 			hp = 4.0
 			speed = 1.25
 			radius = 0.8
@@ -629,12 +586,7 @@ func _setup_extra() -> void:
 			_walk = "Walking_A"
 			_h = 2.5
 			ch.setup(WARRIOR, _h, [["Helmet", ink], ["Cloak", gold]])
-			_tint(Color("#E07A5F"), 1.0)
-			for s in [-1.0, 1.0]:
-				var sx := float(s)
-				var hn := Toon.part(_deco, _cyl(0.0, 0.08, 0.3, 6), _pm(Color("#EFE3C8")), Vector3(sx * 0.16 * _h, 0.98 * _h, -0.02))
-				hn.rotation.z = -sx * 0.4
-			ch.attach("handslot.r", _club())
+			_tint(Color("#7C98C8"), 1.0)
 			_shield_frac = 0.35
 		"tengu":
 			# karasu-tengu : noir, bec d'or, petit bonnet rouge, ailes
@@ -646,13 +598,6 @@ func _setup_extra() -> void:
 			_rogue = true
 			ch.setup(ROGUE, _h, [], ROGUE_GEAR.duplicate(), Toon.GOLD)
 			_tint(Color("#4A4A58"), 1.0)
-			var beak := Toon.part(_deco, _cyl(0.0, 0.07, 0.24, 6), _pm(Color("#E0A030")), Vector3(0, 0.84 * _h, -0.2 * _h))
-			beak.rotation.x = -PI / 2.0
-			Toon.part(_deco, _box(Vector3(0.1, 0.09, 0.1)), _pm(Toon.VERMILION), Vector3(0, 1.0 * _h, -0.06 * _h))
-			for s in [-1.0, 1.0]:
-				var sx := float(s)
-				var wg := Toon.part(_deco, _box(Vector3(0.5, 0.55, 0.04)), _pm(Color("#24222A")), Vector3(sx * 0.24, 0.62 * _h, 0.18 * _h))
-				wg.rotation = Vector3(0.2, sx * 0.5, sx * 0.4)
 			_timer = randf_range(1.5, 2.5)
 		"onryo":
 			# onryō : spectre pâle, cheveux noirs sur le visage, bandeau blanc
@@ -665,9 +610,6 @@ func _setup_extra() -> void:
 			_tint(Color("#E4E8F2"), 0.7)
 			_glow_a = 0.3
 			_glow_c = Color("#B9A8E8")
-			Toon.part(_deco, _box(Vector3(0.42, 0.85, 0.06)), _pm(Toon.SUMI), Vector3(0, 0.66 * _h, 0.16 * _h))
-			Toon.part(_deco, _box(Vector3(0.3, 0.4, 0.04)), _pm(Toon.SUMI), Vector3(0, 0.78 * _h, -0.16 * _h))
-			Toon.part(_deco, _box(Vector3(0.12, 0.08, 0.02)), _pm(Toon.WASHI), Vector3(0, 0.98 * _h, -0.15 * _h))
 			_timer = randf_range(1.8, 2.6)
 		"sumidama", "sumidama_s":
 			# goutte d'encre : boule noire tremblotante à deux yeux
@@ -678,11 +620,7 @@ func _setup_extra() -> void:
 			radius = 0.35 if small else 0.55
 			_h = 0.9 * s
 			_custom = true
-			Toon.part(body, _sph(0.5 * s), _pm(INK_C), Vector3(0, 0.42 * s, 0), Vector3(1, 0.85, 1))
-			for e in [-1.0, 1.0]:
-				var ex := float(e)
-				Toon.part(body, _sph(0.09 * s), _pm(Toon.WASHI, false), Vector3(ex * 0.17 * s, 0.56 * s, -0.38 * s))
-				Toon.part(body, _sph(0.045 * s), _pm(Toon.SUMI, false), Vector3(ex * 0.17 * s, 0.56 * s, -0.46 * s))
+			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
 		"kasa":
 			# kasa-obake : parapluie rouge à un œil, une jambe, langue pendante
 			hp = 1.1
@@ -690,14 +628,7 @@ func _setup_extra() -> void:
 			radius = 0.5
 			_h = 1.5
 			_custom = true
-			Toon.part(body, _cyl(0.06, 0.62, 0.45, 12), _pm(Color("#C8423A")), Vector3(0, 1.25, 0))
-			Toon.part(body, _cyl(0.63, 0.63, 0.04, 12), _pm(Toon.WASHI), Vector3(0, 1.03, 0))
-			Toon.part(body, _cyl(0.03, 0.03, 0.75, 6), _pm(Toon.WOOD), Vector3(0, 0.62, 0))
-			Toon.part(body, _cap(0.07, 0.5), _pm(Toon.SKIN), Vector3(0, 0.25, 0))
-			Toon.part(body, _sph(0.15), _pm(Toon.WASHI), Vector3(0, 1.17, -0.44))
-			Toon.part(body, _sph(0.075), _pm(Toon.SUMI, false), Vector3(0, 1.17, -0.57))
-			var tg := Toon.part(body, _box(Vector3(0.12, 0.025, 0.34)), _pm(Toon.VERMILION), Vector3(0, 0.98, -0.55))
-			tg.rotation.x = 0.6
+			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
 			_timer = 0.8
 		"karasu":
 			# karasu-tengu : corbeau noir au bec d'or, tokin rouge, grandes ailes ; plonge en piqué
@@ -706,23 +637,14 @@ func _setup_extra() -> void:
 			radius = 0.42
 			_h = 1.0
 			_custom = true
-			var black := _pm(Color("#1E1C22"))
-			Toon.part(body, _sph(0.3), black, Vector3(0, 0.5, 0), Vector3(1.0, 1.0, 1.35))
-			Toon.part(body, _sph(0.18), black, Vector3(0, 0.78, -0.22))
-			var kbeak := Toon.part(body, _cyl(0.0, 0.07, 0.26, 6), _pm(Toon.GOLD), Vector3(0, 0.76, -0.46))
-			kbeak.rotation.x = -PI / 2.0
-			Toon.part(body, _box(Vector3(0.12, 0.1, 0.12)), _pm(Toon.VERMILION), Vector3(0, 0.98, -0.2))
+			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
 			for s in [-1.0, 1.0]:
 				var ksx := float(s)
-				Toon.part(body, _sph(0.035), _pm(Toon.GOLD, false), Vector3(ksx * 0.09, 0.82, -0.36))
 				var pivot := Node3D.new()
 				pivot.position = Vector3(ksx * 0.22, 0.6, 0.0)
 				body.add_child(pivot)
-				var wing := Toon.part(pivot, _box(Vector3(0.7, 0.05, 0.36)), _pm(Color("#24222A")), Vector3(ksx * 0.35, 0, 0.05))
-				wing.rotation.y = ksx * 0.2
+				Toon.part(pivot, _ymesh("wing_l" if ksx < 0.0 else "wing_r"), Yokai.mat(), Vector3.ZERO)
 				_wings.append(pivot)
-			var ktail := Toon.part(body, _box(Vector3(0.22, 0.04, 0.34)), black, Vector3(0, 0.45, 0.42))
-			ktail.rotation.x = 0.3
 			_timer = randf_range(1.5, 2.3)
 		"yamabushi":
 			# yamabushi-tengu : visage rouge au long nez, tokin noir, pompons d'ascète, éventail de plumes
@@ -733,12 +655,6 @@ func _setup_extra() -> void:
 			_h = 1.8
 			ch.setup(MAGE, _h, [["Body", red]], ["Skeleton_Mage_Hat"], Toon.GOLD)
 			_tint(Color("#E8DCC8"), 1.0)
-			var ynose := Toon.part(_deco, _cyl(0.025, 0.06, 0.3, 6), _pm(Color("#C8423A")), Vector3(0, 0.86 * _h, -0.2 * _h))
-			ynose.rotation.x = -PI / 2.0
-			Toon.part(_deco, _box(Vector3(0.12, 0.1, 0.12)), _pm(Toon.SUMI), Vector3(0, 1.0 * _h, -0.05 * _h))
-			for i in 3:
-				Toon.part(_deco, _sph(0.06), _pm(Color("#E9E4D8")), Vector3((float(i) - 1.0) * 0.1, 0.62 * _h, -0.16 * _h))
-			ch.attach("handslot.r", _fan())
 			_timer = randf_range(1.6, 2.4)
 		"konoha":
 			# konoha-tengu : petit tengu-feuille au bec jaune, ailes de feuilles ; feuilles lancées en éventail
@@ -750,12 +666,6 @@ func _setup_extra() -> void:
 			_rogue = true
 			ch.setup(ROGUE, _h, [], ROGUE_GEAR.duplicate(), Toon.GOLD)
 			_tint(Color("#7FA65A"), 1.0)
-			var cbeak := Toon.part(_deco, _cyl(0.0, 0.06, 0.2, 6), _pm(Color("#E0A030")), Vector3(0, 0.84 * _h, -0.2 * _h))
-			cbeak.rotation.x = -PI / 2.0
-			for s in [-1.0, 1.0]:
-				var csx := float(s)
-				var leaf := Toon.part(_deco, _box(Vector3(0.42, 0.5, 0.03)), _pm(Color("#4E7A3A")), Vector3(csx * 0.22, 0.62 * _h, 0.16 * _h))
-				leaf.rotation = Vector3(0.2, csx * 0.5, csx * 0.5)
 			_timer = randf_range(1.4, 2.2)
 		"kani":
 			# heikegani : crabe rouge à carapace-masque de samouraï, pinces levées ; carapace de face
@@ -766,18 +676,7 @@ func _setup_extra() -> void:
 			_windup = 1.0
 			_h = 0.9
 			_custom = true
-			var shell := _pm(Color("#B8452E"))
-			var claw := _pm(Color("#6E2A1E"))
-			Toon.part(body, _sph(0.5), shell, Vector3(0, 0.45, 0), Vector3(1.25, 0.55, 1.0))
-			Toon.part(body, _box(Vector3(0.5, 0.06, 0.04)), _pm(Toon.SUMI, false), Vector3(0, 0.55, -0.5))
-			for s in [-1.0, 1.0]:
-				var nsx := float(s)
-				Toon.part(body, _sph(0.06), _pm(Toon.SUMI, false), Vector3(nsx * 0.15, 0.68, -0.44))
-				Toon.part(body, _cyl(0.06, 0.06, 0.35, 6), claw, Vector3(nsx * 0.48, 0.5, -0.38))
-				Toon.part(body, _sph(0.2), shell, Vector3(nsx * 0.5, 0.72, -0.5), Vector3(0.8, 1.0, 1.2))
-				for i in 3:
-					var leg := Toon.part(body, _cyl(0.03, 0.045, 0.6, 5), claw, Vector3(nsx * 0.62, 0.3, -0.15 + 0.2 * float(i)))
-					leg.rotation.z = nsx * 1.0
+			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
 		"ningyo":
 			# ningyo : sirène pâle à queue de poisson, longue chevelure ; jet d'eau en ligne
 			hp = 1.3
@@ -789,9 +688,6 @@ func _setup_extra() -> void:
 			_tint(Color("#BFE6DF"), 0.8)
 			_glow_a = 0.2
 			_glow_c = Color("#7FE8FF")
-			Toon.part(_deco, _box(Vector3(0.42, 0.9, 0.06)), _pm(Color("#1E3A3E")), Vector3(0, 0.66 * _h, 0.16 * _h))
-			var nfin := Toon.part(_deco, _cyl(0.0, 0.26, 0.4, 6), _pm(Color("#3E8C86")), Vector3(0, 0.14 * _h, 0.18 * _h))
-			nfin.rotation.x = 2.2
 			ch.attach("handslot.r", _orb(0.12, Color("#9FF0E6")))
 			_timer = randf_range(1.6, 2.4)
 		"fugu":
@@ -801,20 +697,7 @@ func _setup_extra() -> void:
 			radius = 0.5
 			_h = 1.0
 			_custom = true
-			_belly = Toon.part(body, _sph(0.42), _pm(Color("#D9B870")), Vector3(0, 0.6, 0), Vector3(1.0, 0.9, 1.15))
-			Toon.part(body, _sph(0.3), _pm(Color("#F1E8D6")), Vector3(0, 0.48, -0.1), Vector3(1.1, 0.7, 1.2))
-			for e in [-1.0, 1.0]:
-				var fe := float(e)
-				Toon.part(body, _sph(0.08), _pm(Toon.WASHI, false), Vector3(fe * 0.2, 0.74, -0.32))
-				Toon.part(body, _sph(0.045), _pm(Toon.SUMI, false), Vector3(fe * 0.2, 0.74, -0.39))
-				var pfin := Toon.part(body, _cyl(0.0, 0.12, 0.2, 4), _pm(Color("#B8952E")), Vector3(fe * 0.42, 0.6, 0.05))
-				pfin.rotation.z = -fe * 1.3
-			var ptail := Toon.part(body, _cyl(0.0, 0.18, 0.26, 4), _pm(Color("#B8952E")), Vector3(0, 0.6, 0.5))
-			ptail.rotation.x = -1.4
-			for i in 8:
-				var a := TAU * float(i) / 8.0
-				var spine := Toon.part(body, _cyl(0.0, 0.035, 0.14, 4), _pm(Color("#6E5A2E")), Vector3(cos(a) * 0.4, 0.6 + sin(a) * 0.34, 0.0))
-				spine.rotation.z = a - PI / 2.0
+			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
 			body.position.y = 0.3
 			_timer = randf_range(1.0, 1.8)
 		"gaki":
@@ -829,21 +712,15 @@ func _setup_extra() -> void:
 			_tint(Color("#BFB8A6"), 0.9)
 			_glow_a = 0.15
 			_glow_c = Color("#9AE070")
-			_belly = Toon.part(_deco, _sph(0.26), _pm(Color("#A89E8A")), Vector3(0, 0.45 * _h, -0.08 * _h), Vector3(1, 1, 0.85))
 		"gokusotsu":
-			# gokusotsu : geôlier des enfers, oni bleu cornu à la chaîne de fer ; armure de départ
+			# gokusotsu : geôlier des enfers à tête de bœuf (gozu), chaîne de fer ; armure de départ
 			hp = 3.0
 			speed = 1.4
 			radius = 0.7
 			_walk = "Walking_A"
 			_h = 2.3
 			ch.setup(WARRIOR, _h, [["Helmet", ink], ["Cloak", ink]])
-			_tint(Color("#6E8AB8"), 1.0)
-			for s in [-1.0, 1.0]:
-				var gsx := float(s)
-				var ghorn := Toon.part(_deco, _cyl(0.0, 0.08, 0.3, 6), _pm(Color("#EFE3C8")), Vector3(gsx * 0.16 * _h, 0.98 * _h, -0.02))
-				ghorn.rotation.z = -gsx * 0.4
-			ch.attach("handslot.r", _chain_weapon())
+			_tint(Color("#9A7A64"), 1.0)
 			_shield_frac = 0.25
 			_timer = randf_range(1.6, 2.4)
 		"shiryo":
@@ -880,24 +757,10 @@ func _sph(r: float) -> Mesh:
 	return _res[key] as Mesh
 
 
-func _box(s: Vector3) -> Mesh:
-	var key := "b%.3f_%.3f_%.3f" % [s.x, s.y, s.z]
-	if not _res.has(key):
-		_res[key] = Toon.box(s)
-	return _res[key] as Mesh
-
-
 func _cyl(top: float, bottom: float, h: float, sides := 12) -> Mesh:
 	var key := "c%.3f_%.3f_%.3f_%d" % [top, bottom, h, sides]
 	if not _res.has(key):
 		_res[key] = Toon.cyl(top, bottom, h, sides)
-	return _res[key] as Mesh
-
-
-func _cap(r: float, h: float) -> Mesh:
-	var key := "p%.3f_%.3f" % [r, h]
-	if not _res.has(key):
-		_res[key] = Toon.capsule(r, h)
 	return _res[key] as Mesh
 
 
@@ -938,26 +801,6 @@ func _shield_mat() -> Material:
 	return _res["bubble"] as Material
 
 
-## Arquebuse : canon de fer, crosse de bois, bague d'or.
-func _rifle() -> Node3D:
-	var k := Node3D.new()
-	Toon.part(k, _box(Vector3(0.07, 0.32, 0.12)), _pm(Color("#4A3A2C")), Vector3(0, -0.05, 0))
-	Toon.part(k, _cyl(0.035, 0.035, 1.1, 8), _pm(Color("#3A3C42")), Vector3(0, 0.6, 0))
-	Toon.part(k, _cyl(0.05, 0.05, 0.06, 8), _pm(Toon.GOLD), Vector3(0, 0.3, 0))
-	return k
-
-
-## Kanabō : manche de bois, grosse tête de fer cloutée d'or.
-func _club() -> Node3D:
-	var k := Node3D.new()
-	Toon.part(k, _cyl(0.04, 0.04, 0.5, 8), _pm(Color("#4A3A2C")), Vector3(0, 0.1, 0))
-	Toon.part(k, _cyl(0.16, 0.1, 1.0, 8), _pm(Color("#3A3C42")), Vector3(0, 0.85, 0))
-	for i in 6:
-		var a := TAU * float(i) / 6.0
-		Toon.part(k, _sph(0.045), _pm(Toon.GOLD, false), Vector3(cos(a) * 0.15, 0.6 + 0.12 * float(i % 3), sin(a) * 0.15))
-	return k
-
-
 func _blade(blade_len: float, steel: Color) -> Node3D:
 	var k := Node3D.new()
 	Toon.part(k, Toon.box(Vector3(0.05, 0.2, 0.05)), Toon.mat(Color("#4A3A2C")), Vector3.ZERO)
@@ -965,55 +808,24 @@ func _blade(blade_len: float, steel: Color) -> Node3D:
 	return k
 
 
-func _staff() -> Node3D:
+## Tenue de yōkai (Yokai.parts) : un maillage fusionné par os, matériau partagé ; sans ombre en mode léger.
+func _dress() -> void:
+	ch.hide_meshes(Yokai.hidden(kind))
+	var d := Yokai.parts(kind, ch.scale_factor)
+	for bone in d:
+		ch.attach_mesh(String(bone), d[bone] as Mesh, Yokai.mat(), not Toon.lite)
+
+
+## Maillage fusionné d'un corps modelé (repère du corps, face -Z).
+func _ymesh(part: String) -> Mesh:
+	var d := Yokai.parts(kind, 1.0)
+	return d.get(part) as Mesh
+
+
+## Panse lumineuse de la lanterne du montreur de renards (la perche vient de Yokai).
+func _lantern_glow() -> Node3D:
 	var k := Node3D.new()
-	Toon.part(k, Toon.cyl(0.03, 0.03, 1.3, 8), Toon.mat(Color("#4A3A2C")), Vector3(0, 0.35, 0))
-	Toon.part(k, Toon.sphere(0.12), Toon.mat(Toon.VERMILION), Vector3(0, 1.05, 0))
-	return k
-
-
-## Éventail de plumes (hauchiwa) du yamabushi-tengu.
-func _fan() -> Node3D:
-	var k := Node3D.new()
-	Toon.part(k, _cyl(0.02, 0.02, 0.35, 6), _pm(Color("#3B2E25")), Vector3(0, 0.1, 0))
-	for i in 7:
-		var a := deg_to_rad(-54.0 + 18.0 * float(i))
-		var f := Toon.part(k, _box(Vector3(0.07, 0.38, 0.015)), _pm(Color("#2E2A30")), Vector3(sin(a) * 0.19, 0.42 + cos(a) * 0.19, 0))
-		f.rotation.z = -a
-	return k
-
-
-## Chaîne de fer et boulet du geôlier des enfers.
-func _chain_weapon() -> Node3D:
-	var k := Node3D.new()
-	var iron := _pm(Color("#3A3C42"))
-	for i in 5:
-		Toon.part(k, _sph(0.04), iron, Vector3(0, 0.1 + 0.08 * float(i), 0))
-	Toon.part(k, _sph(0.16), iron, Vector3(0, 0.6, 0))
-	return k
-
-
-## Grand bouclier rond : disque de bois aplati, bordure sumi, bosse dorée au centre.
-func _shield() -> Node3D:
-	var k := Node3D.new()
-	var disc := Node3D.new()
-	# l'axe du cylindre (Y) devient la normale du bouclier, tournée vers l'extérieur de la main
-	disc.rotation.x = PI / 2.0
-	disc.position = Vector3(0, 0.05, 0.08)
-	k.add_child(disc)
-	Toon.part(disc, Toon.cyl(0.46, 0.46, 0.05, 24), Toon.mat(Toon.SUMI, false), Vector3.ZERO)
-	Toon.part(disc, Toon.cyl(0.4, 0.4, 0.07, 24), Toon.mat(Toon.WOOD, true, 0.02), Vector3.ZERO)
-	# bosse dorée des deux côtés (l'orientation exacte de l'os de la main varie)
-	Toon.part(disc, Toon.sphere(0.11), Toon.mat(Toon.GOLD, true, 0.02), Vector3(0, 0.04, 0), Vector3(1, 0.55, 1))
-	Toon.part(disc, Toon.sphere(0.11), Toon.mat(Toon.GOLD, true, 0.02), Vector3(0, -0.04, 0), Vector3(1, 0.55, 1))
-	return k
-
-
-## Louche (hishaku) du noyé : manche de bois et petite coupe.
-func _ladle() -> Node3D:
-	var k := Node3D.new()
-	Toon.part(k, Toon.cyl(0.02, 0.02, 0.8, 8), Toon.mat(Color("#4A3A2C")), Vector3(0, 0.3, 0))
-	Toon.part(k, Toon.cyl(0.13, 0.1, 0.12, 12), Toon.mat(Toon.WOOD, true, 0.015), Vector3(0, 0.72, 0.08))
+	Toon.part(k, _sph(0.12), main.vfx.glow_mat(FOX_FIRE, 2.0), Vector3(0, 1.165, 0), Vector3(1, 1.3, 1))
 	return k
 
 
@@ -1022,14 +834,6 @@ func _orb(r: float, c: Color) -> Node3D:
 	var k := Node3D.new()
 	Toon.part(k, _sph(r), main.vfx.glow_mat(c, 3.0), Vector3(0, 0.15, 0))
 	return k
-
-
-## Oreilles pointues (renard, chat) sur le haut du crâne.
-func _ears(h: float, c: Color) -> void:
-	for s in [-1.0, 1.0]:
-		var sx := float(s)
-		var e := Toon.part(_deco, Toon.cyl(0.0, 0.07 * h, 0.16 * h, 6), Toon.mat(c), Vector3(sx * 0.13 * h, 0.97 * h, 0.02 * h))
-		e.rotation.z = -sx * 0.3
 
 
 ## Rendu fantôme : teinte bleutée et lueur (sans transparence).

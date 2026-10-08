@@ -20,12 +20,22 @@ var _mat: StandardMaterial3D
 var _tip: MeshInstance3D
 var _ring: MeshInstance3D
 var danger := false
+# figure reconnue pendant le tracé : l'encre se teinte légèrement de la couleur de la figure
+const FIG_INK := {"loop": Color("#3E9C8C"), "zigzag": Color("#D9A93A"), "return": Color("#3D7EC4"),
+	"hook": Color("#8A5BB0"), "straight": Color("#C8463A"), "enso": Color("#C2668F")}
+var figure := ""
+var probe_len := 0.0  # longueur au dernier test de figure (main)
+var _col := Color.BLACK
+var _goal := Color.BLACK
+var _pop := 0.0
 
 
 func _init(start: Vector3, layer: int) -> void:
 	_y = 0.02 + 0.002 * float(layer % 8)
 	mesh = _imesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_col = ink
+	_goal = ink
 	_mat = Toon.flat(ink)
 	_mat.vertex_color_use_as_albedo = true
 	material_override = _mat
@@ -74,12 +84,23 @@ func extend_to(target: Vector3, budget: float) -> float:
 	return added
 
 
+## Teinte l'encre vers la couleur de `shape` ("" = encre nue). Le changement est fondu en ~0,2 s.
+func set_figure(shape: String) -> void:
+	if shape == figure:
+		return
+	figure = shape
+	_goal = ink.lerp(FIG_INK[shape], 0.7) if FIG_INK.has(shape) else ink
+	if shape != "":
+		_pop = 1.0
+
+
 func start_drying() -> void:
 	if drying:
 		return
 	drying = true
 	_rebuild()  # une seule fois : ensuite le séchage ne touche qu'à la matière
-	_mat.albedo_color = Color(ink.r * ink.r, ink.g * ink.g, ink.b * ink.b, 1.0)
+	_col = _goal
+	_mat.albedo_color = Color(_col.r * _col.r, _col.g * _col.g, _col.b * _col.b, 1.0)
 	if _tip:
 		_tip.visible = false
 		_ring.visible = false
@@ -87,9 +108,18 @@ func start_drying() -> void:
 
 func _process(delta: float) -> void:
 	if not drying:
+		if not _col.is_equal_approx(_goal):
+			_col = _col.lerp(_goal, minf(1.0, delta * 10.0))
+			if absf(_col.r - _goal.r) + absf(_col.g - _goal.g) + absf(_col.b - _goal.b) < 0.01:
+				_col = _goal
+			_rebuild()
+			if _tip:
+				(_tip.material_override as StandardMaterial3D).albedo_color = Color(_col, 0.9)
+		_pop = maxf(0.0, _pop - delta * 4.0)
 		if _tip:
 			_tip.position = last() + Vector3(0, _y + 0.004, 0)
 			var pulse := 1.0 + (0.35 * sin(Time.get_ticks_msec() * 0.03) if exhausted else 0.0)
+			pulse += 0.9 * _pop  # petit éclat quand la figure est reconnue
 			_tip.scale = Vector3(pulse, 1, pulse)
 			_ring.position = last() + Vector3(0, _y + 0.002, 0)
 			var ring_mat := _ring.material_override as StandardMaterial3D
@@ -103,8 +133,8 @@ func _process(delta: float) -> void:
 	else:
 		# l'encre fraîche est noire, elle pâlit et s'efface en séchant
 		var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0)
-		var tint := ink.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
-		_mat.albedo_color = Color(ink.r * tint.r, ink.g * tint.g, ink.b * tint.b, fade)
+		var tint := _col.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
+		_mat.albedo_color = Color(_col.r * tint.r, _col.g * tint.g, _col.b * tint.b, fade)
 
 
 func _rebuild() -> void:
@@ -113,7 +143,7 @@ func _rebuild() -> void:
 	if n < 2:
 		return
 	# en séchant, la teinte passe par la matière (voir _process) : sommets blancs
-	var tint := Color.WHITE if drying else ink
+	var tint := Color.WHITE if drying else _col
 	_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	var s := 0.0
 	for i in n:

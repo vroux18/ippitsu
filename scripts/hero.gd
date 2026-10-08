@@ -71,7 +71,14 @@ func start_dash(p: PackedVector3Array) -> void:
 	if p.size() < 2 or dead:
 		return
 	if not dashing:
-		ch.play_once("1H_Melee_Attack_Slice_Horizontal", 2.6)
+		# trait court : coup de sabre ; long trait : il court (pieds au sol), sabre en avant
+		var plen := 0.0
+		for i in range(1, p.size()):
+			plen += p[i].distance_to(p[i - 1])
+		if plen < 3.0:
+			ch.play_once("1H_Melee_Attack_Slice_Horizontal", 2.6)
+		else:
+			ch.play("Running_A", 2.6, 0.08)
 	path = p
 	path_i = 1
 	dashing = true
@@ -175,7 +182,12 @@ func _process(delta: float) -> void:
 				face(to)
 		if path_i >= path.size():
 			dashing = false
+			if not ch._once and ch.idle != "":
+				ch.play(ch.idle, 1.0, 0.15)  # arrivé : il se pose
 			dash_finished.emit()
+		elif not ch._once:
+			# le coup de sabre fini, la ruée continue en courant (plus de glissade figée)
+			ch.play("Running_A", 2.6, 0.08)
 
 	# techniques
 	if spinning > 0.0:
@@ -209,7 +221,7 @@ func _process(delta: float) -> void:
 	if spinning <= 0.0:
 		body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(1.0, delta * (40.0 if dashing else 14.0)))
 	_lean = lerpf(_lean, 1.0 if dashing else 0.0, minf(1.0, delta * 25.0))
-	body.rotation.x = -0.35 * _lean
+	body.rotation.x = -0.18 * _lean  # léger penché de course, pas de vol plané
 	if _trail != null:
 		_update_trail(delta)
 
