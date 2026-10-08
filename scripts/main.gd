@@ -57,7 +57,6 @@ const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
 const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
-const PowerData = preload("res://scripts/power_data.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus", "icon": "c_dry"},
@@ -106,7 +105,6 @@ const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 const ELAN_MAX := 14.0  # longueur de trait maximale
 const ELAN_REGEN := 9.0  # par seconde réelle, hors tracé
 const ELAN_PER_HIT := 3.5
-const DODGE_COST := 0.6
 const DODGE_DIST := 2.4
 const ENEMY_HP_MULT := 2.0
 const DODGE_COOLDOWN := 0.7  # esquive gratuite (sans encre), mais pas en rafale
@@ -125,7 +123,6 @@ var effects: Array = []
 
 var elan := 14.0
 var touching := false
-var touch_start := Vector3.ZERO
 var stroke: MeshInstance3D
 var dash_stroke: MeshInstance3D
 var stroke_layer := 0
@@ -162,7 +159,6 @@ var current_world := 1
 var powers: Node
 var picker: Control
 var room := 0
-var _room_queue: Array = []
 var _stroke_kills := 0
 var bosses: Array = []
 var hazards: Node3D
@@ -182,7 +178,6 @@ var _room_done := false
 var _rebuilt := false
 var worldmap: Control
 var _ending_victory := false
-var _final_boss: Node3D
 var music: Node
 var tuto: Control
 var intro: Control  # planches illustrées : premier JOUER, ou bouton « ? » de l'accueil
@@ -207,7 +202,6 @@ var recap: Control
 var _recap_from := "pause"
 var _shrine: Node3D = null  # autel du sanctuaire (facultatif)
 var in_hub := false  # sanctuaire de départ (avant la salle 1)
-var _hub_t := 0.0
 var _pause_pending := false  # l'appli a été quittée pendant une transition : pause au retour en jeu
 var _web_hidden_t := 0.0
 var ult := 0.0  # jauge d'ultime (0..1), double tap quand elle est pleine
@@ -896,8 +890,8 @@ func _build_menu_boat() -> void:
 	lan.emission_energy_multiplier = 1.6
 	Toon.part(menu_boat, Toon.sphere(0.13), lan, Vector3(-0.4, 1.18, -1.55), Vector3(1, 1.35, 1))
 	# sillage d'écume autour de la coque
-	var foam := _disc(menu_boat, 1.0, Toon.flat(Color(Toon.FOAM, 0.55)), -0.53)
-	foam.scale = Vector3(0.95, 1, 2.1)
+	var wake := _disc(menu_boat, 1.0, Toon.flat(Color(Toon.FOAM, 0.55)), -0.53)
+	wake.scale = Vector3(0.95, 1, 2.1)
 	menu_boat.visible = false
 
 
@@ -1160,11 +1154,9 @@ func _start(hub := true, tutorial := false) -> void:
 	_ricochets = {}
 	wave_wait = 0.8
 	room = 0
-	_room_queue = []
 	_waves_left = []
 	_room_done = false
 	powers.reset()
-	_sync_power_seals()
 	hazards.clear()
 	curses.clear()
 	elan = elan_max()  # après la remise à zéro des pouvoirs et malédictions
@@ -1196,37 +1188,10 @@ func _start(hub := true, tutorial := false) -> void:
 	meta.apply_run_start(self)  # apparence de l'Atelier, rouleau de départ, bénédiction
 	game_over = false
 	touching = false
-	hud.game_over = false
-	hud.over_t = 0.0
 	shake = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
 	perf_mark("start", Time.get_ticks_usec() - t0)  # nouvelle partie entière (salle, héros, remise à zéro)
-
-
-## Mannequin d'entraînement dans le cercle du dojo du sanctuaire.
-func _hub_dummy() -> void:
-	var a := randf() * TAU
-	var d: float = sqrt(randf()) * arena.hub_training_radius * 0.7
-	spawn_dummy(arena.hub_training_center + Vector3(cos(a) * d, 0, sin(a) * d))
-
-
-## Pouvoirs possédés, affichés dans le HUD (pictogramme, nom court, couleur d'école, niveau, rareté).
-func _sync_power_seals() -> void:
-	var seals: Array = []
-	for id in powers.levels.keys():
-		var pd: Dictionary = PowerData.POWERS.get(String(id), {})
-		if pd.is_empty():
-			continue
-		var school: Dictionary = PowerData.SCHOOLS.get(String(pd.get("school", "")), {})
-		var rar: Dictionary = PowerData.RARITIES.get(String(pd.get("rarity", "common")), {})
-		# [id, nom court, couleur d'école, niveau, couleur de rareté, rang, niveau max]
-		seals.append([String(id), String(pd.get("label", pd.get("name", ""))), school.get("color", Toon.SUMI), int(powers.levels[id]),
-			rar.get("color", Color(0.6, 0.6, 0.6)), int(rar.get("rank", 0)), int(pd.get("max", 3))])
-	# les plus rares en haut de la colonne
-	seals.sort_custom(func(x, y): return int(x[5]) > int(y[5]) or (int(x[5]) == int(y[5]) and String(x[0]) < String(y[0])))
-	hud.power_seals = seals
-	hud.seals_tap = ctrl_mode == "pad"
 
 
 func elan_max() -> float:
@@ -1269,7 +1234,7 @@ func _begin_room() -> void:
 		_spawn_boss(String(MINI_BOSS.get(current_world, "okappa")))
 	elif room == ROOMS:
 		list = []
-		_final_boss = _spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
+		_spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
 	# découpe en vagues : 40 % / 35 % / 25 %
 	_waves_left = []
 	var n := list.size()
@@ -1764,7 +1729,6 @@ func _on_picked(id: String) -> void:
 			_after_room_pick()
 		return
 	powers.add(id)
-	_sync_power_seals()
 	sfx.play("slash", 1.2, -4.0)
 	if _extra_picks > 0:
 		_extra_picks -= 1
@@ -2551,7 +2515,7 @@ func _award(victory: bool) -> void:
 		menu.unlock_world_kanji = String(nw.get("kanji", "道"))
 		menu.unlock_world_color = nw.get("color", Toon.PRUSSIAN)
 	# l'or ramassé devient de l'encre (2 pièces = 1 encre)
-	var bonus := run_gold / 2
+	var bonus := int(run_gold / 2.0)
 	meta.sumi += bonus
 	meta.save_data()
 	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
@@ -2954,9 +2918,6 @@ func _ground(sp: Vector2) -> Vector3:
 
 func _touch_down(sp: Vector2) -> void:
 	if hud.is_over_pause(sp) or tuto.is_over_ui(sp):
-		return
-	if state == "play" and ctrl_mode == "pad" and hud.is_over_seals(sp):
-		_open_recap()
 		return
 	if game_over:
 		return
@@ -3817,12 +3778,7 @@ func _process(_delta: float) -> void:
 			sfx.play("strike", 0.8, -4.0)
 			hud.toast("VAGUE %d / %d" % [wave_index, waves_total])
 		elif in_hub:
-			# sanctuaire : les mannequins reviennent, le torii mène à la salle 1
-			var dummies := 0
-			for e in enemies:
-				if is_instance_valid(e) and not e.dead and e.dummy:
-					dummies += 1
-			_hub_t -= real
+			# sanctuaire : le torii mène à la première étape
 			if arena.gate_reached(hero.position):
 				_transit()
 		elif arena.stage and _enc < 0:
@@ -3957,9 +3913,6 @@ func _process(_delta: float) -> void:
 		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
 	hud.wave = stage_i + 1
-	hud.wave_index = wave_index
-	hud.waves_total = waves_total
-	hud.show_waves = state == "play" and room > 0 and not _room_done
 	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
 	hud.gate_hint = state == "play" and (arena.gate_open or (arena.stage and _enc < 0 and arena.zones_left() > 0))
 	# barre d'avancée de l'étape (héros, zones de combat) et compte des combats
@@ -3977,7 +3930,6 @@ func _process(_delta: float) -> void:
 		hud.stage_marks = []
 		hud.enc_done = 0
 		hud.enc_total = 0
-	hud.game_over = game_over
 	hud.boss_name = ""
 	hud.boss_hint = ""
 	for bo in bosses:

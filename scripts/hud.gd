@@ -1,9 +1,10 @@
 extends Control
 ## Interface de jeu dessinée à la main.
-## En haut à gauche : plaque d'état (cœurs, sceau de niveau et anneau d'expérience, or), badge de chaîne dessous.
-## Au centre : sceau du monde + salle + vagues. À droite : pause, puis la colonne des pouvoirs (pictogramme + nom court).
-## Sous le haut : barre du boss. En bas : jauge d'élan graduée. Par-dessus : bandeaux d'annonce,
-## compteur de combo, barres de vie des ennemis, voile de mort et rideau de transition.
+## En haut à gauche : bloc d'état (barre de vie, puce de niveau et barre d'expérience, or), badge de chaîne dessous.
+## Au centre : sceau du monde + étape (x / 8). En haut à droite : pause. Sous le haut : barre du boss.
+## Bord droit : jauge d'encre verticale et sceau de l'ultime ; à gauche, la colonne de progression de l'étape.
+## Par-dessus : pad tactile, bandeaux d'annonce, compteur de combo, sceaux de figure, barres de vie des ennemis,
+## voile de mort, rideau de transition et lavis du torii.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -19,16 +20,13 @@ var max_hp := 5
 var elan := 1.0
 var elan_m := 14.0  # longueur max du trait (graduations tous les 2 m)
 var elan_empty := false
-var wave := 1  # salle en cours
-var rooms_total := 15
-var wave_index := 1
-var waves_total := 1
-var show_waves := false
+var wave := 1  # étape en cours (1..rooms_total)
+var rooms_total := 8
 var gate_hint := false
 var boss_name := ""
 var boss_hint := ""  # point faible du boss affiché sous sa barre
 var boss_ratio := 1.0
-var wipe := 0.0  # rideau d'encre de la transition entre salles (0..1)
+var wipe := 0.0  # rideau d'encre de la transition entre étapes (0..1)
 # expédition (main) : avancée dans l'étape (0..1, < 0 = cachée), zones [début, fin, état 0/1/2], combats
 var stage_k := -1.0
 var _stage_vis_t := 0.0
@@ -73,13 +71,6 @@ var shape_name := ""
 var _shape_t := 9.0
 var _real_dt := 0.0
 var ult := 0.0  # jauge d'ultime (0..1), écrite par main
-var power_seals: Array = []  # [id, nom court, couleur d'école, niveau, couleur de rareté, rang, niveau max] (main._sync_power_seals)
-var seals_tap := true  # toucher la colonne ouvre le récapitulatif (pad) : on l'indique une fois
-static var _seal_hint_done := false
-var _seal_hint_t := -1.0
-var game_over := false
-var over_t := 0.0
-var best_wave := 0
 
 var _shown_hp := -1
 var _lost: Array = []  # [index du cœur, temps]
@@ -145,7 +136,7 @@ func is_over_pause(p: Vector2) -> bool:
 	return _pause != null and _pause.visible and Rect2(_pause.position, _pause.size).grow(8.0).has_point(p)
 
 
-## Petite annonce discrète (vague suivante, salle…) sous le haut de l'écran.
+## Petite annonce discrète (vague suivante, combat, butin…) sous le haut de l'écran.
 func toast(text: String) -> void:
 	_toast = plain(text)
 	_toast_t = 0.0
@@ -170,14 +161,14 @@ func end_boss_card(fade := 0.25) -> void:
 		_card_len = minf(_card_len, _card_t + fade)
 
 
-## Bandeau d'annonce au centre : début de partie, nouvelle salle, boss…
+## Bandeau d'annonce : début de partie, nouvelle étape, boss…
 func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_big = plain(big)
 	_banner_small = plain(small)
 	_banner_col = col
 	_banner_t = 0.0
 	_banner_len = length
-	# sceau du bandeau d'après l'annonce ; salle nettoyée : brève et festive
+	# sceau du bandeau d'après l'annonce ; zone ou étape nettoyée : brève et festive
 	var up := _banner_big.to_upper()
 	_banner_icon = "ink"
 	if up.contains("NETTOY"):
@@ -222,14 +213,6 @@ func _process(_delta: float) -> void:
 	_shape_t += real
 	_stage_vis_t = maxf(0.0, _stage_vis_t - real)
 	_real_dt = real
-	# premiers pouvoirs : on indique une fois qu'on peut toucher la colonne
-	if in_play and seals_tap and not _seal_hint_done and not power_seals.is_empty():
-		_seal_hint_done = true
-		_seal_hint_t = 0.0
-	if _seal_hint_t >= 0.0:
-		_seal_hint_t += real
-		if _seal_hint_t > 5.0:
-			_seal_hint_t = -1.0
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -564,7 +547,7 @@ func _draw_xp(u: float) -> void:
 			for piece in Geometry2D.intersect_polygons(band, pts):
 				var pp: PackedVector2Array = piece
 				# morceaux trop fins (début de barre) : la triangulation échoue, on les saute
-				if pp.size() >= 3 and absf(_poly_area(pp)) > 2.0:
+				if pp.size() >= 3 and UiKit.poly_area(pp) > 2.0:
 					draw_colored_polygon(pp, Color(1, 1, 1, 0.6 * _xp_sheen))
 	if fl > 0.0:
 		draw_style_box(UiKit.box(_sb, Color(1, 0.95, 0.75, 0.6 * fl), 999), bar.grow(1.5 * u))
@@ -699,110 +682,6 @@ func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 			draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
 
-const SEAL_MAX := 8  # pastilles visibles ; au-delà, la dernière compte le reste (« +N »)
-
-
-## Géométrie de la colonne des pouvoirs : [centre x, y de la première pastille, rayon, pas, lignes affichées].
-func _seal_geo(u: float) -> Array:
-	var r := 11.0 * u
-	return [size.x - 34.0 * u, 84.0 * u, r, 2.0 * r + 8.0 * u, mini(power_seals.size(), SEAL_MAX)]
-
-
-## Étiquette d'une pastille : nom court, et le niveau en chiffres romains à partir de II.
-func _seal_label(sd: Array) -> String:
-	var lv := int(sd[3])
-	var nm := plain(String(sd[1]))
-	if int(sd[6]) > 1 and lv > 1:
-		var romans := ["I", "II", "III", "IV", "V"]
-		nm += " " + String(romans[clampi(lv, 1, 5) - 1])
-	return nm
-
-
-func _seal_font(u: float) -> int:
-	return int(10 * u)
-
-
-## Colonne des pouvoirs (même géométrie que _draw_seals, étiquettes comprises) : la toucher ouvre le récapitulatif.
-func is_over_seals(p: Vector2) -> bool:
-	return false  # la colonne n'est plus affichée en jeu
-	if power_seals.is_empty() or not in_play or dying > 0.0:
-		return false
-	var u := size.x / 400.0
-	var g := _seal_geo(u)
-	var x: float = g[0]
-	var r: float = g[2]
-	var rows: int = g[4]
-	var lw := 0.0
-	for i in rows:
-		lw = maxf(lw, UiKit.UI_FONT.get_string_size(_seal_label(power_seals[i]), HORIZONTAL_ALIGNMENT_LEFT, -1, _seal_font(u)).x)
-	var right := x + r + 8.0 * u
-	var left := x - r - 14.0 * u - lw
-	var top := float(g[1]) - r - 4.0 * u
-	var bottom := float(g[1]) + float(rows - 1) * float(g[3]) + r + 6.0 * u
-	return Rect2(left, top, right - left, bottom - top).has_point(p)
-
-
-## Pouvoirs possédés : colonne de pastilles sous le bouton pause (pictogramme sur la couleur d'école,
-## liseré de rareté, crans de niveau) avec le nom court dans une gélule sombre, lisible sur tout décor.
-func _draw_seals(_sz: Vector2, u: float) -> void:
-	var n := power_seals.size()
-	if n == 0:
-		return
-	var g := _seal_geo(u)
-	var x: float = g[0]
-	var r: float = g[2]
-	var step: float = g[3]
-	var rows: int = g[4]
-	var fs := _seal_font(u)
-	var y := 0.0
-	for i in rows:
-		y = float(g[1]) + float(i) * step
-		var c := Vector2(x, y)
-		if i == rows - 1 and n > rows:
-			# trop de pouvoirs : la dernière pastille compte le reste
-			draw_circle(c, r + 2.0 * u, Color(Toon.WASHI, 0.5))
-			draw_circle(c, r, Color(Toon.SUMI, 0.9))
-			UiKit.text(self, UiKit.UI_FONT, "+%d" % (n - rows + 1), c + Vector2(0, 4 * u), int(11 * u), Toon.WASHI)
-			continue
-		var sd: Array = power_seals[i]
-		var rc: Color = sd[4]
-		var rank := int(sd[5])
-		# nom court (la première ligne se tait pendant un boss : sa barre passe là)
-		if boss_name == "" or y > 104.0 * u:
-			var lab := _seal_label(sd)
-			var tw := UiKit.UI_FONT.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			var pill := Rect2(Vector2(x - r - 12.0 * u - tw, y - 8.5 * u), Vector2(tw + 12.0 * u + r, 17.0 * u))
-			draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.62), 999), pill)
-			var lc: Color = Toon.GOLD.lightened(0.3) if rank >= 3 else Toon.WASHI
-			draw_string(UiKit.UI_FONT, Vector2(pill.position.x + 7.0 * u, y + fs * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, lc)
-		# liseré de rareté (or animé pour les légendaires), puis la pastille
-		var glow := 0.0
-		if rank >= 3:
-			glow = 0.35 + 0.25 * sin(_t * 3.0)
-		draw_circle(c, r + 2.2 * u + glow * 2.0 * u, rc)
-		UiKit.power_icon(self, String(sd[0]), c, r)
-		# niveau : crans sur le bas du liseré
-		var mx := int(sd[6])
-		if mx > 1:
-			var lv := int(sd[3])
-			for k in mx:
-				var dc := c + Vector2.from_angle(PI / 2.0 + (float(k) - float(mx - 1) / 2.0) * 0.5) * (r + 1.0 * u)
-				draw_circle(dc, 2.3 * u, Toon.SUMI)
-				draw_circle(dc, 1.5 * u, Toon.WASHI if k < lv else Color(Toon.WASHI, 0.25))
-	# indice : une fois, à l'arrivée des premiers pouvoirs
-	if _seal_hint_t >= 0.0:
-		var ha := clampf(minf(_seal_hint_t / 0.3, (5.0 - _seal_hint_t) / 0.5), 0.0, 1.0)
-		var hint := "touche pour le détail"
-		var hfs := int(10 * u)
-		var hw := UiKit.UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
-		var hy := y + r + 22.0 * u + 2.0 * u * sin(_t * 5.0)
-		var hr := Rect2(Vector2(x + r + 4.0 * u - hw - 16.0 * u, hy - hfs - 3.0 * u), Vector2(hw + 16.0 * u, hfs + 9.0 * u))
-		draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, 0.92 * ha), 999), hr)
-		# petite flèche vers la colonne
-		var ax := x
-		draw_colored_polygon(PackedVector2Array([Vector2(ax, hr.position.y - 6.0 * u), Vector2(ax + 5.0 * u, hr.position.y + 0.5), Vector2(ax - 5.0 * u, hr.position.y + 0.5)]), Color(Toon.VERMILION, 0.92 * ha))
-		draw_string(UiKit.UI_FONT, Vector2(hr.position.x + 8.0 * u, hy), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Color(Toon.WASHI, ha))
-
 
 ## Chaîne : badge vif sous le bloc d'état, seulement à partir de 2 — flamme à la couleur du palier,
 ## « ×n » en grand, bonus en petit, temps restant en filet ; il bondit à chaque ruée, éclate en se brisant.
@@ -913,7 +792,7 @@ func _draw_pad_frame(u: float, pa: float) -> void:
 
 
 func _draw_room(sz: Vector2, u: float) -> void:
-	# sceau du monde, puis « salle x / rooms_total » et les vagues de la salle
+	# sceau du monde, puis « étape x / rooms_total »
 	var cx := sz.x / 2.0
 	var seal := Rect2(Vector2(cx - 54 * u, 15 * u), Vector2(36, 36) * u)
 	draw_style_box(UiKit.box(_sb, world_color, int(7 * u)), seal)
@@ -924,13 +803,6 @@ func _draw_room(sz: Vector2, u: float) -> void:
 	draw_string(UiKit.TITLE_FONT, Vector2(cx - 10 * u, 38 * u), str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Toon.SUMI)
 	var nw := UiKit.TITLE_FONT.get_string_size(str(wave), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
 	draw_string(UiKit.UI_FONT, Vector2(cx - 8 * u + nw, 38 * u), "/ %d" % rooms_total, HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(Toon.SUMI, 0.55))
-	if false and show_waves:  # tirets des vagues retirés (indication inutile)
-		for i in waves_total:
-			var wp := Vector2(cx - 6 * u + i * 12 * u, 50 * u)
-			if i < wave_index:
-				draw_rect(Rect2(wp - Vector2(4, 2) * u, Vector2(8, 4) * u), Toon.SUMI)
-			else:
-				draw_rect(Rect2(wp - Vector2(4, 2) * u, Vector2(8, 4) * u), Color(Toon.SUMI, 0.22))
 
 
 ## Jauge d'encre : verticale sur le bord droit, encre bleue vive cerclée de blanc (lisible sur tous les mondes).
@@ -946,7 +818,7 @@ func _draw_gauge(sz: Vector2, u: float) -> void:
 		ink = ink.lerp(Color("#C9CBD6"), 0.55)
 	var low := elan < 0.2
 	if elan_empty or low:
-		ink = Toon.VERMILION if (elan_empty and (Time.get_ticks_msec() / 90) % 2 == 0) or (low and not elan_empty) else ink
+		ink = Toon.VERMILION if (elan_empty and int(Time.get_ticks_msec() / 90.0) % 2 == 0) or (low and not elan_empty) else ink
 	# fond : pilule sombre translucide, liseré blanc
 	_sb.bg_color = Color(0.06, 0.06, 0.09, 0.62)
 	_sb.set_corner_radius_all(int(gw / 2.0 + 3.0 * u))
@@ -1042,7 +914,7 @@ func _draw_gate_hint(sz: Vector2, u: float) -> void:
 
 func _draw_combo(sz: Vector2, u: float) -> void:
 	var a := clampf(_combo_t / 0.4, 0.0, 1.0)
-	# à gauche : la colonne des pouvoirs occupe la droite
+	# à gauche : la jauge d'encre occupe la droite
 	var c := Vector2(92 * u, maxf(sz.y * 0.32, 160 * u) + top_off)
 	# petite tache d'encre derrière le nombre
 	draw_circle(c, 21 * u, Color(Toon.SUMI, 0.8 * a))
@@ -1065,7 +937,6 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var has_sub := _banner_small != ""
 	var bw := minf(sz.x - 28.0 * u, 352.0 * u)
 	var h := 62.0 * u if has_sub else 48.0 * u
-	# en bas de l'écran, au-dessus de la jauge d'encre : le torii et la sortie restent visibles
 	var cy := top_off + 118.0 * u  # en haut au centre, sous le bloc vie / étape
 	var x0 := (sz.x - bw) / 2.0 + (1.0 - k_out) * 26.0 * u
 	var reach := bw * (0.15 + 0.85 * ein)
@@ -1100,7 +971,7 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 		var half := 17.0 * u * z
 		draw_style_box(UiKit.box(_sb, Color(acc, a * sk), int(6 * u), Color(Toon.WASHI, 0.85 * a * sk), maxi(1, int(1.5 * u))), Rect2(sc - Vector2(half, half), Vector2(half, half) * 2.0))
 		UiKit.glyph(self, _banner_icon, sc, 11.0 * u * z, Toon.WASHI, acc, a * sk)
-	# salle nettoyée : petite gerbe d'or autour du sceau
+	# zone ou étape nettoyée : petite gerbe d'or autour du sceau
 	if _banner_icon == "torii" and t < 0.8:
 		var gk := clampf((t - 0.15) / 0.6, 0.0, 1.0)
 		for j in 10:
@@ -1206,8 +1077,6 @@ func _draw_card(sz: Vector2, u: float) -> void:
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-## Expédition : fine colonne d'encre à droite (bas = arrivée, haut = torii), zones de combat
-## (grises à venir, vermillon en cours, or nettoyées), le héros en point, et le compte des combats.
 ## Zone de sécurité : l'encoche et la barre d'état ne doivent pas cacher les cœurs ni l'XP.
 func _update_safe_top() -> void:
 	var u := size.x / 400.0
@@ -1219,8 +1088,9 @@ func _update_safe_top() -> void:
 	top_off = clampf(inset, 0.0, 80.0 * u) + 12.0 * u
 
 
-## Progression de l'étape : colonne à gauche (combats à venir, en cours, faits), le héros et le torii au bout.
-func _draw_stage_bar(sz: Vector2, u: float) -> void:
+## Progression de l'étape : colonne à gauche (bas = arrivée, haut = torii), zones de combat
+## (grises à venir, vermillon en cours, or nettoyées), le héros en point, et le compte des combats.
+func _draw_stage_bar(_sz: Vector2, u: float) -> void:
 	if stage_k < 0.0:
 		return
 	# seulement quelques secondes : en début d'étape et à la fin de chaque combat
@@ -1308,12 +1178,3 @@ func _draw_wash(sz: Vector2, u: float) -> void:
 	if k < 0.6:
 		draw_circle(wash_c, (18.0 + 30.0 * k) * u, Color(Toon.GOLD, 0.35 * (1.0 - k / 0.6)))
 
-
-## Aire signée d'un polygone (formule du lacet).
-func _poly_area(pp: PackedVector2Array) -> float:
-	var a := 0.0
-	for i in pp.size():
-		var p0 := pp[i]
-		var p1 := pp[(i + 1) % pp.size()]
-		a += p0.x * p1.y - p1.x * p0.y
-	return a * 0.5

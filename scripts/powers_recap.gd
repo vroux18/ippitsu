@@ -1,5 +1,5 @@
 extends Control
-## Récapitulatif « MES POUVOIRS » (depuis la pause ou les sceaux du HUD), à lire d'un coup d'œil comme les cartes
+## Récapitulatif « MES POUVOIRS » (depuis la pause), à lire d'un coup d'œil comme les cartes
 ## de rouleau : grille de médaillons (pictogramme sur la couleur d'élément, anneau de rareté, crans de niveau, nom court) ;
 ## un toucher lève la tuile et ouvre sa bulle de détail. Dessous, les cinq écoles en pastilles à anneau de progression
 ## (paliers 2 et 4), une bulle donne leurs bonus. Carte de papier sur voile d'encre ; le contenu glisse au doigt
@@ -745,19 +745,7 @@ func _lines(txt: String, x: float, y: float, w: float, fs: int, lh: float, maxn:
 
 ## Coupe un texte en lignes qui tiennent dans `width` (mots entiers ; la ponctuation reste collée au mot).
 func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
-	var out := PackedStringArray()
-	var cur := ""
-	for word in txt.split(" ", false):
-		var wd := String(word)
-		var trial: String = wd if cur == "" else cur + " " + wd
-		if cur != "" and not (wd in GLUE) and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
-			out.append(cur)
-			cur = wd
-		else:
-			cur = trial
-	if cur != "":
-		out.append(cur)
-	return out
+	return UiKit.wrap(font, txt, fs, width, GLUE)
 
 
 ## Une ligne qui rétrécit (un peu) si elle déborde.

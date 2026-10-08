@@ -72,7 +72,7 @@ func begin_room(room: int, hero_pos: Vector3, boss := false, zone := Rect2(), ke
 		clear()
 	_zone = zone if zone.has_area() else Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0)
 	# trous à partir de la salle 4, un de plus toutes les 4 salles ; rien dans une salle de boss
-	var n := 0 if room < 4 or boss else mini(1 + (room - 4) / 4, 3)
+	var n := 0 if room < 4 or boss else mini(1 + int((room - 4) / 4.0), 3)
 	for i in n:
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)

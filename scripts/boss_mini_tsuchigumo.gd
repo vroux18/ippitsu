@@ -7,6 +7,7 @@ extends "res://scripts/boss_mini_base.gd"
 ##  Attaques : salve de soie en éventail (lueur 0.8 s) ; bond sur le héros (zone r1.8, 1.1 s).
 
 const MINION = preload("res://assets/kaykit/Skeleton_Minion.glb")
+const UiKit = preload("res://scripts/ui_kit.gd")
 const SILK := Color("#F1EEE6")
 const SHELL := Color("#3A2F28")
 const LEG := Color("#2A221D")
@@ -339,7 +340,7 @@ func _find_loop(pts: Array, c: Vector2) -> PackedVector2Array:
 			poly.append(hit)
 			for k in range(i + 1, j + 1):
 				poly.append(pts[k])
-			var ar := _area(poly)
+			var ar := UiKit.poly_area(poly)
 			if poly.size() >= 3 and ar > best_area and Geometry2D.is_point_in_polygon(c, poly):
 				best = poly
 				best_area = ar
@@ -352,21 +353,11 @@ func _find_loop(pts: Array, c: Vector2) -> PackedVector2Array:
 		var poly2 := PackedVector2Array()
 		for k in range(i, n):
 			poly2.append(pts[k])
-		var ar2 := _area(poly2)
+		var ar2 := UiKit.poly_area(poly2)
 		if ar2 > best_area and Geometry2D.is_point_in_polygon(c, poly2):
 			best = poly2
 			best_area = ar2
 	return best
-
-
-func _area(poly: PackedVector2Array) -> float:
-	var s := 0.0
-	var m := poly.size()
-	for i in m:
-		var p: Vector2 = poly[i]
-		var q: Vector2 = poly[(i + 1) % m]
-		s += p.x * q.y - q.x * p.y
-	return absf(s) * 0.5
 
 
 # ------------------------------------------------------------------ robot testeur

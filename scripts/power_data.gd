@@ -3,7 +3,7 @@ extends RefCounted
 ## Chaque pouvoir : "name" (titre japonais), "sub" (sous-titre français), "when" (déclencheur, en capitales),
 ## "text" (effet en clair), "stat" (valeur chiffrée). « {v} » / « {w} » : valeurs des tableaux v / w
 ## (sur la carte : niveau actuel → niveau suivant ; dans le récapitulatif : niveau actuel).
-## Affichage : "label" (nom court français : HUD, cartes), "short" (effet en une ligne pour la carte),
+## Affichage : "label" (nom court français, plus affiché en jeu depuis le retrait de la colonne du HUD), "short" (effet en une ligne pour la carte),
 ## "icon" (pictogramme UiKit.glyph), "trig" (pictogramme du déclencheur : hit, stroke, arrive, kill…).
 ## Clés facultatives : "max" (niveau max, 3 par défaut, 1 pour les légendaires), "kanji" (idéogramme propre),
 ## "needs" (au moins un de ces pouvoirs déjà pris).
@@ -65,14 +65,6 @@ const AFF_SHORT := {
 	"wind": ["Trait +2 m", "Trait +4 m"],
 	"shadow": ["Critique ×2", "Critique ×2,5"],
 }
-
-# petit lexique du récapitulatif : [mot, définition]
-const LEXICON := [
-	["ÉLAN", "l'encre de ton trait (jauge du bas). Elle remonte quand tu ne traces pas."],
-	["CHAÎNE", "traits réussis d'affilée sans être touché : +5 % de dégâts par trait."],
-	["FIGURE", "forme tracée (boucle, zigzag, cercle...) : +1 chaîne. Son rouleau de figure débloque une technique."],
-	["AFFINITÉ", "2 puis 4 pouvoirs d'une même école débloquent un bonus d'école."],
-]
 
 # [pouvoir, partenaire, effet en plus quand on a les deux] (affiché « Avec <partenaire> : <effet> »)
 const SYNERGIES := [

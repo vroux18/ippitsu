@@ -788,19 +788,7 @@ func _confirm(u: float, a: float) -> void:
 
 ## Coupe un texte en lignes qui tiennent dans `width` (mots entiers ; la ponctuation reste collée au mot).
 func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
-	var out := PackedStringArray()
-	var cur := ""
-	for word in txt.split(" ", false):
-		var wd := String(word)
-		var trial: String = wd if cur == "" else cur + " " + wd
-		if cur != "" and not (wd in GLUE) and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
-			out.append(cur)
-			cur = wd
-		else:
-			cur = trial
-	if cur != "":
-		out.append(cur)
-	return out
+	return UiKit.wrap(font, txt, fs, width, GLUE)
 
 
 ## Une ligne qui rétrécit (un peu) si elle déborde.

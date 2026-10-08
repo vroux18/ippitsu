@@ -57,7 +57,6 @@ var _zone_t := 0.0
 var _zone_wait := 0.0
 var _verdict := ""
 var _verdict_sub := ""
-var _verdict_shape := ""
 var _verdict_miss := false
 var _verdict_t := -1.0
 var _open_k := 0.0
@@ -249,10 +248,9 @@ func _explain() -> void:
 	_show_verdict(parts[0], sub, String(m.get("shape", "")), true)
 
 
-func _show_verdict(big: String, sub: String, shape: String, miss: bool) -> void:
+func _show_verdict(big: String, sub: String, _shape: String, miss: bool) -> void:
 	_verdict = UiKit.plain(big.to_upper())
 	_verdict_sub = UiKit.plain(sub.to_upper())
-	_verdict_shape = shape
 	_verdict_miss = miss
 	_verdict_t = 0.0
 	last_verdict = _verdict if _verdict_sub == "" else _verdict + " · " + _verdict_sub

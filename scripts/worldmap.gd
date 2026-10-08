@@ -53,7 +53,6 @@ var _leaving := 0  # 0 = ouvert, 1 = retour, 2 = départ vers un monde
 var _leave_t := 0.0
 var _chosen_id := 0
 var _unroll := 0.0  # 0 = rouleau fermé, 1 = déroulé
-var _fade := 1.0
 # révélation d'un monde ouvert par la victoire
 var _reveal_id := 0  # id du monde révélé (0 : aucun)
 var _reveal_i := -1
@@ -158,7 +157,6 @@ func open(worlds: Array, unlocked: int, best: Dictionary, current: int, rooms :=
 	_leaving = 0
 	_leave_t = 0.0
 	_unroll = 0.0
-	_fade = 1.0
 	modulate.a = 1.0
 	_station_rects.clear()
 	_reveal_id = 0
@@ -406,7 +404,6 @@ func _process(_delta: float) -> void:
 	if _leaving != 0:
 		closing = 1.0 - UiKit.ease_out(clampf(_leave_t / 0.4, 0.0, 1.0))
 	_unroll = opening * closing
-	_fade = closing
 	modulate.a = clampf(closing * 1.8, 0.0, 1.0)
 	_layout()
 	queue_redraw()

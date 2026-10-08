@@ -446,12 +446,7 @@ func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var seg := b - a
-	var t := 0.0
-	if seg.length_squared() > 0.0001:
-		t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
-	var q := a + seg * t
-	return Vector2(p.x - q.x, p.z - q.z).length()
+	return Toon.seg_dist_xz(p, a, b)
 
 
 func _home(side: float) -> Vector3:
@@ -492,12 +487,6 @@ func _place_bone(mi: MeshInstance3D, a: Vector3, b: Vector3, th: float) -> void:
 	var z := x.cross(y)
 	mi.transform = Transform3D(Basis(x * th, y * l, z * th), (a + b) * 0.5)
 	mi.visible = true
-
-
-func _flat_rect(parent: Node3D, hx: float, hz: float, color: Color, y: float) -> MeshInstance3D:
-	var r := Toon.part(parent, Toon.box(Vector3(hx * 2.0, 0.004, hz * 2.0)), Toon.flat(color), Vector3(0, y, 0))
-	r.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return r
 
 
 func _add_zone(shape: String, c: Vector3, hx: float, hz: float, total: float, side: float) -> Dictionary:

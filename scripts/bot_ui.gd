@@ -2,7 +2,7 @@ extends Node
 ## Robot testeur, mode ui (`-- --bot --mode=ui`) : parcours scripté des écrans, sans combat du robot.
 ## Il passe par les mêmes entrées que le doigt : _gui_input des écrans dessinés (clics synthétiques aux
 ## rectangles qu'ils ont calculés), appui/relâché au centre des boutons, main._touch_down / _touch_up pour
-## l'esquive et les sceaux du HUD. Chaque étape réussie : « BOT UI <étape> ok » ; état attendu non atteint
+## l'esquive et la course. Chaque étape réussie : « BOT UI <étape> ok » ; état attendu non atteint
 ## à temps : « BOT ALERTE ui: … », puis retour à l'accueil et étape suivante.
 
 const Meta = preload("res://scripts/meta.gd")
@@ -803,22 +803,6 @@ func _quit_to_menu(w: int) -> bool:
 	return true
 
 
-## Point de l'écran sur un sceau de pouvoir du HUD (Vector2(-1, -1) s'il n'y en a pas).
-func _seal_point() -> Vector2:
-	var hud = main.hud
-	var sz: Vector2 = hud.size
-	var y := 0.0
-	while y < sz.y:
-		var x := 0.0
-		while x < sz.x:
-			var p := Vector2(x, y)
-			if bool(hud.is_over_seals(p)) and not bool(hud.is_over_pause(p)):
-				return p
-			x += 6.0
-		y += 6.0
-	return Vector2(-1, -1)
-
-
 func _recap_scroll(rc) -> void:
 	await _frames(3)
 	if float(rc._max_scroll()) <= 1.0:
@@ -839,7 +823,6 @@ func _step_pause_recap() -> bool:
 	var p = main.powers
 	for id in ["fire_burn", "water_foam", "bolt_arc", "wind_long", "shadow_back", "ink_daruma", "fire_fudo", "water_kanagawa", "ink_enso"]:
 		p.add(String(id))
-	main._sync_power_seals()
 	await _settle_play("avant la pause")
 	await _press(main.hud._pause, "pause")
 	if not await _until(func(): return String(main.state) == "paused" and String(main.menu.mode) == "pause", "bouton pause"):
@@ -864,21 +847,17 @@ func _step_pause_recap() -> bool:
 	if not await _until(func(): return String(main.state) == "play", "REPRENDRE"):
 		return false
 	_ok("pause : REPRENDRE")
-	# en jeu, toucher les sceaux du HUD ouvre le récapitulatif (jeu en pause), qui se referme sur le jeu
+	# en jeu, le récapitulatif ouvert directement (jeu en pause) se referme sur le jeu
 	await _frames(3)
-	var sp := _seal_point()
-	if sp.x >= 0.0:
-		main._touch_down(sp)
-	else:
-		main._open_recap()
-	if not await _until(func(): return bool(rc.visible) and String(main.state) == "paused", "sceaux du HUD -> récapitulatif"):
+	main._open_recap()
+	if not await _until(func(): return bool(rc.visible) and String(main.state) == "paused", "jeu -> récapitulatif"):
 		return false
 	await _until(func(): return float(rc._t) >= 0.35, "récapitulatif prêt")
 	back = rc._back
 	_tap(rc, back.get_center())
 	if not await _until(func(): return not bool(rc.visible) and String(main.state) == "play", "récapitulatif -> retour au jeu"):
 		return false
-	_ok("récapitulatif depuis les sceaux du HUD (%s)" % ("toucher" if sp.x >= 0.0 else "appel direct"))
+	_ok("récapitulatif depuis le jeu (appel direct)")
 	return true
 
 
@@ -997,7 +976,7 @@ func _step_run() -> bool:
 		var k := 15.0 / maxf(pr.size.x, 1.0)
 		sp0 = pr.get_center()
 		sp1 = sp0 + Vector2(dir.x, dir.z) * 1.6 / k
-	if bool(main.hud.is_over_pause(sp0)) or bool(main.hud.is_over_seals(sp0)):
+	if bool(main.hud.is_over_pause(sp0)):
 		_ok("course au doigt posé : point de départ sous un bouton du HUD, étape passée")
 		return true
 	main._touch_down(sp0)

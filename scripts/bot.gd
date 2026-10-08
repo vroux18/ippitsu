@@ -523,18 +523,13 @@ func figure(kind: String, target: Vector3) -> bool:
 	return true
 
 
-## Taux de reconnaissance des figures : forme -> [essais, orientation trouvée, reconnue].
-func shape_stats() -> Dictionary:
-	return _shape_stats
-
-
 ## Esquive comme au doigt : petit coup sec au centre du pad (main._touch_down / _touch_up).
 func dodge(dir: Vector3) -> bool:
 	if main.touching or main.game_over or main.hero.dashing:
 		return false
 	var pr: Rect2 = main.pad_rect()
 	var sp: Vector2 = pr.get_center()
-	if main.hud.is_over_pause(sp) or main.hud.is_over_seals(sp) or main.tuto.is_over_ui(sp):
+	if main.hud.is_over_pause(sp) or main.tuto.is_over_ui(sp):
 		return false
 	var d := Vector2(dir.x, dir.z)
 	if d.length_squared() < 0.0001:
@@ -694,7 +689,6 @@ func _powers_room_start() -> void:
 		while int(p.lvl(String(id))) < target and guard < 5:
 			guard += 1
 			p.add(String(id))
-	main._sync_power_seals()
 	main.elan = main.elan_max()
 	# Hōō : à 1 cœur, sans garde, le prochain coup doit le faire renaître
 	if p.lvl("fire_hoo") > 0 and not bool(p._hoo_used):
@@ -813,7 +807,6 @@ func _stress_room_start() -> void:
 			while int(p.lvl(String(id))) < int(p.max_level(String(id))) and guard < 5:
 				guard += 1
 				p.add(String(id))
-		main._sync_power_seals()
 		main.elan = main.elan_max()
 		print("BOT STRESS %d pouvoirs : %s" % [p.levels.size(), str(p.levels)])
 	# vagues doublées : chaque vague restante deux fois, et la première aussi

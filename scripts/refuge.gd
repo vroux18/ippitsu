@@ -726,7 +726,7 @@ func _draw_upgrades(w: float, h: float, u: float) -> void:
 	var s := minf(th / 176.0, tw / 168.0)
 	for i in Meta.ORDER.size():
 		var col := i % 2
-		var row := i / 2
+		var row := int(i / 2.0)
 		var r := Rect2(Vector2(14 * u + float(col) * (tw + gap), top + float(row) * (th + gap)), Vector2(tw, th))
 		var key := "line:%d" % i
 		_hits.append([r, key])
@@ -1040,10 +1040,10 @@ func _draw_seal_list(y0: float, W: float, u: float) -> float:
 		y += 26 * u
 		var ids: Array = group[1]
 		for i in ids.size():
-			var r := Rect2(Vector2(4 * u + float(i % 2) * (tw + gap), y + float(i / 2) * (th + gap)), Vector2(tw, th))
+			var r := Rect2(Vector2(4 * u + float(i % 2) * (tw + gap), y + float(int(i / 2.0)) * (th + gap)), Vector2(tw, th))
 			if r.end.y >= -12 * u and r.position.y <= vh + 12 * u:
 				_seal_tile(String(ids[i]), r, u)
-		y += float((ids.size() + 1) / 2) * (th + gap) + 6 * u
+		y += float(int((ids.size() + 1) / 2.0)) * (th + gap) + 6 * u
 	return y
 
 

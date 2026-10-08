@@ -4,7 +4,7 @@ extends Node3D
 ##  kappa — Mage : garde ses distances et lance de grosses boules lentes
 ##  brute — Warrior : grand, lent et costaud (il faut l'enchaîner dans un combo)
 ##  tate  — Warrior au grand bouclier rond : invulnérable de face (cône 120°), il faut le prendre à revers
-##  funa  — Funa-yūrei, Minion noyé translucide : émerge au bord du ponton, lance une louche d'eau, replonge
+##  funa  — Funa-yūrei, Minion noyé bleuté : émerge au bord du ponton, lance une louche d'eau, replonge
 ## Ennemis signature (un par monde) :
 ##  umibozu     — (1) moine de mer : plonge sous les planches, ressurgit sous le héros (disque annoncé), touchable seulement émergé
 ##  kitsunebi   — (2) feu-follet renard : se téléporte sur une zone annoncée ; à sa mort il se scinde en deux kitsunebi_s
@@ -35,7 +35,6 @@ static var WARRIOR: PackedScene = null
 static var MAGE: PackedScene = null
 
 const SPAWN_TIME := 1.0
-const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (même valeur que main.HALF)
 const EDGE_IN := 0.4  # funa : distance au bord du ponton
 
 var _steer := Vector3.ZERO
@@ -827,7 +826,7 @@ func _ears(h: float, c: Color) -> void:
 		e.rotation.z = -sx * 0.3
 
 
-## Rendu fantôme : teinte bleutée et matériaux translucides.
+## Rendu fantôme : teinte bleutée et lueur (sans transparence).
 func _ghostify() -> void:
 	_glow_a = 0.35
 	_glow_c = FUNA_TINT
@@ -835,7 +834,7 @@ func _ghostify() -> void:
 	_tint(Color.WHITE, 0.75)
 
 
-## Teinte (multipliée à la texture) et transparence de tous les matériaux du modèle.
+## Teinte (multipliée à la texture) de tous les matériaux du modèle ; `alpha` < 1 éclaircit et allume la lueur.
 func _tint(c: Color, alpha: float) -> void:
 	for n in ch.model.find_children("*", "MeshInstance3D", true, false):
 		var mi := n as MeshInstance3D
@@ -851,14 +850,6 @@ func _tint(c: Color, alpha: float) -> void:
 			m.emission_enabled = true
 			m.emission = Color(c.r, c.g, c.b)
 			m.emission_energy_multiplier = maxf(m.emission_energy_multiplier, lift * 0.6)
-			if true:
-				continue
-			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_DEPTH_PRE_PASS  # pas de scintillement entre les morceaux du modèle
-			# contour d'encre lui aussi estompé
-			var o := m.next_pass as StandardMaterial3D
-			if o != null:
-				o.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-				o.albedo_color.a = alpha * 0.66
 
 
 func _base_glow() -> void:

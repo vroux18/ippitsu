@@ -137,7 +137,7 @@ func _goal() -> String:
 	return String(STEPS[step].goal)
 
 
-## Bond d'esquive (petit coup de doigt) : main l'appelle au lancement du bond.
+## Bond d'esquive (tap, ou petit glissé) : main l'appelle au lancement du bond.
 func on_dodge() -> void:
 	if in_dojo():
 		dojo.on_dodge()

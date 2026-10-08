@@ -16,7 +16,7 @@ const PAGES := [
 	# lexique : [pastille, mot, définition courte]
 	{"kanji": "巻", "title": "Petit lexique", "text": "", "terms": [
 		["trait", "Trait", "Ton doigt dessine, le ronin suit."],
-		["encre", "Encre", "La jauge du bas : chaque trait en coûte."],
+		["encre", "Encre", "La jauge de droite : chaque trait en coûte."],
 		["esquive", "Esquive", "Un tap : un bond, sans encre."],
 		["figure", "Figure", "Boucle, zigzag… : +1 chaîne. Son rouleau : une technique."],
 		["chaine", "Chaîne", "Traits réussis sans être touché : + dégâts."],
@@ -25,7 +25,7 @@ const PAGES := [
 		["torii", "Torii", "La porte vers l'étape suivante."],
 	]},
 	{"kanji": "墨", "title": "L'encre",
-		"text": "Chaque trait coûte de l'encre (la jauge en bas). Elle remonte quand tu ne traces pas, et à chaque ennemi touché."},
+		"text": "Chaque trait coûte de l'encre (la jauge à droite). Elle remonte quand tu ne traces pas, et à chaque ennemi touché."},
 	{"kanji": "円", "title": "Les figures",
 		"text": "Boucle, zigzag, ensō… Une forme cachée dans ton trait : +1 chaîne. Ramasse son rouleau de figure pour débloquer sa technique, puis l'améliorer."},
 	{"kanji": "風", "title": "Esquive",
@@ -329,19 +329,7 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 
 ## Coupe un texte en lignes qui tiennent dans `width` (mots entiers ; la ponctuation reste collée au mot).
 func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
-	var out := PackedStringArray()
-	var cur := ""
-	for word in txt.split(" ", false):
-		var wd := String(word)
-		var trial: String = wd if cur == "" else cur + " " + wd
-		if cur != "" and not (wd in GLUE) and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
-			out.append(cur)
-			cur = wd
-		else:
-			cur = trial
-	if cur != "":
-		out.append(cur)
-	return out
+	return UiKit.wrap(font, txt, fs, width, GLUE)
 
 
 # ------------------------------------------------------------------ planches
@@ -601,7 +589,7 @@ func _tech_fx(kind: String, box: Rect2, pts: PackedVector2Array, k: float, fade:
 					draw_arc(ce, (20.0 + 60.0 * rk) * u, 0, TAU, 40, _c(Toon.SUMI, (1.0 - rk) * 0.6 * fade), 3.0 * u * (1.0 - rk) + 1.0, true)
 
 
-## 5. Une zone rouge se remplit ; un petit coup de doigt fait bondir le ronin hors de portée ; la chaîne monte.
+## 5. Une zone rouge se remplit ; un tap fait bondir le ronin hors de portée ; la chaîne monte.
 func _page_esquive(t0: float) -> void:
 	var u := _u
 	var lp := 3.4
@@ -644,7 +632,7 @@ func _page_esquive(t0: float) -> void:
 	if t >= 1.15 and t < 2.4:
 		var ek := _k(t, 1.15, 0.2) * (1.0 - _k(t, 2.1, 0.3))
 		UiKit.text(self, _ui, "ESQUIVE !", land + Vector2(0, -54) * u, int(11 * u), _c(Toon.PRUSSIAN, ek))
-	# le petit coup de doigt
+	# le doigt qui tape (petit glissé vers le côté du bond)
 	var fk2 := _k(t, 0.4, 0.15) * (1.0 - _k(t, 1.0, 0.2))
 	if fk2 > 0.0:
 		var flick := UiKit.ease_out(_k(t, 0.62, 0.18))

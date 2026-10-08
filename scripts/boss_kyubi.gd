@@ -11,6 +11,7 @@ extends Node3D
 ## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
 const ORANGE := Color("#E08A3C")
@@ -278,7 +279,7 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	return false
 
 
-func take_hit(dmg: float, dir: Vector3) -> void:
+func take_hit(dmg: float, _dir: Vector3) -> void:
 	if dead:
 		return
 	var out := dmg
@@ -416,12 +417,7 @@ func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var seg := b - a
-	var t := 0.0
-	if seg.length_squared() > 0.0001:
-		t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
-	var q := a + seg * t
-	return Vector2(p.x - q.x, p.z - q.z).length()
+	return Toon.seg_dist_xz(p, a, b)
 
 
 func _hit_real(a: Vector3, b: Vector3, stroke_id: int) -> bool:
@@ -551,7 +547,7 @@ func _find_loop(pts: Array, c: Vector2) -> PackedVector2Array:
 			poly.append(hit)
 			for k in range(i + 1, j + 1):
 				poly.append(pts[k])
-			var ar := _area(poly)
+			var ar := UiKit.poly_area(poly)
 			if poly.size() >= 3 and ar > best_area and Geometry2D.is_point_in_polygon(c, poly):
 				best = poly
 				best_area = ar
@@ -564,21 +560,11 @@ func _find_loop(pts: Array, c: Vector2) -> PackedVector2Array:
 		var poly2 := PackedVector2Array()
 		for k in range(i, n):
 			poly2.append(pts[k])
-		var ar2 := _area(poly2)
+		var ar2 := UiKit.poly_area(poly2)
 		if ar2 > best_area and Geometry2D.is_point_in_polygon(c, poly2):
 			best = poly2
 			best_area = ar2
 	return best
-
-
-func _area(poly: PackedVector2Array) -> float:
-	var s := 0.0
-	var m := poly.size()
-	for i in m:
-		var p: Vector2 = poly[i]
-		var q: Vector2 = poly[(i + 1) % m]
-		s += p.x * q.y - q.x * p.y
-	return absf(s) * 0.5
 
 
 ## Dans la boucle, ou à moins de 0.5 m de son bord (tolérance tactile).

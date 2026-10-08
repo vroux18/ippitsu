@@ -12,7 +12,6 @@ const MAX_PRINTS := 24
 const SUMI_PER_ROOM := 8  # réglage d'équilibrage : bonus d'encre par salle franchie (0 = §5.1 strict)
 const MINI_ROOM := 8  # = main.MINI_ROOM (salle du gardien)
 const WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "Trente-six Vues"]
-const WORLD_KANJI := ["波", "竹", "雪", "火", "墨"]
 
 ## Ordre d'affichage des lignes de la Pierre à encre.
 const ORDER := ["brush", "ink", "paper", "breath", "purse", "choice"]
@@ -414,15 +413,6 @@ func locked_powers() -> Array:
 	return out
 
 
-## Tous les pouvoirs qui peuvent sortir dans les rouleaux.
-func unlocked_powers() -> Array:
-	var out: Array = []
-	for key in Data.POWERS.keys():
-		if power_unlocked(String(key)):
-			out.append(String(key))
-	return out
-
-
 # --- Vues (estampes) et apparence --------------------------------------------
 
 func has_print(id: String) -> bool:
@@ -584,7 +574,6 @@ func apply_run_start(m) -> void:
 	var sp := start_power()
 	if sp != "" and m.powers != null:
 		m.powers.add(sp)
-		m._sync_power_seals()
 		m.elan = m.elan_max()
 	if owns_seal("blessing"):
 		m._extra_picks = int(m._extra_picks) + 1

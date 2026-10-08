@@ -39,7 +39,6 @@ signal next_pressed  # résultats d'une victoire : vers le monde suivant
 var mode := "home"  # home | over | pause | hidden
 var best := 0
 var rooms_total := 8  # étapes d'une partie (main.STAGE_PLAN)
-var last := 0
 var new_record := false
 var victory := false
 var muted := false
@@ -504,7 +503,7 @@ func _draw_stats(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 	for f in stat_shapes.keys():
 		figs += int(stat_shapes[f])
 	var cols := [["ÉTAPE", "%d/%d" % [stat_room, rooms_total]], ["ENNEMIS", str(stat_kills)], ["CHAÎNE MAX", str(stat_combo)],
-		["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]], ["FIGURES", str(figs)]]
+		["TEMPS", "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]], ["FIGURES", str(figs)]]
 	var cw := (x1 - x0) / float(cols.size())
 	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.05 * a), int(10 * u)), Rect2(Vector2(x0 - 6 * u, y + 2 * v), Vector2(x1 - x0 + 12 * u, 50 * v)))
 	for i in cols.size():
@@ -776,7 +775,6 @@ func _pause_card() -> Rect2:
 ## Pause : voile d'encre, carte de papier avec le sceau du monde, la partie en cours et les boutons.
 func _draw_pause() -> void:
 	var w := size.x
-	var h := size.y
 	var u := w / 400.0
 	var a := UiKit.ease_out(clampf(_t / 0.25, 0.0, 1.0))
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.8 * a))
@@ -798,7 +796,7 @@ func _draw_pause() -> void:
 	UiKit.text(self, UiKit.TITLE_FONT, world_kanji, Vector2(seal.get_center().x, seal.get_center().y + 13 * u), int(34 * u), Color(Toon.WASHI, a))
 	UiKit.text(self, _title, "PAUSE", Vector2(card.get_center().x, card.position.y + 124 * u), int(32 * u), Color(Toon.SUMI, a))
 	# la partie en cours
-	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time) / 60, int(stat_time) % 60]]]
+	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]]]
 	for i in cols.size():
 		var cx := card.position.x + card.size.x * (0.2 + 0.3 * i)
 		UiKit.text(self, _ui, String(cols[i][0]), Vector2(cx, card.position.y + 156 * u), int(10 * u), Color(Toon.SUMI, 0.5 * a))

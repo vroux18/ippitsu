@@ -766,10 +766,6 @@ func dash_mult() -> float:
 	return m
 
 
-func dodge_cost(base: float) -> float:
-	return 0.0 if lvl("wind_feather") > 0 else base
-
-
 func dodge_dist(base: float) -> float:
 	return val("wind_feather") if lvl("wind_feather") > 0 else base
 
@@ -1232,15 +1228,6 @@ func figure_cancel() -> void:
 	_fig_counter_t = 0.0
 	_fig_countered.clear()
 	_fig_enso_pending = false
-
-
-## Anciens hooks (avant figure_end / figure_landed) : sans effet.
-func on_shape(_shape: String, _info: Dictionary) -> void:
-	pass
-
-
-func on_enso_land(_pos: Vector3, _r: float) -> void:
-	pass
 
 
 ## Uzu : toupie (aspire et lacère) ; Tourbillon aspirant ; Kasha (roue de feu).
@@ -1768,7 +1755,7 @@ func _fujin_pull(points: PackedVector3Array) -> void:
 			e.position += d / dist * minf(1.8, dist - 0.2)
 			if hurt:
 				main.damage_enemy(e, 0.5, false)
-	var step := maxi(1, points.size() / 4)
+	var step := maxi(1, int(points.size() / 4.0))
 	for i in range(0, points.size(), step):
 		main.vfx.swirl(points[i], 0.7)
 	main.vfx.school_kanji(points[points.size() - 1], "wind")
@@ -2354,12 +2341,7 @@ func _length(pts: PackedVector3Array) -> float:
 
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var seg := b - a
-	var t := 0.0
-	if seg.length_squared() > 0.0001:
-		t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
-	var q := a + seg * t
-	return Vector2(p.x - q.x, p.z - q.z).length()
+	return Toon.seg_dist_xz(p, a, b)
 
 
 func _closest_on_line(p: Vector3, pts: PackedVector3Array) -> Vector3:

@@ -93,6 +93,16 @@ static func disc(parent: Node3D, r: float, color: Color, y := 0.01) -> MeshInsta
 	return d
 
 
+## Distance au sol (plan XZ, y ignoré) du point `p` au segment [a, b] (boss, pouvoirs).
+static func seg_dist_xz(p: Vector3, a: Vector3, b: Vector3) -> float:
+	var seg := b - a
+	var t := 0.0
+	if seg.length_squared() > 0.0001:
+		t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
+	var q := a + seg * t
+	return Vector2(p.x - q.x, p.z - q.z).length()
+
+
 # ------------------------------------------------------------------ chargement en arrière-plan
 
 static var _asked := {}  # chemin -> true : chargement en arrière-plan demandé, pas encore récupéré

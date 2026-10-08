@@ -150,10 +150,6 @@ func stop() -> void:
 	_go("", 0.0, FADE)
 
 
-func is_ready(tname: String) -> bool:
-	return _streams.has(tname)
-
-
 # ===================== lecture / fondus =====================
 
 func _go(tname: String, from: float, fade: float) -> void:

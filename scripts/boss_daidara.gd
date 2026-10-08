@@ -584,8 +584,7 @@ func _seg_t(p: Vector3, a: Vector3, b: Vector3) -> float:
 
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var q := a + (b - a) * _seg_t(p, a, b)
-	return Vector2(p.x - q.x, p.z - q.z).length()
+	return Toon.seg_dist_xz(p, a, b)
 
 
 func _damage(d: float) -> void:

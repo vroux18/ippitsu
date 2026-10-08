@@ -108,16 +108,6 @@ static func simplify(points: PackedVector3Array, tolerance: float) -> PackedVect
 	return out
 
 
-## Vrai si deux segments non adjacents se croisent (strictement).
-static func self_intersects(points: PackedVector3Array) -> bool:
-	var n := points.size()
-	for i in range(n - 1):
-		for j in range(i + 2, n - 1):
-			if _seg_hit(points[i], points[i + 1], points[j], points[j + 1]) >= 0.0:
-				return true
-	return false
-
-
 ## Angle de rotation signé cumulé (degrés) le long de la polyligne, dans le plan XZ.
 static func turning_deg(points: PackedVector3Array) -> float:
 	var total := 0.0
@@ -361,12 +351,6 @@ static func _flat_dir(v: Vector3) -> Vector3:
 const FIG_NAMES := {"enso": "un ensō", "loop": "une boucle", "return": "un aller-retour", "zigzag": "un zigzag", "straight": "un trait droit", "hook": "un crochet"}
 const NEAR_MIN := 0.35  # sous ce score : trait simple, aucune figure en vue
 const ZZ_SOFT := 50.0   # virage mou : presque un angle de zigzag
-
-
-## Pourquoi le trait n'est pas une figure, en une phrase (vide s'il est reconnu).
-## Ex. : « Presque un ensō : cercle trop ouvert ».
-static func explain(points: PackedVector3Array) -> String:
-	return describe(near_miss(points))
 
 
 ## Phrase d'un résultat de near_miss() (vide si le trait est reconnu).

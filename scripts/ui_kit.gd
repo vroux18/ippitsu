@@ -1,6 +1,7 @@
 extends RefCounted
 ## Petits outils partagés par les écrans dessinés : polices, texte sans macrons, horloge réelle,
-## courbe d'arrivée, texte centré et StyleBoxFlat réutilisée.
+## courbe d'arrivée, texte centré, coupe de lignes, StyleBoxFlat réutilisée, pictogrammes (glyph,
+## pouvoirs, figures, estampes) et aire de polygone.
 
 const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
@@ -973,6 +974,24 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 		_:
 			if name != "ink":
 				glyph(ci, "ink", c, r, col, bg, a)
+
+
+## Coupe `txt` en lignes d'au plus `width` pixels, mot à mot ; les mots de `glue` (ponctuation)
+## ne commencent jamais une ligne.
+static func wrap(font: Font, txt: String, fs: int, width: float, glue: Array) -> PackedStringArray:
+	var out := PackedStringArray()
+	var cur := ""
+	for word in txt.split(" ", false):
+		var wd := String(word)
+		var trial: String = wd if cur == "" else cur + " " + wd
+		if cur != "" and not (wd in glue) and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > width:
+			out.append(cur)
+			cur = wd
+		else:
+			cur = trial
+	if cur != "":
+		out.append(cur)
+	return out
 
 
 ## Aire d'un polygone (formule du lacet) : sert à sauter les morceaux trop fins avant de les dessiner

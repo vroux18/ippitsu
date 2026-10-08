@@ -323,12 +323,7 @@ func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var seg := b - a
-	var t := 0.0
-	if seg.length_squared() > 0.0001:
-		t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
-	var q := a + seg * t
-	return Vector2(p.x - q.x, p.z - q.z).length()
+	return Toon.seg_dist_xz(p, a, b)
 
 
 func _damage(d: float) -> void:

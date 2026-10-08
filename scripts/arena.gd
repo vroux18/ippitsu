@@ -1,6 +1,8 @@
 extends Node3D
-## Une salle : sa forme jouable (union de rectangles), son sol selon le monde, son décor
-## et le torii de sortie qui s'allume quand la salle est vidée.
+## Terrain de jeu, en trois formes : étape longue (build_stage : tronçons empilés vers le fond, zones de combat
+## fermées par des haies sacrées, recoins), arène unique (build_room : gardien et boss, formes LAYOUTS)
+## et sanctuaire de départ (build_hub : place, dojo, torii). Chaque forme jouable est une union de rectangles,
+## avec son sol selon le monde, son décor et le torii de sortie qui s'allume quand le combat est fini.
 ## Le vide (eau, lave, encre…) se comporte comme un trou : on peut tracer au-dessus, pas y finir.
 
 const Toon = preload("res://scripts/toon.gd")
@@ -672,13 +674,13 @@ func _st_ring_v(st: SurfaceTool, ring: Array, q: int) -> void:
 
 
 ## Brume d'encre : trois voiles inclinés vers l'arrière, opacité en dégradé (bas doux, haut nul, bords fondus).
-func _bar_mist_mesh(pieces: Array) -> ArrayMesh:
+func _bar_mist_mesh(runs: Array) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var layers: Array = [[1.05, -0.14, 1.0], [1.4, -0.34, 0.75], [1.75, -0.56, 0.55]]  # hauteur, recul, opacité
 	var rows: Array = [0.0, 0.3, 1.0]
 	var row_a: Array = [0.5, 1.0, 0.0]
-	for pc in pieces:
+	for pc in runs:
 		var piece: Vector2 = pc
 		for li in layers.size():
 			var ly: Array = layers[li]
@@ -2099,7 +2101,7 @@ func is_bridge(p: Vector3, margin := 0.0) -> bool:
 # ------------------------------------------------------------------ vérification
 
 ## Contrôle toutes les formes (et le hub) : dans l'arène, connexes, jonctions assez larges,
-## départ et torii sur la terre ferme (aussi en miroir), place pour les trous, surface suffisante.
+## départ et torii sur la terre ferme (aussi en miroir), surface suffisante.
 ## Renvoie la liste des problèmes (vide si tout va bien).
 static func check_layouts() -> Array:
 	var fails: Array = []
@@ -2114,17 +2116,12 @@ static func check_layouts() -> Array:
 		if rs.is_empty():
 			fails.append(tag + " : vide")
 			continue
-		var hole_ok := false
 		for r in rs:
 			var rr: Rect2 = r
 			if not box.encloses(rr):
 				fails.append("%s : %s hors de l'arène" % [tag, str(rr)])
 			if minf(rr.size.x, rr.size.y) < 1.6:
 				fails.append("%s : %s trop étroit" % [tag, str(rr)])
-			if not _is_bridge_rect(rr) and minf(rr.size.x, rr.size.y) >= 3.2:
-				hole_ok = true
-		# pas de place pour un trou : simplement moins de trous dans cette salle (pas une erreur)
-		hole_ok = hole_ok or true
 		# graphe connexe
 		var seen := {0: true}
 		var queue: Array = [0]

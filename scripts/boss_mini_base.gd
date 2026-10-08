@@ -1,5 +1,5 @@
 extends Node3D
-## Socle commun des mini-boss des mondes 2 à 5 (salle 8, voir main.MINI_BOSS).
+## Socle commun des mini-boss des mondes 2 à 5 (combat 8 = étape 4, arène du gardien ; voir main.MINI_BOSS).
 ## Interface attendue par main (identique à boss.gd) : setup(), check_dash(), take_hit(), end_stroke(),
 ## danger_at(), touching_hero(), aoe_hit(), bot_stroke() ; main.boss_killed(self) une seule fois.
 ## Les scripts enfants remplacent les fonctions « virtuelles » : _step, _zone_fire, _extra_danger,
@@ -247,22 +247,10 @@ func _clear_zones() -> void:
 	_zones.clear()
 
 
-func _has_zone(tag: String) -> bool:
-	for z: Dictionary in _zones:
-		if String(z["tag"]) == tag:
-			return true
-	return false
-
-
 # ------------------------------------------------------------------ outils
 
 func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
-	var seg := b - a
-	var t := 0.0
-	if seg.length_squared() > 0.0001:
-		t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
-	var q := a + seg * t
-	return Vector2(p.x - q.x, p.z - q.z).length()
+	return Toon.seg_dist_xz(p, a, b)
 
 
 func _flat(p: Vector3) -> Vector3:
