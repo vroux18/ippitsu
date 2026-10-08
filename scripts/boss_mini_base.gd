@@ -3,7 +3,9 @@ extends Node3D
 ## Interface attendue par main (identique à boss.gd) : setup(), check_dash(), take_hit(), end_stroke(),
 ## danger_at(), touching_hero(), aoe_hit(), bot_stroke() ; main.boss_killed(self) une seule fois.
 ## Les scripts enfants remplacent les fonctions « virtuelles » : _step, _zone_fire, _extra_danger,
-## _aoe_target, _on_die (et les fonctions d'interface dont ils ont besoin).
+## _aoe_target, _on_die, _on_shield_break, _on_shield_back (et les fonctions d'interface dont ils ont besoin).
+## Rythme bouclier → vulnérable : tant que le bouclier tient, un coup n'effleure (10 % des dégâts, un peu
+## de bouclier) ; la mécanique du boss le brise d'un coup. Brisé : sonné ~5 s, dégâts ×2, puis il se reforme.
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
@@ -11,6 +13,11 @@ const Character = preload("res://scripts/character.gd")
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 const BOT_HALF := Vector2(4.3, 8.3)  # bornes des points du robot (comme main._clamp_point)
+const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
+const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
+const CHIP_SH := 0.35  # bouclier usé par point de dégât d'un coup simple (×2 pour une figure)
+const VULN_MULT := 2.0
+const REGEN_TIME := 1.0
 
 var kind := ""
 var main: Node
@@ -35,6 +42,21 @@ var _clanged := -1
 # zones annoncées : {node, fill, shape (disc | rect | fan), c, dir, r, hx, hz, half, t, total, tag}
 var _zones: Array = []
 
+# bouclier (lu par le HUD)
+var shield := 0.0
+var shield_max := 0.0
+var vulnerable_t := 0.0
+var vulnerable_len := 5.5
+var _regen := 0.0  # recharge animée du bouclier (secondes restantes)
+var _sh_root: Node3D
+var _bubble: MeshInstance3D
+var _aura: MeshInstance3D
+var _sh_mat: StandardMaterial3D
+var _aura_mat: StandardMaterial3D
+var _sh_size := Vector3.ONE
+var _sh_pop := 0.0
+var _spark_t := -1.0
+
 
 func setup(k: String, m: Node) -> void:
 	kind = k
@@ -50,7 +72,7 @@ func check_dash(_a: Vector3, _b: Vector3, _stroke_id: int) -> bool:
 
 
 func take_hit(dmg: float, _dir: Vector3) -> void:
-	_damage(dmg)
+	_hit(dmg, _figure_hit())
 
 
 func end_stroke(_stroke_id: int) -> void:
@@ -80,7 +102,7 @@ func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
 	if at == Vector3.INF:
 		return Vector3.INF
 	var fl := _flash
-	_damage(dmg)
+	_hit(dmg)
 	if not fx:
 		_flash = fl
 	return at
@@ -115,6 +137,30 @@ func _on_die() -> void:
 	pass
 
 
+## Bouclier brisé : le boss est sonné (par défaut, ses attaques annoncées s'annulent).
+func _on_shield_break() -> void:
+	_clear_zones()
+
+
+## Fin de la fenêtre de vulnérabilité : le bouclier se reforme, le boss reprend.
+func _on_shield_back() -> void:
+	pass
+
+
+## Point au sol où se tiennent la bulle et l'aura.
+func _sh_anchor() -> Vector3:
+	return Vector3(position.x, 0, position.z)
+
+
+## Vrai quand la bulle doit se cacher (boss enfoui, sous l'eau…).
+func _sh_hidden() -> bool:
+	return false
+
+
+func _sh_yaw() -> float:
+	return 0.0
+
+
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
@@ -125,9 +171,10 @@ func _process(delta: float) -> void:
 			ch.set_flash(1.0 if _flash > 0.0 else 0.0)
 	if not dead:
 		_tick_zones(delta)
+	_shield_tick(delta)
 	_step(delta)
 	if _stars != null:
-		_stars.visible = _stun > 0.0 and not dead
+		_stars.visible = (_stun > 0.0 or vulnerable_t > 0.0) and not dead
 		_stars.rotation.y = _t * 4.0
 
 
@@ -145,6 +192,140 @@ func _damage(d: float) -> void:
 		_timer = 0.0
 		_on_die()
 		main.boss_killed(self)
+
+
+# ------------------------------------------------------------------ bouclier → vulnérable
+
+## Bouclier plein de v points ; bulle d'ellipsoïde `size` (demi-axes) centrée à la hauteur y.
+func _shield_init(v: float, size: Vector3, y: float) -> void:
+	shield_max = v
+	shield = v
+	_sh_size = size
+	_sh_root = Node3D.new()
+	_sh_root.top_level = true
+	add_child(_sh_root)
+	_sh_mat = _sh_material(Color(SHIELD_C, 0.18))
+	_aura_mat = _sh_material(Color(Toon.GOLD, 0.2))
+	_bubble = Toon.part(_sh_root, Toon.sphere(1.0), _sh_mat, Vector3(0, y, 0), size)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura = Toon.part(_sh_root, Toon.sphere(1.0), _aura_mat, Vector3(0, y, 0), size * 1.08)
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	_shield_visual(0.0)
+
+
+func _sh_material(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = c
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ? Elle use le bouclier deux fois plus.
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Coup ordinaire (trait, pouvoir) : bouclier levé, il effleure et use un peu le bouclier ; brisé, ×2.
+func _hit(d: float, strong := false) -> void:
+	if dead or d <= 0.0:
+		return
+	if vulnerable_t > 0.0:
+		_damage(d * VULN_MULT)
+		return
+	if shield_max <= 0.0:
+		_damage(d)
+		return
+	_damage(d * CHIP_HP)
+	_shield_dmg(d * CHIP_SH * (2.0 if strong else 1.0))
+
+
+## Use le bouclier de v points (mécanique du boss : gros morceaux) ; à zéro il se brise.
+func _shield_dmg(v: float) -> void:
+	if dead or v <= 0.0 or vulnerable_t > 0.0 or shield_max <= 0.0:
+		return
+	shield -= v
+	_sh_pop = 0.15
+	if _t - _spark_t > 0.2:
+		_spark_t = _t
+		main.vfx.sparks(_sh_anchor() + Vector3(0, 1.2, 0), Vector3.UP, 3 if v < 2.0 else 8, SHIELD_C)
+	if shield > 0.0:
+		return
+	if _regen > 0.0 and v < shield_max * 0.5:
+		# il se reforme : les petits coups n'y font pas de brèche avant la fin de la recharge
+		shield = shield_max * 0.05
+		return
+	_shield_break()
+
+
+func _shield_break() -> void:
+	shield = 0.0
+	_regen = 0.0
+	vulnerable_t = vulnerable_len
+	var p := _sh_anchor()
+	main.float_text(p, "BRISÉ", SHIELD_C)
+	main.float_text(p + Vector3(0, 0.9, 0), "VULNÉRABLE !", Toon.GOLD)
+	main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 2.0)
+	main.vfx.sparks(p + Vector3(0, 1.2, 0), Vector3.UP, 16, SHIELD_C)
+	main.sfx.play("strike", 1.6, -3.0)
+	main.sfx.play("torii", 1.25, -6.0)
+	main.feel("heavy")
+	main.shake = maxf(float(main.shake), 0.45)
+	_on_shield_break()
+
+
+## Bouclier remis à neuf (fin de fenêtre) : recharge animée.
+func _shield_refill() -> void:
+	vulnerable_t = 0.0
+	if shield_max <= 0.0 or dead:
+		return
+	_regen = REGEN_TIME
+	shield = maxf(shield, 0.0)
+
+
+func _shield_tick(delta: float) -> void:
+	if shield_max <= 0.0:
+		return
+	if dead:
+		vulnerable_t = 0.0
+	elif vulnerable_t > 0.0:
+		vulnerable_t -= delta
+		if vulnerable_t <= 0.0:
+			_shield_refill()
+			var p := _sh_anchor()
+			main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 1.4)
+			main.sfx.play("ink", 0.8, -6.0)
+			_on_shield_back()
+	elif _regen > 0.0:
+		_regen -= delta
+		shield = minf(shield_max, shield + shield_max * delta / REGEN_TIME)
+		if _regen <= 0.0:
+			_regen = 0.0
+			shield = shield_max
+	_shield_visual(delta)
+
+
+## Bulle bleue tant que le bouclier tient (elle gonfle en se reformant), aura dorée quand il est brisé.
+func _shield_visual(delta: float) -> void:
+	if _sh_root == null:
+		return
+	_sh_root.global_position = _sh_anchor()
+	_sh_root.rotation.y = _sh_yaw()
+	_sh_pop = maxf(0.0, _sh_pop - delta)
+	var off := dead or _sh_hidden()
+	_bubble.visible = shield > 0.0 and not off
+	if _bubble.visible:
+		var k := 1.0 if _regen <= 0.0 else clampf(1.0 - _regen / REGEN_TIME, 0.15, 1.0)
+		_bubble.scale = _sh_size * k * (1.0 + _sh_pop + 0.02 * sin(_t * 3.0))
+		_sh_mat.albedo_color = Color(SHIELD_C, 0.1 + 0.1 * clampf(shield / shield_max, 0.0, 1.0) + _sh_pop)
+	_aura.visible = vulnerable_t > 0.0 and not off
+	if _aura.visible:
+		var pulse := 0.5 + 0.5 * sin(_t * 9.0)
+		_aura.scale = _sh_size * (1.05 + 0.06 * pulse)
+		_aura_mat.albedo_color = Color(Toon.GOLD, 0.12 + 0.16 * pulse)
 
 
 # ------------------------------------------------------------------ zones annoncées (vfx partagés)

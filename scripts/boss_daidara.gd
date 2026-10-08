@@ -1,11 +1,12 @@
 extends Node3D
-## Boss du monde 4 (design/UNIVERS.md) : Daidarabotchi, colosse de lave (110 PV, ~6 m).
+## Boss du monde 4 (design/UNIVERS.md) : Daidarabotchi, colosse de lave (42 PV, ~6 m).
+## Rythme bouclier → vulnérable : la carapace de basalte est son bouclier (12). Bouclier levé, un coup
+## n'effleure (10 % des dégâts) et use un peu la carapace.
 ## Mécanique de trait : « relier les points dans l'ordre ».
 ##  Il montre 3 (ligne), puis 5 (zigzag), puis 7 (spirale) noyaux or numérotés par des encoches
 ##  sumi. Un seul trait (ruées enchaînées comprises) qui les touche tous dans l'ordre = noyau
-##  brisé : 30 dégâts, carapace ouverte 4.5 s (les coups normaux comptent), phase suivante.
-##  Hors ordre : 1 dégât par noyau touché et les noyaux se réarrangent.
-##  Le reste du temps, la roche basalte renvoie les coups (×0).
+##  brisé : toute la carapace cède, ouverte 6 s (vulnérable, dégâts ×2), puis phase suivante.
+##  Hors ordre : un éclat de carapace par noyau touché et les noyaux se réarrangent.
 ## Attaques : poing (carré 3×3, 1.3 s), pluie de cendres (6–8 zones r0.8, ~1.1 s),
 ##  crachat de lave (boules lentes, 0.9 s de lueur), souffle (cône 45° 8 m, 1.0 s) sous 30 %.
 ## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
@@ -22,9 +23,14 @@ const ASH := Color("#5A5550")
 const ROCK_FLASH := Color("#7A6A62")  # roche éclaircie au coup reçu
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 const CORE_HIT := 0.75  # distance trait-noyau pour le toucher
-const CORE_DMG := 30.0
-const OPEN_TIME := 4.5
 const POOL_R := 2.2  # bassin de lave : contact = dégâts
+const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
+const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
+const CHIP_SH := 0.35  # bouclier usé par point de dégât d'un coup simple (×2 pour une figure)
+const VULN_MULT := 2.0
+const REGEN_TIME := 1.0
+const SHIELD := 12.0
+const CORE_SH := 0.6  # éclat de carapace par noyau d'un trait raté
 const HAND_HIT := 1.0
 const HAND_REST := [Vector3(-2.7, 0.35, 2.3), Vector3(2.7, 0.35, 2.3)]  # mains posées (local)
 const SHOULDER := [Vector3(-2.1, 3.4, 0.3), Vector3(2.1, 3.4, 0.3)]
@@ -33,8 +39,8 @@ var kind := "daidara"
 var main: Node
 var hero: Node3D
 var title := "Daidarabotchi"
-var hp := 110.0
-var max_hp := 110.0
+var hp := 42.0
+var max_hp := 42.0
 var dead := false
 var max_hp_mult := 1.0  # difficulté du monde
 
@@ -70,6 +76,21 @@ var _zones: Array = []  # {kind, node, fill, c, r, t, total, dir, rock, done}
 var _fist := {}
 var _volley_t := -1.0
 
+# bouclier (lu par le HUD)
+var shield := 0.0
+var shield_max := 0.0
+var vulnerable_t := 0.0
+var vulnerable_len := 6.0
+var _regen := 0.0  # recharge animée du bouclier (secondes restantes)
+var _sh_root: Node3D
+var _bubble: MeshInstance3D
+var _aura: MeshInstance3D
+var _sh_mat: StandardMaterial3D
+var _aura_mat: StandardMaterial3D
+var _sh_size := Vector3.ONE
+var _sh_pop := 0.0
+var _spark_t := -1.0
+
 
 func setup(k: String, m: Node) -> void:
 	kind = k
@@ -80,10 +101,11 @@ func setup(k: String, m: Node) -> void:
 func _ready() -> void:
 	if position.is_zero_approx():
 		position = Vector3(0, 0, -7.5)  # au fond de l'arène
-	hp = 110.0
+	hp = 42.0
 	hp *= max_hp_mult
 	max_hp = hp
 	_build()
+	_shield_init(SHIELD, Vector3(3.3, 3.4, 2.2), 2.4)
 	rig.position.y = -6.5  # il surgit du bassin de lave
 
 
@@ -408,27 +430,22 @@ func _animate_cores(delta: float) -> void:
 
 # ------------------------------------------------------------------ interface avec main
 
-## Vrai seulement quand la carapace est ouverte (après un noyau brisé) : main applique le coup.
-## Sinon on note les noyaux touchés (dans l'ordre du trait) : le verdict tombe à end_stroke.
-## Les ruées enchaînées (nouvel id avant la fin de la ruée) prolongent le même tracé.
+## Vrai quand le trait touche le corps ou une main (une fois par trait) : main applique le coup,
+## plein (×2) carapace ouverte, effleuré sinon. On note aussi les noyaux touchés (dans l'ordre du
+## trait) : le verdict tombe à end_stroke. Les ruées enchaînées prolongent le même tracé.
 func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead or _state == "spawn" or not hero.dashing:
 		return false
 	if _run.is_empty() or int(_run["layout"]) != _layout_id:
 		_run = {"layout": _layout_id, "order": [], "bad": false, "body": false}
 	_touch_cores(a, b)
-	# le corps : basalte (×0) sauf carapace ouverte
 	var touch := _seg_dist(position + Vector3(0, 0, 0.6), a, b) < POOL_R + 0.3
 	for side in 2:
 		if _seg_dist(_hand_world(side), a, b) < HAND_HIT:
 			touch = true
-	if touch:
-		if _open > 0.0:
-			if _last_body_stroke != stroke_id:
-				_last_body_stroke = stroke_id
-				return true
-		else:
-			_run["body"] = true
+	if touch and _last_body_stroke != stroke_id:
+		_last_body_stroke = stroke_id
+		return true
 	return false
 
 
@@ -466,7 +483,7 @@ func _touch_cores(a: Vector3, b: Vector3) -> void:
 func take_hit(dmg: float, _dir: Vector3) -> void:
 	if dead:
 		return
-	_damage(dmg)
+	_hit(dmg, _figure_hit())
 
 
 ## Fin du trait : verdict sur les noyaux touchés.
@@ -485,23 +502,16 @@ func end_stroke(_stroke_id: int) -> void:
 	if int(run["layout"]) != _layout_id:
 		return
 	var order: Array = run["order"]
-	if order.is_empty():
-		if run["body"]:
-			# la lame ricoche sur le basalte
-			var bp := position + Vector3(0, 0, 2.2)
-			main.clang(bp)
-			main.float_text(bp, "×0", Toon.FOAM)
+	if order.is_empty() or _state != "fight":
 		return
 	if not run["bad"] and order.size() == _cores.size():
 		_break_cores()
 		return
-	# raté : 1 dégât par noyau touché
+	# raté : un éclat de carapace par noyau touché
 	var last: Dictionary = _cores[int(order[order.size() - 1])]
 	var lp: Vector3 = last["p"]
-	var dmg := float(order.size())
-	main.float_text(lp, str(int(dmg)), Toon.FOAM)
-	_damage(dmg)
-	if dead:
+	_shield_dmg(CORE_SH * float(order.size()))
+	if dead or _state != "fight":
 		return
 	if run["bad"]:
 		# hors ordre : les noyaux se réarrangent
@@ -551,9 +561,9 @@ func touching_hero(p: Vector3) -> bool:
 
 ## Dégâts de zone (techniques, pouvoirs) : touche la partie vulnérable la plus proche de `center` dans `radius`.
 ## Renvoie le point touché, ou Vector3.INF si rien n'est touché (boss invulnérable à cet instant, hors de portée, mort).
-## Seulement carapace ouverte (corps ou mains) : les noyaux ne se brisent qu'avec un trait dans l'ordre.
+## Corps ou mains (effleurés tant que la carapace tient) : les noyaux ne se brisent qu'avec un trait dans l'ordre.
 func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
-	if dead or _state != "open" or _open <= 0.0:
+	if dead or _state == "spawn" or _state == "dying":
 		return Vector3.INF
 	var c2 := Vector2(center.x, center.z)
 	var body := position + Vector3(0, 0, 0.6)
@@ -568,7 +578,7 @@ func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
 	if best >= radius:
 		return Vector3.INF
 	var fl := _flash
-	_damage(dmg)
+	_hit(dmg)
 	if not fx:
 		_flash = fl
 	return at
@@ -588,11 +598,15 @@ func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
 
 
 func _damage(d: float) -> void:
+	if dead or d <= 0.0:
+		return
 	hp -= d
 	_flash = 0.15
 	if hp <= 0.0:
 		hp = 0.0
 		dead = true
+		vulnerable_t = 0.0
+		_open = 0.0
 		_cancel_all()
 		_clear_cores()
 		_run = {}
@@ -603,24 +617,174 @@ func _damage(d: float) -> void:
 		_breath_ok = true
 
 
+## Tous les noyaux dans l'ordre : la carapace cède d'un coup (_shield_break ouvre le colosse).
 func _break_cores() -> void:
-	var dmg := CORE_DMG * max_hp_mult
 	var last: Dictionary = _cores[_cores.size() - 1]
 	var lp: Vector3 = last["p"]
 	for c in _cores:
 		var p: Vector3 = c["p"]
 		main.splash(p + Vector3(0, 0.8, 0), LAVA, 12)
-	_clear_cores()
 	main.big_hit(lp)
-	main.float_text(lp, str(int(dmg)), Toon.VERMILION)
-	_damage(dmg)
-	if dead:
+	main.float_text(lp, "%d / %d" % [_cores.size(), _cores.size()], SHIELD_C)
+	_shield_dmg(shield_max)
+
+
+# ------------------------------------------------------------------ bouclier → vulnérable
+
+## Bouclier plein de v points ; bulle d'ellipsoïde `size` (demi-axes) centrée à la hauteur y.
+func _shield_init(v: float, size: Vector3, y: float) -> void:
+	shield_max = v
+	shield = v
+	_sh_size = size
+	_sh_root = Node3D.new()
+	_sh_root.top_level = true
+	add_child(_sh_root)
+	_sh_mat = _sh_material(Color(SHIELD_C, 0.18))
+	_aura_mat = _sh_material(Color(Toon.GOLD, 0.2))
+	_bubble = Toon.part(_sh_root, Toon.sphere(1.0), _sh_mat, Vector3(0, y, 0), size)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura = Toon.part(_sh_root, Toon.sphere(1.0), _aura_mat, Vector3(0, y, 0), size * 1.08)
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	_shield_visual(0.0)
+
+
+func _sh_material(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = c
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
+## Point au sol devant le torse (textes, anneaux).
+func _sh_anchor() -> Vector3:
+	return Vector3(position.x, 0, position.z + 1.2)
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ? Elle use le bouclier deux fois plus.
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Coup ordinaire (trait, pouvoir) : carapace fermée, il effleure et l'use un peu ; ouverte, ×2.
+func _hit(d: float, strong := false) -> void:
+	if dead or d <= 0.0:
 		return
-	# le colosse chancelle : carapace ouverte, attaques annulées
-	_cancel_all()
-	_open = OPEN_TIME
-	_state = "open"
+	if vulnerable_t > 0.0:
+		_damage(d * VULN_MULT)
+		return
+	if shield_max <= 0.0:
+		_damage(d)
+		return
+	_damage(d * CHIP_HP)
+	_shield_dmg(d * CHIP_SH * (2.0 if strong else 1.0))
+
+
+## Use la carapace de v points (mécanique du boss : gros morceaux) ; à zéro elle s'ouvre.
+func _shield_dmg(v: float) -> void:
+	if dead or v <= 0.0 or vulnerable_t > 0.0 or shield_max <= 0.0 or _state != "fight":
+		return
+	shield -= v
+	_sh_pop = 0.15
+	if _t - _spark_t > 0.2:
+		_spark_t = _t
+		main.vfx.sparks(position + Vector3(0, 2.6, 1.6), Vector3.UP, 3 if v < 2.0 else 8, SHIELD_C)
+	if shield > 0.0:
+		return
+	if _regen > 0.0 and v < shield_max * 0.5:
+		# elle se reforme : les petits coups n'y font pas de brèche avant la fin de la recharge
+		shield = shield_max * 0.05
+		return
+	_shield_break()
+
+
+## Carapace brisée : le colosse chancelle, ouvert, attaques annulées.
+func _shield_break() -> void:
+	shield = 0.0
+	_regen = 0.0
+	vulnerable_t = vulnerable_len
+	var p := _sh_anchor()
+	main.float_text(p, "BRISÉ", SHIELD_C)
+	main.float_text(p + Vector3(0, 0.9, 0), "VULNÉRABLE !", Toon.GOLD)
+	main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 3.0)
+	main.vfx.sparks(position + Vector3(0, 2.6, 1.6), Vector3.UP, 18, SHIELD_C)
+	main.sfx.play("strike", 1.3, -3.0)
+	main.sfx.play("torii", 1.25, -6.0)
+	main.feel("heavy")
 	main.shake = maxf(float(main.shake), 0.6)
+	_clear_cores()
+	_run = {}
+	_cancel_all()
+	_open = vulnerable_t
+	_state = "open"
+
+
+## Fin de la fenêtre : la carapace se referme, phase suivante, nouveaux noyaux.
+func _on_shield_back() -> void:
+	_open = 0.0
+	if _state != "open":
+		return
+	if _phase < 3:
+		_phase += 1
+		main.spawn_minions(["oni", "oni"] if _phase == 2 else ["brute", "oni", "oni"])
+	else:
+		main.spawn_minions(["oni", "oni"])
+	_state = "fight"
+	_atk_cd = 1.4
+	_new_layout()
+
+
+## Carapace remise à neuf : recharge animée.
+func _shield_refill() -> void:
+	vulnerable_t = 0.0
+	if shield_max <= 0.0 or dead:
+		return
+	_regen = REGEN_TIME
+	shield = maxf(shield, 0.0)
+
+
+func _shield_tick(delta: float) -> void:
+	if shield_max <= 0.0:
+		return
+	if dead:
+		vulnerable_t = 0.0
+	elif vulnerable_t > 0.0:
+		vulnerable_t -= delta
+		if vulnerable_t <= 0.0:
+			_shield_refill()
+			var p := _sh_anchor()
+			main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 2.4)
+			main.sfx.play("ink", 0.7, -6.0)
+			_on_shield_back()
+	elif _regen > 0.0:
+		_regen -= delta
+		shield = minf(shield_max, shield + shield_max * delta / REGEN_TIME)
+		if _regen <= 0.0:
+			_regen = 0.0
+			shield = shield_max
+	_shield_visual(delta)
+
+
+## Bulle bleue autour du colosse tant que la carapace tient, aura dorée quand elle est ouverte.
+func _shield_visual(delta: float) -> void:
+	if _sh_root == null:
+		return
+	_sh_root.global_position = global_position + Vector3(0, rig.position.y, 0.4)
+	_sh_pop = maxf(0.0, _sh_pop - delta)
+	var off := dead or _state == "spawn"
+	_bubble.visible = shield > 0.0 and not off
+	if _bubble.visible:
+		var k := 1.0 if _regen <= 0.0 else clampf(1.0 - _regen / REGEN_TIME, 0.15, 1.0)
+		_bubble.scale = _sh_size * k * (1.0 + _sh_pop * 0.5 + 0.01 * sin(_t * 3.0))
+		_sh_mat.albedo_color = Color(SHIELD_C, 0.08 + 0.08 * clampf(shield / shield_max, 0.0, 1.0) + _sh_pop)
+	_aura.visible = vulnerable_t > 0.0 and not off
+	if _aura.visible:
+		var pulse := 0.5 + 0.5 * sin(_t * 9.0)
+		_aura.scale = _sh_size * (1.03 + 0.04 * pulse)
+		_aura_mat.albedo_color = Color(Toon.GOLD, 0.1 + 0.12 * pulse)
 
 
 # ------------------------------------------------------------------ zones annoncées
@@ -887,6 +1051,7 @@ func _process(delta: float) -> void:
 	if _flash > 0.0:
 		_flash -= delta
 		_rock_mat.albedo_color = ROCK_FLASH if _flash > 0.0 else BASALT
+	_shield_tick(delta)
 	_update_zones(delta)
 	_update_fist(delta)
 	_animate_cores(delta)
@@ -914,20 +1079,10 @@ func _process(delta: float) -> void:
 				if _atk_cd <= 0.0:
 					_choose_attack()
 		"open":
-			# carapace ouverte : la lave suinte, les coups normaux portent
-			_open -= delta
+			# carapace ouverte : la lave suinte, les coups portent ×2 (la fin de la fenêtre : _on_shield_back)
+			_open = vulnerable_t
 			if fmod(_t, 0.25) < delta:
 				main.splash(position + Vector3(randf_range(-1.5, 1.5), randf_range(1.5, 3.5), 1.4), LAVA, 4)
-			if _open <= 0.0:
-				_open = 0.0
-				if _phase < 3:
-					_phase += 1
-					main.spawn_minions(["oni", "oni"] if _phase == 2 else ["brute", "oni", "oni"])
-				else:
-					main.spawn_minions(["oni", "oni"])
-				_state = "fight"
-				_atk_cd = 1.4
-				_new_layout()
 		"dying":
 			_timer += delta
 			rig.position.x = sin(_t * 40.0) * 0.08 * clampf(1.0 - _timer / 3.0, 0.0, 1.0)

@@ -76,8 +76,8 @@ jobs:
 
       - name: Musique (fabriquée une fois, en OGG)
         run: |
-          godot --headless --path . --script tools/bake_music.gd
-          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          timeout 300 godot --headless --path . --script tools/bake_music.gd || timeout 300 godot --headless --path . --script tools/bake_music.gd
+          which ffmpeg || (timeout 240 sudo apt-get update -qq; timeout 240 sudo apt-get install -y -qq ffmpeg)
           for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
           ls -la assets/music
           du -ch assets/music/*.ogg | tail -1
@@ -191,10 +191,10 @@ jobs:
         run: |
           echo "$HOME/godot-bin" >> $GITHUB_PATH
           export PATH="$HOME/godot-bin:$PATH"
-          godot --headless --path . --script tools/bake_music.gd
-          which ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+          timeout 300 godot --headless --path . --script tools/bake_music.gd || timeout 300 godot --headless --path . --script tools/bake_music.gd
+          which ffmpeg || (timeout 240 sudo apt-get update -qq; timeout 240 sudo apt-get install -y -qq ffmpeg)
           for f in assets/music/*.wav; do ffmpeg -loglevel error -y -i "$f" -ac 1 -c:a libvorbis -q:a 2 "${f%.wav}.ogg"; rm "$f"; done
-          godot --headless --path . --import || true
+          timeout 300 godot --headless --path . --import || timeout 300 godot --headless --path . --import || true
 
       - name: Robot ${{ matrix.mode }} (graine ${{ matrix.seed }})
         run: |

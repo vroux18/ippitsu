@@ -4,6 +4,7 @@ extends Node3D
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
 const MODEL = preload("res://assets/kaykit/Rogue_Hooded.glb")
+const CAPE_TEX = preload("res://assets/kaykit/tex/rogue_cape.png")
 
 signal dash_finished
 signal landed  # fin d'un bond (ensō)
@@ -47,7 +48,7 @@ func _ready() -> void:
 	ch = Character.new()
 	body.add_child(ch)
 	ch.setup(MODEL, 1.75, [
-		["Cape", load("res://assets/kaykit/tex/rogue_cape.png")],
+		["Cape", CAPE_TEX],
 		["Rogue", load("res://assets/kaykit/tex/rogue_ink.png")],
 	], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
 	ch.attach("handslot.r", _katana())
@@ -212,17 +213,23 @@ func _process(delta: float) -> void:
 
 
 ## Apparence choisie à l'Atelier (meta.apply_run_start) : couleur de l'écharpe (cape), sillage de lame.
+## Rappelée à chaud par la garde-robe : sans écharpe portée, la cape retrouve sa texture d'origine.
 func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
-	if cape_on and ch != null and ch.model != null:
+	if ch != null and ch.model != null:
 		for n in ch.model.find_children("*", "MeshInstance3D", true, false):
 			var mi := n as MeshInstance3D
 			if mi == null or mi.mesh == null or not ("Cape" in String(mi.name)):
 				continue
 			for i in mi.mesh.get_surface_count():
 				var m := mi.get_surface_override_material(i) as StandardMaterial3D
-				if m != null:
+				if m == null:
+					continue
+				if cape_on:
 					m.albedo_texture = null
 					m.albedo_color = cape
+				else:
+					m.albedo_texture = CAPE_TEX
+					m.albedo_color = Color.WHITE
 	if is_instance_valid(_trail):
 		_trail.queue_free()
 	_trail = null
@@ -238,6 +245,23 @@ func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
 		mat.vertex_color_use_as_albedo = true
 		_trail.material_override = mat
 		add_child(_trail)
+
+
+## Tenue de la garde-robe : atlas recoloré (corps, bras, jambes, capuche), la cape garde le sien.
+func set_outfit(tex: Texture2D) -> void:
+	if tex == null or ch == null or ch.model == null:
+		return
+	for n in ch.model.find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi == null or mi.mesh == null or not mi.visible:
+			continue
+		var nm := String(mi.name)
+		if not ("Rogue" in nm) or "Cape" in nm or "Eyes" in nm:
+			continue
+		for i in mi.mesh.get_surface_count():
+			var m := mi.get_surface_override_material(i) as StandardMaterial3D
+			if m != null:
+				m.albedo_texture = tex
 
 
 ## Ruban vertical à hauteur de lame, qui s'efface en TRAIL_LIFE secondes.

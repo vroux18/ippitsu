@@ -1,12 +1,12 @@
 extends "res://scripts/boss_mini_base.gd"
-## Mini-boss du monde 3 (Cent Contes) — Yuki-onna, la femme des neiges (22 PV × monde), flotte.
-##  Un voile de givre la protège : la lame ricoche (×0).
+## Mini-boss du monde 3 (Cent Contes) — Yuki-onna, la femme des neiges (24 PV × monde), flotte.
+##  Le voile de givre est son bouclier (10) : un coup ne fait qu'effleurer.
 ##  Souffle glacé : cône 70° sur 6 m annoncé 1.1 s. Il laisse un SENTIER DE GIVRE de 5 cristaux,
 ##  du plus petit (loin d'elle) au plus grand (à ses pieds), pendant 4.5 s.
 ##  Mécanique de trait : trancher les cristaux DANS L'ORDRE, du petit au grand, en un seul trait
-##  (au moins 4 dans l'ordre) brise le voile : 7 dmg, figée 3 s (vulnérable). Dans le désordre
-##  (2 cristaux ou plus) : 1 dmg par cristal et le sentier fond. Prépare la colonne de Gashadokuro.
-##  Puis : salve de 3 boules de neige (lueur 0.7 s).
+##  (au moins 4 dans l'ordre) brise tout le voile : figée 5.5 s, vulnérable (dégâts ×2). Dans le
+##  désordre (2 cristaux ou plus) : un éclat de voile par cristal et le sentier fond.
+##  Prépare la colonne de Gashadokuro. Puis : salve de 3 boules de neige (lueur 0.7 s).
 
 const MAGE = preload("res://assets/kaykit/Skeleton_Mage.glb")
 const ICE := Color("#BFD6E3")
@@ -17,8 +17,8 @@ const CRYS_NEAR := 1.5  # distance du plus grand cristal
 const CRYS_STEP := 1.1
 const CRYS_HIT := 0.8  # distance trait-cristal pour le toucher
 const ORDER_MIN := 4
-const SHATTER_DMG := 7.0
-const FROZEN_TIME := 3.0
+const SHIELD := 10.0
+const CRYS_CHIP := 0.8  # voile ébréché par cristal pris dans le désordre
 const BREATH_HALF := 0.61  # 35° de part et d'autre
 const BREATH_LEN := 6.0
 const BREATH_TELE := 1.1
@@ -37,10 +37,11 @@ var _death_played := false
 
 func _ready() -> void:
 	title = "Yuki-onna"
-	hp = 22.0 * max_hp_mult
+	hp = 24.0 * max_hp_mult
 	max_hp = hp
 	radius = 0.8
 	_build()
+	_shield_init(SHIELD, Vector3(1.15, 1.6, 1.15), 1.35)
 	_state = "spawn"
 	_timer = 1.2
 
@@ -138,18 +139,12 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		return false
 	if _state == "path" and hero.dashing:
 		_crys_touch(a, b)
-	if _state == "frozen":
-		if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.55:
-			_last_stroke = stroke_id
-			return true
+	if _state == "spawn" or _state == "dying":
 		return false
-	if _state == "spawn":
-		return false
-	# voile de givre : la lame ricoche (sauf si le trait suit le sentier, jugé en fin de trait)
-	if _order.is_empty() and _clanged != stroke_id and _seg_dist(position, a, b) < radius + 0.5:
-		_clanged = stroke_id
-		main.clang(position + Vector3(0, 1.2, 0))
-		main.float_text(position, "×0", Toon.FOAM)
+	# figée : coup plein (×2) ; sous le voile de givre : il effleure et use le voile
+	if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.55:
+		_last_stroke = stroke_id
+		return true
 	return false
 
 
@@ -170,20 +165,17 @@ func end_stroke(_stroke_id: int) -> void:
 	if _lis(order) >= ORDER_MIN:
 		_shatter()
 		return
-	# dans le désordre : le givre se brise sans atteindre le voile
+	# dans le désordre : le givre se brise, le voile n'est qu'ébréché
 	var last: Dictionary = _crys[int(order[order.size() - 1])]
 	var lp: Vector3 = last["pos"]
-	main.float_text(lp + Vector3(0, 0.6, 0), str(order.size()), Toon.FOAM)
 	main.clang(lp)
-	_damage(float(order.size()))
-	if dead:
-		return
 	_clear_path(false)
 	_start_volley()
+	_shield_dmg(CRYS_CHIP * float(order.size()))
 
 
 func _aoe_target(center: Vector3, reach: float) -> Vector3:
-	if _state != "frozen":
+	if _state == "spawn" or _state == "dying":
 		return Vector3.INF
 	if Vector2(position.x - center.x, position.z - center.z).length() >= reach + radius:
 		return Vector3.INF
@@ -209,6 +201,25 @@ func _zone_fire(z: Dictionary) -> void:
 func _on_die() -> void:
 	_clear_path(true)
 	_veil.visible = false
+
+
+## Voile brisé : figée, plus d'attaque jusqu'à la fin de la fenêtre.
+func _on_shield_break() -> void:
+	_clear_zones()
+	_clear_path(true)
+	_state = "frozen"
+	_glow = 0.3
+	_veil.visible = false
+	ch.play_once("Hit_A", 1.2)
+
+
+func _on_shield_back() -> void:
+	if _state != "frozen":
+		return
+	_state = "reform"
+	_timer = 0.6
+	_veil.visible = true
+	_veil.scale = Vector3.ONE * 0.05
 
 
 # ------------------------------------------------------------------ boucle
@@ -263,13 +274,8 @@ func _step(delta: float) -> void:
 				_state = "drift"
 				_timer = 1.6 if hp > max_hp * 0.5 else 1.1
 		"frozen":
-			_stun -= delta
-			if _stun <= 0.0:
-				_stun = 0.0
-				_state = "reform"
-				_timer = 0.6
-				_veil.visible = true
-				_veil.scale = Vector3.ONE * 0.05
+			# figée : la fin de la fenêtre (vulnerable_t) reforme le voile (_on_shield_back)
+			pass
 		"reform":
 			_timer -= delta
 			_veil.scale = Vector3.ONE * clampf(1.0 - _timer / 0.6, 0.05, 1.0)
@@ -298,19 +304,13 @@ func _start_volley() -> void:
 	ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / VOLLEY_TELE)
 
 
+## Le sentier pris dans l'ordre brise tout le voile.
 func _shatter() -> void:
-	var d := SHATTER_DMG * max_hp_mult
-	_clear_path(true)
-	_state = "frozen"
-	_stun = FROZEN_TIME
-	_glow = 0.3
-	_veil.visible = false
-	main.float_text(position + Vector3(0, 0.8, 0), "雪 " + str(roundi(d)), Toon.GOLD)
+	main.float_text(position + Vector3(0, 1.6, 0), "雪", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.0, 0))
 	main.splash(position + Vector3(0, 1.4, 0), ICE, 30)
 	main.shake = maxf(float(main.shake), 0.45)
-	ch.play_once("Hit_A", 1.2)
-	_damage(d)
+	_shield_dmg(shield_max)
 
 
 func _crys_touch(a: Vector3, b: Vector3) -> void:
@@ -364,7 +364,7 @@ func _animate(delta: float) -> void:
 # ------------------------------------------------------------------ robot testeur
 
 ## Sentier : placement au-delà du petit cristal (en les contournant), puis trait du petit au grand
-## qui finit à travers elle. Figée : iaï à travers.
+## qui finit à travers elle (le voile tombe). Figée (vulnérable) : iaï à travers, encore et encore.
 func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var none := PackedVector3Array()
 	if dead:
@@ -372,7 +372,7 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var h := Vector3(hero_pos.x, 0, hero_pos.z)
 	var me := Vector3(position.x, 0, position.z)
 	if _state == "frozen":
-		if _stun < 0.3:
+		if vulnerable_t < 0.3:
 			return none
 		return _bot_line(h, me, 7.3)
 	if _state != "path" or _crys.size() < 2 or _timer < 0.4:

@@ -32,6 +32,8 @@ func run() -> void:
 		await _recover()
 	if not await _step_atelier():
 		await _recover()
+	if not await _step_wardrobe():
+		await _recover()
 	if not await _step_dojo():
 		await _recover()
 	for w in range(1, 6):
@@ -138,8 +140,9 @@ func _recover() -> void:
 	bot.guard_all = true
 	main.meta.intro_done = true
 	main.meta.tuto_done = true
-	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker]:
+	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker, main.wardrobe]:
 		c.visible = false
+	main._wardrobe_on = false
 	main.tuto.abort_dojo()
 	if bool(main.tuto.visible):
 		main.tuto.visible = false
@@ -560,6 +563,65 @@ func _step_atelier() -> bool:
 	return true
 
 
+# ------------------------------------------------------------------ garde-robe
+
+## Toucher une cible de la garde-robe (onglet, élément) à son rectangle, sinon par la même suite.
+func _wd_tap(key: String) -> void:
+	var wd = main.wardrobe
+	await _frame()
+	var r := Rect2()
+	for hr in wd._hits:
+		if String(hr[1]) == key:
+			r = hr[0]
+	if r.has_area() and String(wd._target_at(r.get_center())) == key:
+		_tap(wd, r.get_center())
+	else:
+		wd.tap(key)
+	await _frames(2)
+
+
+## Garde-robe : tenue achetée à l'encre et portée, une apparence par type (écharpe, sillage, encre),
+## thème Nuit acheté et appliqué à l'accueil, retour au Washi, puis RETOUR.
+func _step_wardrobe() -> bool:
+	var meta = main.meta
+	var wd = main.wardrobe
+	meta.sumi = maxi(int(meta.sumi), 5000)
+	main.menu.sumi = meta.sumi
+	await _press(main.menu._wardrobe, "GARDE-ROBE")
+	if not await _until(func(): return bool(wd.visible) and float(wd._t) >= 0.4 and wd._hits.size() > 0, "GARDE-ROBE ouvre la garde-robe"):
+		return false
+	_ok("garde-robe ouverte")
+	await _wd_tap("tab:0")
+	var oid := "kaki"
+	if not bool(meta.cosmetic_owned("outfit", oid)):
+		await _wd_tap("item:" + oid)
+		await _press(wd._buy, "ACHETER")
+	else:
+		await _wd_tap("item:" + oid)
+	_check(String(meta.outfit) == oid and bool(meta.cosmetic_owned("outfit", oid)), "garde-robe : tenue %s achetée et portée" % oid, "tenue %s" % String(meta.outfit))
+	for i in range(1, 4):
+		var kind := String(wd.CATS[i])
+		await _wd_tap("tab:%d" % i)
+		var ids: Array = meta.cosmetic_ids(kind)
+		var pid := String(ids[ids.size() - 1])
+		meta._grant(pid)
+		await _wd_tap("item:" + pid)
+		_check(bool(meta.cosmetic_worn(kind, pid)), "garde-robe : %s porté (%s)" % [kind, pid], "non porté")
+	await _wd_tap("tab:4")
+	await _wd_tap("item:nuit")
+	if not bool(meta.cosmetic_owned("theme", "nuit")):
+		await _press(wd._buy, "ACHETER")
+	var nuit: Dictionary = Meta.THEMES["nuit"]
+	_check(String(meta.theme) == "nuit" and main.menu.th_paper == nuit["paper"], "garde-robe : thème Nuit appliqué", "thème %s" % String(meta.theme))
+	await _wd_tap("item:washi")
+	_check(String(meta.theme) == "washi", "garde-robe : retour au thème Washi", "thème %s" % String(meta.theme))
+	await _press(wd._back, "RETOUR")
+	if not await _until(func(): return not bool(wd.visible) and String(main.state) == "menu" and bool(main.menu.visible), "garde-robe : RETOUR -> accueil"):
+		return false
+	_ok("garde-robe : RETOUR")
+	return true
+
+
 # ------------------------------------------------------------------ dojo
 
 ## Dojo : entrée depuis l'accueil, quelques figures et traits ratés (verdict), un trait à travers trois
@@ -664,6 +726,7 @@ func _step_world(w: int) -> bool:
 	if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "JOUER -> barque -> carte des mondes"):
 		return false
 	_ok("monde %d : barque et carte des mondes" % w)
+	_check(not bool(main.arena._room_root.visible), "monde %d : accueil sans plateau (décor seul)" % w, "salle visible sous la carte")
 	if w == 1:
 		# la maison ramène à l'accueil, puis on rouvre la carte
 		await _until(func(): return float(wm._t) >= 0.4, "carte prête")
@@ -696,6 +759,7 @@ func _step_world(w: int) -> bool:
 	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "entrée du monde %d -> sanctuaire de départ" % w):
 		return false
 	_ok("monde %d : plan d'entrée puis sanctuaire" % w)
+	_check(bool(main.arena._room_root.visible), "monde %d : sanctuaire affiché en jeu" % w, "salle cachée en jeu")
 	if w == 1:
 		await _step_run()  # course au doigt posé, dans le sanctuaire (hors combat)
 	if not await _transit_to_room1(w):

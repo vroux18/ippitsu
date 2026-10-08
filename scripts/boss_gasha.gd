@@ -1,11 +1,15 @@
 extends Node3D
-## Boss du monde 3 (Cent Contes, design/UNIVERS.md) — Gashadokuro, squelette géant (90 PV).
-##  Buste qui sort du sol au fond de l'arène (z ≈ -7), deux mains de 15 PV :
+## Boss du monde 3 (Cent Contes, design/UNIVERS.md) — Gashadokuro, squelette géant (32 PV).
+## Rythme bouclier → vulnérable : une gangue de givre (bouclier 12) ; bouclier levé, un coup
+## n'effleure (10 % des dégâts) et use un peu la gangue ; brisée, il est vulnérable 6 s (×2), puis elle se reforme.
+##  Buste qui sort du sol au fond de l'arène (z ≈ -7), deux mains (2 PV de main chacune) :
 ##   - Écrasement : rectangle 2×3 m annoncé 1.2 s, la main reste 2 s au sol → tranchable.
 ##   - Balayage : bande sur toute la largeur annoncée 1.0 s (se remplit depuis le côté de la main).
-##  Les coups sur une main entament aussi le boss. Les deux mains détruites : le buste s'effondre
+##  Une main brisée arrache 3 de bouclier. Les deux mains détruites : le buste s'effondre
 ##  vers l'avant (annoncé), la colonne forme 9 vertèbres lumineuses (queue → crâne).
-##  Un trait qui en passe ≥ 6 dans l'ordre = 25 dégâts, sinon 1 par vertèbre. Mains repoussent (60 %).
+##  Un trait qui en passe ≥ 6 dans l'ordre brise toute la gangue : effondré et vulnérable, chaque coup
+##  sur la colonne porte. Dans le désordre : un éclat par vertèbre. Mains repoussent ensuite.
+##  (Gangue brisée debout, à force de coups : il s'effondre aussitôt.)
 ##  Phase ≤ 40 % : pluie de stèles (5 zones r1.0 décalées de 0.3 s).
 ## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 ## Tous les visuels vivent sous `_rig` (top_level) : `position` du nœud racine sert seulement de
@@ -27,8 +31,7 @@ const FALLEN := 1.45  # inclinaison une fois effondré
 const VERTS := 9
 const V_R := 0.32
 const SPINE_MIN := 6
-const SPINE_DMG := 25.0
-const HAND_HP := 15.0
+const HAND_HP := 2.0
 const HAND_R := 1.2
 const HAND_SCALE := 1.35
 const HAND_OFF := 0.6  # le centre de l'empreinte est devant l'origine de la main
@@ -43,13 +46,21 @@ const FALL_TIME := 0.35
 const DOWN_TIME := 8.0
 const REGROW_TIME := 1.4
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
+const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
+const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
+const CHIP_SH := 0.35  # bouclier usé par point de dégât d'un coup simple (×2 pour une figure)
+const VULN_MULT := 2.0
+const REGEN_TIME := 1.0
+const SHIELD := 12.0
+const HAND_SH := 3.0  # bouclier arraché par main brisée
+const VERT_SH := 0.5  # éclat par vertèbre prise dans le désordre
 
 var kind := "gashadokuro"
 var main: Node
 var hero: Node3D
 var title := "Gashadokuro"
-var hp := 90.0
-var max_hp := 90.0
+var hp := 32.0
+var max_hp := 32.0
 var dead := false
 var max_hp_mult := 1.0  # difficulté du monde
 
@@ -99,6 +110,22 @@ var _spine_order: Array = []  # indices dans l'ordre de passage
 var _spine_seen := {}  # {indice: true}
 var _lit := {}
 var _clanged := false
+var _vuln_stroke := -1  # dernier trait qui a porté sur la colonne (vulnérable)
+
+# bouclier (lu par le HUD)
+var shield := 0.0
+var shield_max := 0.0
+var vulnerable_t := 0.0
+var vulnerable_len := 6.0
+var _regen := 0.0  # recharge animée du bouclier (secondes restantes)
+var _sh_root: Node3D
+var _bubble: MeshInstance3D
+var _aura: MeshInstance3D
+var _sh_mat: StandardMaterial3D
+var _aura_mat: StandardMaterial3D
+var _sh_size := Vector3.ONE
+var _sh_pop := 0.0
+var _spark_t := -1.0
 
 
 func setup(k: String, m: Node) -> void:
@@ -108,11 +135,12 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	hp = 90.0
+	hp = 32.0
 	hp *= max_hp_mult
 	max_hp = hp
-	_hand_hp_max = HAND_HP * max_hp_mult
+	_hand_hp_max = HAND_HP
 	_build()
+	_shield_init(SHIELD, Vector3(1.6, 1.5, 1.6), 0.2)
 	_state = "rise"
 	_timer = 0.0
 	_apply_pose()
@@ -292,8 +320,25 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		return false
 	if _state == "down":
 		# hors ruée (image qui suit la fin du trait, bond d'ensō) : rien ne compte
-		if hero.dashing:
-			_spine_touch(a, b)
+		if not hero.dashing:
+			return false
+		if vulnerable_t > 0.0:
+			# gangue brisée : chaque trait qui touche la colonne (ou le crâne) porte
+			if _vuln_stroke == stroke_id:
+				return false
+			var pts: Array = [_skull.global_position]
+			for lamp in _vert_lamps:
+				var ln: Node3D = lamp
+				pts.append(ln.global_position)
+			for p in pts:
+				var q: Vector3 = p
+				if _seg_dist(q, a, b) < V_R + 0.6:
+					_vuln_stroke = stroke_id
+					_pending = -1
+					position = Vector3(q.x, 0, q.z)
+					return true
+			return false
+		_spine_touch(a, b)
 		return false
 	if _state == "slam_down" and _active >= 0:
 		var h: Dictionary = _hands[_active]
@@ -312,25 +357,25 @@ func take_hit(dmg: float, _dir: Vector3) -> void:
 	var idx := _pending
 	_pending = -1
 	if idx < 0:
-		_damage(dmg)
+		_hit(dmg, _figure_hit())
 		return
 	var h: Dictionary = _hands[idx]
 	if not h["alive"]:
 		return
 	h["hp"] = float(h["hp"]) - dmg
 	h["flash"] = 0.15
-	# chaque coup sur une main entame aussi le squelette
-	_damage(dmg)
+	# chaque coup sur une main effleure aussi le squelette (et use sa gangue)
+	_hit(dmg, _figure_hit())
 	if dead:
 		return
-	if float(h["hp"]) <= 0.0:
+	if float(h["hp"]) <= 0.0 and h["alive"]:
 		_break_hand(idx)
 
 
 ## Fin du trait : la colonne encaisse selon la plus longue suite de vertèbres prises dans l'ordre.
 func end_stroke(_stroke_id: int) -> void:
 	_clanged = false
-	if _state == "down" and not dead:
+	if _state == "down" and not dead and vulnerable_t <= 0.0:
 		# la dernière image de la ruée n'est pas encore passée par check_dash
 		var pa: Vector3 = main._prev_hero
 		_spine_touch(pa, hero.position)
@@ -340,28 +385,24 @@ func end_stroke(_stroke_id: int) -> void:
 	if order.is_empty():
 		return
 	_lit.clear()
-	if dead or _state != "down":
+	if dead or _state != "down" or vulnerable_t > 0.0:
 		return
 	var sp := _skull.global_position
 	var at := Vector3(sp.x, 0, sp.z)
 	position = at
-	if _lis(order) >= SPINE_MIN:
-		var dmg := SPINE_DMG * max_hp_mult
-		main.float_text(at + Vector3(0, 0.8, 0), str(int(dmg)), Toon.VERMILION)
+	var lis := _lis(order)
+	if lis >= SPINE_MIN:
+		# la colonne prise de la queue au crâne : toute la gangue cède
+		main.float_text(at + Vector3(0, 0.8, 0), "%d / %d" % [lis, VERTS], SHIELD_C)
 		main.big_hit(at)
 		main.splash(at + Vector3(0, 0.6, 0), ICE, 30)
 		main.shake = maxf(float(main.shake), 0.6)
 		_flash = 0.3
-		_damage(dmg)
-		if not dead:
-			# le crâne a cédé : le buste se relève aussitôt
-			_timer = minf(_timer, 0.6)
+		_shield_dmg(shield_max)
 	else:
-		# dans le désordre : 1 par vertèbre
-		var d2 := float(order.size())
-		main.float_text(at + Vector3(0, 0.8, 0), str(order.size()), Toon.FOAM)
+		# dans le désordre : un éclat par vertèbre
 		main.clang(at)
-		_damage(d2)
+		_shield_dmg(VERT_SH * float(order.size()))
 
 
 ## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes
@@ -416,10 +457,10 @@ func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
 		h["hp"] = float(h["hp"]) - dmg
 		if fx:
 			h["flash"] = 0.15
-		_damage(dmg)
+		_hit(dmg)
 		if not fx:
 			_flash = fl
-		if not dead and float(h["hp"]) <= 0.0:
+		if not dead and float(h["hp"]) <= 0.0 and h["alive"]:
 			_break_hand(idx)
 		return Vector3(_slam_target.x, 0.5, _slam_target.z)
 	if _state == "down":
@@ -436,7 +477,7 @@ func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
 				at = p
 		if not found:
 			return Vector3.INF
-		_damage(dmg)
+		_hit(dmg)
 		if not fx:
 			_flash = fl
 		return at
@@ -531,11 +572,14 @@ func _puff(delta: float, color: Color) -> void:
 
 
 func _damage(d: float) -> void:
+	if dead or d <= 0.0:
+		return
 	hp -= d
 	_flash = maxf(_flash, 0.15)
 	if hp <= 0.0:
 		hp = 0.0
 		dead = true
+		vulnerable_t = 0.0
 		_clear_zones()
 		_clear_halos()
 		for lamp in _vert_lamps:
@@ -576,7 +620,9 @@ func _break_hand(i: int) -> void:
 	for hh in _hands:
 		if hh["alive"]:
 			both = false
-	if both:
+	# une main brisée arrache un pan de la gangue (qui peut le faire s'effondrer)
+	_shield_dmg(HAND_SH)
+	if both and not dead:
 		_start_collapse()
 
 
@@ -626,6 +672,161 @@ func _spine_touch(a: Vector3, b: Vector3) -> void:
 		_lit[idx] = true
 		var lamp2: Node3D = _vert_lamps[idx]
 		main.small_hit(lamp2.global_position)
+
+
+# ------------------------------------------------------------------ bouclier → vulnérable
+
+## Bouclier plein de v points ; bulle d'ellipsoïde `size` (demi-axes) autour du crâne (décalée de y).
+func _shield_init(v: float, size: Vector3, y: float) -> void:
+	shield_max = v
+	shield = v
+	_sh_size = size
+	_sh_root = Node3D.new()
+	_sh_root.top_level = true
+	add_child(_sh_root)
+	_sh_mat = _sh_material(Color(SHIELD_C, 0.18))
+	_aura_mat = _sh_material(Color(Toon.GOLD, 0.2))
+	_bubble = Toon.part(_sh_root, Toon.sphere(1.0), _sh_mat, Vector3(0, y, 0), size)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura = Toon.part(_sh_root, Toon.sphere(1.0), _aura_mat, Vector3(0, y, 0), size * 1.08)
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	_shield_visual(0.0)
+
+
+func _sh_material(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = c
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
+## Point au sol sous le crâne (textes, anneaux).
+func _sh_anchor() -> Vector3:
+	var sp := _skull.global_position
+	return Vector3(sp.x, 0, sp.z)
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ? Elle use le bouclier deux fois plus.
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Coup ordinaire (trait, pouvoir) : gangue levée, il effleure et use un peu la gangue ; brisée, ×2.
+func _hit(d: float, strong := false) -> void:
+	if dead or d <= 0.0:
+		return
+	if vulnerable_t > 0.0:
+		_damage(d * VULN_MULT)
+		return
+	if shield_max <= 0.0:
+		_damage(d)
+		return
+	_damage(d * CHIP_HP)
+	_shield_dmg(d * CHIP_SH * (2.0 if strong else 1.0))
+
+
+## Use la gangue de v points (mécanique du boss : gros morceaux) ; à zéro elle se brise.
+func _shield_dmg(v: float) -> void:
+	if dead or v <= 0.0 or vulnerable_t > 0.0 or shield_max <= 0.0:
+		return
+	shield -= v
+	_sh_pop = 0.15
+	if _t - _spark_t > 0.2:
+		_spark_t = _t
+		main.vfx.sparks(_skull.global_position, Vector3.UP, 3 if v < 2.0 else 8, SHIELD_C)
+	if shield > 0.0:
+		return
+	if _regen > 0.0 and v < shield_max * 0.5:
+		# elle se reforme : les petits coups n'y font pas de brèche avant la fin de la recharge
+		shield = shield_max * 0.05
+		return
+	_shield_break()
+
+
+func _shield_break() -> void:
+	shield = 0.0
+	_regen = 0.0
+	vulnerable_t = vulnerable_len
+	var p := _sh_anchor()
+	main.float_text(p, "BRISÉ", SHIELD_C)
+	main.float_text(p + Vector3(0, 0.9, 0), "VULNÉRABLE !", Toon.GOLD)
+	main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 2.6)
+	main.vfx.sparks(_skull.global_position, Vector3.UP, 18, SHIELD_C)
+	main.sfx.play("strike", 1.4, -3.0)
+	main.sfx.play("torii", 1.25, -6.0)
+	main.feel("heavy")
+	main.shake = maxf(float(main.shake), 0.5)
+	if _state == "down":
+		# déjà effondré : il reste au sol le temps de la fenêtre
+		_timer = maxf(_timer, vulnerable_t + 0.3)
+	elif _state == "totter" or _state == "fall":
+		vulnerable_t += _timer + (FALL_TIME if _state == "totter" else 0.0)
+	else:
+		# gangue brisée debout : il chancelle et s'effondre, les mains se disloquent
+		_clear_zones()
+		for h in _hands:
+			if h["alive"]:
+				h["alive"] = false
+				h["crumble"] = 0.6
+		_active = -1
+		_start_collapse()
+		vulnerable_t = vulnerable_len + COLLAPSE_TELE + FALL_TIME
+
+
+## Gangue remise à neuf : recharge animée.
+func _shield_refill() -> void:
+	vulnerable_t = 0.0
+	if shield_max <= 0.0 or dead:
+		return
+	_regen = REGEN_TIME
+	shield = maxf(shield, 0.0)
+
+
+func _shield_tick(delta: float) -> void:
+	if shield_max <= 0.0:
+		return
+	if dead:
+		vulnerable_t = 0.0
+	elif vulnerable_t > 0.0:
+		vulnerable_t -= delta
+		if vulnerable_t <= 0.0:
+			_shield_refill()
+			var p := _sh_anchor()
+			main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 1.8)
+			main.sfx.play("ink", 0.7, -6.0)
+			# fin de la fenêtre : il se relève, les mains repoussent
+			if _state == "down":
+				_start_regrow()
+	elif _regen > 0.0:
+		_regen -= delta
+		shield = minf(shield_max, shield + shield_max * delta / REGEN_TIME)
+		if _regen <= 0.0:
+			_regen = 0.0
+			shield = shield_max
+	_shield_visual(delta)
+
+
+## Bulle bleue autour du crâne tant que la gangue tient, aura dorée quand elle est brisée.
+func _shield_visual(delta: float) -> void:
+	if _sh_root == null:
+		return
+	_sh_root.global_position = _skull.global_position
+	_sh_pop = maxf(0.0, _sh_pop - delta)
+	var off := dead or _state == "rise"
+	_bubble.visible = shield > 0.0 and not off
+	if _bubble.visible:
+		var k := 1.0 if _regen <= 0.0 else clampf(1.0 - _regen / REGEN_TIME, 0.15, 1.0)
+		_bubble.scale = _sh_size * k * (1.0 + _sh_pop + 0.02 * sin(_t * 3.0))
+		_sh_mat.albedo_color = Color(SHIELD_C, 0.1 + 0.1 * clampf(shield / shield_max, 0.0, 1.0) + _sh_pop)
+	_aura.visible = vulnerable_t > 0.0 and not off
+	if _aura.visible:
+		var pulse := 0.5 + 0.5 * sin(_t * 9.0)
+		_aura.scale = _sh_size * (1.05 + 0.06 * pulse)
+		_aura_mat.albedo_color = Color(Toon.GOLD, 0.12 + 0.16 * pulse)
 
 
 # ------------------------------------------------------------------ déroulé du combat
@@ -681,6 +882,8 @@ func _start_steles() -> void:
 
 
 func _start_collapse() -> void:
+	if _state in ["totter", "fall", "down", "dying"]:
+		return
 	# le buste vacille puis s'effondre vers l'avant : bande annoncée sous la colonne
 	_state = "totter"
 	_active = -1
@@ -694,7 +897,7 @@ func _impact() -> void:
 	_wobble = 0.0
 	_apply_pose()
 	_state = "down"
-	_timer = DOWN_TIME
+	_timer = maxf(DOWN_TIME, vulnerable_t + 0.3)
 	main.shake = maxf(float(main.shake), 0.7)
 	_lit.clear()
 	for i in VERTS:
@@ -719,7 +922,7 @@ func _start_regrow() -> void:
 	for h in _hands:
 		var n: Node3D = h["node"]
 		h["alive"] = true
-		h["hp"] = _hand_hp_max * 0.6
+		h["hp"] = _hand_hp_max
 		h["grow"] = 0.0
 		h["crumble"] = 0.0
 		h["last"] = -1
@@ -739,7 +942,8 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
-	_bone_mat.emission_energy_multiplier = 0.9 if _flash > 0.0 else 0.0
+	_bone_mat.emission_energy_multiplier = 0.9 if _flash > 0.0 else (0.35 + 0.25 * sin(_t * 9.0) if vulnerable_t > 0.0 else 0.0)
+	_shield_tick(delta)
 	_update_state(delta)
 	_update_stele_queue(delta)
 	_update_zones(delta)
@@ -1060,8 +1264,15 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 		if Vector2(end.x, end.z - (Z_BUST + 0.4)).length() < 1.9:
 			return _bot_dense([h, tgt, tgt + Vector3(0, 0, 1.2)])
 		return line
+	if _state == "down" and vulnerable_t > 0.0:
+		# gangue brisée : iaï à travers le milieu de la colonne, encore et encore
+		if vulnerable_t < 0.3:
+			return none
+		var mid: Node3D = _vert_lamps[4]
+		var mp := mid.global_position
+		return _bot_line(h, Vector3(mp.x, 0, mp.z), 7.3)
 	if _state == "down" and _timer > 0.5:
-		# colonne : de la queue au crâne, d'un seul trait
+		# colonne : de la queue au crâne, d'un seul trait (la gangue cède)
 		var lamps: Array = []
 		for lamp in _vert_lamps:
 			var ln: Node3D = lamp

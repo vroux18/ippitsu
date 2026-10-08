@@ -119,6 +119,28 @@ const PRINTS := {
 const LOOK_KINDS := ["cape", "trail", "ink"]
 const LOOK_NAMES := {"cape": "Écharpe", "trail": "Sillage", "ink": "Encre"}
 
+## Garde-robe : tenues (atlas du ronin recoloré, capuche comprise) et thèmes de l'interface.
+## Obtention : « free » ; « print » = Vue possédée ; « prints » = nombre de Vues ; « cost » = encre (achat unique).
+const OUTFIT_ORDER := ["sumi", "indigo", "matcha", "kaki", "sakura", "neige", "glycine", "or"]
+const OUTFITS := {
+	"sumi": {"name": "Encre", "col": Color("#4A4858"), "tex": "res://assets/kaykit/tex/rogue_ink.png", "free": true},
+	"indigo": {"name": "Indigo d'Edo", "col": Color("#2B4C7E"), "tex": "res://assets/kaykit/tex/rogue_indigo.png", "cost": 120},
+	"matcha": {"name": "Matcha", "col": Color("#5E7F4A"), "tex": "res://assets/kaykit/tex/rogue_matcha.png", "print": "w2_room"},
+	"kaki": {"name": "Kaki", "col": Color("#E8692A"), "tex": "res://assets/kaykit/tex/rogue_kaki.png", "cost": 250},
+	"sakura": {"name": "Sakura", "col": Color("#D98AA0"), "tex": "res://assets/kaykit/tex/rogue_sakura.png", "print": "w5_room"},
+	"neige": {"name": "Neige", "col": Color("#ECE8E0"), "tex": "res://assets/kaykit/tex/rogue_neige.png", "print": "w3_room"},
+	"glycine": {"name": "Glycine", "col": Color("#7A5FA0"), "tex": "res://assets/kaykit/tex/rogue_glycine.png", "cost": 400},
+	"or": {"name": "Or du maître", "col": Color("#E2B04A"), "tex": "res://assets/kaykit/tex/rogue_or.png", "cost": 900},
+}
+## Thèmes : papier des cartes, voile de l'écran, encre du texte (contrastes gardés), liseré.
+const THEME_ORDER := ["washi", "nuit", "sakura", "indigo"]
+const THEMES := {
+	"washi": {"name": "Washi", "paper": Color("#F5EEDD"), "wash": Color("#EFE6D2"), "ink": Color("#1B1A1E"), "accent": Color("#D7372B"), "free": true},
+	"nuit": {"name": "Nuit", "paper": Color("#232A3A"), "wash": Color("#151B28"), "ink": Color("#EFE6D2"), "accent": Color("#E2A93B"), "cost": 150},
+	"sakura": {"name": "Sakura", "paper": Color("#FBEDEE"), "wash": Color("#F4DCE0"), "ink": Color("#3A1F2A"), "accent": Color("#C2456A"), "cost": 200},
+	"indigo": {"name": "Indigo", "paper": Color("#E6ECF4"), "wash": Color("#D5DEEA"), "ink": Color("#13213A"), "accent": Color("#2F5D8A"), "prints": 6},
+}
+
 var sumi := 0  # encre, permanente
 var seals := 0  # sceaux (hanko)
 var prints := 0  # Vues collectionnées (= owned_prints.size(), max 24)
@@ -136,6 +158,9 @@ var seal_owned := {}  # id de don -> true
 var owned_prints := {}  # id de Vue -> true
 var look := {"cape": "", "trail": "", "ink": ""}  # apparence portée : id de Vue ("" = d'origine)
 var start_power_id := ""  # rouleau de départ choisi (don « scroll »)
+var outfit := "sumi"  # tenue portée (OUTFITS)
+var theme := "washi"  # thème de l'interface (THEMES)
+var bought := {}  # « outfit:kaki », « theme:nuit »… -> true : achats de la garde-robe
 
 
 func _init() -> void:
@@ -175,6 +200,12 @@ func load_data() -> void:
 	for kind in LOOK_KINDS:
 		var pid := String(cf.get_value("look", kind, ""))
 		look[kind] = pid if _look_ok(pid, kind) else ""
+	var bl = cf.get_value("wardrobe", "bought", [])
+	if bl is Array or bl is PackedStringArray:
+		for b in bl:
+			bought[String(b)] = true
+	outfit = String(cf.get_value("wardrobe", "outfit", "sumi"))
+	theme = String(cf.get_value("wardrobe", "theme", "washi"))
 	# Vues déjà méritées d'après les records (salles atteintes, parties jouées)
 	_retro_prints()
 	# anciennes sauvegardes : les Vues n'étaient qu'un nombre ; on garde au moins autant d'estampes
@@ -184,6 +215,10 @@ func load_data() -> void:
 				break
 			owned_prints[id] = true
 	prints = owned_prints.size()
+	if not cosmetic_owned("outfit", outfit):
+		outfit = "sumi"
+	if not cosmetic_owned("theme", theme):
+		theme = "washi"
 	_migrate_progress()
 	# rouleau de départ : on garde le choix même s'il n'est pas encore débloqué (start_power() le vérifie)
 	if owns_seal("scroll") and not Data.POWERS.has(start_power_id):
@@ -227,6 +262,9 @@ func save_data() -> void:
 		cf.set_value("vues", id, has_print(id))
 	for kind in LOOK_KINDS:
 		cf.set_value("look", kind, String(look.get(kind, "")))
+	cf.set_value("wardrobe", "outfit", outfit)
+	cf.set_value("wardrobe", "theme", theme)
+	cf.set_value("wardrobe", "bought", bought.keys())
 	cf.save(SAVE_PATH)
 
 
@@ -522,6 +560,176 @@ func _grant_runs() -> Array:
 	return out
 
 
+# --- Garde-robe ---------------------------------------------------------------
+## Catégories : outfit (tenue), cape, trail, ink (apparences des Vues), theme (interface).
+## Pour cape / trail / ink, l'id est celui d'une Vue ("" = d'origine).
+
+func _cosmetic(cat: String, id: String) -> Dictionary:
+	if cat == "outfit":
+		return OUTFITS.get(id, {})
+	if cat == "theme":
+		return THEMES.get(id, {})
+	return {}
+
+
+## Ids proposés dans une catégorie, dans l'ordre d'affichage.
+func cosmetic_ids(cat: String) -> Array:
+	if cat == "outfit":
+		return OUTFIT_ORDER.duplicate()
+	if cat == "theme":
+		return THEME_ORDER.duplicate()
+	var out: Array = [""]
+	for pid in PRINT_ORDER:
+		var p: Dictionary = PRINTS[pid]
+		if String(p["kind"]) == cat:
+			out.append(String(pid))
+	return out
+
+
+func cosmetic_name(cat: String, id: String) -> String:
+	if cat in LOOK_KINDS:
+		if id == "":
+			return "D'origine"
+		var p: Dictionary = PRINTS.get(id, {})
+		return String(p.get("look", id))
+	var d := _cosmetic(cat, id)
+	return String(d.get("name", id))
+
+
+## Couleur de la pastille.
+func cosmetic_color(cat: String, id: String) -> Color:
+	if cat in LOOK_KINDS:
+		if id == "":
+			match cat:
+				"cape":
+					return Toon.VERMILION
+				"trail":
+					return Toon.FOAM
+			return Toon.SUMI
+		var p: Dictionary = PRINTS.get(id, {})
+		return p.get("col", Toon.SUMI)
+	if cat == "theme":
+		var t := _cosmetic(cat, id)
+		return t.get("paper", Toon.PAPER)
+	var d := _cosmetic(cat, id)
+	return d.get("col", Toon.SUMI)
+
+
+## Prix en encre (-1 : ne s'achète pas).
+func cosmetic_cost(cat: String, id: String) -> int:
+	var d := _cosmetic(cat, id)
+	return int(d.get("cost", -1))
+
+
+func cosmetic_owned(cat: String, id: String) -> bool:
+	if cat in LOOK_KINDS:
+		return id == "" or (has_print(id) and _look_ok(id, cat))
+	var d := _cosmetic(cat, id)
+	if d.is_empty():
+		return false
+	if bool(d.get("free", false)) or bool(bought.get("%s:%s" % [cat, id], false)):
+		return true
+	if d.has("print"):
+		return has_print(String(d["print"]))
+	if d.has("prints"):
+		return prints >= int(d["prints"])
+	return false
+
+
+func cosmetic_worn(cat: String, id: String) -> bool:
+	match cat:
+		"outfit":
+			return outfit == id
+		"theme":
+			return theme == id
+	if cat in LOOK_KINDS:
+		var cur := String(look.get(cat, "")) if look_on(cat) else ""
+		return cur == id
+	return false
+
+
+## Comment l'obtenir, en clair (vide si possédé).
+func cosmetic_how(cat: String, id: String) -> String:
+	if cosmetic_owned(cat, id):
+		return ""
+	if cat in LOOK_KINDS:
+		return print_how(id)
+	var d := _cosmetic(cat, id)
+	if d.has("cost"):
+		return "S'achète %d encre." % int(d["cost"])
+	if d.has("print"):
+		var pid := String(d["print"])
+		var p: Dictionary = PRINTS.get(pid, {})
+		return "Vue « %s » : %s" % [String(p.get("name", pid)), print_how(pid)]
+	if d.has("prints"):
+		return "Collectionne %d Vues (tu en as %d)." % [int(d["prints"]), prints]
+	return ""
+
+
+func can_buy_cosmetic(cat: String, id: String) -> bool:
+	var c := cosmetic_cost(cat, id)
+	return c >= 0 and not cosmetic_owned(cat, id) and sumi >= c
+
+
+## Achète (encre) puis porte ; sauvegarde. Renvoie vrai si l'achat a eu lieu.
+func buy_cosmetic(cat: String, id: String) -> bool:
+	if not can_buy_cosmetic(cat, id):
+		return false
+	sumi -= cosmetic_cost(cat, id)
+	bought["%s:%s" % [cat, id]] = true
+	wear_cosmetic(cat, id)
+	save_data()
+	return true
+
+
+## Porte un élément possédé (sauvegarde). Renvoie vrai s'il est porté.
+func wear_cosmetic(cat: String, id: String) -> bool:
+	if not cosmetic_owned(cat, id):
+		return false
+	match cat:
+		"outfit":
+			outfit = id
+		"theme":
+			theme = id
+		_:
+			if not (cat in LOOK_KINDS):
+				return false
+			look[cat] = id
+	save_data()
+	return true
+
+
+## Couleurs du thème porté : {paper, wash, ink, accent}.
+func theme_colors() -> Dictionary:
+	var t: Dictionary = THEMES.get(theme, THEMES["washi"])
+	return {"paper": t["paper"], "wash": t["wash"], "ink": t["ink"], "accent": t["accent"]}
+
+
+## Texture de la tenue portée (atlas du ronin).
+func outfit_texture() -> Texture2D:
+	var d: Dictionary = OUTFITS.get(outfit, OUTFITS["sumi"])
+	var tex := load(String(d["tex"])) as Texture2D
+	return tex
+
+
+## Apparence complète sur le héros (tenue, écharpe, sillage) et encre du trait : début de partie,
+## accueil et garde-robe (aperçu immédiat).
+func apply_look(hero) -> void:
+	if hero != null and hero.has_method("set_look"):
+		hero.set_look(look_color("cape"), look_on("cape"), look_color("trail"), look_on("trail"))
+	if hero != null and hero.has_method("set_outfit"):
+		hero.set_outfit(outfit_texture())
+	# encre du trait : variable statique « ink » de ink_stroke.gd (sans effet tant qu'elle n'existe pas).
+	# Le trait multiplie la teinte par elle-même : on passe la racine pour retrouver la couleur voulue.
+	var ink := Toon.SUMI
+	if look_on("ink"):
+		var c := look_color("ink")
+		ink = Color(sqrt(c.r), sqrt(c.g), sqrt(c.b))
+	var stroke_script: Script = load("res://scripts/ink_stroke.gd")
+	if stroke_script != null:
+		stroke_script.set("ink", ink)
+
+
 # --- Effets appliqués à une partie -------------------------------------------
 
 ## Mètres d'élan max en plus.
@@ -559,18 +767,7 @@ func sumi_mult() -> float:
 func apply_run_start(m) -> void:
 	if m == null:
 		return
-	var hero = m.hero
-	if hero != null and hero.has_method("set_look"):
-		hero.set_look(look_color("cape"), look_on("cape"), look_color("trail"), look_on("trail"))
-	# encre du trait : variable statique « ink » de ink_stroke.gd (sans effet tant qu'elle n'existe pas).
-	# Le trait multiplie la teinte par elle-même : on passe la racine pour retrouver la couleur voulue.
-	var ink := Toon.SUMI
-	if look_on("ink"):
-		var c := look_color("ink")
-		ink = Color(sqrt(c.r), sqrt(c.g), sqrt(c.b))
-	var stroke_script: Script = load("res://scripts/ink_stroke.gd")
-	if stroke_script != null:
-		stroke_script.set("ink", ink)
+	apply_look(m.hero)
 	var sp := start_power()
 	if sp != "" and m.powers != null:
 		m.powers.add(sp)

@@ -1,13 +1,16 @@
 extends Node3D
-## Boss du monde 2 (Tanabata) — Kyūbi, le renard à neuf queues (70 PV), cf. design/UNIVERS.md.
+## Boss du monde 2 (Tanabata) — Kyūbi, le renard à neuf queues (42 PV), cf. design/UNIVERS.md.
+## Rythme bouclier → vulnérable : un voile de feu-renard (bouclier 12) ; bouclier levé, un coup
+## n'effleure (10 % des dégâts) et use un peu le voile ; brisé, Kyūbi est sonné 6 s (5 s en phase 3)
+## et chaque coup porte ×2. Puis le voile se reforme.
 ##  Phase 1 — Illusions : 3 renards identiques. Le vrai a une ombre qui bouge et des yeux or.
-##            Frapper un faux = il éclate en 6 feux follets lents. Frapper le vrai = 4 dmg
-##            et les faux disparaissent 6 s.
+##            Frapper un faux = il éclate en 6 feux follets lents. Démasquer le vrai (le frapper
+##            tant que les faux sont là) arrache la moitié du voile ; les faux disparaissent 6 s.
 ##  Phase 2 (≤ 60 %) — Les neuf queues : 9 feux plantés en cercle (r ≈ 2.4) qui tirent à tour de rôle.
-##            Kyūbi est protégé ; seul un Ensō (boucle fermée autour de lui) éteint les queues
-##            incluses : 2 dmg par queue ; toutes éteintes = étourdi 3 s (vulnérable).
+##            Un Ensō (boucle fermée autour de lui) éteint les queues incluses : 1.5 de voile par
+##            queue (8 queues d'un coup le brisent). Il reste sonné tant qu'il est vulnérable.
 ##  Phase 3 (≤ 25 %) — Fuite en zigzag à 6 m/s le long d'une route annoncée ;
-##            un trait qui coupe la route devant lui le fait trébucher (3 dmg + étourdi 2.2 s).
+##            un trait qui coupe la route devant lui le fait trébucher : voile brisé.
 ## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
@@ -30,13 +33,21 @@ const ROUTE_ANNOUNCE := 1.0
 const RUN_SPEED := 6.0
 const LOOP_PTS := 120  # points mémorisés pour l'Ensō (_find_loop est quadratique)
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
+const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
+const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
+const CHIP_SH := 0.35  # bouclier usé par point de dégât d'un coup simple (×2 pour une figure)
+const VULN_MULT := 2.0
+const REGEN_TIME := 1.0
+const SHIELD := 12.0
+const UNMASK_SH := 6.0  # voile arraché quand le vrai renard est démasqué
+const TAIL_SH := 1.5  # voile arraché par queue éteinte
 
 var kind := "kyubi"
 var main: Node
 var hero: Node3D
 var title := "Kyūbi"
-var hp := 70.0
-var max_hp := 70.0
+var hp := 42.0
+var max_hp := 42.0
 var dead := false
 var radius := 0.9
 var max_hp_mult := 1.0  # difficulté du monde
@@ -87,6 +98,21 @@ var _mark_idx: Array = []
 var _cut := false
 var _move_dir := Vector3(0, 0, 1)
 
+# bouclier (lu par le HUD)
+var shield := 0.0
+var shield_max := 0.0
+var vulnerable_t := 0.0
+var vulnerable_len := 6.0
+var _regen := 0.0  # recharge animée du bouclier (secondes restantes)
+var _sh_root: Node3D
+var _bubble: MeshInstance3D
+var _aura: MeshInstance3D
+var _sh_mat: StandardMaterial3D
+var _aura_mat: StandardMaterial3D
+var _sh_size := Vector3.ONE
+var _sh_pop := 0.0
+var _spark_t := -1.0
+
 
 func setup(k: String, m: Node) -> void:
 	kind = k
@@ -95,7 +121,7 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	hp = 70.0
+	hp = 42.0
 	radius = 0.9
 	hp *= max_hp_mult
 	max_hp = hp
@@ -111,6 +137,7 @@ func _ready() -> void:
 	_marks = Node3D.new()
 	_marks.top_level = true
 	add_child(_marks)
+	_shield_init(SHIELD, Vector3(1.3, 1.4, 1.7), 0.9)
 	_place_illusions()
 	_fade = 0.0
 	_state = "spawn"
@@ -257,15 +284,9 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 				if _seg_dist(fn.global_position, a, b) < radius + 0.5:
 					_burst_fake(f)
 			return _hit_real(a, b, stroke_id)
-		"p2":
-			if _stun > 0.0:
-				return _hit_real(a, b, stroke_id)
-			# voile de feu-renard : la lame ricoche
-			if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.5:
-				_last_stroke = stroke_id
-				main.clang(position + Vector3(0, 0.8, 0))
-				main.float_text(position, "×0", Toon.FOAM)
-			return false
+		"stun", "p2":
+			# sonné : coup plein (×2) ; sous le voile : il effleure et use le voile
+			return _hit_real(a, b, stroke_id)
 		"p3_tele", "p3_run":
 			if not _cut and _crosses_route(a, b):
 				if _state == "p3_run":
@@ -282,10 +303,8 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 func take_hit(dmg: float, _dir: Vector3) -> void:
 	if dead:
 		return
-	var out := dmg
-	if _phase == 1 and _fakes_alive() > 0:
-		# le vrai démasqué : 4 dmg et les illusions se dissipent 6 s
-		out += 3.0
+	if _phase == 1 and _state == "p1" and _fakes_alive() > 0:
+		# le vrai démasqué : la moitié du voile arrachée, les illusions se dissipent 6 s
 		for f in _fakes:
 			if f["alive"]:
 				var fn: Node3D = f["node"]
@@ -296,7 +315,8 @@ func take_hit(dmg: float, _dir: Vector3) -> void:
 		_fade = 1.0
 		_shuffle_dir = 0
 		main.float_text(position + Vector3(0, 0.4, 0), "真", Toon.GOLD)
-	_damage(out)
+		_shield_dmg(UNMASK_SH)
+	_hit(dmg, _figure_hit())
 
 
 ## Fin du trait : en phase 2, cherche une boucle fermée (Ensō) qui entoure Kyūbi.
@@ -308,7 +328,7 @@ func end_stroke(_stroke_id: int) -> void:
 		_record(pa, hero.position)
 	var pts: Array = _pts
 	_pts = []
-	if dead or _phase != 2 or _state != "p2" or pts.size() < 6:
+	if dead or _phase != 2 or _state != "p2" or vulnerable_t > 0.0 or pts.size() < 6:
 		return
 	var c := Vector2(position.x, position.z)
 	var loop := _find_loop(pts, c)
@@ -325,14 +345,11 @@ func end_stroke(_stroke_id: int) -> void:
 	if n == 0:
 		main.float_text(position, "○", Toon.FOAM)
 		return
-	var all_out := _lit_count() == 0
 	main.float_text(position + Vector3(0, 0.4, 0), "円 ×%d" % n, Toon.GOLD)
 	main.big_hit(position + Vector3(0, 0.6, 0))
 	_relight = 12.0
-	_damage(2.0 * n)
-	if not dead and _phase == 2 and all_out:
-		_stun = 3.0
-		_sync_body_tails()
+	# chaque queue éteinte arrache un pan du voile ; toutes (ou presque) d'un coup : il cède
+	_shield_dmg(TAIL_SH * float(n) if _lit_count() > 0 else shield_max)
 
 
 ## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes
@@ -373,7 +390,7 @@ func danger_at(p: Vector3, eta: float) -> bool:
 func touching_hero(p: Vector3) -> bool:
 	if dead:
 		return false
-	if _state == "p2" and _tail_rise >= 1.0:
+	if _state == "p2" and _tail_rise >= 1.0 and vulnerable_t <= 0.0:
 		for t in _tails:
 			if not t["lit"]:
 				continue
@@ -397,10 +414,7 @@ func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
 	match _state:
 		"p1":
 			open = _fade >= 0.6
-		"p2":
-			# voile de feu-renard : seulement une fois toutes les queues éteintes
-			open = _stun > 0.0
-		"p3_tele", "p3_run", "p3_rest", "p3_stun":
+		"stun", "p2", "p3_tele", "p3_run", "p3_rest", "p3_stun":
 			open = true
 	if not open:
 		return Vector3.INF
@@ -408,7 +422,7 @@ func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
 		return Vector3.INF
 	var at := position + Vector3(0, 0.9, 0)
 	var fl := _flash
-	_damage(dmg)
+	_hit(dmg)
 	if not fx:
 		_flash = fl
 	return at
@@ -454,6 +468,8 @@ func _burst_fake(f: Dictionary) -> void:
 
 
 func _damage(d: float) -> void:
+	if dead or d <= 0.0:
+		return
 	hp -= d
 	# chaque phase se joue : on ne saute pas de palier d'un coup
 	if _phase == 1:
@@ -472,6 +488,7 @@ func _damage(d: float) -> void:
 func _die() -> void:
 	hp = 0.0
 	dead = true
+	vulnerable_t = 0.0
 	_cancel()
 	for t in _tails:
 		_clear_band(t)
@@ -515,6 +532,186 @@ func _update_zone(delta: float) -> void:
 		_cancel()
 		main.enemy_strike(c, r)
 		main.splash(c + Vector3(0, 0.4, 0), Toon.GOLD, 12)
+
+
+# ------------------------------------------------------------------ bouclier → vulnérable
+
+## Bouclier plein de v points ; bulle d'ellipsoïde `size` (demi-axes) centrée à la hauteur y.
+func _shield_init(v: float, size: Vector3, y: float) -> void:
+	shield_max = v
+	shield = v
+	_sh_size = size
+	_sh_root = Node3D.new()
+	_sh_root.top_level = true
+	add_child(_sh_root)
+	_sh_mat = _sh_material(Color(SHIELD_C, 0.18))
+	_aura_mat = _sh_material(Color(Toon.GOLD, 0.2))
+	_bubble = Toon.part(_sh_root, Toon.sphere(1.0), _sh_mat, Vector3(0, y, 0), size)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura = Toon.part(_sh_root, Toon.sphere(1.0), _aura_mat, Vector3(0, y, 0), size * 1.08)
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	_shield_visual(0.0)
+
+
+func _sh_material(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = c
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
+func _sh_anchor() -> Vector3:
+	return Vector3(position.x, 0, position.z)
+
+
+## Bulle cachée tant que les illusions sont là (elle trahirait le vrai renard) ou pendant les fondus.
+func _sh_hidden() -> bool:
+	return _fade < 0.6 or (_phase == 1 and _fakes_alive() > 0)
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ? Elle use le bouclier deux fois plus.
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Coup ordinaire (trait, pouvoir) : voile levé, il effleure et use un peu le voile ; brisé, ×2.
+func _hit(d: float, strong := false) -> void:
+	if dead or d <= 0.0:
+		return
+	if vulnerable_t > 0.0:
+		_damage(d * VULN_MULT)
+		return
+	if shield_max <= 0.0:
+		_damage(d)
+		return
+	_damage(d * CHIP_HP)
+	_shield_dmg(d * CHIP_SH * (2.0 if strong else 1.0))
+
+
+## Use le voile de v points (mécanique du boss : gros morceaux) ; à zéro il se brise.
+func _shield_dmg(v: float) -> void:
+	if dead or v <= 0.0 or vulnerable_t > 0.0 or shield_max <= 0.0:
+		return
+	if _state == "shift2" or _state == "shift3" or _state == "spawn":
+		return
+	shield -= v
+	_sh_pop = 0.15
+	if _t - _spark_t > 0.2:
+		_spark_t = _t
+		main.vfx.sparks(_sh_anchor() + Vector3(0, 1.2, 0), Vector3.UP, 3 if v < 2.0 else 8, SHIELD_C)
+	if shield > 0.0:
+		return
+	if _regen > 0.0 and v < shield_max * 0.5:
+		# il se reforme : les petits coups n'y font pas de brèche avant la fin de la recharge
+		shield = shield_max * 0.05
+		return
+	_shield_break()
+
+
+func _shield_break() -> void:
+	shield = 0.0
+	_regen = 0.0
+	vulnerable_t = vulnerable_len
+	var p := _sh_anchor()
+	main.float_text(p, "BRISÉ", SHIELD_C)
+	main.float_text(p + Vector3(0, 0.9, 0), "VULNÉRABLE !", Toon.GOLD)
+	main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 2.0)
+	main.vfx.sparks(p + Vector3(0, 1.2, 0), Vector3.UP, 16, SHIELD_C)
+	main.sfx.play("strike", 1.6, -3.0)
+	main.sfx.play("torii", 1.25, -6.0)
+	main.feel("heavy")
+	main.shake = maxf(float(main.shake), 0.45)
+	# sonné : plus d'attaque le temps de la fenêtre
+	_cancel()
+	match _phase:
+		1:
+			for f in _fakes:
+				if f["alive"]:
+					var fn: Node3D = f["node"]
+					main.splash(fn.global_position + Vector3(0, 0.8, 0), Toon.FOAM, 10)
+				f["alive"] = false
+				var hn: Node3D = f["node"]
+				hn.visible = false
+			_fakes_gone = 99.0
+			_fade = 1.0
+			_shuffle_dir = 0
+			_state = "stun"
+		2:
+			for t in _tails:
+				_clear_band(t)
+		_:
+			_clear_marks()
+			_state = "p3_stun"
+
+
+## Fin de la fenêtre : le voile se reforme et Kyūbi reprend là où il en était.
+func _on_shield_back() -> void:
+	match _state:
+		"stun":
+			_state = "p1"
+			_fakes_gone = 0.0  # les illusions reviennent au prochain mélange
+			_atk_t = 1.5
+		"p2":
+			_relight_all()
+			_tail_rise = 0.0
+		"p3_stun":
+			_state = "p3_rest"
+			_timer = 1.2
+			_make_zone(hero.position, 1.4, 1.1)
+
+
+## Voile remis à neuf : recharge animée (fin de fenêtre ou nouvelle phase).
+func _shield_refill() -> void:
+	vulnerable_t = 0.0
+	if shield_max <= 0.0 or dead:
+		return
+	_regen = REGEN_TIME
+	shield = maxf(shield, 0.0)
+
+
+func _shield_tick(delta: float) -> void:
+	if shield_max <= 0.0:
+		return
+	if dead:
+		vulnerable_t = 0.0
+	elif vulnerable_t > 0.0:
+		vulnerable_t -= delta
+		if vulnerable_t <= 0.0:
+			_shield_refill()
+			var p := _sh_anchor()
+			main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 1.4)
+			main.sfx.play("ink", 0.8, -6.0)
+			_on_shield_back()
+	elif _regen > 0.0:
+		_regen -= delta
+		shield = minf(shield_max, shield + shield_max * delta / REGEN_TIME)
+		if _regen <= 0.0:
+			_regen = 0.0
+			shield = shield_max
+	_shield_visual(delta)
+
+
+## Bulle bleue tant que le voile tient (elle gonfle en se reformant), aura dorée quand il est brisé.
+func _shield_visual(delta: float) -> void:
+	if _sh_root == null:
+		return
+	_sh_root.global_position = _sh_anchor()
+	_sh_pop = maxf(0.0, _sh_pop - delta)
+	var off := dead or _sh_hidden()
+	_bubble.visible = shield > 0.0 and not off
+	if _bubble.visible:
+		var k := 1.0 if _regen <= 0.0 else clampf(1.0 - _regen / REGEN_TIME, 0.15, 1.0)
+		_bubble.scale = _sh_size * k * (1.0 + _sh_pop + 0.02 * sin(_t * 3.0))
+		_sh_mat.albedo_color = Color(SHIELD_C, 0.1 + 0.1 * clampf(shield / shield_max, 0.0, 1.0) + _sh_pop)
+	_aura.visible = vulnerable_t > 0.0 and not off
+	if _aura.visible:
+		var pulse := 0.5 + 0.5 * sin(_t * 9.0)
+		_aura.scale = _sh_size * (1.05 + 0.06 * pulse)
+		_aura_mat.albedo_color = Color(Toon.GOLD, 0.12 + 0.16 * pulse)
 
 
 # ------------------------------------------------------------------ Ensō
@@ -684,6 +881,7 @@ func _start_phase2() -> void:
 	_timer = 1.4
 	_cancel()
 	_stun = 0.0
+	_shield_refill()  # nouvelle phase : le voile se reforme aussitôt
 	_fade = 1.0
 	_shuffle_dir = 0
 	for f in _fakes:
@@ -705,6 +903,8 @@ func _start_phase3() -> void:
 	_timer = 1.0
 	_cancel()
 	_stun = 0.0
+	vulnerable_len = 5.0  # dernière phase : fenêtres plus courtes
+	_shield_refill()
 	_clear_ground_tails()
 	_sync_body_tails()
 	main.float_text(position + Vector3(0, 0.4, 0), "逃", Toon.VERMILION)
@@ -774,13 +974,15 @@ func _route_point_ahead() -> Vector3:
 
 
 func _trip() -> void:
-	# route coupée : il trébuche
-	_state = "p3_stun"
-	_stun = 2.2
-	_clear_marks()
-	main.float_text(position + Vector3(0, 0.4, 0), "Coupé !", Toon.GOLD)
+	# route coupée : il trébuche, le voile cède
+	main.float_text(position + Vector3(0, 1.4, 0), "Coupé !", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 0.6, 0))
-	_damage(3.0)
+	_shield_dmg(shield_max)
+	if vulnerable_t <= 0.0:
+		# (voile en pleine recharge) il trébuche quand même un instant
+		_clear_marks()
+		_state = "p3_rest"
+		_timer = 1.0
 
 
 # ------------------------------------------------------------------ boucle
@@ -791,6 +993,7 @@ func _process(delta: float) -> void:
 		_flash -= delta
 	if not dead:
 		_update_zone(delta)
+	_shield_tick(delta)
 	match _state:
 		"spawn":
 			_timer -= delta
@@ -802,6 +1005,9 @@ func _process(delta: float) -> void:
 				_atk_t = 1.5
 		"p1":
 			_phase1(delta)
+		"stun":
+			# voile brisé en phase 1 : sonné sur place (_on_shield_back le relance)
+			pass
 		"shift2":
 			_timer -= delta
 			var k := clampf(1.0 - _timer / 1.4, 0.0, 1.0)
@@ -837,12 +1043,8 @@ func _process(delta: float) -> void:
 			if _timer <= 0.0 and _zone == null:
 				_plan_route()
 		"p3_stun":
-			_stun -= delta
-			if _stun <= 0.0:
-				_stun = 0.0
-				_state = "p3_rest"
-				_timer = 1.2
-				_make_zone(hero.position, 1.4, 1.1)
+			# trébuché, voile brisé : la fin de la fenêtre le relève (_on_shield_back)
+			pass
 		"dying":
 			_timer += delta
 			var body: Node3D = _fox["body"]
@@ -916,13 +1118,8 @@ func _phase1(delta: float) -> void:
 func _phase2(delta: float) -> void:
 	if _tail_rise < 1.0:
 		_tail_rise = minf(1.0, _tail_rise + delta)
-	if _stun > 0.0:
-		_stun -= delta
-		if _stun <= 0.0:
-			_stun = 0.0
-			# les queues se rallument
-			_relight_all()
-			_tail_rise = 0.0
+	if vulnerable_t > 0.0:
+		# sonné : les queues se taisent (_on_shield_back les rallume)
 		return
 	if _lit_count() < TAILS:
 		_relight -= delta
@@ -1014,7 +1211,7 @@ func _animate(delta: float) -> void:
 		_face(_move_dir, delta)
 	elif _state != "p3_rest":
 		_face(hero.position - position, delta)
-	var stunned := _stun > 0.0
+	var stunned := _stun > 0.0 or vulnerable_t > 0.0
 	b.rotation.z = sin(_t * 12.0) * 0.08 if stunned else 0.0
 	var stars: Node3D = _fox["stars"]
 	stars.visible = stunned
@@ -1044,10 +1241,15 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	if dead:
 		return none
 	match _state:
+		"stun", "p3_rest", "p3_stun":
+			# sonné (vulnérable) : iaï à travers, encore et encore ; au repos en phase 3, il use le voile
+			if _state != "p3_rest" and vulnerable_t < 0.3:
+				return none
+			return _bot_line(h, me, 7.3)
 		"p1":
 			if _fade < 0.6 or _shuffle_dir == -1:
 				return none
-			# le vrai renard (yeux or), en contournant les illusions
+			# le vrai renard (yeux or), en contournant les illusions : démasqué, il perd la moitié du voile
 			var fakes: Array = []
 			for f in _fakes:
 				if f["alive"]:
@@ -1061,8 +1263,11 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 				dir = d.normalized()
 			return _bot_route([h, me, me + dir * 1.2], fakes, radius + 0.8)
 		"p2":
-			if _stun > 0.0:
+			if vulnerable_t > 0.0:
+				if vulnerable_t < 0.3:
+					return none
 				return _bot_line(h, me, 7.3)
+			# ensō intérieur : 8 à 9 queues éteintes d'un coup, le voile cède
 			return _bot_tail_stroke(h)
 		"p3_tele", "p3_run":
 			if _cut:
@@ -1084,8 +1289,6 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 				p1 = p2
 				p2 = sw
 			return _bot_dense([h, p1, p2])
-		"p3_rest", "p3_stun":
-			return _bot_line(h, me, 7.3)
 	return none
 
 

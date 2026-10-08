@@ -1,10 +1,11 @@
 extends "res://scripts/boss_mini_base.gd"
-## Mini-boss du monde 5 (Trente-six Vues) — Bakekujira, la baleine squelette (22 PV × monde).
+## Mini-boss du monde 5 (Trente-six Vues) — Bakekujira, la baleine squelette (24 PV × monde).
 ##  Elle nage sous la mer d'encre. Cycle : jet d'encre sous le héros (zone r1.4, 1.1 s), puis
-##  ruée le long d'un couloir (bande annoncée 1.3 s, 6.5 m/s) ; son dos d'os renvoie la lame (×0).
-##  Mécanique de trait : KAESHI. Un aller-retour (on va à ≥ 2 m et on revient près du départ)
-##  tracé dans le couloir DEVANT sa tête la renvoie : 7 dmg, échouée sur le flanc 3.2 s
-##  (vulnérable sur toute sa longueur). Prépare la phase 2 de Kuro-Nami (vagues renvoyées).
+##  ruée le long d'un couloir (bande annoncée 1.3 s, 6.5 m/s) ; son dos d'os est son bouclier (10) :
+##  un coup ne fait qu'effleurer. Mécanique de trait : KAESHI. Un aller-retour (on va à ≥ 2 m et on
+##  revient près du départ) tracé dans le couloir DEVANT sa tête la renvoie et brise tout le bouclier :
+##  échouée sur le flanc 5.5 s, vulnérable sur toute sa longueur (dégâts ×2).
+##  Prépare la phase 2 de Kuro-Nami (vagues renvoyées).
 
 const BONE := Color("#E8DFC8")
 const BONE_SHADE := Color("#C9BFA8")
@@ -17,8 +18,7 @@ const LANE_TELE := 1.3
 const RUSH_SPEED := 6.5
 const SPOUT_R := 1.4
 const SPOUT_TELE := 1.1
-const KAESHI_DMG := 7.0
-const STRAND_TIME := 3.2
+const SHIELD := 10.0
 const AHEAD_MIN := -1.0  # fenêtre « devant la tête » où l'aller-retour compte
 const AHEAD_MAX := 6.5
 const MAX_PTS := 400
@@ -35,10 +35,11 @@ var _wake := 0.0
 
 func _ready() -> void:
 	title = "Bakekujira"
-	hp = 22.0 * max_hp_mult
+	hp = 24.0 * max_hp_mult
 	max_hp = hp
 	radius = BODY_W
 	_build()
+	_shield_init(SHIELD, Vector3(1.4, 1.1, 3.3), 0.4)
 	position = Vector3(0, 0, -2.5)
 	_set_heading(Vector3(0, 0, 1))
 	_state = "spawn"
@@ -118,16 +119,10 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 			_pts.append(Vector3(a.x, 0, a.z))
 		if _pts.size() < MAX_PTS:
 			_pts.append(Vector3(b.x, 0, b.z))
-	if _state == "stranded":
-		if _last_stroke != stroke_id and _axis_dist(a, b) < BODY_W + 0.5:
-			_last_stroke = stroke_id
-			return true
-		return false
-	if _state == "rush" and _clanged != stroke_id and _axis_dist(a, b) < BODY_W + 0.4:
-		# dos d'os : la lame ricoche
-		_clanged = stroke_id
-		var q := _head().lerp(_tail(), 0.4)
-		main.clang(q + Vector3(0, 0.5, 0))
+	# échouée : coup plein (×2) sur toute sa longueur ; en ruée : le dos d'os effleuré use le bouclier
+	if (_state == "stranded" or _state == "rush") and _last_stroke != stroke_id and _axis_dist(a, b) < BODY_W + 0.5:
+		_last_stroke = stroke_id
+		return true
 	return false
 
 
@@ -138,7 +133,7 @@ func end_stroke(_stroke_id: int) -> void:
 		return
 	if not _pts.is_empty():
 		_pts.append(Vector3(hero.position.x, 0, hero.position.z))
-	if _state == "rush" and _pts.size() >= 3:
+	if _state == "rush" and vulnerable_t <= 0.0 and _pts.size() >= 3:
 		_check_kaeshi()
 	_pts.clear()
 
@@ -159,7 +154,7 @@ func _extra_danger(p: Vector3, _eta: float) -> bool:
 
 
 func _aoe_target(center: Vector3, reach: float) -> Vector3:
-	if _state != "stranded":
+	if _state != "stranded" and _state != "rush":
 		return Vector3.INF
 	var c2 := Vector2(center.x, center.z)
 	var q := Geometry2D.get_closest_point_to_segment(c2, Vector2(_tail().x, _tail().z), Vector2(_head().x, _head().z))
@@ -191,6 +186,30 @@ func _zone_fire(z: Dictionary) -> void:
 
 func _on_die() -> void:
 	_pts.clear()
+
+
+## Bouclier d'os brisé (renvoyée, ou dos usé en pleine ruée) : échouée sur le flanc dans l'arène.
+func _on_shield_break() -> void:
+	_clear_zones()
+	_state = "stranded"
+	rig.visible = true
+	var lim := HALF.y - BODY_LEN * 0.5 + 0.4
+	_strand_at = Vector3(clampf(position.x, -HALF.x + 1.0, HALF.x - 1.0), 0, clampf(position.z, -lim, lim))
+
+
+func _on_shield_back() -> void:
+	if _state != "stranded":
+		return
+	_state = "dive"
+	_timer = 0.8
+
+
+func _sh_yaw() -> float:
+	return body.rotation.y
+
+
+func _sh_hidden() -> bool:
+	return not rig.visible or rig.position.y < -1.0
 
 
 # ------------------------------------------------------------------ boucle
@@ -228,11 +247,7 @@ func _step(delta: float) -> void:
 			position = position.lerp(_strand_at, minf(1.0, delta * 8.0))
 			rig.rotation.z = lerpf(rig.rotation.z, 1.25, minf(1.0, delta * 8.0))
 			rig.position.y = lerpf(rig.position.y, 0.3, minf(1.0, delta * 8.0))
-			_stun -= delta
-			if _stun <= 0.0:
-				_stun = 0.0
-				_state = "dive"
-				_timer = 0.8
+			# la fin de la fenêtre (vulnerable_t) la fait replonger (_on_shield_back)
 		"dive":
 			_timer -= delta
 			var kd := clampf(1.0 - _timer / 0.8, 0.0, 1.0)
@@ -291,19 +306,14 @@ func _check_kaeshi() -> void:
 			return
 
 
+## Renvoyée : le bouclier d'os tombe d'un coup, elle s'échoue bien dans l'arène (_on_shield_break).
 func _kaeshi() -> void:
-	var d := KAESHI_DMG * max_hp_mult
 	var head := _head()
-	_state = "stranded"
-	_stun = STRAND_TIME
-	# échouée bien dans l'arène, sur toute sa longueur
-	var lim := HALF.y - BODY_LEN * 0.5 + 0.4
-	_strand_at = Vector3(_lane_x, 0, clampf(position.z, -lim, lim))
-	main.float_text(head + Vector3(0, 0.6, 0), "返 " + str(roundi(d)), Toon.VERMILION)
+	main.float_text(head + Vector3(0, 0.6, 0), "返", Toon.VERMILION)
 	main.big_hit(head + Vector3(0, 0.4, 0))
 	main.splash(head + Vector3(0, 0.6, 0), FOAM, 22)
 	main.shake = maxf(float(main.shake), 0.5)
-	_damage(d)
+	_shield_dmg(shield_max)
 
 
 ## Nappe d'encre (visible sous l'eau), petite houle du dos, flash.
@@ -320,14 +330,15 @@ func _animate(_delta: float) -> void:
 
 # ------------------------------------------------------------------ robot testeur
 
-## Ruée : aller-retour dans le couloir devant sa tête ; échouée : iaï à travers.
+## Ruée : aller-retour dans le couloir devant sa tête (le bouclier tombe) ;
+## échouée (vulnérable) : iaï à travers, encore et encore.
 func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var none := PackedVector3Array()
 	if dead:
 		return none
 	var h := Vector3(hero_pos.x, 0, hero_pos.z)
 	if _state == "stranded":
-		if _stun < 0.3:
+		if vulnerable_t < 0.3:
 			return none
 		return _bot_line(h, Vector3(_strand_at.x, 0, _strand_at.z), 7.3)
 	if _state != "rush":

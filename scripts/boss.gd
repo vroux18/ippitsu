@@ -1,9 +1,12 @@
 extends Node3D
-## Boss du monde 1 (design/UNIVERS.md) :
-##  okappa  — Ō-Kappa, mini-boss (18 PV) : salves en éventail, plongeon sous le héros.
-##            Tranché dans le dos, sa coupelle se renverse : dégâts ×3 et étourdi 3 s.
-##  uwabami — Uwabami, serpent de mer (60 PV) : ne prend des dégâts que si on le tranche
-##            dans sa longueur (au moins 4 segments d'un même trait).
+## Boss du monde 1 (design/UNIVERS.md), au rythme bouclier → vulnérable :
+##  okappa  — Ō-Kappa, mini-boss (24 PV, bouclier 10) : salves en éventail, plongeon sous le héros.
+##            Tranché dans le dos, ou cueilli à la sortie de l'eau, sa coupelle se renverse :
+##            bouclier brisé, sonné 5.5 s (dégâts ×2).
+##  uwabami — Uwabami, serpent de mer (40 PV, bouclier 12) : le trancher dans sa longueur use le
+##            bouclier (1 par segment, plus au-delà de 8) ; tout le corps d'un trait le brise.
+##            Brisé : il reste en surface, sonné 6 s, et chaque coup sur le corps porte (×2).
+## Bouclier levé, un coup ordinaire n'effleure (10 % des dégâts) et use un peu le bouclier.
 ## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
@@ -16,6 +19,12 @@ const SEG_R := 0.55
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
 const BOWL_WATER := Color("#7FB2C8")
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
+const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
+const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
+const CHIP_SH := 0.35  # bouclier usé par point de dégât d'un coup simple (×2 pour une figure)
+const VULN_MULT := 2.0
+const REGEN_TIME := 1.0
+const SURF_WINDOW := 1.3  # Ō-Kappa : il sort de l'eau, sa coupelle est exposée
 
 var kind := "okappa"
 var main: Node
@@ -56,6 +65,22 @@ var _marks: Node3D
 var _depth := -1.6  # profondeur du corps (0 = en surface)
 var _burst := 0
 var _fired := 0
+var _surf_t := 0.0  # Ō-Kappa : fenêtre « à la sortie de l'eau »
+
+# bouclier (lu par le HUD)
+var shield := 0.0
+var shield_max := 0.0
+var vulnerable_t := 0.0
+var vulnerable_len := 5.5
+var _regen := 0.0  # recharge animée du bouclier (secondes restantes)
+var _sh_root: Node3D
+var _bubble: MeshInstance3D
+var _aura: MeshInstance3D
+var _sh_mat: StandardMaterial3D
+var _aura_mat: StandardMaterial3D
+var _sh_size := Vector3.ONE
+var _sh_pop := 0.0
+var _spark_t := -1.0
 
 
 func setup(k: String, m: Node) -> void:
@@ -67,14 +92,18 @@ func setup(k: String, m: Node) -> void:
 func _ready() -> void:
 	if kind == "okappa":
 		title = "Ō-Kappa"
-		hp = 18.0
+		hp = 24.0
 		radius = 1.0
 		_build_okappa()
+		vulnerable_len = 5.5
+		_shield_init(10.0, Vector3(1.2, 1.7, 1.2), 1.4)
 	else:
 		title = "Uwabami"
-		hp = 60.0
+		hp = 40.0
 		radius = SEG_R
 		_build_uwabami()
+		vulnerable_len = 6.0
+		_shield_init(12.0, Vector3(1.25, 1.1, 1.5), 0.5)
 	hp *= max_hp_mult
 	max_hp = hp
 
@@ -154,6 +183,16 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	# hors ruée (image qui suit la fin du trait, bond d'ensō) : rien ne compte
 	if not hero.dashing:
 		return false
+	if vulnerable_t > 0.0:
+		# sonné en surface : chaque trait qui touche le corps porte (dégâts gérés par main)
+		if _last_stroke == stroke_id or _depth < -0.4:
+			return false
+		for s in _segs:
+			var sn: Node3D = s
+			if _seg_dist(sn.position, a, b) < SEG_R + 0.5:
+				_last_stroke = stroke_id
+				return true
+		return false
 	_mark_segs(a, b)
 	return false
 
@@ -174,30 +213,25 @@ func _mark_segs(a: Vector3, b: Vector3) -> void:
 func take_hit(dmg: float, dir: Vector3) -> void:
 	if dead:
 		return
-	var out := dmg
-	if kind == "okappa":
+	if kind == "okappa" and vulnerable_t <= 0.0:
 		var ry := body.rotation.y
 		var fwd := Vector3(-sin(ry), 0, -cos(ry))
-		if dir.normalized().dot(fwd) > 0.4:
-			# par-derrière : la coupelle se renverse
-			out *= 3.0
-			_stun = 3.0
-			_cancel()
-			_state = "stun"
-			main.float_text(position + Vector3(0, 1.2, 0), "×3", Toon.GOLD)
+		if dir.normalized().dot(fwd) > 0.4 or _surf_t > 0.0:
+			# par-derrière, ou à la sortie de l'eau : la coupelle se renverse, le bouclier cède
 			main.splash(position + Vector3(0, 2.2, 0), BOWL_WATER, 20)
-	_damage(out)
+			_shield_dmg(shield_max)
+	_hit(dmg, _figure_hit())
 
 
-## Fin du trait : Uwabami encaisse selon la plus longue suite de segments tranchés.
+## Fin du trait : la plus longue suite de segments tranchés use le bouclier d'Uwabami.
 func end_stroke(_stroke_id: int) -> void:
-	if kind == "uwabami" and not dead:
+	if kind == "uwabami" and not dead and vulnerable_t <= 0.0:
 		# la dernière image de la ruée n'est pas encore passée par check_dash
 		var pa: Vector3 = main._prev_hero
 		_mark_segs(pa, hero.position)
 	var hit_set: Dictionary = _hits
 	_hits = {}
-	if kind != "uwabami" or dead or hit_set.is_empty():
+	if kind != "uwabami" or dead or hit_set.is_empty() or vulnerable_t > 0.0:
 		return
 	var best := 0
 	var run := 0
@@ -209,24 +243,20 @@ func end_stroke(_stroke_id: int) -> void:
 			run = 0
 	if best == 0:
 		return
-	var dmg := 0.0
-	if best >= SEGMENTS:
-		dmg = 20.0
-		if _state == "rest":
-			_stun = 2.0
-	elif best >= 8:
-		dmg = 10.0
-	elif best >= 4:
-		dmg = float(best)
 	var where: Node3D = _segs[0]
-	if dmg <= 0.0:
-		# coupé en travers : la lame ricoche sur les écailles
-		main.float_text(where.position, "×0", Toon.FOAM)
-		main.clang(where.position)
+	var at := where.position
+	if best < 4:
+		# coupé en travers : la lame glisse sur les écailles, à peine une égratignure
+		main.clang(at)
+		_damage(float(best) * CHIP_HP)
+		_shield_dmg(float(best) * CHIP_SH)
 		return
-	main.float_text(where.position + Vector3(0, 0.6, 0), str(int(dmg)), Toon.VERMILION)
-	main.big_hit(where.position)
-	_damage(dmg)
+	# dans sa longueur : un éclat de bouclier par segment, tout le corps le brise
+	var sd: float = shield_max if best >= SEGMENTS else float(best) * (1.25 if best >= 8 else 1.0)
+	main.float_text(at + Vector3(0, 0.6, 0), "%d / %d" % [best, SEGMENTS], SHIELD_C)
+	main.big_hit(at)
+	_damage(float(best) * CHIP_HP)
+	_shield_dmg(sd)
 
 
 ## Vrai si le point p est dans une attaque annoncée qui frappe d'ici eta secondes (ou en cours).
@@ -314,7 +344,7 @@ func aoe_hit(center: Vector3, reach: float, dmg: float, fx := true) -> Vector3:
 	if not found:
 		return Vector3.INF
 	var fl := _flash
-	_damage(dmg)
+	_hit(dmg)
 	if not fx:
 		_flash = fl
 	return at
@@ -327,11 +357,14 @@ func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
 
 
 func _damage(d: float) -> void:
+	if dead or d <= 0.0:
+		return
 	hp -= d
 	_flash = 0.15
 	if hp <= 0.0:
 		hp = 0.0
 		dead = true
+		vulnerable_t = 0.0
 		_cancel()
 		if kind == "uwabami":
 			_clear_marks()
@@ -341,6 +374,173 @@ func _damage(d: float) -> void:
 	elif kind == "okappa" and not _summoned and hp <= max_hp * 0.5:
 		_summoned = true
 		main.spawn_minions(["oni", "oni"])
+
+
+# ------------------------------------------------------------------ bouclier → vulnérable
+
+## Bouclier plein de v points ; bulle d'ellipsoïde `size` (demi-axes) centrée à la hauteur y.
+func _shield_init(v: float, size: Vector3, y: float) -> void:
+	shield_max = v
+	shield = v
+	_sh_size = size
+	_sh_root = Node3D.new()
+	_sh_root.top_level = true
+	add_child(_sh_root)
+	_sh_mat = _sh_material(Color(SHIELD_C, 0.18))
+	_aura_mat = _sh_material(Color(Toon.GOLD, 0.2))
+	_bubble = Toon.part(_sh_root, Toon.sphere(1.0), _sh_mat, Vector3(0, y, 0), size)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura = Toon.part(_sh_root, Toon.sphere(1.0), _aura_mat, Vector3(0, y, 0), size * 1.08)
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	_shield_visual(0.0)
+
+
+func _sh_material(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = c
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
+## Point au sol de la bulle : Ō-Kappa, ou la tête d'Uwabami.
+func _sh_anchor() -> Vector3:
+	if kind == "okappa":
+		return Vector3(position.x, 0, position.z)
+	var head: Node3D = _segs[0]
+	return Vector3(head.position.x, 0, head.position.z)
+
+
+## Bulle cachée quand il est sous l'eau (enfoui, plongé).
+func _sh_hidden() -> bool:
+	if kind == "okappa":
+		return _state in ["spawn", "sink", "hidden"]
+	return _depth < -0.6
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ? Elle use le bouclier deux fois plus.
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Coup ordinaire (trait, pouvoir) : bouclier levé, il effleure et use un peu le bouclier ; brisé, ×2.
+func _hit(d: float, strong := false) -> void:
+	if dead or d <= 0.0:
+		return
+	if vulnerable_t > 0.0:
+		_damage(d * VULN_MULT)
+		return
+	if shield_max <= 0.0:
+		_damage(d)
+		return
+	_damage(d * CHIP_HP)
+	_shield_dmg(d * CHIP_SH * (2.0 if strong else 1.0))
+
+
+## Use le bouclier de v points (mécanique du boss : gros morceaux) ; à zéro il se brise.
+func _shield_dmg(v: float) -> void:
+	if dead or v <= 0.0 or vulnerable_t > 0.0 or shield_max <= 0.0:
+		return
+	shield -= v
+	_sh_pop = 0.15
+	if _t - _spark_t > 0.2:
+		_spark_t = _t
+		main.vfx.sparks(_sh_anchor() + Vector3(0, 1.2, 0), Vector3.UP, 3 if v < 2.0 else 8, SHIELD_C)
+	if shield > 0.0:
+		return
+	if _regen > 0.0 and v < shield_max * 0.5:
+		# il se reforme : les petits coups n'y font pas de brèche avant la fin de la recharge
+		shield = shield_max * 0.05
+		return
+	_shield_break()
+
+
+func _shield_break() -> void:
+	shield = 0.0
+	_regen = 0.0
+	vulnerable_t = vulnerable_len
+	var p := _sh_anchor()
+	main.float_text(p, "BRISÉ", SHIELD_C)
+	main.float_text(p + Vector3(0, 0.9, 0), "VULNÉRABLE !", Toon.GOLD)
+	main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 2.0)
+	main.vfx.sparks(p + Vector3(0, 1.2, 0), Vector3.UP, 16, SHIELD_C)
+	main.sfx.play("strike", 1.6, -3.0)
+	main.sfx.play("torii", 1.25, -6.0)
+	main.feel("heavy")
+	main.shake = maxf(float(main.shake), 0.45)
+	if kind == "okappa":
+		# sonné : coupelle renversée, plus d'attaque
+		_cancel()
+		if ch != null:
+			ch.set_glow(0.0)
+		body.position.y = 0.0
+		_state = "stun"
+		ch.play_once("Hit_A", 1.0)
+		_anim_lock = 0.6
+	else:
+		# il reste en surface là où il est, sonné, le temps de la fenêtre
+		_clear_marks()
+		_state = "stun"
+
+
+## Bouclier remis à neuf (fin de fenêtre) : recharge animée.
+func _shield_refill() -> void:
+	vulnerable_t = 0.0
+	if shield_max <= 0.0 or dead:
+		return
+	_regen = REGEN_TIME
+	shield = maxf(shield, 0.0)
+
+
+func _shield_tick(delta: float) -> void:
+	if shield_max <= 0.0:
+		return
+	if dead:
+		vulnerable_t = 0.0
+	elif vulnerable_t > 0.0:
+		vulnerable_t -= delta
+		if vulnerable_t <= 0.0:
+			_shield_refill()
+			var p := _sh_anchor()
+			main.vfx.ring(Vector3(p.x, 0.1, p.z), SHIELD_C, 1.4)
+			main.sfx.play("ink", 0.8, -6.0)
+			if _state == "stun":
+				_state = "idle" if kind == "okappa" else "dive"
+				_timer = 0.8 if kind == "okappa" else 1.0
+				if kind == "okappa":
+					body.rotation.z = 0.0
+				else:
+					var hd: Node3D = _segs[0]
+					hd.rotation.z = 0.0
+	elif _regen > 0.0:
+		_regen -= delta
+		shield = minf(shield_max, shield + shield_max * delta / REGEN_TIME)
+		if _regen <= 0.0:
+			_regen = 0.0
+			shield = shield_max
+	_shield_visual(delta)
+
+
+## Bulle bleue tant que le bouclier tient (elle gonfle en se reformant), aura dorée quand il est brisé.
+func _shield_visual(delta: float) -> void:
+	if _sh_root == null:
+		return
+	_sh_root.global_position = _sh_anchor()
+	_sh_pop = maxf(0.0, _sh_pop - delta)
+	var off := dead or _sh_hidden()
+	_bubble.visible = shield > 0.0 and not off
+	if _bubble.visible:
+		var k := 1.0 if _regen <= 0.0 else clampf(1.0 - _regen / REGEN_TIME, 0.15, 1.0)
+		_bubble.scale = _sh_size * k * (1.0 + _sh_pop + 0.02 * sin(_t * 3.0))
+		_sh_mat.albedo_color = Color(SHIELD_C, 0.1 + 0.1 * clampf(shield / shield_max, 0.0, 1.0) + _sh_pop)
+	_aura.visible = vulnerable_t > 0.0 and not off
+	if _aura.visible:
+		var pulse := 0.5 + 0.5 * sin(_t * 9.0)
+		_aura.scale = _sh_size * (1.05 + 0.06 * pulse)
+		_aura_mat.albedo_color = Color(Toon.GOLD, 0.12 + 0.16 * pulse)
 
 
 func _make_zone(center: Vector3, r: float, t: float) -> void:
@@ -375,6 +575,7 @@ func _process(delta: float) -> void:
 		_flash -= delta
 		if ch:
 			ch.set_flash(1.0 if _flash > 0.0 else 0.0)
+	_shield_tick(delta)
 	if kind == "okappa":
 		_okappa(delta)
 	else:
@@ -388,6 +589,8 @@ func _okappa(delta: float) -> void:
 	var dir := to / maxf(dist, 0.001)
 	if _anim_lock > 0.0:
 		_anim_lock -= delta
+	if _surf_t > 0.0:
+		_surf_t -= delta
 	if _state != "dying" and _state != "stun":
 		body.rotation.y = lerp_angle(body.rotation.y, atan2(-dir.x, -dir.z), minf(1.0, delta * 5.0))
 	match _state:
@@ -450,13 +653,10 @@ func _okappa(delta: float) -> void:
 				_anim_lock = 0.5
 				_state = "idle"
 				_timer = 1.4
+				_surf_t = SURF_WINDOW
 		"stun":
-			_stun -= delta
+			# coupelle renversée : il titube jusqu'à la fin de la fenêtre (_shield_tick le relève)
 			body.rotation.z = sin(_t * 12.0) * 0.08
-			if _stun <= 0.0:
-				body.rotation.z = 0.0
-				_state = "idle"
-				_timer = 0.8
 		"dying":
 			_timer += delta
 			if not _death_played:
@@ -502,9 +702,6 @@ func _uwabami(delta: float) -> void:
 		"rest":
 			# corps posé dans l'arène : la fenêtre pour le trancher dans sa longueur
 			_timer -= delta
-			if _stun > 0.0:
-				_stun -= delta
-				_timer = maxf(_timer, 0.1)
 			if _timer <= 0.0:
 				_state = "spit"
 				_burst = 0
@@ -528,6 +725,11 @@ func _uwabami(delta: float) -> void:
 					if _burst >= 3:
 						_state = "dive"
 						_timer = 1.0
+		"stun":
+			# bouclier brisé : il remonte et reste en surface, sonné (_shield_tick le fait replonger)
+			_depth = move_toward(_depth, 0.0, delta * 3.0)
+			var hd: Node3D = _segs[0]
+			hd.rotation.z = sin(_t * 10.0) * 0.25
 		"dying":
 			_timer += delta
 			_depth = move_toward(_depth, -2.0, delta * 0.9)
@@ -634,9 +836,28 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	if kind == "okappa":
 		if _state in ["spawn", "sink", "hidden", "dying"]:
 			return none
-		# trait droit (iaï) à travers lui
+		# trait droit (iaï) à travers lui : à la sortie de l'eau il brise le bouclier, sinon il l'use ;
+		# sonné (vulnérable), chaque iaï porte ×2
 		return _bot_line(h, Vector3(position.x, 0, position.z), 7.3)
-	# Uwabami : corps posé (repos, crachats), tranché d'un bout à l'autre
+	if vulnerable_t > 0.0:
+		# sonné en surface : iaï à travers le segment dans l'arène le plus proche, encore et encore
+		if vulnerable_t < 0.3 or _depth < -0.4:
+			return none
+		var tgt := Vector3.INF
+		var best_d := 1e9
+		for s in _segs:
+			var sn: Node3D = s
+			var sp := Vector3(sn.position.x, 0, sn.position.z)
+			if not (absf(sp.x) <= BOT_HALF.x - 0.3 and absf(sp.z) <= BOT_HALF.y - 0.3):
+				continue
+			var dd := h.distance_to(sp)
+			if dd < best_d:
+				best_d = dd
+				tgt = sp
+		if tgt == Vector3.INF:
+			return none
+		return _bot_line(h, tgt, 7.3)
+	# Uwabami : corps posé (repos, crachats), tranché d'un bout à l'autre (le bouclier tombe)
 	if _depth < -0.3 or not (_state == "rest" or _state == "spit"):
 		return none
 	var pts: Array = []

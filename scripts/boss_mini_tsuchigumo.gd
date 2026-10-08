@@ -1,8 +1,8 @@
 extends "res://scripts/boss_mini_base.gd"
-## Mini-boss du monde 2 (Tanabata) — Tsuchigumo, l'araignée des terriers (24 PV × monde).
-##  Enfermée dans un cocon de soie : la lame ricoche (×0). Une BOUCLE fermée tracée autour d'elle
-##  (Uzu, Ensō, ou fin de trait revenue près d'un point du trait) déchire le cocon : 5 dmg,
-##  renversée 3 s (vulnérable aux coupes). Un cercle or au sol montre où tourner.
+## Mini-boss du monde 2 (Tanabata) — Tsuchigumo, l'araignée des terriers (26 PV × monde).
+##  Le cocon de soie est son bouclier (10) : un coup ne fait qu'effleurer. Une BOUCLE fermée tracée
+##  autour d'elle (Uzu, Ensō, ou fin de trait revenue près d'un point du trait) déchire tout le cocon :
+##  renversée 5.5 s, vulnérable (dégâts ×2). Un cercle or au sol montre où tourner.
 ##  Prépare l'Ensō de Kyūbi (boucle autour des queues).
 ##  Attaques : salve de soie en éventail (lueur 0.8 s) ; bond sur le héros (zone r1.8, 1.1 s).
 
@@ -14,8 +14,7 @@ const LEG := Color("#2A221D")
 const BODY_SCALE := 1.1
 const HINT_R := 2.1  # cercle-guide au sol (rayon conseillé de la boucle)
 const LOOP_PTS := 120  # points mémorisés pour la boucle (_find_loop est quadratique)
-const TEAR_DMG := 5.0
-const TORN_TIME := 3.0
+const SHIELD := 10.0
 const LEAP_R := 1.8
 const LEAP_TELE := 1.1
 const VOLLEY_TELE := 0.8
@@ -32,10 +31,11 @@ var _death_played := false
 
 func _ready() -> void:
 	title = "Tsuchigumo"
-	hp = 24.0 * max_hp_mult
+	hp = 26.0 * max_hp_mult
 	max_hp = hp
 	radius = 1.1
 	_build()
+	_shield_init(SHIELD, Vector3(1.7, 1.3, 1.9), 1.0)
 	_state = "spawn"
 	_timer = 1.2
 
@@ -116,18 +116,12 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		return false
 	if hero.dashing and _wrapped():
 		_record(a, b)
-	if _state == "torn":
-		if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.55:
-			_last_stroke = stroke_id
-			return true
+	if _state == "spawn" or _state == "leap" or _state == "dying":
 		return false
-	if _state == "spawn" or _state == "leap":
-		return false
-	# cocon : la lame ricoche (une fois par trait)
-	if _clanged != stroke_id and _seg_dist(position, a, b) < radius + 0.5:
-		_clanged = stroke_id
-		main.clang(position + Vector3(0, 1.0, 0))
-		main.float_text(position, "×0", Toon.FOAM)
+	# renversée : coup plein (×2) ; dans le cocon : il effleure et use la soie
+	if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.55:
+		_last_stroke = stroke_id
+		return true
 	return false
 
 
@@ -139,7 +133,7 @@ func end_stroke(_stroke_id: int) -> void:
 		_record(pa, hero.position)
 	var pts: Array = _pts
 	_pts = []
-	if dead or pts.size() < 6 or not (_state == "idle" or _state == "volley"):
+	if dead or pts.size() < 6 or vulnerable_t > 0.0 or not (_state == "idle" or _state == "volley"):
 		return
 	var loop := _find_loop(pts, Vector2(position.x, position.z))
 	if loop.size() < 3:
@@ -148,7 +142,7 @@ func end_stroke(_stroke_id: int) -> void:
 
 
 func _aoe_target(center: Vector3, reach: float) -> Vector3:
-	if _state != "torn":
+	if _state == "spawn" or _state == "leap" or _state == "dying":
 		return Vector3.INF
 	if Vector2(position.x - center.x, position.z - center.z).length() >= reach + radius:
 		return Vector3.INF
@@ -174,6 +168,25 @@ func _on_die() -> void:
 	_hint.visible = false
 	body.position.y = 0.0
 	ch.set_glow(0.0)
+
+
+## Cocon déchiré : renversée, plus d'attaque jusqu'à la fin de la fenêtre.
+func _on_shield_break() -> void:
+	_clear_zones()
+	ch.set_glow(0.0)
+	_state = "torn"
+	_cocoon.visible = false
+	body.position.y = 0.0
+	ch.play_once("Hit_A", 1.2)
+
+
+func _on_shield_back() -> void:
+	if _state != "torn":
+		return
+	_state = "rewrap"
+	_timer = 0.6
+	_cocoon.visible = true
+	_cocoon.scale = Vector3.ONE * 0.05
 
 
 # ------------------------------------------------------------------ boucle
@@ -228,13 +241,8 @@ func _step(delta: float) -> void:
 				body.position.y = sin(PI * fly) * 3.0
 			_face(_leap_to - _leap_from, delta, 6.0)
 		"torn":
-			_stun -= delta
-			if _stun <= 0.0:
-				_stun = 0.0
-				_state = "rewrap"
-				_timer = 0.6
-				_cocoon.visible = true
-				_cocoon.scale = Vector3.ONE * 0.05
+			# renversée : la fin de la fenêtre (vulnerable_t) la remet sur pattes (_on_shield_back)
+			pass
 		"rewrap":
 			_timer -= delta
 			_cocoon.scale = Vector3.ONE * clampf(1.0 - _timer / 0.6, 0.05, 1.0)
@@ -270,18 +278,13 @@ func _wrapped() -> bool:
 	return _state == "idle" or _state == "volley" or _state == "rewrap"
 
 
+## La boucle déchire tout le cocon : le bouclier tombe d'un coup.
 func _tear() -> void:
-	var d := TEAR_DMG * max_hp_mult
-	ch.set_glow(0.0)
-	_state = "torn"
-	_stun = TORN_TIME
-	_cocoon.visible = false
-	main.float_text(position + Vector3(0, 0.6, 0), "円 " + str(roundi(d)), Toon.GOLD)
+	main.float_text(position + Vector3(0, 1.4, 0), "円", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 0.8, 0))
 	main.splash(position + Vector3(0, 1.2, 0), SILK, 26)
 	main.shake = maxf(float(main.shake), 0.4)
-	ch.play_once("Hit_A", 1.2)
-	_damage(d)
+	_shield_dmg(shield_max)
 
 
 ## Pattes qui pianotent, corps qui respire ; cocon et cercle-guide selon l'état.
@@ -362,7 +365,8 @@ func _find_loop(pts: Array, c: Vector2) -> PackedVector2Array:
 
 # ------------------------------------------------------------------ robot testeur
 
-## Cocon : placement sur le cercle-guide, puis boucle de 400° autour d'elle ; renversée : iaï à travers.
+## Cocon : placement sur le cercle-guide, puis boucle de 400° autour d'elle (le bouclier tombe) ;
+## renversée (vulnérable) : iaï à travers, encore et encore.
 func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var none := PackedVector3Array()
 	if dead:
@@ -370,7 +374,7 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var h := Vector3(hero_pos.x, 0, hero_pos.z)
 	var c := Vector3(position.x, 0, position.z)
 	if _state == "torn":
-		if _stun < 0.3:
+		if vulnerable_t < 0.3:
 			return none
 		return _bot_line(h, c, 7.3)
 	if _state != "idle" and _state != "volley":

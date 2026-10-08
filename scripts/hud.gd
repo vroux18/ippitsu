@@ -26,6 +26,10 @@ var gate_hint := false
 var boss_name := ""
 var boss_hint := ""  # point faible du boss affiché sous sa barre
 var boss_ratio := 1.0
+var boss_has_shield := false  # le boss a un bouclier (barre bleue au-dessus de sa vie)
+var boss_shield := 0.0  # bouclier du boss (0..1)
+var boss_vuln := 0.0  # secondes de vulnérabilité restantes (0 = bouclier levé)
+var boss_vuln_len := 6.0
 var wipe := 0.0  # rideau d'encre de la transition entre étapes (0..1)
 # expédition (main) : avancée dans l'étape (0..1, < 0 = cachée), zones [début, fin, état 0/1/2], combats
 var stage_k := -1.0
@@ -877,15 +881,34 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 	var bw := sz.x * 0.72
 	var bx := (sz.x - bw) / 2.0
 	var by := 84.0 * u
+	var vuln := boss_vuln > 0.0
+	var pulse := 0.5 + 0.5 * sin(_t * 10.0)
 	var bfs := int(16 * u)
 	var bn := plain(boss_name)
 	var nw := UiKit.TITLE_FONT.get_string_size(bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
-	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, by - 7 * u), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
-	# rouleau : deux baguettes et la barre d'encre vermillon
+	var name_y := by - (16.0 if boss_has_shield else 7.0) * u
+	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, name_y), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.SUMI)
+	if boss_has_shield:
+		_draw_boss_shield(Vector2(bx, by - 11.0 * u), bw, u, vuln, pulse)
+	# rouleau : deux baguettes et la barre d'encre vermillon (dorée et pulsante quand il est vulnérable)
+	if vuln:
+		draw_rect(Rect2(bx - 3 * u, by - 3 * u, bw + 6 * u, 16 * u), Color(Toon.GOLD, 0.25 + 0.35 * pulse))
 	draw_rect(Rect2(bx - 6 * u, by - 3 * u, 4 * u, 16 * u), Toon.SUMI)
 	draw_rect(Rect2(bx + bw + 2 * u, by - 3 * u, 4 * u, 16 * u), Toon.SUMI)
 	draw_rect(Rect2(bx, by, bw, 10 * u), Color(Toon.WASHI, 0.85))
-	_brush_bar(Vector2(bx, by), bw, 10.0 * u, boss_ratio, Toon.VERMILION)
+	var hp_col: Color = Toon.VERMILION.lerp(Toon.GOLD, 0.35 + 0.5 * pulse) if vuln else Toon.VERMILION
+	_brush_bar(Vector2(bx, by), bw, 10.0 * u, boss_ratio, hp_col)
+	if vuln:
+		# compte à rebours : anneau d'or qui se vide, secondes au centre
+		var rc := Vector2(bx + bw + 18.0 * u, by + 5.0 * u)
+		var rr := 7.5 * u
+		draw_circle(rc, rr + 1.5 * u, Color(Toon.SUMI, 0.85))
+		var k := clampf(boss_vuln / maxf(boss_vuln_len, 0.1), 0.0, 1.0)
+		draw_arc(rc, rr - 1.0 * u, -PI / 2.0, -PI / 2.0 + TAU * k, 28, Toon.GOLD, 2.5 * u, true)
+		var cs := int(9 * u)
+		var ct := str(int(ceil(boss_vuln)))
+		var cw := UiKit.UI_FONT.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cs).x
+		draw_string(UiKit.UI_FONT, rc + Vector2(-cw / 2.0, cs * 0.36), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cs, Toon.GOLD)
 	# point faible : le geste à faire, toujours visible sous la barre
 	if boss_hint != "":
 		var hs := int(11 * u)
@@ -901,6 +924,44 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 		_sb.shadow_size = 0
 		draw_style_box(_sb, hr)
 		draw_string(UiKit.UI_FONT, Vector2(hr.position.x + 10.0 * u, hr.position.y + hs * 1.22), ht, HORIZONTAL_ALIGNMENT_LEFT, -1, hs, Color(Toon.GOLD, 0.95))
+
+
+## Bouclier du boss, juste au-dessus de sa vie : écu et barre bleue en segments, « BOUCLIER » ;
+## brisé, écu fendu et « VULNÉRABLE » doré qui pulse.
+func _draw_boss_shield(pos: Vector2, w: float, u: float, vuln: bool, pulse: float) -> void:
+	var h := 6.0 * u
+	# écu
+	var c := Vector2(pos.x - 13.0 * u, pos.y + h * 0.5)
+	var s := 5.5 * u
+	var ecu := PackedVector2Array([c + Vector2(-s, -s), c + Vector2(s, -s), c + Vector2(s, s * 0.25), c + Vector2(0, s * 1.25), c + Vector2(-s, s * 0.25)])
+	var edge := PackedVector2Array([c + Vector2(-s - u, -s - u), c + Vector2(s + u, -s - u), c + Vector2(s + u, s * 0.3), c + Vector2(0, s * 1.25 + 1.5 * u), c + Vector2(-s - u, s * 0.3)])
+	draw_colored_polygon(edge, Toon.SUMI)
+	draw_colored_polygon(ecu, Toon.GOLD if vuln else SHIELD_BAR)
+	if vuln:
+		# écu fendu
+		draw_line(c + Vector2(-s * 0.2, -s), c + Vector2(s * 0.2, -s * 0.1), Toon.SUMI, 1.5 * u)
+		draw_line(c + Vector2(s * 0.2, -s * 0.1), c + Vector2(-s * 0.15, s * 1.0), Toon.SUMI, 1.5 * u)
+		var vs := int(10 * u)
+		var vt := plain("VULNÉRABLE")
+		var vw := UiKit.UI_FONT.get_string_size(vt, HORIZONTAL_ALIGNMENT_LEFT, -1, vs).x
+		var vx := pos.x + w - vw
+		draw_string(UiKit.UI_FONT, Vector2(vx, pos.y + h + 0.5 * u), vt, HORIZONTAL_ALIGNMENT_LEFT, -1, vs, Color(Toon.GOLD, 0.65 + 0.35 * pulse))
+		return
+	# barre en segments (le dernier se remplit en partie)
+	var n := 12
+	var gap := 2.0 * u
+	var sw := (w - gap * float(n - 1)) / float(n)
+	var fill := clampf(boss_shield, 0.0, 1.0) * float(n)
+	for i in n:
+		var x := pos.x + float(i) * (sw + gap)
+		draw_rect(Rect2(x, pos.y, sw, h), Color(0.06, 0.06, 0.09, 0.55))
+		var f := clampf(fill - float(i), 0.0, 1.0)
+		if f > 0.0:
+			draw_rect(Rect2(x, pos.y, sw * f, h), SHIELD_BAR)
+	var ls := int(8 * u)
+	var lt := plain("BOUCLIER")
+	var lw := UiKit.UI_FONT.get_string_size(lt, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
+	draw_string(UiKit.UI_FONT, Vector2(pos.x + w - lw, pos.y - 1.5 * u), lt, HORIZONTAL_ALIGNMENT_LEFT, -1, ls, Toon.PRUSSIAN)
 
 
 func _draw_gate_hint(sz: Vector2, u: float) -> void:

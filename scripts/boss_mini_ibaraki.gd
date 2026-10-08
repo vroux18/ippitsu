@@ -1,10 +1,10 @@
 extends "res://scripts/boss_mini_base.gd"
 ## Mini-boss du monde 4 (Fuji Rouge) — Ibaraki-dōji, l'oni au bras tranché (26 PV × monde).
-##  Un anneau de forge le lie : la lame ricoche (×0). Trois sceaux de braise (quatre sous 50 %)
-##  flottent dans l'arène, numérotés par des encoches sumi (1 à 4, pas de chiffres).
+##  L'anneau de forge qui le lie est son bouclier (10) : un coup ne fait qu'effleurer. Trois sceaux
+##  de braise (quatre sous 50 %) flottent dans l'arène, numérotés par des encoches sumi (1 à 4).
 ##  Mécanique de trait : un seul trait (ruées enchaînées comprises) qui les touche TOUS DANS L'ORDRE
-##  brise l'anneau : 9 dmg, à genoux 3.5 s (vulnérable). Dans le désordre (2 sceaux ou plus) :
-##  1 dmg par sceau et ils se réarrangent. Prépare les noyaux de Daidarabotchi.
+##  brise tout l'anneau : à genoux 5.5 s, vulnérable (dégâts ×2). Dans le désordre (2 sceaux ou plus) :
+##  l'anneau n'est qu'ébréché et les sceaux se réarrangent. Prépare les noyaux de Daidarabotchi.
 ##  Attaques : charge en ligne (bande annoncée 1.0 s, 10 m/s) ; cercle de feu autour de lui
 ##  (r2.6, annoncé 1.2 s).
 
@@ -13,8 +13,8 @@ const EMBER := Color("#E0602A")
 const BRAISE := Color("#8E2A1E")
 const IRON := Color("#3B3633")
 const SEAL_HIT := 0.8  # distance trait-sceau pour le toucher
-const BREAK_DMG := 9.0
-const BROKEN_TIME := 3.5
+const SHIELD := 10.0
+const SEAL_CHIP := 0.8  # anneau ébréché par sceau pris dans le désordre
 const RESEAL_TIME := 1.2
 const CHARGE_TELE := 1.0
 const CHARGE_SPEED := 10.0
@@ -40,6 +40,7 @@ func _ready() -> void:
 	max_hp = hp
 	radius = 1.0
 	_build()
+	_shield_init(SHIELD, Vector3(1.4, 1.9, 1.4), 1.5)
 	_state = "spawn"
 	_timer = 1.4
 
@@ -187,18 +188,12 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 		return false
 	if hero.dashing and not _seals.is_empty():
 		_seal_touch(a, b)
-	if _state == "broken":
-		if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.55:
-			_last_stroke = stroke_id
-			return true
+	if _state == "spawn" or _state == "dying":
 		return false
-	if _state == "spawn":
-		return false
-	# anneau de forge : la lame ricoche (pas pendant un trait qui suit les sceaux)
-	if _order.is_empty() and _clanged != stroke_id and _seg_dist(position, a, b) < radius + 0.5:
-		_clanged = stroke_id
-		main.clang(position + Vector3(0, 1.4, 0))
-		main.float_text(position + Vector3(0, 0.6, 0), "×0", Toon.FOAM)
+	# à genoux : coup plein (×2) ; lié par l'anneau : il effleure et use l'anneau
+	if _last_stroke != stroke_id and _seg_dist(position, a, b) < radius + 0.55:
+		_last_stroke = stroke_id
+		return true
 	return false
 
 
@@ -223,14 +218,13 @@ func end_stroke(_stroke_id: int) -> void:
 	if ok and _state != "broken":
 		_break_bind()
 		return
-	# dans le désordre : les sceaux crachent des étincelles et se réarrangent
+	# dans le désordre : les sceaux crachent des étincelles et se réarrangent, l'anneau s'ébrèche
 	var last: Dictionary = _seals[int(order[order.size() - 1])]
 	var lp: Vector3 = last["pos"]
-	main.float_text(lp + Vector3(0, 0.8, 0), str(order.size()), Toon.FOAM)
 	main.clang(lp + Vector3(0, 0.9, 0))
 	_free_seals(true)
 	_seal_t = 0.6
-	_damage(float(order.size()))
+	_shield_dmg(SEAL_CHIP * float(order.size()))
 
 
 func touching_hero(p: Vector3) -> bool:
@@ -246,7 +240,7 @@ func _extra_danger(p: Vector3, _eta: float) -> bool:
 
 
 func _aoe_target(center: Vector3, reach: float) -> Vector3:
-	if _state != "broken":
+	if _state == "spawn" or _state == "dying":
 		return Vector3.INF
 	if Vector2(position.x - center.x, position.z - center.z).length() >= reach + radius:
 		return Vector3.INF
@@ -272,6 +266,25 @@ func _on_die() -> void:
 	_free_seals(true)
 	_bind.visible = false
 	ch.set_glow(0.0)
+
+
+## Anneau brisé : à genoux, plus d'attaque jusqu'à la fin de la fenêtre.
+func _on_shield_break() -> void:
+	_clear_zones()
+	_free_seals(true)
+	_state = "broken"
+	_bind.visible = false
+	ch.play("Blocking", 0.6)
+
+
+func _on_shield_back() -> void:
+	if _state != "broken":
+		return
+	_state = "rebind"
+	_timer = 0.6
+	_bind.visible = true
+	_bind.scale = Vector3.ONE * 0.05
+	ch.play("Idle_Combat")
 
 
 # ------------------------------------------------------------------ boucle
@@ -333,14 +346,8 @@ func _step(delta: float) -> void:
 			else:
 				position += _charge_dir * mv
 		"broken":
-			_stun -= delta
-			if _stun <= 0.0:
-				_stun = 0.0
-				_state = "rebind"
-				_timer = 0.6
-				_bind.visible = true
-				_bind.scale = Vector3.ONE * 0.05
-				ch.play("Idle_Combat")
+			# à genoux : la fin de la fenêtre (vulnerable_t) le relève (_on_shield_back)
+			pass
 		"rebind":
 			_timer -= delta
 			_bind.scale = Vector3.ONE * clampf(1.0 - _timer / 0.6, 0.05, 1.0)
@@ -375,19 +382,13 @@ func _start_charge(dir: Vector3) -> void:
 	ch.play_once("2H_Melee_Attack_Chop", ch.length("2H_Melee_Attack_Chop") * 0.4 / CHARGE_TELE)
 
 
+## Tous les sceaux dans l'ordre : l'anneau de forge cède d'un coup.
 func _break_bind() -> void:
-	var d := BREAK_DMG * max_hp_mult
-	_clear_zones()
-	_free_seals(true)
-	_state = "broken"
-	_stun = BROKEN_TIME
-	_bind.visible = false
-	main.float_text(position + Vector3(0, 1.0, 0), "鬼 " + str(roundi(d)), Toon.GOLD)
+	main.float_text(position + Vector3(0, 1.8, 0), "鬼", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.2, 0))
 	main.splash(position + Vector3(0, 1.6, 0), EMBER, 30)
 	main.shake = maxf(float(main.shake), 0.5)
-	ch.play("Blocking", 0.6)
-	_damage(d)
+	_shield_dmg(shield_max)
 
 
 func _seal_touch(a: Vector3, b: Vector3) -> void:
@@ -434,7 +435,8 @@ func _animate(_delta: float) -> void:
 
 # ------------------------------------------------------------------ robot testeur
 
-## Sceaux : un trait qui les relie dans l'ordre (en contournant les suivants) ; à genoux : iaï à travers.
+## Sceaux : un trait qui les relie dans l'ordre (en contournant les suivants : l'anneau tombe) ;
+## à genoux (vulnérable) : iaï à travers, encore et encore.
 func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var none := PackedVector3Array()
 	if dead:
@@ -442,7 +444,7 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	var h := Vector3(hero_pos.x, 0, hero_pos.z)
 	var me := Vector3(position.x, 0, position.z)
 	if _state == "broken":
-		if _stun < 0.3:
+		if vulnerable_t < 0.3:
 			return none
 		return _bot_line(h, me, 7.3)
 	if _seals.is_empty() or _state == "spawn" or _state == "rebind":

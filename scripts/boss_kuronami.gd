@@ -1,14 +1,18 @@
 extends Node3D
-## Monde 5 — boss final Kuro-Nami, la Vague Noire (design/UNIVERS.md), 150 PV en 3 phases de 50.
+## Monde 5 — boss final Kuro-Nami, la Vague Noire (design/UNIVERS.md), 39 PV en 3 phases d'un tiers.
+## Rythme bouclier → vulnérable : la vague porte un bouclier d'écume (12). Bouclier levé, un coup
+## n'effleure (10 % des dégâts) et use un peu l'écume ; brisé, la vague s'effondre et son œil d'encre
+## surgit au centre, sonné 6 s (5 s en phase 3) : chaque trait qui le traverse porte ×2.
 ##  Phase 1 « Les griffes » : la vague du fond tend 5 doigts d'écume qui griffent l'arène
 ##           (bandes annoncées 1.0 s). Un trait qui LONGE un doigt posé (≥ 70 % de sa longueur)
-##           le tranche = 10 dégâts. Les coups en travers ricochent.
+##           le tranche : la moitié du bouclier. Les coups en travers n'ébrèchent qu'à peine.
 ##  Phase 2 « Kaeshi » : des vagues dévalent 3 couloirs (annonces 1.2 s). Un aller-retour
-##           (retour au point de départ) devant une vague la renvoie = 8 dégâts.
-##  Phase 3 « L'Ensō » : un œil d'encre au centre. Seul dégât : une boucle presque fermée
-##           (rayon ≥ 2.5 m) autour de l'œil = 25 dégâts.
-## Interface identique à boss.gd. check_dash renvoie toujours false : les positions de ruée
-## sont enregistrées, puis analysées dans end_stroke (fin réelle de la ruée, traits enchaînés compris).
+##           (retour au point de départ) devant une vague la renvoie : la moitié du bouclier.
+##  Phase 3 « L'Ensō » : un œil d'encre au centre. Une boucle presque fermée (rayon ≥ 2.5 m)
+##           autour de l'œil brise tout le bouclier.
+## Interface identique à boss.gd. Les positions de ruée sont enregistrées, puis analysées dans
+## end_stroke (fin réelle de la ruée, traits enchaînés compris) ; check_dash ne renvoie vrai
+## que pour un trait qui traverse l'œil (phase 3 ou vague sonnée).
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -29,13 +33,21 @@ const ENSO_R := 2.5
 const EYE_R := 0.8
 const MAX_PTS := 900  # au-delà, la ruée n'est plus enregistrée
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
+const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
+const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
+const CHIP_SH := 0.35  # bouclier usé par point de dégât d'un coup simple (×2 pour une figure)
+const VULN_MULT := 2.0
+const REGEN_TIME := 1.0
+const SHIELD := 12.0
+const FINGER_SH := 6.0  # bouclier arraché par doigt tranché en longueur
+const KAESHI_SH := 6.0  # bouclier arraché par vague renvoyée
 
 var kind := "kuronami"
 var main: Node
 var hero: Node3D
 var title := "Kuro-Nami"
-var hp := 150.0
-var max_hp := 150.0
+var hp := 39.0
+var max_hp := 39.0
 var dead := false
 var max_hp_mult := 1.0  # difficulté du monde
 
@@ -65,6 +77,24 @@ var _eye: Node3D
 var _eye_ball: Node3D
 var _eye_iris: Node3D
 var _orbit: Node3D
+var _last_stroke := -1
+var _resume := ""  # phase reprise à la fin de la fenêtre de vulnérabilité
+
+# bouclier (lu par le HUD)
+var shield := 0.0
+var shield_max := 0.0
+var vulnerable_t := 0.0
+var vulnerable_len := 6.0
+var _regen := 0.0  # recharge animée du bouclier (secondes restantes)
+var _sh_root: Node3D
+var _bubble: MeshInstance3D
+var _aura: MeshInstance3D
+var _sh_mat: StandardMaterial3D
+var _aura_mat: StandardMaterial3D
+var _sh_size := Vector3.ONE
+var _aura_size := Vector3.ONE
+var _sh_pop := 0.0
+var _spark_t := -1.0
 
 
 func setup(k: String, m: Node) -> void:
@@ -74,7 +104,7 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	hp = 150.0
+	hp = 39.0
 	hp *= max_hp_mult
 	max_hp = hp
 	_unit = max_hp / 150.0
@@ -84,6 +114,7 @@ func _ready() -> void:
 	_build_wave()
 	_build_fingers()
 	_build_eye()
+	_shield_init(SHIELD)
 	_wave.position.y = -4.5
 	_state = "intro"
 	_timer = 1.6
@@ -205,10 +236,21 @@ func _make_lane_wave(x: float) -> Node3D:
 
 # ------------------------------------------------------------------ interface avec main
 
-## Enregistre la ruée ; les dégâts sont calculés à la fin du trait (toujours false).
-func check_dash(a: Vector3, b: Vector3, _stroke_id: int) -> bool:
+## Enregistre la ruée (formes jugées à la fin du trait) ; vrai pour un trait qui traverse l'œil
+## (phase 3 : effleuré ; vague sonnée : plein ×2), une fois par trait.
+func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 	if dead or not hero.dashing:
 		return false
+	if (_state == "stagger" or _state == "p3") and _eye.visible and _last_stroke != stroke_id:
+		if Toon.seg_dist_xz(Vector3.ZERO, a, b) < EYE_R + 0.5:
+			_last_stroke = stroke_id
+			_record_dash(a, b)
+			return true
+	_record_dash(a, b)
+	return false
+
+
+func _record_dash(a: Vector3, b: Vector3) -> void:
 	if _pts.is_empty():
 		_pts.append(Vector3(a.x, 0, a.z))
 	if _pts.size() < MAX_PTS:
@@ -224,11 +266,10 @@ func check_dash(a: Vector3, b: Vector3, _stroke_id: int) -> bool:
 			if _flat_dist(q, b) < FINGER_W * 0.5 + 0.45:
 				f["touched"] = true
 				main.small_hit(q + Vector3(0, 0.4, 0))
-	return false
 
 
 func take_hit(dmg: float, _dir: Vector3) -> void:
-	_deal(dmg)
+	_hit(dmg, _figure_hit())
 
 
 ## Fin réelle de la ruée : on reconnaît la forme tracée selon la phase.
@@ -334,6 +375,10 @@ func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
 	var best := INF
 	var at := Vector3.ZERO
 	match _state:
+		"stagger":
+			if _eye.visible and Vector2(center.x, center.z).length() - EYE_R < radius:
+				found = true
+				at = Vector3(0, 0.5, 0)
 		"p1":
 			for f: Dictionary in _fingers:
 				if not bool(f["alive"]) or String(f["state"]) != "rest":
@@ -368,7 +413,7 @@ func aoe_hit(center: Vector3, radius: float, dmg: float, fx := true) -> Vector3:
 	if not found:
 		return Vector3.INF
 	var fl := _flash
-	_deal(dmg)
+	_hit(dmg)
 	if not fx:
 		_flash = fl
 	return at
@@ -424,10 +469,13 @@ func _check_claws(samples: Array) -> void:
 		if cov >= 0.7:
 			_cut_finger(f)
 		elif cov >= 0.08:
-			# coupé en travers : l'écume se referme
+			# coupé en travers : l'écume se referme, à peine ébréchée
 			var q := _closest(_pts[_pts.size() - 1], a, b)
-			main.float_text(q + Vector3(0, 0.6, 0), "×0", FOAM)
 			main.clang(q)
+			_deal(0.1)
+			_shield_dmg(CHIP_SH)
+		if _state != "p1":
+			return
 
 
 func _cut_finger(f: Dictionary) -> void:
@@ -440,10 +488,9 @@ func _cut_finger(f: Dictionary) -> void:
 	for k in 5:
 		main.splash(a.lerp(b, (k + 0.5) / 5.0) + Vector3(0, 0.4, 0), FOAM, 8)
 	var mid := a.lerp(b, 0.5)
-	var d := 10.0 * _unit
 	main.big_hit(mid)
-	main.float_text(mid + Vector3(0, 0.8, 0), str(roundi(d)), Toon.VERMILION)
-	_deal(d)
+	main.float_text(mid + Vector3(0, 0.8, 0), "Tranché !", SHIELD_C)
+	_shield_dmg(FINGER_SH)
 
 
 func _check_kaeshi() -> void:
@@ -469,6 +516,8 @@ func _check_kaeshi() -> void:
 				break
 		if ahead:
 			_kaeshi(w)
+			if _state != "p2":
+				return
 
 
 func _kaeshi(w: Dictionary) -> void:
@@ -476,11 +525,10 @@ func _kaeshi(w: Dictionary) -> void:
 	var x: float = w["x"]
 	var z: float = w["z"]
 	var p := Vector3(x, 0.8, z)
-	var d := 8.0 * _unit
 	main.big_hit(p)
 	main.splash(p, FOAM, 16)
-	main.float_text(p + Vector3(0, 0.6, 0), "Kaeshi ! " + str(roundi(d)), Toon.VERMILION)
-	_deal(d)
+	main.float_text(p + Vector3(0, 0.6, 0), "Kaeshi !", SHIELD_C)
+	_shield_dmg(KAESHI_SH)
 
 
 func _check_enso(samples: Array) -> void:
@@ -517,13 +565,13 @@ func _check_enso(samples: Array) -> void:
 	var closed := absf(turn) >= TAU * 0.82  # presque fermée (≥ ~295°)
 	var wide := mean >= ENSO_R - 0.15 and min_r >= 1.3
 	if closed and wide and round_k >= 0.6:
-		var d := 25.0 * _unit
+		# l'ensō autour de l'œil brise tout le bouclier
 		_enso_fx(mean)
 		main.big_hit(Vector3(0, 0.5, 0))
 		main.splash(Vector3(0, 0.6, 0), INK, 24)
-		main.float_text(Vector3(0, 1.6, 0), "Ensō ! " + str(roundi(d)), Toon.VERMILION)
+		main.float_text(Vector3(0, 1.6, 0), "Ensō !", SHIELD_C)
 		main.shake = maxf(float(main.shake), 0.6)
-		_deal(d)
+		_shield_dmg(shield_max)
 	elif absf(turn) >= PI:
 		# une boucle ratée : on explique pourquoi
 		var msg := "Trop serré" if not wide else "Pas fermé"
@@ -572,7 +620,7 @@ func _phase_prog() -> float:
 
 
 func _deal(d: float) -> void:
-	if dead or _phase == 0 or _state == "shift" or _state == "intro":
+	if dead or d <= 0.0 or _phase == 0 or _state == "shift" or _state == "intro":
 		return
 	var floor_hp := max_hp * float(3 - _phase) / 3.0
 	hp = maxf(hp - d, floor_hp)
@@ -587,6 +635,7 @@ func _deal(d: float) -> void:
 func _die() -> void:
 	hp = 0.0
 	dead = true
+	vulnerable_t = 0.0
 	_state = "dying"
 	_timer = 0.0
 	_clear_all()
@@ -672,6 +721,7 @@ func _clear_all() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	_animate_decor(delta)
+	_shield_tick(delta)
 	match _state:
 		"intro":
 			_timer -= delta
@@ -686,6 +736,8 @@ func _process(delta: float) -> void:
 			_phase2(delta)
 		"p3":
 			_phase3(delta)
+		"stagger":
+			_stagger_step(delta)
 		"shift":
 			# la vague gronde et se reforme
 			_timer -= delta
@@ -710,6 +762,9 @@ func _process(delta: float) -> void:
 func _animate_decor(delta: float) -> void:
 	if _flash > 0.0:
 		_flash -= delta
+	if _state == "p1" or _state == "p2" or _state == "p3":
+		# la vague se redresse après avoir été sonnée
+		_wave.position.y = lerpf(_wave.position.y, 0.0, minf(1.0, delta * 3.0))
 	for i in _crests.size():
 		var col: Node3D = _crests[i]
 		col.position.y = sin(_t * 1.3 + i * 0.8) * 0.15
@@ -733,6 +788,7 @@ func _start_phase(p: int) -> void:
 		_:
 			_state = "p3"
 			_timer = 1.8
+			vulnerable_len = 5.0  # dernière phase : fenêtres plus courtes
 			_eye.visible = true
 			_eye.scale = Vector3.ONE * 0.01
 			main.float_text(Vector3(0, 1.8, 0), "L'Ensō", FOAM)
@@ -745,6 +801,10 @@ func _begin_shift() -> void:
 	_state = "shift"
 	_timer = 2.2
 	main.shake = maxf(float(main.shake), 0.5)
+	# nouvelle phase : l'œil replonge, le bouclier se reforme
+	_eye.visible = false
+	_eye_grace = 0.0
+	_shield_refill()
 
 
 # --- phase 1 : les griffes
@@ -999,6 +1059,199 @@ func _eye_attack() -> void:
 			_drops.append({"type": "rain", "zone": _disc_zone(_in_arena(c), 1.3, 1.1)})
 
 
+# ------------------------------------------------------------------ bouclier → vulnérable
+
+## Bouclier d'écume plein (bulle sur la grande vague) ; aura dorée autour de l'œil quand il est brisé.
+func _shield_init(v: float) -> void:
+	shield_max = v
+	shield = v
+	_sh_size = Vector3(8.6, 4.2, 2.6)
+	_aura_size = Vector3(1.7, 1.0, 1.7)
+	_sh_root = Node3D.new()
+	add_child(_sh_root)
+	_sh_mat = _sh_material(Color(SHIELD_C, 0.14))
+	_aura_mat = _sh_material(Color(Toon.GOLD, 0.2))
+	_bubble = Toon.part(_sh_root, Toon.sphere(1.0), _sh_mat, Vector3(0, 1.6, -10.6), _sh_size)
+	_bubble.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura = Toon.part(self, Toon.sphere(1.0), _aura_mat, Vector3(0, 0.4, 0), _aura_size)
+	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_aura.visible = false
+	_shield_visual(0.0)
+
+
+func _sh_material(c: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = c
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	return m
+
+
+## Le coup vient-il d'une figure (forme reconnue du trait) ? Elle use le bouclier deux fois plus.
+func _figure_hit() -> bool:
+	var sh = main.get("_shape")
+	return sh is Dictionary and not sh.is_empty()
+
+
+## Coup ordinaire (trait, pouvoir) : bouclier levé, il effleure et use un peu l'écume ; brisé, ×2.
+func _hit(d: float, strong := false) -> void:
+	if dead or d <= 0.0:
+		return
+	if vulnerable_t > 0.0:
+		_deal(d * VULN_MULT)
+		return
+	if shield_max <= 0.0:
+		_deal(d)
+		return
+	_deal(d * CHIP_HP)
+	_shield_dmg(d * CHIP_SH * (2.0 if strong else 1.0))
+
+
+## Use le bouclier de v points (mécanique du boss : gros morceaux) ; à zéro il se brise.
+func _shield_dmg(v: float) -> void:
+	if dead or v <= 0.0 or vulnerable_t > 0.0 or shield_max <= 0.0 or _pending_shift:
+		return
+	if _state != "p1" and _state != "p2" and _state != "p3":
+		return
+	shield -= v
+	_sh_pop = 0.15
+	if _t - _spark_t > 0.2:
+		_spark_t = _t
+		main.vfx.sparks(Vector3(0, 2.5, -8.4), Vector3.UP, 3 if v < 2.0 else 10, SHIELD_C)
+	if shield > 0.0:
+		return
+	if _regen > 0.0 and v < shield_max * 0.5:
+		# il se reforme : les petits coups n'y font pas de brèche avant la fin de la recharge
+		shield = shield_max * 0.05
+		return
+	_shield_break()
+
+
+## Bouclier brisé : la vague s'effondre, attaques effacées, l'œil d'encre surgit au centre, sonné.
+func _shield_break() -> void:
+	shield = 0.0
+	_regen = 0.0
+	vulnerable_t = vulnerable_len
+	main.float_text(Vector3(0, 0, -6.0), "BRISÉ", SHIELD_C)
+	main.float_text(Vector3(0, 0.9, 0), "VULNÉRABLE !", Toon.GOLD)
+	main.vfx.ring(Vector3(0, 0.1, 0), SHIELD_C, 3.0)
+	main.vfx.sparks(Vector3(0, 2.5, -8.4), Vector3.UP, 20, SHIELD_C)
+	main.sfx.play("strike", 1.3, -3.0)
+	main.sfx.play("torii", 1.25, -6.0)
+	main.feel("heavy")
+	main.shake = maxf(float(main.shake), 0.6)
+	main.splash(Vector3(0, 0.6, 0), INK, 20)
+	_resume = _state
+	_state = "stagger"
+	_pts.clear()
+	for z: Dictionary in _zones:
+		var root: Node3D = z["root"]
+		if is_instance_valid(root):
+			root.queue_free()
+	_zones.clear()
+	for f: Dictionary in _fingers:
+		f["zone"] = {}
+		f["hurt"] = 0.0
+		var st: String = f["state"]
+		if st == "warn" or st == "slam" or st == "rest":
+			f["state"] = "back"
+			f["t"] = 0.5
+	for w: Dictionary in _waves:
+		var wn: Node3D = w["node"]
+		if is_instance_valid(wn):
+			wn.queue_free()
+	_waves.clear()
+	_drops.clear()
+	if not _eye.visible:
+		_eye.visible = true
+		_eye.scale = Vector3.ONE * 0.01
+
+
+## Fin de la fenêtre : l'œil replonge (sauf en phase 3), les griffes repoussent, la phase reprend.
+func _on_shield_back() -> void:
+	if _state != "stagger":
+		return
+	_state = _resume if _resume != "" else "p1"
+	_eye_grace = 1.0
+	_timer = 1.0
+	if _state != "p3":
+		_eye.visible = false
+	if _state == "p1":
+		for f: Dictionary in _fingers:
+			if bool(f["alive"]):
+				continue
+			var fn: Node3D = f["node"]
+			fn.visible = true
+			fn.scale = Vector3.ONE * 0.22
+			fn.rotation = Vector3(FINGER_IDLE_PITCH, PI, 0)
+			f["alive"] = true
+			f["state"] = "idle"
+			f["yaw"] = PI
+			f["t"] = 0.0
+
+
+## Vague sonnée : les griffes se replient, l'œil surgit et vacille, plus d'attaque.
+func _stagger_step(delta: float) -> void:
+	for f: Dictionary in _fingers:
+		_finger_step(f, delta)
+	_wave.position.y = lerpf(_wave.position.y, -1.2, minf(1.0, delta * 3.0))
+	_eye.scale = _eye.scale.lerp(Vector3.ONE * 1.15, minf(1.0, delta * 4.0))
+	_orbit.rotation.y += delta * 3.0
+	_eye_iris.position = _eye_iris.position.lerp(Vector3(sin(_t * 7.0) * 0.2, 0, cos(_t * 5.0) * 0.2), minf(1.0, delta * 6.0))
+	var pulse := 1.15 if _flash > 0.0 else 1.0
+	_eye_ball.scale = Vector3(pulse, pulse * (0.7 + 0.3 * absf(sin(_t * 4.0))), pulse)
+
+
+## Bouclier remis à neuf : recharge animée.
+func _shield_refill() -> void:
+	vulnerable_t = 0.0
+	if shield_max <= 0.0 or dead:
+		return
+	_regen = REGEN_TIME
+	shield = maxf(shield, 0.0)
+
+
+func _shield_tick(delta: float) -> void:
+	if shield_max <= 0.0:
+		return
+	if dead:
+		vulnerable_t = 0.0
+	elif vulnerable_t > 0.0:
+		vulnerable_t -= delta
+		if vulnerable_t <= 0.0:
+			_shield_refill()
+			main.vfx.ring(Vector3(0, 0.1, -7.5), SHIELD_C, 3.0)
+			main.sfx.play("ink", 0.7, -6.0)
+			_on_shield_back()
+	elif _regen > 0.0:
+		_regen -= delta
+		shield = minf(shield_max, shield + shield_max * delta / REGEN_TIME)
+		if _regen <= 0.0:
+			_regen = 0.0
+			shield = shield_max
+	_shield_visual(delta)
+
+
+## Bulle d'écume sur la grande vague tant que le bouclier tient, aura dorée autour de l'œil sonné.
+func _shield_visual(delta: float) -> void:
+	if _sh_root == null:
+		return
+	_sh_root.position = Vector3(0, _wave.position.y, 0)
+	_sh_pop = maxf(0.0, _sh_pop - delta)
+	var off := dead or _state == "intro"
+	_bubble.visible = shield > 0.0 and not off
+	if _bubble.visible:
+		var k := 1.0 if _regen <= 0.0 else clampf(1.0 - _regen / REGEN_TIME, 0.15, 1.0)
+		_bubble.scale = _sh_size * k * (1.0 + _sh_pop * 0.3 + 0.01 * sin(_t * 3.0))
+		_sh_mat.albedo_color = Color(SHIELD_C, 0.06 + 0.08 * clampf(shield / shield_max, 0.0, 1.0) + _sh_pop)
+	_aura.visible = vulnerable_t > 0.0 and not off
+	if _aura.visible:
+		var pulse := 0.5 + 0.5 * sin(_t * 9.0)
+		_aura.scale = _aura_size * (1.05 + 0.08 * pulse)
+		_aura_mat.albedo_color = Color(Toon.GOLD, 0.14 + 0.16 * pulse)
+
+
 # ------------------------------------------------------------------ robot testeur
 
 const BOT_HALF := Vector2(4.3, 8.3)  # bornes des points du robot (comme main._clamp_point)
@@ -1012,6 +1265,11 @@ func bot_stroke(hero_pos: Vector3) -> PackedVector3Array:
 	if dead or _pending_shift:
 		return none
 	match _state:
+		"stagger":
+			# vague sonnée : iaï à travers l'œil, encore et encore
+			if vulnerable_t < 0.3:
+				return none
+			return _bot_line(h, Vector3.ZERO, 7.3)
 		"p1":
 			return _bot_claw(h)
 		"p2":
@@ -1094,6 +1352,41 @@ func _bot_enso(h: Vector3) -> PackedVector3Array:
 
 func _bot_clamp(p: Vector3) -> Vector3:
 	return Vector3(clampf(p.x, -BOT_HALF.x, BOT_HALF.x), 0, clampf(p.z, -BOT_HALF.y, BOT_HALF.y))
+
+
+## Place libre devant p dans la direction dir avant le bord de l'arène.
+func _bot_room(p: Vector3, dir: Vector3) -> float:
+	var t := 99.0
+	if dir.x > 0.001:
+		t = minf(t, (BOT_HALF.x - p.x) / dir.x)
+	elif dir.x < -0.001:
+		t = minf(t, (-BOT_HALF.x - p.x) / dir.x)
+	if dir.z > 0.001:
+		t = minf(t, (BOT_HALF.y - p.z) / dir.z)
+	elif dir.z < -0.001:
+		t = minf(t, (-BOT_HALF.y - p.z) / dir.z)
+	return maxf(t, 0.0)
+
+
+## Trait droit qui traverse tgt, long d'au moins min_len si l'arène le permet (iaï dès 7 m).
+func _bot_line(h: Vector3, tgt: Vector3, min_len: float) -> PackedVector3Array:
+	var d := tgt - h
+	d.y = 0
+	var dist := d.length()
+	var dir := Vector3(-h.x, 0, -h.z)
+	if dist > 0.3:
+		dir = d / dist
+	if dir.length_squared() < 0.01:
+		dir = Vector3(0, 0, 1)
+	dir = dir.normalized()
+	var l := minf(maxf(min_len, dist + 1.2), _bot_room(h, dir))
+	if l < dist + 0.5:
+		# cible collée au bord : on la traverse puis on revient vers le centre
+		var back := Vector3(-tgt.x, 0, -tgt.z)
+		if back.length_squared() < 0.01:
+			back = Vector3(0, 0, 1)
+		return _bot_dense([h, tgt, tgt + back.normalized() * 2.0])
+	return _bot_dense([h, h + dir * l])
 
 
 ## Polyligne finale : au sol, bornée à l'arène, points espacés de 0.4 m au plus.

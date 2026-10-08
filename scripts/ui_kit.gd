@@ -1003,3 +1003,26 @@ static func poly_area(pp: PackedVector2Array) -> float:
 		var p1 := pp[(i + 1) % pp.size()]
 		a += p0.x * p1.y - p1.x * p0.y
 	return absf(a * 0.5)
+
+
+## Cintre (garde-robe) : crochet, épaules du cintre et petit kimono suspendu, dans un rayon s autour de c.
+static func hanger_icon(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
+	var w := maxf(1.2, s * 0.16)
+	# crochet
+	ci.draw_arc(c + Vector2(0, -s * 0.72), s * 0.2, PI * 1.05, PI * 2.2, 10, col, w, true)
+	ci.draw_line(c + Vector2(0, -s * 0.52), c + Vector2(0, -s * 0.36), col, w, true)
+	# barre du cintre
+	ci.draw_polyline(PackedVector2Array([c + Vector2(-s * 0.95, -s * 0.05), c + Vector2(0, -s * 0.4), c + Vector2(s * 0.95, -s * 0.05)]), col, w, true)
+	# kimono : manches et corps, col croisé
+	var body := PackedVector2Array([c + Vector2(-s * 0.95, -s * 0.05), c + Vector2(-s * 0.95, s * 0.35), c + Vector2(-s * 0.5, s * 0.35),
+		c + Vector2(-s * 0.5, s * 0.95), c + Vector2(s * 0.5, s * 0.95), c + Vector2(s * 0.5, s * 0.35), c + Vector2(s * 0.95, s * 0.35),
+		c + Vector2(s * 0.95, -s * 0.05), c + Vector2(0, -s * 0.4)])
+	ci.draw_colored_polygon(body, Color(col, col.a * 0.85))
+	var hole := Color(1, 1, 1, 0.0)
+	if col.v < 0.5:
+		hole = Color(Toon.WASHI, col.a * 0.9)
+	else:
+		hole = Color(Toon.SUMI, col.a * 0.9)
+	ci.draw_line(c + Vector2(-s * 0.3, -s * 0.22), c + Vector2(s * 0.12, s * 0.4), hole, w * 0.8, true)
+	ci.draw_line(c + Vector2(s * 0.3, -s * 0.22), c + Vector2(-s * 0.02, s * 0.18), hole, w * 0.8, true)
+	ci.draw_line(c + Vector2(-s * 0.5, s * 0.52), c + Vector2(s * 0.5, s * 0.52), hole, w * 0.9, true)

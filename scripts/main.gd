@@ -148,7 +148,26 @@ var record := 0
 var _state_t := 0.0
 const MENU_BOAT := Vector3(0, 0, 17.5)  # la barque de l'accueil, au large devant le sanctuaire (elle avance vers lui)
 const BOAT_DECK := -0.24
+const BOAT_LEN := 3.8  # sampan : longueur, demi-largeur, place du héros (proue vers -z)
+const BOAT_BEAM := 0.62
+const BOAT_HERO_Z := -1.0
+const RING_LIFE := 3.0  # durée d'une ride sur l'eau
+const WARDROBE_DIR := Vector3(0.958, 0.0, -0.287)  # garde-robe : la caméra sur le flanc de la proue
+const Decor = preload("res://scripts/decor.gd")
 var menu_boat: Node3D
+var _boat_lantern: Node3D
+var _boat_lan_mat: StandardMaterial3D
+var _boat_light: OmniLight3D = null
+var _boat_rings: Array = []  # [MeshInstance3D, matériau, âge]
+var _boat_ring_t := 0.0
+var _boat_fx: Node3D = null  # particules de l'accueil (selon le monde)
+var _boat_fx_world := 0
+var _boat_birds: Node3D
+var _boat_bird_t := 5.0
+var _drift_t := 0.0  # dérive lente de la caméra d'accueil
+var wardrobe: Control  # garde-robe (wardrobe.gd)
+var _wardrobe_on := false
+var _wardrobe_k := 0.0
 var _env: Environment
 var _light_mode := false  # rendu allégé (téléphone)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
@@ -210,6 +229,7 @@ var _touch_ms := 0
 var _last_tap_ms := 0
 var _boss_seen: Node3D = null
 var _boss_hp_seen := 0.0
+var _boss_sh_seen := 0.0  # bouclier du boss vu à l'image précédente (astuce du point faible)
 var _boss_dry_t := 0.0  # temps sans dégât sur le boss (affiche son point faible)
 var _dmg_labels := {}  # id ennemi -> chiffre en cours (cumul des touches rapprochées)
 var _ricochets := {}  # ricochets sur les boss de la partie (astuces)
@@ -301,6 +321,7 @@ func _ready() -> void:
 	refuge.meta = meta
 	ref_layer.add_child(refuge)
 	refuge.closed.connect(_on_refuge_closed)
+	_setup_wardrobe()
 	menu.atelier_pressed.connect(_on_atelier)
 	menu.worlds_pressed.connect(_open_worlds)
 	menu.resume_pressed.connect(_on_resume)
@@ -571,6 +592,7 @@ func _set_state(s: String) -> void:
 	state = s
 	_state_t = 0.0
 	hud.visible = not s in ["menu", "worlds", "sail"]
+	_show_stage(not s in ["menu", "worlds", "sail"])
 	match s:
 		"menu":
 			menu.show_mode("home")
@@ -690,6 +712,8 @@ func _notification(what: int) -> void:
 			_on_recap_closed()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and intro != null and intro.visible:
 			intro.close()
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and wardrobe != null and wardrobe.visible:
+			wardrobe.call("close")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
 			get_tree().quit()  # Retour depuis l'accueil : on quitte, comme toute appli
 		else:
@@ -861,58 +885,534 @@ func _on_sound(muted: bool) -> void:
 	_save()
 
 
-## Plan d'accueil : derrière le héros debout sur sa barque, face au paysage du monde.
+## Plan d'accueil : derrière le héros debout à la proue de sa barque, face au paysage du monde.
+## Lente dérive latérale (le lointain glisse moins vite que la barque : parallaxe).
 func _menu_transform() -> Transform3D:
 	var bp := menu_boat.position if menu_boat != null else MENU_BOAT
 	bp.y = 0.0
-	var pos := bp + Vector3(0.95, 1.95, 4.1)
-	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.15, 1.15, -7.0), Vector3.UP)
+	var dx := sin(_drift_t * 0.11) * 0.55
+	var dy := sin(_drift_t * 0.07 + 1.3) * 0.12
+	var pos := bp + Vector3(0.95 + dx, 1.95 + dy, 4.1)
+	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.15 + dx * 0.25, 1.15, -7.0), Vector3.UP)
 
 
-## Barque de l'accueil (au large, derrière l'arène) : coque, pont, lanterne, sillage d'écume.
+## Garde-robe : la caméra passe sur le flanc de la proue, le héros se tourne vers elle (haut de l'écran).
+func _wardrobe_transform() -> Transform3D:
+	var hp := hero.position if is_instance_valid(hero) else MENU_BOAT
+	var pos := hp + WARDROBE_DIR * 3.3 + Vector3(0, 1.05, 0)
+	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0, 0.1, 0), Vector3.UP)
+
+
+## Barque de l'accueil (sampan) : coque courbe, pont de planches, toit de natte (tomaya) sur quatre
+## poteaux, rame posée, rouleau de corde, perche et lanterne de papier à la proue. Tout le bois est un
+## seul maillage (couleurs de sommets) ; la lanterne se balance à part, avec la seule lumière.
 func _build_menu_boat() -> void:
 	menu_boat = Node3D.new()
 	world.add_child(menu_boat)
 	menu_boat.position = MENU_BOAT
-	var hull := Toon.mat(Color("#5E4130"), true, 0.03)
-	var deck := Toon.mat(Color("#B88A5A"), true, 0.02)
+	var wood := Toon.mat(Color.WHITE, true, 0.022)
+	wood.vertex_color_use_as_albedo = true
+	wood.vertex_color_is_srgb = true
+	var body := MeshInstance3D.new()
+	body.mesh = _boat_mesh()
+	body.material_override = wood
+	menu_boat.add_child(body)
+	# lanterne : pivot au bout de la perche, elle pend et se balance
+	_boat_lantern = Node3D.new()
+	menu_boat.add_child(_boat_lantern)
+	_boat_lantern.position = Vector3(-0.42, 1.36, -1.93)
 	var dark := Toon.mat(Color("#2E221B"), false)
-	Toon.part(menu_boat, Toon.box(Vector3(1.15, 0.32, 3.2)), hull, Vector3(0, -0.43, 0))
-	var bow := Toon.part(menu_boat, Toon.box(Vector3(0.95, 0.28, 1.0)), hull, Vector3(0, -0.33, -1.85))
-	bow.rotation.x = 0.38
-	var stern := Toon.part(menu_boat, Toon.box(Vector3(1.0, 0.26, 0.6)), hull, Vector3(0, -0.36, 1.75))
-	stern.rotation.x = -0.25
-	Toon.part(menu_boat, Toon.box(Vector3(0.98, 0.04, 2.9)), deck, Vector3(0, -0.26, 0.05))
-	for sx in [-1.0, 1.0]:
-		Toon.part(menu_boat, Toon.box(Vector3(0.07, 0.1, 3.3)), dark, Vector3(0.57 * sx, -0.24, 0))
-	# perche et lanterne à la proue (hors du champ entre la caméra et le héros)
-	Toon.part(menu_boat, Toon.cyl(0.025, 0.03, 1.5), dark, Vector3(-0.4, 0.5, -1.55))
-	var lan := Toon.mat(Color("#F4C97A"), true, 0.02)
-	lan.emission_enabled = true
-	lan.emission = Color("#FFB35A")
-	lan.emission_energy_multiplier = 1.6
-	Toon.part(menu_boat, Toon.sphere(0.13), lan, Vector3(-0.4, 1.18, -1.55), Vector3(1, 1.35, 1))
+	Toon.part(_boat_lantern, Toon.box(Vector3(0.012, 0.16, 0.012)), dark, Vector3(0, -0.08, 0))
+	_boat_lan_mat = Toon.mat(Color("#F4C27A"), true, 0.015)
+	_boat_lan_mat.emission_enabled = true
+	_boat_lan_mat.emission = Color("#FF9E45")
+	_boat_lan_mat.emission_energy_multiplier = 1.4
+	var lb := Toon.part(_boat_lantern, Toon.sphere(0.12), _boat_lan_mat, Vector3(0, -0.33, 0), Vector3(1, 1.32, 1))
+	lb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for sy in [-1.0, 1.0]:
+		var cap := Toon.part(_boat_lantern, Toon.cyl(0.07, 0.07, 0.035, 10), dark, Vector3(0, -0.33 + 0.165 * float(sy), 0))
+		cap.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if not _light_mode:
+		# une seule lumière, courte portée, sans ombre (téléphone : l'émission et la lueur suffisent)
+		_boat_light = OmniLight3D.new()
+		_boat_light.position = Vector3(0, -0.33, 0)
+		_boat_light.light_color = Color(1.0, 0.72, 0.42)
+		_boat_light.light_energy = 0.7
+		_boat_light.omni_range = 2.4
+		_boat_light.shadow_enabled = false
+		_boat_lantern.add_child(_boat_light)
 	# sillage d'écume autour de la coque
-	var wake := _disc(menu_boat, 1.0, Toon.flat(Color(Toon.FOAM, 0.55)), -0.53)
-	wake.scale = Vector3(0.95, 1, 2.1)
+	var wake := _disc(menu_boat, 1.0, Toon.flat(Color(Toon.FOAM, 0.5)), -0.53)
+	wake.scale = Vector3(0.85, 1, 2.2)
+	# rides : anneaux plats qui s'élargissent et s'effacent (posés sur l'eau, pas sur la barque)
+	var ring := _boat_ring_mesh()
+	for i in 5:
+		var rm := Toon.flat(Color(Toon.FOAM, 0.0))
+		var mi := Toon.part(world, ring, rm, MENU_BOAT, Vector3.ONE)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.visible = false
+		_boat_rings.append([mi, rm, RING_LIFE])
+	# oiseaux de passage, de temps en temps
+	_boat_birds = Node3D.new()
+	world.add_child(_boat_birds)
+	var gull: Mesh = Worlds._gull_mesh()
+	for i in 3:
+		var g := MeshInstance3D.new()
+		g.mesh = gull
+		g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		g.position = Vector3(-0.9 * i, 0.35 * float(i % 2) - 0.1 * i, 0.6 * i)
+		g.scale = Vector3.ONE * (1.3 - 0.15 * i)
+		_boat_birds.add_child(g)
+	_boat_birds.visible = false
 	menu_boat.visible = false
 
 
-## Tangage de la barque ; le héros reste debout dessus.
-func _rock_boat() -> void:
+## Bois de la barque, en un seul maillage.
+func _boat_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var hull := Color("#5E4130")
+	var wale := Color("#3A2A20")
+	var inner := Color("#8A6A48")
+	var rim := Color("#2E221B")
+	var nz := 26
+	var nphi := 10
+	var half := BOAT_LEN * 0.5
+	# coque : ellipses (largeur, haut du plat-bord, quille) le long de z, proue relevée vers -z
+	var outer_p: Array = []
+	var outer_n: Array = []
+	var outer_c: Array = []
+	var inner_p: Array = []
+	var inner_n: Array = []
+	var inner_c: Array = []
+	for i in nphi + 1:
+		var phi := -PI / 2.0 + PI * float(i) / float(nphi)
+		var rp := PackedVector3Array()
+		var rn := PackedVector3Array()
+		var rc := PackedColorArray()
+		var ip := PackedVector3Array()
+		var inn := PackedVector3Array()
+		var ic := PackedColorArray()
+		for j in nz + 1:
+			var z := -half + BOAT_LEN * float(j) / float(nz)
+			var hs := _boat_section(z / half)
+			var w: float = hs.x
+			var top: float = hs.y
+			var hh: float = hs.y - hs.z
+			rp.append(Vector3(w * sin(phi), top - hh * cos(phi), z))
+			rn.append(Vector3(hh * sin(phi), -w * cos(phi), 0).normalized())
+			rc.append(wale if absf(phi) > 1.2 else hull)
+			var wi := maxf(w - 0.05, 0.01)
+			var hi := hh - 0.05
+			ip.append(Vector3(wi * sin(phi), top - hi * cos(phi), z))
+			inn.append(-Vector3(hi * sin(phi), -wi * cos(phi), 0).normalized())
+			ic.append(inner)
+		outer_p.append(rp)
+		outer_n.append(rn)
+		outer_c.append(rc)
+		inner_p.append(ip)
+		inner_n.append(inn)
+		inner_c.append(ic)
+	_st_grid(st, outer_p, outer_n, outer_c, false)
+	_st_grid(st, inner_p, inner_n, inner_c, true)
+	# plat-bord : bande du dessus entre la coque et sa face intérieure (gauche : i = 0, droite : i = nphi)
+	for side in [0, nphi]:
+		var si: int = side
+		var po: PackedVector3Array = outer_p[si]
+		var pin: PackedVector3Array = inner_p[si]
+		var ups := PackedVector3Array()
+		var cc := PackedColorArray()
+		for j in nz + 1:
+			ups.append(Vector3.UP)
+			cc.append(rim)
+		_st_grid(st, [po, pin], [ups, ups], [cc, cc], si == 0)
+	# pont : planches en travers, à la largeur intérieure de la coque
+	var deck_y := -0.27
+	var z0 := -1.5
+	var k := 0
+	while z0 < 1.62:
+		var hs2 := _boat_section((z0 + 0.09) / half)
+		var top2: float = hs2.y
+		var hi2: float = hs2.y - hs2.z - 0.05
+		var wi2: float = maxf(hs2.x - 0.05, 0.01)
+		var q := clampf((top2 - deck_y) / maxf(hi2, 0.01), 0.0, 1.0)
+		var dw := wi2 * sqrt(1.0 - q * q) - 0.01
+		if dw > 0.08:
+			var pc := Color("#B88A5A") if k % 2 == 0 else Color("#A97E50")
+			_st_obox(st, Vector3(0, deck_y, z0 + 0.09), Basis(), Vector3(dw, 0.02, 0.09), pc)
+		z0 += 0.2
+		k += 1
+	# toit de natte (tomaya) : voûte sur quatre poteaux, à la poupe (sous la ligne de vue de la caméra)
+	var post := Color("#3B2C22")
+	for px in [-0.46, 0.46]:
+		for pz in [0.52, 1.38]:
+			_st_obox(st, Vector3(float(px), 0.235, float(pz)), Basis(), Vector3(0.025, 0.49, 0.025), post)
+	var ra := 0.52
+	var rh := 0.3
+	var base := 0.72
+	var na := 10
+	var nzr := 7
+	var roof_p: Array = []
+	var roof_n: Array = []
+	var roof_c: Array = []
+	var roof_ip: Array = []
+	var roof_in: Array = []
+	for i in na + 1:
+		var al := -PI / 2.0 + PI * float(i) / float(na)
+		var rp2 := PackedVector3Array()
+		var rn2 := PackedVector3Array()
+		var rc2 := PackedColorArray()
+		var ip2 := PackedVector3Array()
+		var in2 := PackedVector3Array()
+		var nrm := Vector3(rh * sin(al), ra * cos(al), 0).normalized()
+		for j in nzr + 1:
+			var z := 0.4 + 1.1 * float(j) / float(nzr)
+			rp2.append(Vector3(ra * sin(al), base + rh * cos(al), z))
+			rn2.append(nrm)
+			rc2.append(Color("#C2A56A") if j % 2 == 0 else Color("#A68C55"))
+			ip2.append(Vector3((ra - 0.03) * sin(al), base + (rh - 0.03) * cos(al), z))
+			in2.append(-nrm)
+		roof_p.append(rp2)
+		roof_n.append(rn2)
+		roof_c.append(rc2)
+		roof_ip.append(ip2)
+		roof_in.append(in2)
+	_st_grid(st, roof_p, roof_n, roof_c, true)
+	_st_grid(st, roof_ip, roof_in, roof_c, false)
+	# rame posée en travers de la poupe, pelle au-dessus de l'eau
+	var oar := Color("#9C7448")
+	var oa := Vector3(0.12, -0.2, 0.95)
+	var ob := Vector3(0.55, -0.12, 2.35)
+	var od := (ob - oa).normalized()
+	_st_beam(st, oa, ob, Vector2(0.025, 0.025), oar)
+	_st_beam(st, ob - od * 0.42, ob + od * 0.08, Vector2(0.075, 0.012), oar.darkened(0.15))
+	# rouleau de corde sur le pont
+	_st_torus(st, Vector3(-0.3, -0.225, 1.2), 0.13, 0.028, Color("#C9B48A"))
+	_st_torus(st, Vector3(-0.3, -0.175, 1.2), 0.1, 0.026, Color("#B8A276"))
+	# perche de la lanterne (à la proue, à gauche du héros) et son bras
+	_st_beam(st, Vector3(-0.42, -0.25, -1.5), Vector3(-0.42, 1.38, -1.5), Vector2(0.022, 0.022), rim)
+	_st_beam(st, Vector3(-0.42, 1.34, -1.48), Vector3(-0.42, 1.39, -1.97), Vector2(0.016, 0.016), rim)
+	return st.commit()
+
+
+## Coupe de la coque en s (-1 proue … 1 poupe) : (demi-largeur, haut du plat-bord, quille).
+func _boat_section(s: float) -> Vector3:
+	var a := clampf(absf(s), 0.0, 1.0)
+	var w := maxf(BOAT_BEAM * sqrt(maxf(0.0, 1.0 - pow(a, 2.2))), 0.035)
+	var top := -0.13 + (0.5 if s < 0.0 else 0.3) * pow(a, 3.0)
+	var bot := -0.6 + 0.3 * a * a
+	return Vector3(w, top, bot)
+
+
+## Quadrillage de sommets (rangées i, colonnes j) en triangles : face extérieure selon i × j,
+## `flip` pour l'autre sens (faces intérieures).
+func _st_grid(st: SurfaceTool, pts: Array, nrm: Array, cols: Array, flip: bool) -> void:
+	var order: Array = [0, 2, 1, 0, 3, 2] if flip else [0, 1, 2, 0, 2, 3]
+	for i in pts.size() - 1:
+		var r0: PackedVector3Array = pts[i]
+		var r1: PackedVector3Array = pts[i + 1]
+		var n0: PackedVector3Array = nrm[i]
+		var n1: PackedVector3Array = nrm[i + 1]
+		var c0: PackedColorArray = cols[i]
+		var c1: PackedColorArray = cols[i + 1]
+		for j in r0.size() - 1:
+			var vp: Array = [r0[j], r0[j + 1], r1[j + 1], r1[j]]
+			var vn: Array = [n0[j], n0[j + 1], n1[j + 1], n1[j]]
+			var vc: Array = [c0[j], c0[j + 1], c1[j + 1], c1[j]]
+			for o in order:
+				var oi: int = o
+				var cv: Color = vc[oi]
+				var nv: Vector3 = vn[oi]
+				var pv: Vector3 = vp[oi]
+				st.set_color(cv)
+				st.set_normal(nv)
+				st.add_vertex(pv)
+
+
+## Pavé orienté (base `b`, demi-tailles `h`) à couleur de sommet (faces dans le sens horaire vu de dehors).
+func _st_obox(st: SurfaceTool, c: Vector3, b: Basis, h: Vector3, col: Color) -> void:
+	var fs: Array = [[Vector3.BACK, Vector3.RIGHT, Vector3.UP], [Vector3.FORWARD, Vector3.LEFT, Vector3.UP],
+		[Vector3.RIGHT, Vector3.FORWARD, Vector3.UP], [Vector3.LEFT, Vector3.BACK, Vector3.UP],
+		[Vector3.UP, Vector3.RIGHT, Vector3.FORWARD], [Vector3.DOWN, Vector3.RIGHT, Vector3.BACK]]
+	for f in fs:
+		var n: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var v: Vector3 = f[2]
+		var o := n * absf(n.dot(h))
+		var du := u * absf(u.dot(h))
+		var dv := v * absf(v.dot(h))
+		var nn := b * n
+		for pv in [o - du - dv, o - du + dv, o + du + dv, o - du - dv, o + du + dv, o + du - dv]:
+			var p: Vector3 = pv
+			st.set_color(col)
+			st.set_normal(nn)
+			st.add_vertex(c + b * p)
+
+
+## Poutre de a à b (section : demi-tailles sec.x, sec.y).
+func _st_beam(st: SurfaceTool, a: Vector3, b: Vector3, sec: Vector2, col: Color) -> void:
+	var ax := b - a
+	var ln := ax.length()
+	if ln < 0.001:
+		return
+	var fz := ax / ln
+	var side := Vector3.UP.cross(fz)
+	if side.length_squared() < 0.0001:
+		side = Vector3.RIGHT
+	side = side.normalized()
+	var up := fz.cross(side)
+	_st_obox(st, (a + b) * 0.5, Basis(side, up, fz), Vector3(sec.x, sec.y, ln * 0.5), col)
+
+
+## Tore posé à plat (corde enroulée).
+func _st_torus(st: SurfaceTool, c: Vector3, big: float, r: float, col: Color) -> void:
+	var npsi := 6
+	var nth := 16
+	var pts: Array = []
+	var nrm: Array = []
+	var cols: Array = []
+	for i in npsi + 1:
+		var psi := TAU * float(i) / float(npsi)
+		var rp := PackedVector3Array()
+		var rn := PackedVector3Array()
+		var rc := PackedColorArray()
+		for j in nth + 1:
+			var th := TAU * float(j) / float(nth)
+			var d := Vector3(cos(th), 0, sin(th))
+			rp.append(c + d * (big + r * cos(psi)) + Vector3(0, r * sin(psi), 0))
+			rn.append((d * cos(psi) + Vector3(0, sin(psi), 0)).normalized())
+			rc.append(col if j % 2 == 0 else col.darkened(0.12))
+		pts.append(rp)
+		nrm.append(rn)
+		cols.append(rc)
+	_st_grid(st, pts, nrm, cols, false)
+
+
+## Anneau plat (ride sur l'eau), rayon 1.
+func _boat_ring_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 28
+	for i in n:
+		var a0 := TAU * float(i) / float(n)
+		var a1 := TAU * float(i + 1) / float(n)
+		var o0 := Vector3(cos(a0), 0, sin(a0))
+		var o1 := Vector3(cos(a1), 0, sin(a1))
+		for p in [o0, o1, o1 * 0.88, o0, o1 * 0.88, o0 * 0.88]:
+			var pv: Vector3 = p
+			st.set_normal(Vector3.UP)
+			st.add_vertex(pv)
+	return st.commit()
+
+
+## Particules de l'accueil autour de la barque, selon le monde : pétales, lucioles, neige, braises, papier.
+func _build_boat_fx(id: int) -> void:
+	if is_instance_valid(_boat_fx):
+		_boat_fx.queue_free()
+	_boat_fx = Node3D.new()
+	_boat_fx.name = "BoatFx"
+	world.add_child(_boat_fx)
+	_boat_fx_world = id
+	var k := 0.6 if _light_mode else 1.0
+	var c := MENU_BOAT + Vector3(0, 1.4, -3.0)
+	var ext := Vector3(4.0, 1.6, 4.5)
+	match clampi(id, 1, 5):
+		1:
+			Decor.petals(_boat_fx, AABB(MENU_BOAT + Vector3(-4.0, -0.4, -7.5), Vector3(8.0, 3.6, 9.0)))
+		2:
+			var p := Worlds._emitter(_boat_fx, "Fireflies", c + Vector3(0, -0.4, 0), ext, int(16 * k), 5.0, Worlds._sphere_mesh("fire", 0.06, true))
+			p.direction = Vector3.UP
+			p.spread = 180.0
+			p.gravity = Vector3(0, 0.04, 0)
+			p.initial_velocity_min = 0.06
+			p.initial_velocity_max = 0.2
+			p.scale_amount_min = 0.7
+			p.scale_amount_max = 1.4
+			p.color_ramp = Worlds._fade(0.25, 0.7)
+			p.color_initial_ramp = Worlds._ramp([Color(0.85, 1.0, 0.55), Color(1.0, 0.92, 0.6), Color(0.7, 1.0, 0.7)], false)
+			p.emitting = true
+		3:
+			var p := Worlds._emitter(_boat_fx, "Snow", c + Vector3(-1.0, 1.6, 0), Vector3(ext.x + 1.0, 0.05, ext.z), int(46 * k), 4.6, Worlds._sphere_mesh("snow", 0.035, false))
+			p.direction = Vector3(0.35, -1.0, 0.1)
+			p.spread = 8.0
+			p.gravity = Vector3(0.04, -0.12, 0)
+			p.initial_velocity_min = 0.8
+			p.initial_velocity_max = 1.1
+			p.scale_amount_min = 0.7
+			p.scale_amount_max = 1.5
+			p.color_ramp = Worlds._fade(0.08, 0.9)
+			p.emitting = true
+		4:
+			var p := Worlds._emitter(_boat_fx, "Embers", c + Vector3(0, -1.6, 0), Vector3(ext.x, 0.1, ext.z), int(22 * k), 4.0, Worlds._quad_mesh("ember", Vector2(0.07, 0.07), true))
+			p.direction = Vector3.UP
+			p.spread = 25.0
+			p.gravity = Vector3(0.08, 0.25, 0.02)
+			p.initial_velocity_min = 0.4
+			p.initial_velocity_max = 0.9
+			p.angle_min = 0.0
+			p.angle_max = 360.0
+			p.scale_amount_min = 0.6
+			p.scale_amount_max = 1.4
+			var g := Gradient.new()
+			g.offsets = PackedFloat32Array([0.0, 0.1, 0.6, 1.0])
+			g.colors = PackedColorArray([Color(1.0, 0.85, 0.5, 0.0), Color(1.0, 0.8, 0.45, 1.0), Color(1.0, 0.45, 0.15, 0.85), Color(0.5, 0.1, 0.05, 0.0)])
+			p.color_ramp = g
+			p.emitting = true
+		_:
+			var p := Worlds._emitter(_boat_fx, "Paper", c + Vector3(-2.0, 0.4, 0), ext, int(20 * k), 7.0, Worlds._quad_mesh("paper", Vector2(0.13, 0.1), false))
+			p.direction = Vector3(1.0, 0.12, 0.2)
+			p.spread = 25.0
+			p.gravity = Vector3(0.1, -0.03, 0.02)
+			p.initial_velocity_min = 0.25
+			p.initial_velocity_max = 0.5
+			p.angle_min = 0.0
+			p.angle_max = 360.0
+			p.angular_velocity_min = -150.0
+			p.angular_velocity_max = 150.0
+			p.scale_amount_min = 0.8
+			p.scale_amount_max = 1.5
+			p.color_ramp = Worlds._fade(0.1, 0.85)
+			p.color_initial_ramp = Worlds._ramp([Toon.WASHI, Color("#F6F0E2"), Toon.SUMI], true)
+			p.emitting = true
+
+
+## Accueil, carte des mondes, départ en barque : seul le décor du monde (fond, mer) se voit ; la salle
+## (plateformes du sanctuaire, torii) n'apparaît qu'au vol de la caméra vers elle (intro) et en jeu.
+func _show_stage(on: bool) -> void:
+	if arena != null:
+		var rr = arena.get("_room_root")
+		if rr is Node3D:
+			rr.visible = on
+	if is_instance_valid(_shrine):
+		_shrine.visible = on
+	if is_instance_valid(_boat_fx):
+		_boat_fx.visible = not on
+		_boat_fx.process_mode = Node.PROCESS_MODE_DISABLED if on else Node.PROCESS_MODE_INHERIT
+	if not on:
+		return
+	# en jeu la barque n'a plus rien à faire là (l'intro la garde jusqu'à l'arrivée de la caméra)
+	if menu_boat != null and state != "intro":
+		menu_boat.visible = false
+	if is_instance_valid(_boat_birds):
+		_boat_birds.visible = false
+	for r in _boat_rings:
+		var rmi: MeshInstance3D = r[0]
+		rmi.visible = false
+		r[2] = RING_LIFE
+
+
+## Tangage de la barque (le héros reste debout à la proue), lanterne qui se balance et luit,
+## rides sur l'eau, oiseaux de passage, dérive de la caméra.
+func _rock_boat(real := 0.0) -> void:
+	_drift_t += real
 	var bob := sin(_state_t * 1.3) * 0.045
 	menu_boat.position.y = MENU_BOAT.y + bob
 	menu_boat.rotation = Vector3(sin(_state_t * 0.9) * 0.025, 0, sin(_state_t * 1.1) * 0.035)
-	hero.position = Vector3(menu_boat.position.x, BOAT_DECK + bob, menu_boat.position.z - 0.2)
+	hero.position = Vector3(menu_boat.position.x, BOAT_DECK + bob - BOAT_HERO_Z * sin(menu_boat.rotation.x), menu_boat.position.z + BOAT_HERO_Z)
+	if real <= 0.0:
+		return
+	if _boat_lantern != null:
+		_boat_lantern.rotation = Vector3(sin(_drift_t * 1.3 + 1.0) * 0.07, 0, sin(_drift_t * 1.7) * 0.11 - menu_boat.rotation.z)
+		var fl := 0.5 + 0.5 * sin(_drift_t * 5.3) * sin(_drift_t * 2.1)
+		_boat_lan_mat.emission_energy_multiplier = 1.25 + 0.3 * fl
+		if _boat_light != null:
+			_boat_light.light_energy = 0.6 + 0.15 * fl
+	# rides : un anneau naît près de la coque (plus souvent quand la barque file)
+	var moving := state == "sail" or state == "worlds"
+	_boat_ring_t -= real
+	if _boat_ring_t <= 0.0:
+		_boat_ring_t = 0.55 if moving else 1.1
+		for r in _boat_rings:
+			if float(r[2]) >= RING_LIFE:
+				r[2] = 0.0
+				var rn: MeshInstance3D = r[0]
+				rn.position = Vector3(menu_boat.position.x + randf_range(-0.15, 0.15), -0.535, menu_boat.position.z + (1.4 if moving else 0.3))
+				rn.scale = Vector3(0.7, 1.0, 1.1)
+				rn.visible = true
+				break
+	for r in _boat_rings:
+		var age: float = r[2]
+		if age >= RING_LIFE:
+			continue
+		age += real
+		r[2] = age
+		var ri: MeshInstance3D = r[0]
+		var rmat: StandardMaterial3D = r[1]
+		var kk := clampf(age / RING_LIFE, 0.0, 1.0)
+		var sc := 0.7 + 2.2 * (1.0 - (1.0 - kk) * (1.0 - kk))
+		ri.scale = Vector3(sc, 1.0, sc * 1.6)
+		rmat.albedo_color = Color(Toon.FOAM, 0.45 * (1.0 - kk) * clampf(age * 4.0, 0.0, 1.0))
+		if age >= RING_LIFE:
+			ri.visible = false
+	# oiseaux : un petit vol traverse le ciel de temps en temps
+	if _boat_birds.visible:
+		_boat_birds.position += Vector3(1.9, 0.04, -0.15) * real
+		var gi := 0
+		for g in _boat_birds.get_children():
+			var gn: Node3D = g
+			gn.scale.y = gn.scale.x * (0.35 + 0.65 * absf(sin(_drift_t * 6.5 + gi * 1.7)))
+			gi += 1
+		if _boat_birds.position.x > 15.0:
+			_boat_birds.visible = false
+			_boat_bird_t = randf_range(7.0, 15.0)
+	else:
+		_boat_bird_t -= real
+		if _boat_bird_t <= 0.0:
+			_boat_birds.position = Vector3(-15.0, randf_range(3.6, 5.4), menu_boat.position.z - randf_range(9.0, 15.0))
+			_boat_birds.visible = true
 
 
-## Pose le héros sur la barque, de dos (face au paysage).
+## Pose le héros sur la barque, à la proue, de dos (face au paysage).
 func _board_boat() -> void:
 	menu_boat.visible = true
 	menu_boat.position = MENU_BOAT
-	hero.position = MENU_BOAT + Vector3(0, BOAT_DECK, -0.2)
-	hero.face(Vector3(0, 0, -1))
+	if _boat_fx_world != current_world:
+		_build_boat_fx(current_world)
+	hero.position = MENU_BOAT + Vector3(0, BOAT_DECK, BOAT_HERO_Z)
+	hero.face(WARDROBE_DIR if _wardrobe_on else Vector3(0, 0, -1))
 	hero.snap_facing()
+
+
+## Garde-robe (bouton de l'accueil) : panneau par-dessus la barque, aperçu immédiat sur le héros.
+func _setup_wardrobe() -> void:
+	var wl := CanvasLayer.new()
+	wl.layer = 4
+	add_child(wl)
+	var ws: GDScript = load("res://scripts/wardrobe.gd")
+	wardrobe = ws.new()
+	wardrobe.set("meta", meta)
+	wl.add_child(wardrobe)
+	wardrobe.connect("changed", _on_wardrobe_changed)
+	wardrobe.connect("closed", _on_wardrobe_closed)
+	menu.wardrobe_pressed.connect(_open_wardrobe)
+	menu.apply_theme(meta.theme_colors())
+
+
+func _open_wardrobe() -> void:
+	if state != "menu":
+		return
+	sfx.play("whoosh", 0.9, -4.0)
+	menu.show_mode("hidden")
+	_wardrobe_on = true
+	hero.face(WARDROBE_DIR)
+	wardrobe.call("open")
+
+
+func _on_wardrobe_changed(cat: String) -> void:
+	meta.apply_look(hero)
+	if cat == "theme":
+		menu.apply_theme(meta.theme_colors())
+	sfx.play("empty", 1.3, -6.0)
+	feel("kill")
+
+
+func _on_wardrobe_closed() -> void:
+	_wardrobe_on = false
+	menu.sumi = meta.sumi
+	if is_instance_valid(hero):
+		hero.face(Vector3(0, 0, -1))
+	if state == "menu":
+		menu.show_mode("home")
 
 
 # ------------------------------------------------------------------ décor
@@ -3835,10 +4335,16 @@ func _process(_delta: float) -> void:
 
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
-		# la barque tangue doucement, le héros avec elle
-		_rock_boat()
+		# la barque tangue doucement, le héros avec elle ; garde-robe : la caméra glisse vers la proue
+		_rock_boat(real)
 		var sway := Vector3(sin(_state_t * 0.35) * 0.18, sin(_state_t * 0.5) * 0.06, 0)
-		cam.global_transform = _menu_transform().translated(sway)
+		var mt := _menu_transform().translated(sway)
+		var w_on := _wardrobe_on and wardrobe != null and wardrobe.visible
+		_wardrobe_k = move_toward(_wardrobe_k, 1.0 if w_on else 0.0, real * 1.4)
+		if _wardrobe_k > 0.0:
+			var wk := _wardrobe_k * _wardrobe_k * (3.0 - 2.0 * _wardrobe_k)
+			mt = mt.interpolate_with(_wardrobe_transform(), wk)
+		cam.global_transform = mt
 	elif state == "intro":
 		var k := clampf(_state_t / 1.6, 0.0, 1.0)
 		k = k * k * (3.0 - 2.0 * k)
@@ -3849,13 +4355,13 @@ func _process(_delta: float) -> void:
 	elif state == "sail":
 		# Jouer : la barque prend le large (elle accélère), puis on choisit le monde
 		menu_boat.position.z = maxf(menu_boat.position.z - real * minf(_state_t * 3.2, 2.6), 12.2)
-		_rock_boat()
+		_rock_boat(real)
 		cam.global_transform = _menu_transform()
 		if _state_t > 1.3:
 			_open_worlds()
 	elif state == "worlds":
 		menu_boat.position.z = maxf(menu_boat.position.z - real * 0.6, 11.4)  # elle glisse encore vers le ponton derrière la carte
-		_rock_boat()
+		_rock_boat(real)
 		cam.global_transform = _menu_transform()
 	elif state == "boss_intro":
 		shake = maxf(0.0, shake - real * 1.6)
@@ -3935,15 +4441,31 @@ func _process(_delta: float) -> void:
 		hud.enc_total = 0
 	hud.boss_name = ""
 	hud.boss_hint = ""
+	hud.boss_has_shield = false
+	hud.boss_vuln = 0.0
 	for bo in bosses:
 		if is_instance_valid(bo) and not bo.dead:
 			hud.boss_name = bo.title
-			# point faible : seulement après 12 s sans le moindre dégât sur ce boss
+			# bouclier → vulnérable (propriétés absentes : boss sans bouclier)
+			var sv = bo.get("shield")
+			var smv = bo.get("shield_max")
+			var vtv = bo.get("vulnerable_t")
+			var vlv = bo.get("vulnerable_len")
+			var bs: float = float(sv) if sv != null else 0.0
+			var bsm: float = float(smv) if smv != null else 0.0
+			var bvt: float = float(vtv) if vtv != null else 0.0
+			hud.boss_has_shield = bsm > 0.0
+			hud.boss_shield = clampf(bs / bsm, 0.0, 1.0) if bsm > 0.0 else 0.0
+			hud.boss_vuln = bvt
+			hud.boss_vuln_len = float(vlv) if vlv != null else 6.0
+			# point faible : seulement après 12 s sans entamer son bouclier (ou sa vie, vulnérable ou sans bouclier)
 			var bh: float = float(bo.hp)
-			if bh < _boss_hp_seen - 0.001 or bo != _boss_seen:
+			var dent: bool = (bh < _boss_hp_seen - 0.001) if (bvt > 0.0 or bsm <= 0.0) else (bs < _boss_sh_seen - 0.001)
+			if dent or bo != _boss_seen:
 				_boss_dry_t = 0.0
 			_boss_seen = bo
 			_boss_hp_seen = bh
+			_boss_sh_seen = bs
 			_boss_dry_t += real
 			if _boss_dry_t > 12.0:
 				hud.boss_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
