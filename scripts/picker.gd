@@ -1,8 +1,9 @@
 extends Control
 ## Choix d'un rouleau parmi trois (pouvoirs) ou d'une malédiction au sanctuaire.
-## Trois cartes hautes côte à côte, à lire d'un coup d'œil : grand médaillon (pictogramme sur la couleur
-## d'école, cadre de rareté, crans de niveau), nom court, une ligne d'effet au chiffre en couleur,
-## déclencheur en pictogramme, affinité en petites pastilles d'école.
+## En haut, « TES POUVOIRS » : les pouvoirs déjà pris (couleur d'élément, niveau) ; la carte touchée (ou survolée)
+## y allume ceux qu'elle améliore, renforce ou complète, reliés à elle par un trait.
+## Chaque carte se lit en mots : ruban NOUVEAU / AMÉLIORATION, déclencheur nommé (figure ou pictogramme),
+## médaillon et rareté en clair, niveau en texte et barre à crans, nom, valeur expliquée, élément et bonus d'élément.
 ## Premier toucher : la carte se lève et son détail s'ouvre dans une bulle ; second toucher (ou CHOISIR) : choisie.
 ## Légendaire : carte noire et or, arrive face cachée (ensō doré) puis se retourne dans une gerbe d'or.
 
@@ -16,6 +17,7 @@ const CURSE_BODY := Color("#2A0E0B")
 const PASS_BODY := Color("#2A2B33")
 const CURSE_COL := Color("#7A1F1A")
 const RED_TXT := Color("#FF8A7A")
+const UP_COL := Color("#3FA88E")  # amélioration d'un pouvoir déjà pris
 const REVEAL_AT := 0.6  # le légendaire se retourne à cet instant (s)
 const REVEAL_DUR := 0.34
 const CONFIRM := 100  # cible « bouton CHOISIR »
@@ -32,6 +34,7 @@ var _t := 0.0
 var _down := -1  # cible appuyée : carte, CONFIRM, ou -1
 var _sel := -1  # carte levée (détail ouvert), -1 sinon
 var _sel_t := 0.0
+var _hover := -1  # carte sous la souris (liens vers TES POUVOIRS), -1 sinon
 var _chosen := -1
 var _rects: Array = []  # rectangles de toucher des cartes (fixes : la carte levée garde le sien)
 var _confirm_rect := Rect2()
@@ -40,10 +43,13 @@ var _curse_mode := false
 var _leg_index := -1  # première carte légendaire (pour le retournement), -1 sinon
 var _leg_last := -1  # dernière carte légendaire
 var _motes: Array = []  # poussière d'or : [x 0..1, vitesse, phase, taille]
+var _owned: Array = []  # pouvoirs déjà pris : [id, niveau, niveau max], par école
+var _links: Array = []  # par carte : id possédé -> "up" (amélioré), "need" (technique requise), "syn" (synergie), "school"
+var _owned_pos := {}  # id possédé -> centre de son icône (dernière image)
 var _ui := FontVariation.new()
 var _title := FontVariation.new()
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
-var _big := 40.0  # rayon du médaillon, commun aux cartes (fixé par la mise en page)
+var _big := 36.0  # rayon du médaillon, commun aux cartes (fixé par la mise en page)
 var _title_text := ""  # titre imposé (rouleau « sans une égratignure »), vide : titre ordinaire
 var _sub_text := ""
 
@@ -67,6 +73,7 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_down = -1
 	_sel = -1
 	_sel_t = 0.0
+	_hover = -1
 	_chosen = -1
 	_curse_mode = false
 	_leg_index = -1
@@ -83,7 +90,89 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	if _leg_index >= 0:
 		for k in 26:
 			_motes.append([randf(), randf_range(0.05, 0.14), randf(), randf_range(1.2, 2.8)])
+	_owned = _read_owned()
+	_links.clear()
+	for i in ids.size():
+		_links.append(_relations(String(ids[i])))
+	_owned_pos.clear()
 	visible = true
+
+
+## Pouvoirs déjà pris, lus sur le nœud de jeu parent qui porte « powers » : [id, niveau, niveau max], par école.
+func _read_owned() -> Array:
+	var out: Array = []
+	var p: Object = null
+	var n: Node = get_parent()
+	while n != null:
+		if "powers" in n:
+			var cand = n.get("powers")
+			if cand is Object and is_instance_valid(cand) and "levels" in cand:
+				p = cand
+				break
+		n = n.get_parent()
+	if p == null:
+		return out
+	var lv: Dictionary = p.get("levels")
+	for sc in Data.SCHOOL_ORDER:
+		for key in lv.keys():
+			var sid := String(key)
+			if int(lv[key]) <= 0 or not Data.POWERS.has(sid):
+				continue
+			var d: Dictionary = Data.POWERS[sid]
+			if String(d["school"]) != String(sc):
+				continue
+			out.append([sid, int(lv[key]), int(d.get("max", 3))])
+	return out
+
+
+## Liens d'une carte avec les pouvoirs possédés : amélioration, technique requise, synergie, même élément.
+func _relations(id: String) -> Dictionary:
+	var out := {}
+	if not Data.POWERS.has(id):
+		return out
+	var d: Dictionary = Data.POWERS[id]
+	var school := String(d["school"])
+	var needs: Array = d.get("needs", [])
+	var partners: Array = []
+	for syn in Data.SYNERGIES:
+		if String(syn[0]) == id:
+			partners.append(String(syn[1]))
+		elif String(syn[1]) == id:
+			partners.append(String(syn[0]))
+	for o in _owned:
+		var oid := String(o[0])
+		if oid == id:
+			out[oid] = "up"
+		elif oid in needs:
+			out[oid] = "need"
+		elif oid in partners:
+			out[oid] = "syn"
+		elif school != "ink" and school != "fig" and UiKit.power_school(oid) == school:
+			out[oid] = "school"
+	return out
+
+
+## Synergie d'une carte, en noms français : [nom du partenaire, effet, partenaire possédé ?] ([] sans synergie).
+func _syn_of(id: String) -> Array:
+	var best: Array = []
+	for syn in Data.SYNERGIES:
+		var partner := ""
+		if String(syn[0]) == id:
+			partner = String(syn[1])
+		elif String(syn[1]) == id:
+			partner = String(syn[0])
+		if partner == "" or not Data.POWERS.has(partner):
+			continue
+		var have := false
+		for o in _owned:
+			if String(o[0]) == partner:
+				have = true
+		var row := [UiKit.power_label(partner), _p(String(syn[2])), have]
+		if have:
+			return row
+		if best.is_empty():
+			best = row
+	return best
 
 
 ## Instant où l'on peut choisir (après l'arrivée des cartes et le retournement du légendaire).
@@ -99,6 +188,11 @@ func _reveal_start(i: int) -> float:
 
 func _gui_input(event: InputEvent) -> void:
 	if _chosen >= 0 or _t < _ready_time():
+		return
+	if event is InputEventMouseMotion:
+		# survol (souris) : les liens de la carte s'allument dans TES POUVOIRS
+		var hv := _hit(event.position)
+		_hover = hv if hv >= 0 and hv < _ids.size() else -1
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if rerolls > 0 and _reroll_rect.has_point(event.position):
@@ -165,6 +259,20 @@ func _id(i: int) -> String:
 	return String(_ids[i]) if i >= 0 and i < _ids.size() else ""
 
 
+## Taille de police d'une légende : jamais sous 11 px.
+func _fs(v: float, s: float) -> int:
+	return maxi(11, int(roundf(v * s)))
+
+
+## Carte dont on montre les liens : la choisie, la levée, sinon celle survolée.
+func _focus() -> int:
+	if _chosen >= 0:
+		return _chosen
+	if _sel >= 0:
+		return _sel
+	return _hover
+
+
 # ------------------------------------------------------------------ dessin
 
 func _draw() -> void:
@@ -178,21 +286,21 @@ func _draw() -> void:
 	var revealed := 0.0
 	if leg:
 		revealed = 1.0 if _chosen >= 0 else clampf((_t - _reveal_start(_leg_index) - REVEAL_DUR * 0.5) / 0.4, 0.0, 1.0)
-	# mise en page : titre, cartes ajustées à leur contenu, bulle de détail, CHOISIR et relance
+	# mise en page : titre, TES POUVOIRS, cartes ajustées à leur contenu, bulle de détail, CHOISIR et relance
 	# forment un seul bloc, centré verticalement quelle que soit la hauteur de l'écran
 	var n := _infos.size()
 	var gap := 8.0 * u
 	var side := 12.0 * u
 	var cw := minf((w - 2.0 * side - gap * float(n - 1)) / maxf(1.0, float(n)), 150.0 * u)
-	var s := minf(u, cw / 116.0)
-	_big = minf(cw * 0.36, 44.0 * u)
+	_big = minf(cw * 0.3, 38.0 * u)
 	var ch := 0.0
 	var bub_h := 70.0 * u  # place réservée à la bulle de détail (la mise en page ne saute pas au toucher)
 	for i in n:
-		ch = maxf(ch, _need_h(_infos[i], _id(i), cw, _big, s))
-		bub_h = maxf(bub_h, _bubble_h(_infos[i], w - 28.0 * u, u))
-	var head := 64.0 * u
-	var conf_h := 46.0 * u
+		ch = maxf(ch, _need_h(_infos[i], _id(i), cw, u, i))
+		bub_h = maxf(bub_h, _bubble_h(_infos[i], _id(i), w - 28.0 * u, u))
+	var strip_h := _strip_h(w, u)
+	var head := 62.0 * u + strip_h + 18.0 * u
+	var conf_h := 50.0 * u
 	var tail := 16.0 * u + bub_h + 12.0 * u + conf_h
 	if rerolls > 0:
 		tail += 12.0 * u + 44.0 * u
@@ -200,13 +308,13 @@ func _draw() -> void:
 	var over := head + ch + tail - avail
 	if over > 0.0:
 		# écran trop court : le médaillon rapetisse d'abord, puis la carte
-		var cut := minf(over / 2.0, _big - 24.0 * u)
+		var cut := minf(over / 2.0, _big - 22.0 * u)
 		if cut > 0.0:
 			_big -= cut
 			ch -= cut * 2.0
 		ch = maxf(ch - maxf(0.0, head + ch + tail - avail), 120.0 * u)
 	var gt := maxf(12.0 * u, (h - (head + ch + tail)) * 0.47)
-	var gy := gt + 64.0 * u + ch * 0.5  # centre des cartes : la lueur les suit
+	var gy := gt + head + ch * 0.5  # centre des cartes : la lueur les suit
 	# voile d'encre et lueur (prusse, sanctuaire, ou or pour un légendaire)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.86 * fade))
 	var glow := Color("#5E1A14") if _curse_mode else Toon.PRUSSIAN
@@ -230,20 +338,25 @@ func _draw() -> void:
 	var tfs := int(28 * u)
 	var ty := gt + 22.0 * u - 16 * u * (1.0 - fade)
 	UiKit.text(self, _title, title, Vector2(w / 2.0, ty), tfs, Color(title_col, fade))
-	UiKit.text(self, _ui, _p(sub), Vector2(w / 2.0, ty + 22 * u), int(12 * u), Color(GOLD_HI if leg else Toon.WASHI, (0.85 if leg else 0.55) * fade))
+	UiKit.text(self, _ui, _p(sub), Vector2(w / 2.0, ty + 22 * u), _fs(12.0, u), Color(GOLD_HI if leg else Toon.WASHI, (0.85 if leg else 0.55) * fade))
 
-	# cartes côte à côte
+	# rectangles des cartes (fixes), puis TES POUVOIRS et les liens de la carte en vue (sous les cartes)
 	var top := gt + head
 	var x0 := (w - (cw * float(n) + gap * float(n - 1))) / 2.0
 	_rects.clear()
+	for i in n:
+		_rects.append(Rect2(Vector2(x0 + float(i) * (cw + gap), top), Vector2(cw, ch)))
+	_draw_links(u, fade)  # positions des icônes de l'image précédente : les traits passent sous la bande
+	_draw_strip(gt + 62.0 * u, w, u, fade)
+
+	# cartes côte à côte
 	for i in n:
 		var info: Dictionary = _infos[i]
 		var k := UiKit.ease_out((_t - 0.07 * i) / 0.42)
 		var a := k * fade
 		var grow := 1.0
 		var dy := (1.0 - k) * h * 0.25
-		var base := Rect2(Vector2(x0 + float(i) * (cw + gap), top), Vector2(cw, ch))
-		_rects.append(base)
+		var base: Rect2 = _rects[i]
 		if _chosen >= 0:
 			if i == _chosen:
 				a = 1.0
@@ -269,8 +382,8 @@ func _draw() -> void:
 	var bub := Rect2(Vector2(14.0 * u, top + ch + 16.0 * u), Vector2(w - 28.0 * u, bub_h))
 	var bh := bub_h
 	if _sel >= 0 and _sel < n:
-		bh = minf(_bubble_h(_infos[_sel], bub.size.x, u), bub_h)
-	_confirm_rect = Rect2(Vector2(w / 2.0 - 90.0 * u, bub.position.y + bh + 12.0 * u), Vector2(180.0 * u, conf_h))
+		bh = minf(_bubble_h(_infos[_sel], _id(_sel), bub.size.x, u), bub_h)
+	_confirm_rect = Rect2(Vector2(w / 2.0 - 105.0 * u, bub.position.y + bh + 12.0 * u), Vector2(210.0 * u, conf_h))
 	var ba := fade * (UiKit.ease_out(_sel_t / 0.2) if _chosen < 0 else 1.0)
 	if _sel >= 0 and _sel < n:
 		var sc: Rect2 = _rects[_sel]
@@ -282,7 +395,7 @@ func _draw() -> void:
 	if rerolls > 0 and _chosen < 0 and n > 0:
 		_reroll_rect = Rect2(Vector2(w / 2.0 - 80 * u, top + ch + tail - 44 * u), Vector2(160 * u, 44 * u))
 		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * fade), 999, Color(Toon.WASHI, 0.7 * fade), int(1.5 * u)), _reroll_rect)
-		var fs := int(13 * u)
+		var fs := _fs(13.0, u)
 		var rc := _reroll_rect.get_center()
 		UiKit.glyph(self, "reroll", Vector2(_reroll_rect.position.x + 26 * u, rc.y), 9.0 * u, Toon.WASHI, UiKit.NONE, fade)
 		UiKit.text(self, _ui, "RELANCER  %d" % rerolls, Vector2(rc.x + 10 * u, rc.y + fs * 0.36), fs, Color(Toon.WASHI, fade))
@@ -298,6 +411,153 @@ func _draw_motes(w: float, h: float, u: float, a: float) -> void:
 		var tw := 0.5 + 0.5 * sin(_t * 3.0 + float(m[2]) * 11.0)
 		draw_circle(Vector2(x, y), float(m[3]) * u, Color(GOLD_HI, 0.45 * a * tw))
 
+
+# ------------------------------------------------------------------ TES POUVOIRS
+
+## Mise en page de la bande : [rayon des icônes, pas, icônes par rangée, rangées].
+func _strip_fit(w: float, u: float) -> Array:
+	var n := _owned.size()
+	var avail := w - 28.0 * u
+	var r := 12.0 * u
+	var step := 2.0 * r + 8.0 * u
+	var cap := maxi(1, int(avail / step))
+	if n > cap * 2:
+		cap = int(ceil(float(n) / 2.0))
+		step = avail / float(cap)
+		r = minf(r, step * 0.4)
+	var rows := 1 if n <= cap else 2
+	return [r, step, cap, rows]
+
+
+## Hauteur de la bande : libellé, rangées d'icônes, ligne des liens.
+func _strip_h(w: float, u: float) -> float:
+	var fit := _strip_fit(w, u)
+	var r: float = fit[0]
+	var rows: int = fit[3]
+	return 16.0 * u + float(rows) * (2.0 * r + 10.0 * u) + 16.0 * u
+
+
+## Bande TES POUVOIRS : icône d'élément et niveau de chaque pouvoir pris ; ceux liés à la carte en vue brillent.
+func _draw_strip(y0: float, w: float, u: float, a: float) -> void:
+	if a <= 0.01:
+		return
+	var fit := _strip_fit(w, u)
+	var r: float = fit[0]
+	var step: float = fit[1]
+	var cap: int = fit[2]
+	var rows: int = fit[3]
+	var cfs := _fs(11.0, u)
+	var n := _owned.size()
+	var f := _focus()
+	var rel := {}
+	if f >= 0 and f < _links.size():
+		rel = _links[f]
+	# libellé et filets de part et d'autre
+	var lab := "TES POUVOIRS" if n == 0 else "TES POUVOIRS  (%d)" % n
+	var lw := UiKit.text(self, _ui, lab, Vector2(w / 2.0, y0 + 11.0 * u), cfs, Color(Toon.WASHI, 0.8 * a))
+	var ly := y0 + 7.0 * u
+	draw_line(Vector2(18.0 * u, ly), Vector2(w / 2.0 - lw / 2.0 - 8.0 * u, ly), Color(Toon.WASHI, 0.25 * a), 1.0)
+	draw_line(Vector2(w / 2.0 + lw / 2.0 + 8.0 * u, ly), Vector2(w - 18.0 * u, ly), Color(Toon.WASHI, 0.25 * a), 1.0)
+	var row_h := 2.0 * r + 10.0 * u
+	var y := y0 + 16.0 * u
+	_owned_pos.clear()
+	if n == 0:
+		UiKit.text(self, _ui, "Aucun pour l'instant : ce rouleau sera le premier", Vector2(w / 2.0, y + row_h * 0.5 + cfs * 0.36), cfs, Color(Toon.WASHI, 0.45 * a))
+	var pulse := 0.5 + 0.5 * sin(_t * 4.0)
+	for k in n:
+		var o: Array = _owned[k]
+		var oid := String(o[0])
+		var row := k / cap
+		var in_row := mini(cap, n - row * cap)
+		var col_i := k - row * cap
+		var c := Vector2(w / 2.0 + (float(col_i) - float(in_row - 1) / 2.0) * step, y + float(row) * row_h + row_h * 0.5 - 1.0 * u)
+		_owned_pos[oid] = c
+		var kind := String(rel.get(oid, ""))
+		var ia := a
+		if f >= 0 and kind == "":
+			ia *= 0.4
+		# lueur du lien : or (amélioré, technique requise, synergie), couleur d'élément (même élément)
+		if kind != "":
+			var gc: Color = UP_COL.lightened(0.2) if kind == "up" else (GOLD_HI if kind != "school" else UiKit.school_color(UiKit.power_school(oid)).lightened(0.35))
+			draw_circle(c, r + (5.0 + 2.0 * pulse) * u, Color(gc, 0.22 * a))
+			draw_arc(c, r + 3.0 * u, 0.0, TAU, 28, Color(gc, a), (2.5 if kind != "school" else 1.6) * u, true)
+		draw_circle(c, r + 1.5 * u, Color(Toon.SUMI, 0.7 * ia))
+		UiKit.power_icon(self, oid, c, r, ia)
+		# niveau : pastille chiffrée (or au niveau max)
+		var lv := int(o[1])
+		var mx := int(o[2])
+		var bc := c + Vector2(r * 0.78, r * 0.72)
+		var br := maxf(6.5 * u, float(cfs) * 0.62)
+		draw_circle(bc, br + 1.2 * u, Color(Toon.WASHI, ia))
+		draw_circle(bc, br, Color(GOLD_HI if lv >= mx else Toon.SUMI, ia))
+		UiKit.text(self, _ui, str(lv), Vector2(bc.x, bc.y + float(cfs) * 0.36), cfs, Color(LEG_BODY if lv >= mx else Toon.WASHI, ia))
+	# ligne des liens de la carte en vue (ou une consigne)
+	var hy := y + float(rows) * row_h + 11.0 * u
+	var hint := ""
+	var hc: Color = Color(Toon.WASHI, 0.45 * a)
+	if f >= 0 and f < _ids.size() and Data.POWERS.has(_id(f)):
+		hint = _link_line(f)
+		hc = Color(GOLD_HI, 0.95 * a)
+	elif n > 0 and not _curse_mode:
+		hint = "Touche un rouleau : ses liens s'allument ici"
+	if hint != "":
+		var hf := cfs
+		while hf > 10 and _ui.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hf).x > w - 24.0 * u:
+			hf -= 1
+		UiKit.text(self, _ui, hint, Vector2(w / 2.0, hy), hf, hc)
+
+
+## Ce que la carte i change à tes pouvoirs, en une ligne.
+func _link_line(i: int) -> String:
+	var id := _id(i)
+	var rel: Dictionary = _links[i] if i < _links.size() else {}
+	var parts: Array = []
+	var syn: Array = []
+	var school_n := 0
+	for oid in rel.keys():
+		var kind := String(rel[oid])
+		if kind == "up":
+			parts.append("Améliore : %s" % UiKit.power_label(String(oid)))
+		elif kind == "need":
+			parts.append("Renforce : %s" % UiKit.power_label(String(oid)))
+		elif kind == "syn":
+			syn.append(UiKit.power_label(String(oid)))
+		else:
+			school_n += 1
+	if not syn.is_empty():
+		parts.append("Synergie : " + ", ".join(PackedStringArray(syn)))
+	if school_n > 0:
+		var sd: Dictionary = Data.SCHOOLS.get(UiKit.power_school(id), {})
+		parts.append("Élément %s : %d déjà pris" % [String(sd.get("word", "")), school_n])
+	if parts.is_empty():
+		return "Nouveau : aucun lien avec tes pouvoirs"
+	return " · ".join(PackedStringArray(parts))
+
+
+## Traits de la carte en vue vers les pouvoirs qu'elle touche (sous les cartes).
+func _draw_links(u: float, a: float) -> void:
+	var f := _focus()
+	if f < 0 or f >= _links.size() or f >= _rects.size() or a <= 0.01:
+		return
+	var rel: Dictionary = _links[f]
+	var cr: Rect2 = _rects[f]
+	var from := Vector2(cr.get_center().x, cr.position.y + 4.0 * u)
+	var la := a * (UiKit.ease_out(_sel_t / 0.25) if _sel >= 0 and _chosen < 0 else 1.0)
+	for oid in rel.keys():
+		if not _owned_pos.has(oid):
+			continue
+		var kind := String(rel[oid])
+		var to: Vector2 = _owned_pos[oid]
+		var gc: Color = UP_COL.lightened(0.2) if kind == "up" else (GOLD_HI if kind != "school" else UiKit.school_color(UiKit.power_school(String(oid))).lightened(0.35))
+		var mid := Vector2(lerpf(from.x, to.x, 0.5), lerpf(from.y, to.y, 0.15))
+		var pts := PackedVector2Array()
+		for k in 17:
+			var t := float(k) / 16.0
+			pts.append(from.lerp(mid, t).lerp(mid.lerp(to + Vector2(0, 14.0 * u), t), t))
+		draw_polyline(pts, Color(gc, (0.75 if kind != "school" else 0.45) * la), (2.4 if kind != "school" else 1.4) * u, true)
+
+
+# ------------------------------------------------------------------ cartes
 
 func _card(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -> void:
 	if a <= 0.01:
@@ -364,29 +624,25 @@ func _back(r: Rect2, u: float, a: float) -> void:
 		draw_line(c + d * dim * 0.4, c + d * dim * 0.48, Color(GOLD_HI, 0.3 * a), 1.5 * u)
 
 
-## Face d'une carte : cadre de rareté, médaillon, nom, effet en une ligne, affinité.
+## Face d'une carte : lueur de rareté, halo de sélection, corps et cadre, puis le contenu.
 func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -> void:
 	var rank := int(info.get("rarity_rank", -1))
 	var leg := rank == 3
 	var is_curse := String(info.get("kanji", "")) == "鬼"
 	var is_pass := rank < 0 and not is_curse
-	var col: Color = info.get("color", Toon.SUMI)
 	var rc: Color = info.get("rarity_color", Color(0.5, 0.5, 0.5))
 	var dark := leg or rank < 0
 	var body: Color = LEG_BODY if leg else (CURSE_BODY if is_curse else (PASS_BODY if is_pass else Toon.ui_paper))
 	var ink: Color = Toon.WASHI if dark else Toon.ui_ink
 	var radius := int(14 * u)
 	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
-	var sel := i == _sel
-	var s := minf(u, r.size.x / 116.0)  # échelle du contenu (cartes plus étroites sur petit écran)
-
 	# lueur extérieure (épique, légendaire), halo de la carte levée
 	if rank >= 2:
 		for k in 3:
 			var g := (4.0 + 4.0 * k) * u
 			var ga := (0.26 - 0.07 * k) * a * (0.55 + 0.45 * pulse)
 			draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(g), Color(rc, ga), int(3 * u)), r.grow(g))
-	if sel:
+	if i == _sel:
 		var hc: Color = Toon.VERMILION if rank < 0 else GOLD_HI
 		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(6 * u), Color(hc, 0.95 * a), int(3 * u)), r.grow(6 * u))
 	# corps, cadre de rareté, ombre
@@ -396,176 +652,270 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 	_sb.shadow_size = int(14 * u)
 	_sb.shadow_offset = Vector2(0, 6 * u)
 	draw_style_box(_sb, r)
-
-	var cx := r.get_center().x
-	var big := _big
-	var mc := Vector2(cx, r.position.y + 22.0 * s + big + 6.0 * s)
-	# halo de la couleur d'école derrière le médaillon
-	var mcol: Color = CURSE_COL if is_curse else (Color("#8C8FA8") if is_pass else col)
-	for k in 3:
-		draw_circle(mc, big * (1.55 - 0.18 * float(k)), Color(mcol, (0.05 + 0.03 * float(k)) * a))
-	# médaillon : cadre de rareté, disque d'école, reflet, traces d'encre, pictogramme
-	var ring: Color = GOLD_HI if leg else (rc if rank >= 1 else (Color("#C9BFA8") if rank == 0 else frame))
-	draw_circle(mc, big + 4.0 * u, Color(ring, a))
-	draw_circle(mc, big + 1.2 * u, Color(Toon.SUMI, 0.6 * a))
-	draw_circle(mc, big, Color(mcol, a))
-	draw_circle(mc + Vector2(0, -big * 0.2), big * 0.78, Color(mcol.lightened(0.14), 0.55 * a))
-	draw_arc(mc, big * 0.86, PI * 1.1, PI * 1.55, 12, Color(1, 1, 1, 0.22 * a), 2.0 * u, true)
-	draw_arc(mc + Vector2(big * 0.1, big * 0.05), big * 0.72, PI * 0.15, PI * 0.5, 10, Color(0, 0, 0, 0.12 * a), 3.0 * u, true)
-	if leg:
-		for ray in 10:
-			var ang := _t * 0.5 + TAU * float(ray) / 10.0
-			var d := Vector2(cos(ang), sin(ang))
-			draw_line(mc + d * (big + 7.0 * u), mc + d * (big + 13.0 * u), Color(GOLD_HI, 0.45 * a), 2.0 * u)
-	# chaque malédiction a son pictogramme (encre sèche, œil d'oni, pas lourd, hâte des morts)
-	var gname := String(info.get("icon", "oni")) if is_curse else ("path" if is_pass else UiKit.icon_of(id))
-	UiKit.glyph(self, gname, mc, big * 0.62, GOLD_HI if leg else Toon.WASHI, mcol, a)
-	# crans de niveau sur le bas du médaillon (le nouveau pulse)
-	var mx := int(info.get("max_level", 1))
-	if rank >= 0 and mx > 1:
-		var lv := int(info.get("level", 1))
-		for k in mx:
-			var dc := mc + Vector2.from_angle(PI / 2.0 + (float(k) - float(mx - 1) / 2.0) * 0.36) * (big + 3.0 * u)
-			var pr := 4.2 * u
-			draw_circle(dc, pr + 1.5 * u, Color(Toon.SUMI, a))
-			if k < lv - 1:
-				draw_circle(dc, pr, Color(Toon.WASHI, a))
-			elif k == lv - 1:
-				draw_circle(dc, pr * (0.85 + 0.25 * pulse), Color(GOLD_HI, a))
-			else:
-				draw_circle(dc, pr * 0.55, Color(Toon.WASHI, 0.25 * a))
-	# rubis de rareté sur le haut du cadre, ou ruban LÉGENDAIRE
-	if leg:
-		var rfs := int(8 * s)
-		var rt := "LÉGENDAIRE"
-		var rw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x + 14.0 * s
-		var rib := Rect2(Vector2(cx - rw / 2.0, r.position.y - 7.0 * s), Vector2(rw, 14.0 * s))
-		draw_style_box(UiKit.box(_sb, Color(GOLD_HI, a), int(3 * u)), rib)
-		UiKit.text(self, _ui, rt, Vector2(cx, rib.position.y + 7.0 * s + rfs * 0.36), rfs, Color(LEG_BODY, a))
-	elif rank >= 1:
-		var gc := Vector2(cx, r.position.y)
-		var gs := (5.0 + float(rank)) * u
-		var gem := PackedVector2Array([gc + Vector2(0, -gs), gc + Vector2(gs, 0), gc + Vector2(0, gs), gc + Vector2(-gs, 0)])
-		draw_colored_polygon(gem, Color(rc, a))
-		var gl := gem.duplicate()
-		gl.append(gem[0])
-		draw_polyline(gl, Color(Toon.WASHI, 0.9 * a), 1.2 * u, true)
-		draw_circle(gc + Vector2(-gs * 0.25, -gs * 0.3), gs * 0.22, Color(1, 1, 1, 0.6 * a))
-	# déclencheur (en haut à gauche) et nouveauté / amélioration (en haut à droite)
-	if rank >= 0:
-		var tc := r.position + Vector2(15.0, 15.0) * s
-		draw_circle(tc, 11.0 * s, Color(GOLD_HI if leg else Toon.ui_ink, a))
-		UiKit.trigger_icon(self, id, tc, 6.8 * s, LEG_BODY if leg else Toon.ui_wash, GOLD_HI if leg else Toon.ui_ink, a)
-		var nc := Vector2(r.end.x - 15.0 * s, r.position.y + 15.0 * s)
-		if bool(info.get("is_new", true)):
-			# étoile « nouveau » (pas de draw_set_transform : le légendaire est déjà écrasé pour son retournement)
-			var bob := 1.0 * s * sin(_t * 3.0 + float(i))
-			UiKit.glyph(self, "star", nc + Vector2(0, 1.0 * s), 11.5 * s, Color(Toon.SUMI, 0.5), UiKit.NONE, a)
-			UiKit.glyph(self, "star", nc + Vector2(0, bob), 10.5 * s, Toon.GOLD.lightened(0.15), UiKit.NONE, a)
-		else:
-			# flèche « amélioration »
-			draw_circle(nc, 10.0 * s, Color(Color("#3FA88E"), a))
-			draw_colored_polygon(PackedVector2Array([nc + Vector2(0, -6) * s, nc + Vector2(5.5, 1) * s, nc + Vector2(2, 1) * s,
-				nc + Vector2(2, 6) * s, nc + Vector2(-2, 6) * s, nc + Vector2(-2, 1) * s, nc + Vector2(-5.5, 1) * s]), Color(Toon.WASHI, a))
-
-	# nom (court, en français), une ou deux lignes
-	var ny := mc.y + big + 16.0 * s
-	var nm := _p(String(info.get("name", ""))) if rank < 0 else UiKit.power_label(id)
-	var nfs := int(16 * s)
-	var nlines := _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 12.0 * s)
-	if nlines.size() > 1:
-		nfs = int(13 * s)
-		nlines = _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 12.0 * s)
-	var name_col: Color = GOLD_HI if leg else ink
-	for k in mini(nlines.size(), 2):
-		ny += float(nfs) * (0.95 if k == 0 else 1.05)
-		UiKit.text(self, UiKit.TITLE_FONT, nlines[k], Vector2(cx, ny), nfs, Color(name_col, a))
-	# filet sous le nom
-	draw_line(Vector2(cx - 14 * s, ny + 7 * s), Vector2(cx + 14 * s, ny + 7 * s), Color(GOLD_HI if dark else Toon.VERMILION, 0.8 * a), 2.0 * s)
-	var ey := ny + 24.0 * s
-	var efs := int(10.5 * s)
-	var lh := 13.5 * s
-	var tw := r.size.x - 14.0 * s
-	if rank < 0:
-		_curse_lines(String(info.get("text", "")), cx, ey, tw, efs, lh, a, is_curse)
-		return
-	# effet en une ligne, le chiffre en couleur
-	var accent: Color = GOLD_HI if dark or Toon.ui_dark else Toon.VERMILION.darkened(0.12)
-	var lines := _wrap(_ui, _short(id, info), efs, tw)
-	for k in mini(lines.size(), 3):
-		_rich(lines[k], cx, ey + float(k) * lh, efs, Color(ink, 0.9 * a), Color(accent, a))
-	# affinité : une pastille par pouvoir de l'école, le palier en or s'il tombe maintenant
-	_affinity(r, info, s, u, a, pulse, dark)
+	_content(r, info, id, u, a, i, true)
 	# reflet qui traverse la carte (épique, légendaire)
 	if rank >= 2:
 		_shine(r, u, a, i, Color(GOLD_HI, 0.2) if leg else Color(1, 1, 1, 0.16))
 
 
-## Hauteur utile d'une carte (même enchaînement que _face) : la carte s'arrête sous son contenu.
-func _need_h(info: Dictionary, id: String, cw: float, big: float, s: float) -> float:
+## Hauteur utile d'une carte (le contenu mesuré sans être dessiné) : la carte s'arrête sous son contenu.
+func _need_h(info: Dictionary, id: String, cw: float, u: float, i: int) -> float:
+	return _content(Rect2(Vector2.ZERO, Vector2(cw, 2000.0)), info, id, u, 0.0, i, false)
+
+
+## Contenu d'une carte, de haut en bas : ruban NOUVEAU / AMÉLIORATION, déclencheur nommé, médaillon et rareté,
+## niveau, nom, valeur expliquée, élément et bonus d'élément. really = false : mesure seulement.
+## Renvoie la hauteur occupée depuis le haut de la carte.
+func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int, really: bool) -> float:
 	var rank := int(info.get("rarity_rank", -1))
+	var leg := rank == 3
+	var is_curse := String(info.get("kanji", "")) == "鬼"
+	var is_pass := rank < 0 and not is_curse
+	var dark := leg or rank < 0
+	var ink: Color = Toon.WASHI if dark else Toon.ui_ink
+	var col: Color = info.get("color", Toon.SUMI)
+	var rc: Color = info.get("rarity_color", Color(0.5, 0.5, 0.5))
+	var s := minf(u, r.size.x / 116.0)  # échelle du contenu (cartes plus étroites sur petit écran)
+	var cx := r.position.x + r.size.x / 2.0
+	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
+	var cap := _fs(11.0, s)
+	var y := r.position.y + 14.0 * s
+
+	# ruban sur le bord haut : NOUVEAU, ou AMÉLIORATION d'un pouvoir déjà pris
+	if rank >= 0 and really:
+		var is_new := bool(info.get("is_new", true))
+		var rt := "NOUVEAU" if is_new else "AMÉLIORATION"
+		var rbg: Color = GOLD_HI if leg else (Toon.VERMILION if is_new else UP_COL)
+		var rf := cap
+		while rf > 10 and _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x > r.size.x - 22.0 * s:
+			rf -= 1
+		var rw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x + 16.0 * s
+		var rib := Rect2(Vector2(cx - rw / 2.0, r.position.y - 9.0 * s), Vector2(rw, 18.0 * s))
+		draw_style_box(UiKit.box(_sb, Color(rbg, a), int(4 * s), Color(Toon.SUMI, 0.5 * a), maxi(1, int(1.2 * s))), rib)
+		UiKit.text(self, _ui, rt, Vector2(cx, rib.get_center().y + float(rf) * 0.36), rf, Color(LEG_BODY if leg else Toon.WASHI, a))
+
+	# déclencheur en clair : la figure à tracer (ou son pictogramme) et son nom
+	if rank >= 0:
+		y += 2.0 * s
+		var ct := _trig_caption(id, info, r.size.x - 42.0 * s, cap)
+		var tw0 := _ui.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x
+		var pw := minf(tw0 + 32.0 * s, r.size.x - 8.0 * s)
+		var pill := Rect2(Vector2(cx - pw / 2.0, y), Vector2(pw, 21.0 * s))
+		if really:
+			var pc: Color = GOLD_HI if leg else Toon.ui_ink
+			var tc: Color = LEG_BODY if leg else Toon.ui_wash
+			draw_style_box(UiKit.box(_sb, Color(pc, a), 999), pill)
+			var ic := Vector2(pill.position.x + 12.0 * s, pill.get_center().y)
+			var fig := UiKit.trigger_figure(id)
+			if fig != "":
+				UiKit.figure(self, fig, ic, 7.5 * s, a)
+			else:
+				UiKit.trigger_icon(self, id, ic, 6.5 * s, tc, pc, a)
+			draw_string(_ui, Vector2(pill.position.x + 24.0 * s, pill.get_center().y + float(cap) * 0.36), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(tc, a))
+		y = pill.end.y + 8.0 * s
+	else:
+		y += 6.0 * s
+
+	# médaillon : cadre de rareté, disque d'élément, reflet, traces d'encre, pictogramme
+	var big := _big
+	var mc := Vector2(cx, y + big + 4.0 * u)
+	if really:
+		var mcol: Color = CURSE_COL if is_curse else (Color("#8C8FA8") if is_pass else col)
+		var frame: Color = rc if rank >= 1 else (Color(ink, 0.25) if rank == 0 else (CURSE_COL.lightened(0.2) if is_curse else Color(ink, 0.3)))
+		for k in 3:
+			draw_circle(mc, big * (1.55 - 0.18 * float(k)), Color(mcol, (0.05 + 0.03 * float(k)) * a))
+		var ring: Color = GOLD_HI if leg else (rc if rank >= 1 else (Color("#C9BFA8") if rank == 0 else frame))
+		draw_circle(mc, big + 4.0 * u, Color(ring, a))
+		draw_circle(mc, big + 1.2 * u, Color(Toon.SUMI, 0.6 * a))
+		draw_circle(mc, big, Color(mcol, a))
+		draw_circle(mc + Vector2(0, -big * 0.2), big * 0.78, Color(mcol.lightened(0.14), 0.55 * a))
+		draw_arc(mc, big * 0.86, PI * 1.1, PI * 1.55, 12, Color(1, 1, 1, 0.22 * a), 2.0 * u, true)
+		draw_arc(mc + Vector2(big * 0.1, big * 0.05), big * 0.72, PI * 0.15, PI * 0.5, 10, Color(0, 0, 0, 0.12 * a), 3.0 * u, true)
+		if leg:
+			for ray in 10:
+				var ang := _t * 0.5 + TAU * float(ray) / 10.0
+				var d := Vector2(cos(ang), sin(ang))
+				draw_line(mc + d * (big + 7.0 * u), mc + d * (big + 13.0 * u), Color(GOLD_HI, 0.45 * a), 2.0 * u)
+		# chaque malédiction a son pictogramme (encre sèche, œil d'oni, pas lourd, hâte des morts)
+		var gname := String(info.get("icon", "oni")) if is_curse else ("path" if is_pass else UiKit.icon_of(id))
+		UiKit.glyph(self, gname, mc, big * 0.62, GOLD_HI if leg else Toon.WASHI, mcol, a)
+	y = mc.y + big
+
+	if rank >= 0:
+		# rareté en clair, posée sur le bas du médaillon
+		var rn := String(info.get("rarity_name", ""))
+		var rw2 := _ui.get_string_size(rn, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 14.0 * s
+		var tag := Rect2(Vector2(cx - rw2 / 2.0, y - 6.0 * s), Vector2(rw2, 18.0 * s))
+		if really:
+			var tb: Color = GOLD_HI if leg else rc
+			draw_style_box(UiKit.box(_sb, Color(tb, a), 999, Color(Toon.SUMI, 0.55 * a), maxi(1, int(1.5 * s))), tag)
+			UiKit.text(self, _ui, rn, Vector2(cx, tag.get_center().y + float(cap) * 0.36), cap, Color(LEG_BODY if leg else Toon.WASHI, a))
+		y = tag.end.y + 4.0 * s
+		# niveau : texte, puis barre à crans (pris, gagné maintenant en or, à venir)
+		var mx := int(info.get("max_level", 1))
+		var lv := int(info.get("level", 1))
+		var cur := int(info.get("cur_level", 0))
+		var lt := "NIV %d/%d" % [lv, mx]
+		if mx <= 1:
+			lt = "NIVEAU UNIQUE"
+		elif cur > 0:
+			lt = "NIV %d → %d" % [cur, lv]
+		y += float(cap)
+		if really:
+			UiKit.text(self, _ui, lt, Vector2(cx, y), cap, Color(ink, 0.8 * a))
+		if mx > 1:
+			y += 5.0 * s
+			var bw := minf(r.size.x - 28.0 * s, 22.0 * s * float(mx))
+			var sg := 3.0 * s
+			var sw := (bw - sg * float(mx - 1)) / float(mx)
+			if really:
+				for k in mx:
+					var sr := Rect2(Vector2(cx - bw / 2.0 + float(k) * (sw + sg), y), Vector2(sw, 6.0 * s))
+					var fc: Color = Color(ink, 0.16)
+					if k < cur:
+						fc = Color(ink, 0.75)
+					elif k < lv:
+						fc = GOLD_HI.lerp(GOLD_HI.lightened(0.35), pulse)
+					draw_style_box(UiKit.box(_sb, Color(fc, fc.a * a), maxi(1, int(2 * s))), sr)
+			y += 6.0 * s
+		y += 8.0 * s
+	else:
+		y += 10.0 * s
+
+	# nom (court, en français), une ou deux lignes
 	var nm := _p(String(info.get("name", ""))) if rank < 0 else UiKit.power_label(id)
 	var nfs := int(16 * s)
-	var nlines := _wrap(UiKit.TITLE_FONT, nm, nfs, cw - 12.0 * s)
+	var nlines := _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 12.0 * s)
 	if nlines.size() > 1:
-		nfs = int(13 * s)
-		nlines = _wrap(UiKit.TITLE_FONT, nm, nfs, cw - 12.0 * s)
-	var y := 22.0 * s + 2.0 * big + 6.0 * s + 16.0 * s
+		nfs = _fs(13.0, s)
+		nlines = _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 12.0 * s)
+	var name_col: Color = GOLD_HI if leg else ink
 	for k in mini(nlines.size(), 2):
 		y += float(nfs) * (0.95 if k == 0 else 1.05)
+		if really:
+			UiKit.text(self, UiKit.TITLE_FONT, nlines[k], Vector2(cx, y), nfs, Color(name_col, a))
+	# filet sous le nom
+	if really:
+		draw_line(Vector2(cx - 14 * s, y + 7 * s), Vector2(cx + 14 * s, y + 7 * s), Color(GOLD_HI if dark else Toon.VERMILION, 0.8 * a), 2.0 * s)
 	y += 24.0 * s
-	var efs := int(10.5 * s)
-	var lh := 13.5 * s
-	var tw := cw - 14.0 * s
+	var tw := r.size.x - 12.0 * s
 	if rank < 0:
-		# malédiction ou « Passer » : lignes de _curse_lines, puis une marge
-		var t := _p(String(info.get("text", "")))
-		var curse := String(info.get("kanji", "")) == "鬼"
-		var count := 0
-		if t.contains("·"):
-			var parts := t.split("·")
-			for k in 2:
-				count += mini(_wrap(_ui, _lead(k, curse) + String(parts[k]).strip_edges(), efs, tw).size(), 2)
-			y += lh * 0.4
-		else:
-			count = mini(_wrap(_ui, t, efs, tw).size(), 3)
-		return y + float(maxi(count - 1, 0)) * lh + 18.0 * s
-	var m := mini(_wrap(_ui, _short(id, info), efs, tw).size(), 3)
-	y += float(maxi(m - 1, 0)) * lh + 4.0 * s
-	# pied : pastilles d'affinité (et la gélule BONUS au-dessus si le palier tombe)
-	var goal := int(info.get("aff_goal", 0))
+		y = _curse_lines(String(info.get("text", "")), cx, y, tw, cap, 14.5 * s, a, is_curse, really)
+		return y - r.position.y + 6.0 * s
+
+	# valeur expliquée (unités en clair), les chiffres en couleur
+	var accent: Color = GOLD_HI if dark or Toon.ui_dark else Toon.VERMILION.darkened(0.12)
+	var ef := _card_effect(id, info)
+	var efs := _fs(12.5, s)
+	var lines := _wrap(_ui, ef, efs, tw)
+	if lines.size() > 3:
+		efs = _fs(11.0, s)
+		lines = _wrap(_ui, ef, efs, tw)
+	var lh := float(efs) * 1.25
+	var nl := mini(lines.size(), 4)
+	for k in nl:
+		if really:
+			_rich(lines[k], cx, y + float(k) * lh, efs, Color(ink, 0.92 * a), Color(accent, a))
+	y += float(maxi(nl - 1, 0)) * lh + 10.0 * s
+
+	# pied : élément (pictogramme et nom), bonus d'élément, synergie
 	var school := String(info.get("school", ""))
-	if goal <= 0 or school == "" or school == "ink":
-		return y + 14.0 * s
-	if bool(info.get("aff_hit", false)):
-		return y + 49.0 * s
-	return y + 31.5 * s
+	if school == "":
+		return y - r.position.y + 4.0 * s
+	if really:
+		draw_line(Vector2(r.position.x + 10.0 * s, y), Vector2(r.end.x - 10.0 * s, y), Color(ink, 0.18 * a), 1.0)
+	y += 4.0 * s
+	var sd: Dictionary = Data.SCHOOLS.get(school, {})
+	var el := "Technique" if school == "fig" else ("Encre" if school == "ink" else "Élément " + String(sd.get("word", "")))
+	if really:
+		var scol := UiKit.school_color(school)
+		_icon_line(el, school, scol, cx, y + 9.0 * s, r.size.x - 12.0 * s, cap, s, Color(ink, 0.88 * a), a, dark)
+	y += 18.0 * s
+	var goal := int(info.get("aff_goal", 0))
+	if goal > 0 and school != "ink" and school != "fig":
+		if bool(info.get("aff_hit", false)):
+			# le bonus d'élément tombe avec ce choix : gélule d'or
+			var tiers: Array = Data.AFF_TIERS
+			var tier := maxi(0, tiers.find(goal))
+			var shorts: Array = Data.AFF_SHORT.get(school, [])
+			var bonus := "BONUS ! "
+			if tier < shorts.size():
+				bonus += _p(String(shorts[tier]))
+			var bf := cap
+			while bf > 10 and _ui.get_string_size(bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bf).x > r.size.x - 20.0 * s:
+				bf -= 1
+			if really:
+				var bw2 := _ui.get_string_size(bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bf).x + 12.0 * s
+				var pl := Rect2(Vector2(cx - bw2 / 2.0, y), Vector2(bw2, 17.0 * s))
+				draw_style_box(UiKit.box(_sb, Color(GOLD_HI, a * (0.85 + 0.15 * pulse)), 999), pl)
+				UiKit.text(self, _ui, bonus, Vector2(cx, pl.get_center().y + float(bf) * 0.36), bf, Color(LEG_BODY, a))
+			y += 20.0 * s
+		else:
+			var at := "Bonus d'élément : max" if bool(info.get("aff_done", false)) else "Bonus d'élément %d/%d" % [mini(int(info.get("aff_next", 0)), goal), goal]
+			if really:
+				_fit_center(at, cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(ink, 0.7 * a))
+			y += 17.0 * s
+	if bool(info.get("synergy_on", false)) or _has_link(i, "syn"):
+		if really:
+			_fit_center("+ Élément actif" if school == "fig" else "+ Synergie active", cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(GOLD_HI if dark or Toon.ui_dark else Color("#9A6B12"), a))
+		y += 17.0 * s
+	return y - r.position.y + 6.0 * s
 
 
-## Hauteur de la bulle de détail d'une carte (même enchaînement que _bubble).
-func _bubble_h(info: Dictionary, bw: float, u: float) -> float:
-	var rank := int(info.get("rarity_rank", -1))
-	var pad := 14.0 * u
-	var body := _wrap(_ui, _p(String(info.get("text", ""))), int(11 * u), bw - pad * 2.0)
-	var hgt := pad + 18.0 * u
-	if rank >= 0:
-		hgt += 22.0 * u
-	hgt += float(mini(body.size(), 4)) * 14.5 * u + 4.0 * u
-	if rank >= 0 and _p(String(info.get("stat", ""))) != "":
-		hgt += 18.0 * u
-	if rank >= 0 and int(info.get("aff_goal", 0)) > 0:
-		if bool(info.get("aff_hit", false)) or _p(String(info.get("aff_text", ""))) != "":
-			hgt += 15.0 * u
-	if bool(info.get("synergy_on", false)):
-		hgt += 15.0 * u
-	return hgt + pad * 0.6
+## La carte i a-t-elle un lien de ce genre avec un pouvoir possédé ?
+func _has_link(i: int, kind: String) -> bool:
+	if i < 0 or i >= _links.size():
+		return false
+	var rel: Dictionary = _links[i]
+	for oid in rel.keys():
+		if String(rel[oid]) == kind:
+			return true
+	return false
 
 
-## Ligne courte de la carte : champ « short », valeurs du niveau proposé.
-func _short(id: String, info: Dictionary) -> String:
+## Nom du déclencheur pour la carte : la figure à tracer, la phrase complète si elle tient, sinon un ou deux mots.
+func _trig_caption(id: String, info: Dictionary, maxw: float, fs: int) -> String:
+	if UiKit.trigger_figure(id) != "":
+		return UiKit.trigger_word(id)
+	var when := _p(String(info.get("when", "")))
+	if when != "" and _ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= maxw:
+		return when
+	return UiKit.trigger_word(id)
+
+
+## Pastille d'élément et libellé, centrés.
+func _icon_line(txt: String, school: String, scol: Color, cx: float, cy: float, maxw: float, fs: int, s: float, c: Color, a: float, dark: bool) -> void:
+	var f := fs
+	while f > 10 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x + 19.0 * s > maxw:
+		f -= 1
+	var tw := _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x
+	var x := cx - (tw + 19.0 * s) / 2.0
+	var ic := Vector2(x + 7.0 * s, cy)
+	draw_circle(ic, 7.5 * s, Color(scol.lightened(0.15) if dark else scol, a))
+	UiKit.school_icon(self, school, ic, 4.8 * s, Toon.WASHI, a)
+	draw_string(_ui, Vector2(x + 19.0 * s, cy + float(f) * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
+
+
+## Texte centré qui rétrécit (jusqu'à 10 px) s'il déborde.
+func _fit_center(txt: String, cx: float, y: float, maxw: float, fs: int, c: Color) -> void:
+	var f := fs
+	while f > 10 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
+		f -= 1
+	UiKit.text(self, _ui, txt, Vector2(cx, y), f, c)
+
+
+## Valeur de la carte : la ligne chiffrée (« stat », unités en clair) au niveau proposé ; à défaut la ligne courte.
+func _card_effect(id: String, info: Dictionary) -> String:
 	var d: Dictionary = Data.POWERS.get(id, {})
-	var txt := String(d.get("short", info.get("sub", "")))
-	var lv := int(info.get("level", 1))
+	var txt := String(d.get("stat", ""))
+	if txt == "":
+		txt = String(d.get("short", info.get("sub", "")))
+	return _at_level(txt, d, int(info.get("level", 1)))
+
+
+## Remplace {v} / {w} par la valeur du niveau donné (nombre à la française).
+func _at_level(src: String, d: Dictionary, lv: int) -> String:
+	var txt := src
 	for key in ["v", "w"]:
 		var tag := "{%s}" % key
 		if not txt.contains(tag):
@@ -607,45 +957,6 @@ func _rich(line: String, cx: float, y: float, fs: int, ink: Color, accent: Color
 		x += _ui.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + sp
 
 
-## Pied de carte : pastilles d'école (pleines = pouvoirs de l'école après ce choix) et « BONUS ! » s'il tombe.
-func _affinity(r: Rect2, info: Dictionary, s: float, u: float, a: float, pulse: float, dark: bool) -> void:
-	var goal := int(info.get("aff_goal", 0))
-	var school := String(info.get("school", ""))
-	if goal <= 0 or school == "" or school == "ink":
-		return
-	var now := mini(int(info.get("aff", 0)), goal)
-	var nxt := mini(int(info.get("aff_next", 0)), goal)
-	var col := UiKit.school_color(school)
-	var cx := r.get_center().x
-	var y := r.end.y - 15.0 * s
-	var pr := 6.5 * s
-	var step := 16.0 * s
-	for k in goal:
-		var c := Vector2(cx + (float(k) - float(goal - 1) / 2.0) * step, y)
-		if k < nxt:
-			var fresh := k >= now
-			if fresh:
-				draw_circle(c, pr + 2.0 * u + 1.0 * u * pulse, Color(GOLD_HI, a))
-			draw_circle(c, pr, Color(col.lightened(0.15) if dark else col, a))
-			UiKit.school_icon(self, school, c, pr * 0.62, Toon.WASHI, a)
-		else:
-			draw_arc(c, pr - 0.5 * u, 0.0, TAU, 18, Color(Toon.WASHI if dark else Toon.ui_ink, 0.3 * a), 1.4 * u, true)
-	if bool(info.get("aff_hit", false)):
-		var tiers: Array = Data.AFF_TIERS
-		var tier := maxi(0, tiers.find(goal))
-		var shorts: Array = Data.AFF_SHORT.get(school, [])
-		var bonus := "BONUS !"
-		if tier < shorts.size():
-			bonus += " " + _p(String(shorts[tier]))
-		var bfs := int(8.5 * s)
-		while bfs > 6 and _ui.get_string_size(bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x > r.size.x - 18.0 * s:
-			bfs -= 1
-		var bw := _ui.get_string_size(bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x + 12.0 * s
-		var pill := Rect2(Vector2(cx - bw / 2.0, y - 26.0 * s), Vector2(bw, 14.0 * s))
-		draw_style_box(UiKit.box(_sb, Color(GOLD_HI, a * (0.85 + 0.15 * pulse)), 999), pill)
-		UiKit.text(self, _ui, bonus, Vector2(cx, pill.position.y + 7.0 * s + bfs * 0.36), bfs, Color(LEG_BODY, a))
-
-
 ## Début de ligne d'une carte de sanctuaire : malus « - », récompense « + » (« Passer » : pas de malus).
 func _lead(k: int, is_curse: bool) -> String:
 	if k == 0:
@@ -654,54 +965,58 @@ func _lead(k: int, is_curse: bool) -> String:
 
 
 ## Malédiction (malus en rouge, récompense en or) ou « Passer » (sans pacte, petit bonus en or), centrés sur la carte.
-func _curse_lines(text: String, cx: float, y: float, width: float, fs: int, lh: float, a: float, is_curse: bool) -> void:
+## Renvoie la ligne de base suivante ; really = false : mesure seulement.
+func _curse_lines(text: String, cx: float, y: float, width: float, fs: int, lh: float, a: float, is_curse: bool, really := true) -> float:
 	var t := _p(text)
 	var yy := y
 	if t.contains("·"):
 		var parts := t.split("·")
-		for k in 2:
+		for k in mini(parts.size(), 2):
 			var c: Color = Toon.GOLD.lightened(0.25)
 			if k == 0:
 				c = RED_TXT if is_curse else Color(Toon.WASHI, 0.75)
 			var ls := _wrap(_ui, _lead(k, is_curse) + String(parts[k]).strip_edges(), fs, width)
 			for line in ls.slice(0, 2):
-				UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(c, a))
+				if really:
+					UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(c, a))
 				yy += lh
 			yy += lh * 0.4
 	else:
 		for line in _wrap(_ui, t, fs, width).slice(0, 3):
-			UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(Toon.WASHI, (0.85 if is_curse else 0.7) * a))
+			if really:
+				UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(Toon.WASHI, (0.85 if is_curse else 0.7) * a))
 			yy += lh
+	return yy
 
 
-## Bulle de détail sous les cartes : le texte complet de la carte levée (déclencheur, effet, valeur, bonus).
+# ------------------------------------------------------------------ bulle de détail
+
+## Hauteur de la bulle de détail d'une carte (le contenu mesuré sans être dessiné).
+func _bubble_h(info: Dictionary, id: String, bw: float, u: float) -> float:
+	return _bubble_body(Rect2(Vector2.ZERO, Vector2(bw, 4000.0)), info, id, u, 0.0, false)
+
+
+## Lignes de valeur : « Explosion : 3 dégâts · éclat : 2 » -> [["Explosion", "3 dégâts"], ["Éclat", "2"]].
+func _stat_rows(stat: String) -> Array:
+	var out: Array = []
+	for part in stat.split("·", false):
+		var p := String(part).strip_edges()
+		if p == "":
+			continue
+		var k := p.find(" : ")
+		if k > 0:
+			var lab := p.substr(0, k)
+			out.append([lab.substr(0, 1).to_upper() + lab.substr(1), p.substr(k + 3)])
+		else:
+			out.append(["", p.substr(0, 1).to_upper() + p.substr(1)])
+	return out
+
+
+## Bulle de détail sous les cartes : la carte levée en clair (titre, déclencheur, effet, valeurs, bonus, synergie).
 func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: float) -> void:
 	if a <= 0.01:
 		return
-	var rank := int(info.get("rarity_rank", -1))
-	var pad := 14.0 * u
-	var tw := bub.size.x - pad * 2.0
-	var efs := int(11 * u)
-	var lh := 14.5 * u
-	# contenu préparé (pour la hauteur de la bulle)
-	var body := _wrap(_ui, _p(String(info.get("text", ""))), efs, tw)
-	if body.size() > 4:
-		body = body.slice(0, 4)
-	var stat := _p(String(info.get("stat", "")))
-	var aff_line := ""
-	var aff_on := false
-	var goal := int(info.get("aff_goal", 0))
-	if rank >= 0 and goal > 0:
-		aff_on = bool(info.get("aff_hit", false)) or bool(info.get("aff_done", false))
-		var at := _p(String(info.get("aff_text", "")))
-		if bool(info.get("aff_hit", false)):
-			aff_line = "BONUS D'ÉCOLE : " + at
-		elif at != "":
-			aff_line = "%s %d/%d : %s" % [String(info.get("school_name", "")), mini(int(info.get("aff_next", 0)), goal), goal, at]
-	var syn := ""
-	if bool(info.get("synergy_on", false)):
-		syn = "+ " + _p(String(info.get("synergy", "")))
-	var hgt := _bubble_h(info, bub.size.x, u)
+	var hgt := _bubble_h(info, id, bub.size.x, u)
 	var box := Rect2(bub.position, Vector2(bub.size.x, minf(hgt, bub.size.y)))
 	# papier et pointe vers la carte levée
 	var tipx := clampf(px, box.position.x + 24.0 * u, box.end.x - 24.0 * u)
@@ -711,55 +1026,140 @@ func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: f
 	_sb.shadow_size = int(10 * u)
 	_sb.shadow_offset = Vector2(0, 4 * u)
 	draw_style_box(_sb, box)
+	_bubble_body(box, info, id, u, a, true)
+
+
+## Contenu de la bulle ; really = false : mesure seulement. Renvoie la hauteur occupée.
+func _bubble_body(box: Rect2, info: Dictionary, id: String, u: float, a: float, really: bool) -> float:
+	var rank := int(info.get("rarity_rank", -1))
+	var pad := 14.0 * u
 	var x := box.position.x + pad
+	var tw := box.size.x - pad * 2.0
 	var y := box.position.y + pad
 	var ink: Color = Toon.ui_ink
 	var nite: bool = Toon.ui_dark  # papier sombre : accents clairs
-	var gold_ink := GOLD_HI if nite else Color("#9A6B12")
+	var gold_ink: Color = GOLD_HI if nite else Color("#9A6B12")
+	var accent: Color = GOLD_HI if nite else Toon.VERMILION.darkened(0.12)
+	var cap := _fs(11.0, u)
+	var bfs := _fs(12.0, u)
+	var col: Color = info.get("color", Toon.SUMI)
+	# titre : nom français ; nom japonais en petit s'il tient ; rareté et nouveauté / niveau à droite
+	var title := UiKit.power_label(id) if rank >= 0 else _p(String(info.get("name", "")))
+	var tfs := int(17 * u)
+	var tag := ""
+	var mx := int(info.get("max_level", 1))
 	if rank >= 0:
-		# déclencheur en clair, avec son pictogramme, puis rareté et niveau
-		var when := _p(String(info.get("when", "")))
-		var wfs := int(8.5 * u)
-		var chip_w := _ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x + 30.0 * u
-		var chip := Rect2(Vector2(x, y - 2.0 * u), Vector2(chip_w, 17.0 * u))
-		draw_style_box(UiKit.box(_sb, Color(ink, a), 999), chip)
-		UiKit.trigger_icon(self, id, Vector2(chip.position.x + 10.0 * u, chip.get_center().y), 5.5 * u, Toon.ui_wash, ink, a)
-		draw_string(_ui, Vector2(chip.position.x + 20.0 * u, chip.get_center().y + wfs * 0.36), when, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs, Color(Toon.ui_wash, a))
-		var rc: Color = info.get("rarity_color", Toon.SUMI)
-		var lvl_txt := String(info.get("rarity_name", ""))
-		var mx := int(info.get("max_level", 1))
+		tag = String(info.get("rarity_name", ""))
 		if bool(info.get("is_new", true)):
-			lvl_txt += "  ·  NOUVEAU"
+			tag += " · NOUVEAU"
 		elif mx > 1:
-			lvl_txt += "  ·  NIVEAU %d → %d" % [int(info.get("cur_level", 0)), int(info.get("level", 1))]
-		_line_fit(lvl_txt, Vector2(chip.end.x + 8.0 * u, chip.get_center().y + 3.0 * u), box.end.x - pad - chip.end.x - 8.0 * u, int(8.5 * u), Color(rc.lightened(0.25) if nite else rc.darkened(0.15), a))
-		y += 22.0 * u
-	# nom japonais et sous-titre
-	var nm := _p(String(info.get("name", "")))
-	var nfs := int(15 * u)
-	draw_string(UiKit.TITLE_FONT, Vector2(x, y + 12.0 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color((RED_TXT if nite else Toon.VERMILION.darkened(0.2)) if rank < 0 else ink, a))
-	var sub := _p(String(info.get("sub", "")))
-	if sub != "":
-		var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-		_line_fit("— " + sub, Vector2(x + nw + 8.0 * u, y + 12.0 * u), tw - nw - 8.0 * u, int(10 * u), Color(ink, 0.5 * a))
-	y += 18.0 * u
-	# effet en clair
-	for k in body.size():
+			tag += " · NIV %d → %d" % [int(info.get("cur_level", 0)), int(info.get("level", 1))]
+	var tag_w := _ui.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x if tag != "" else 0.0
+	y += float(tfs) * 0.9
+	if really:
+		var title_col: Color = ((RED_TXT if nite else Toon.VERMILION.darkened(0.2)) if rank < 0 else ink)
+		draw_string(UiKit.TITLE_FONT, Vector2(x, y), title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(title_col, a))
+		var nw := UiKit.TITLE_FONT.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var jp := _p(String(info.get("name", "")))
+		if rank >= 0 and jp != "" and jp.to_lower() != title.to_lower():
+			var room := tw - nw - tag_w - 18.0 * u
+			var jw := _ui.get_string_size(jp, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x
+			if jw <= room:
+				draw_string(_ui, Vector2(x + nw + 8.0 * u, y), jp, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(ink, 0.45 * a))
+		if tag != "":
+			var rc: Color = info.get("rarity_color", Toon.SUMI)
+			var tcol: Color = rc.lightened(0.25) if nite else rc.darkened(0.15)
+			if not bool(info.get("is_new", true)):
+				tcol = UP_COL.lightened(0.15) if nite else UP_COL.darkened(0.25)
+			draw_string(_ui, Vector2(box.end.x - pad - tag_w, y), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(tcol, a))
+	if rank >= 0:
+		# déclencheur : la figure (ou le pictogramme) et la phrase complète
+		y += 9.0 * u
+		var when := _p(String(info.get("when", "")))
+		var fig := UiKit.trigger_figure(id)
+		var chip_w := minf(_ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 34.0 * u, tw)
+		var chip := Rect2(Vector2(x, y), Vector2(chip_w, 22.0 * u))
+		if really:
+			draw_style_box(UiKit.box(_sb, Color(ink, a), 999), chip)
+			var ic := Vector2(chip.position.x + 12.0 * u, chip.get_center().y)
+			if fig != "":
+				UiKit.figure(self, fig, ic, 8.0 * u, a)
+			else:
+				UiKit.trigger_icon(self, id, ic, 6.5 * u, Toon.ui_wash, ink, a)
+			draw_string(_ui, Vector2(chip.position.x + 25.0 * u, chip.get_center().y + float(cap) * 0.36), when, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(Toon.ui_wash, a))
+		y = chip.end.y
+	# ce que ça fait, en une ou deux phrases
+	var body := _wrap(_ui, _p(String(info.get("text", ""))), bfs, tw)
+	var lh := float(bfs) * 1.3
+	y += 2.0 * u
+	for k in mini(body.size(), 3):
 		y += lh
-		draw_string(_ui, Vector2(x, y), body[k], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(ink, 0.85 * a))
-	y += 4.0 * u
-	if stat != "" and rank >= 0:
-		y += 18.0 * u
-		_bold_fit(stat, Vector2(x, y), tw, int(12 * u), Color(GOLD_HI if nite else Toon.VERMILION.darkened(0.12), a))
-	if aff_line != "":
-		y += 15.0 * u
-		_line_fit(aff_line, Vector2(x, y), tw, int(9.5 * u), Color(gold_ink if aff_on else Color(ink, 0.6), a))
-	if syn != "":
-		y += 15.0 * u
-		_line_fit(syn, Vector2(x, y), tw, int(9.5 * u), Color(gold_ink, a))
+		if really:
+			draw_string(_ui, Vector2(x, y), body[k], HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(ink, 0.85 * a))
+	if rank < 0:
+		return y - box.position.y + pad * 0.9
+	# valeurs : une rangée par valeur, libellé et chiffre (avant → après pour une amélioration)
+	var stat := _p(String(info.get("stat", "")))
+	if stat != "":
+		y += 6.0 * u
+		var rows := _stat_rows(stat)
+		for k in mini(rows.size(), 3):
+			var row: Array = rows[k]
+			var rr := Rect2(Vector2(x - 4.0 * u, y), Vector2(tw + 8.0 * u, 21.0 * u))
+			if really:
+				draw_style_box(UiKit.box(_sb, Color(col, 0.1 * a), int(6 * u)), rr)
+				var cy := rr.get_center().y
+				UiKit.glyph(self, UiKit.stat_icon(String(row[0]) + " " + String(row[1])), Vector2(x + 7.0 * u, cy), 6.0 * u, accent, Toon.ui_paper, a)
+				var lx := x + 20.0 * u
+				var lab := String(row[0])
+				if lab != "":
+					draw_string(_ui, Vector2(lx, cy + float(cap) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(ink, 0.65 * a))
+					lx += _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 10.0 * u
+				_bold_fit(String(row[1]), Vector2(lx, cy + float(bfs) * 0.36), box.end.x - pad - lx, bfs, Color(accent, a))
+			y = rr.end.y + 3.0 * u
+	# bonus d'élément : où tu en es, ce que ça donne
+	var goal := int(info.get("aff_goal", 0))
+	var school := String(info.get("school", ""))
+	if goal > 0:
+		var at := _p(String(info.get("aff_text", "")))
+		var sname := String(info.get("school_name", ""))
+		var line := ""
+		var on := false
+		if bool(info.get("aff_hit", false)):
+			line = "Bonus d'élément %s activé : %s" % [sname, at]
+			on = true
+		elif bool(info.get("aff_done", false)):
+			line = "Élément %s au complet : %s" % [sname, at]
+			on = true
+		elif at != "":
+			line = "Bonus d'élément %s : %d/%d pouvoirs → %s" % [sname, mini(int(info.get("aff_next", 0)), goal), goal, at]
+		if line != "":
+			y += 18.0 * u
+			if really:
+				var scol := UiKit.school_color(school)
+				draw_circle(Vector2(x + 7.0 * u, y - 4.0 * u), 7.0 * u, Color(scol, a))
+				UiKit.school_icon(self, school, Vector2(x + 7.0 * u, y - 4.0 * u), 4.5 * u, Toon.WASHI, a)
+				_line_fit(line, Vector2(x + 20.0 * u, y), tw - 20.0 * u, cap, Color(gold_ink if on else Color(ink, 0.7), a))
+	# synergie : active (partenaire possédé) en or, sinon une piste
+	var syn_line := ""
+	var syn_on := false
+	if school == "fig":
+		if bool(info.get("synergy_on", false)):
+			syn_line = "+ Élément de tes techniques : " + _p(String(info.get("synergy", "")))
+			syn_on = true
+	else:
+		var sy := _syn_of(id)
+		if not sy.is_empty():
+			syn_on = bool(sy[2])
+			syn_line = ("+ Synergie avec %s : %s" if syn_on else "Synergie possible avec %s : %s") % [String(sy[0]), String(sy[1])]
+	if syn_line != "":
+		y += 17.0 * u
+		if really:
+			_line_fit(syn_line, Vector2(x, y), tw, cap, Color(gold_ink if syn_on else Color(ink, 0.5), a))
+	return y - box.position.y + pad * 0.8
 
 
-## Bouton CHOISIR (ACCEPTER au sanctuaire, PASSER pour refuser), sous la bulle.
+## Bouton CHOISIR (ACCEPTER au sanctuaire, PASSER pour refuser), sous la bulle ; liseré à la couleur de l'élément.
 func _confirm(u: float, a: float) -> void:
 	if a <= 0.01 or _sel < 0 or _sel >= _infos.size():
 		return
@@ -768,24 +1168,33 @@ func _confirm(u: float, a: float) -> void:
 	var is_curse := String(info.get("kanji", "")) == "鬼"
 	var label := "CHOISIR"
 	var col: Color = Toon.VERMILION
+	var acc: Color = info.get("color", Toon.WASHI)
 	if rank == 3:
 		col = GOLD_HI
 	elif rank < 0:
 		label = "ACCEPTER" if is_curse else "PASSER"
 		col = CURSE_COL.lightened(0.15) if is_curse else Color("#4A4C58")
+		acc = Toon.WASHI
 	var r := _confirm_rect
 	if _down == CONFIRM:
 		r = r.grow(-2.0 * u)
 	var pulse := 0.5 + 0.5 * sin(_t * 4.0)
-	draw_style_box(UiKit.box(_sb, Color(col, 0.25 * a * pulse), 999), r.grow(4.0 * u))
-	UiKit.box(_sb, Color(col, a), 999, Color(Toon.WASHI, 0.8 * a), maxi(1, int(1.5 * u)))
+	draw_style_box(UiKit.box(_sb, Color(acc.lightened(0.2), 0.28 * a * pulse), 999), r.grow(5.0 * u))
+	UiKit.box(_sb, Color(col, a), 999, Color(acc.lightened(0.3), 0.95 * a), maxi(2, int(2.5 * u)))
 	_sb.shadow_color = Color(0, 0, 0, 0.4 * a)
 	_sb.shadow_size = int(8 * u)
 	_sb.shadow_offset = Vector2(0, 3 * u)
 	draw_style_box(_sb, r)
-	var fs := int(16 * u)
+	var fs := int(17 * u)
 	var tc: Color = LEG_BODY if rank == 3 else Toon.WASHI
-	UiKit.text(self, _title, label, Vector2(r.get_center().x, r.get_center().y + fs * 0.36), fs, Color(tc, a))
+	var tx := r.get_center().x
+	if rank >= 0:
+		# pastille du pouvoir à gauche du mot
+		var ic := Vector2(r.position.x + r.size.y * 0.5 + 2.0 * u, r.get_center().y)
+		draw_circle(ic, r.size.y * 0.32 + 1.5 * u, Color(Toon.WASHI, 0.9 * a))
+		UiKit.power_icon(self, _id(_sel), ic, r.size.y * 0.32, a)
+		tx += 12.0 * u
+	UiKit.text(self, _title, label, Vector2(tx, r.get_center().y + fs * 0.36), fs, Color(tc, a))
 
 
 ## Coupe un texte en lignes qui tiennent dans `width` (mots entiers ; la ponctuation reste collée au mot).
@@ -793,10 +1202,10 @@ func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
 	return UiKit.wrap(font, txt, fs, width, GLUE)
 
 
-## Une ligne qui rétrécit (un peu) si elle déborde.
+## Une ligne qui rétrécit (jusqu'à 10 px) si elle déborde.
 func _line_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> void:
 	var f := fs
-	while f > 6 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
+	while f > 10 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
 		f -= 1
 	draw_string(_ui, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
 
@@ -804,7 +1213,7 @@ func _line_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> voi
 ## Valeur en gras (deux passes décalées), rétrécie si elle déborde.
 func _bold_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> void:
 	var f := fs
-	while f > 6 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x + 1.0 > maxw:
+	while f > 10 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x + 1.0 > maxw:
 		f -= 1
 	draw_string(_ui, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
 	draw_string(_ui, pos + Vector2(0.7, 0), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)

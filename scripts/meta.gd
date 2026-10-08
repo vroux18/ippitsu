@@ -135,7 +135,7 @@ const OUTFITS := {
 ## Thèmes : papier des cartes, voile de l'écran, encre du texte (contrastes gardés), liseré.
 const THEME_ORDER := ["washi", "nuit", "sakura", "indigo"]
 const THEMES := {
-	"washi": {"name": "Washi", "paper": Color("#F5EEDD"), "wash": Color("#EFE6D2"), "ink": Color("#1B1A1E"), "accent": Color("#D7372B"), "free": true},
+	"washi": {"name": "Washi", "paper": Color("#E4D9C2"), "wash": Color("#D8CBB1"), "ink": Color("#1B1A1E"), "accent": Color("#D7372B"), "free": true},
 	"nuit": {"name": "Nuit", "paper": Color("#232A3A"), "wash": Color("#151B28"), "ink": Color("#EFE6D2"), "accent": Color("#E2A93B"), "cost": 150},
 	"sakura": {"name": "Sakura", "paper": Color("#FBEDEE"), "wash": Color("#F4DCE0"), "ink": Color("#3A1F2A"), "accent": Color("#C2456A"), "cost": 200},
 	"indigo": {"name": "Indigo", "paper": Color("#E6ECF4"), "wash": Color("#D5DEEA"), "ink": Color("#13213A"), "accent": Color("#2F5D8A"), "prints": 6},
@@ -152,7 +152,9 @@ const WORLD_COUNT := 8  # mondes du jeu (worlds.gd WORLDS) : bornes des débloca
 var unlocked := 1  # mondes débloqués (1..WORLD_COUNT) : le monde N+1 s'ouvre quand le monde N est vaincu
 var power_tier := 0  # paliers de rouleaux débloqués (0..4) : monde N vaincu -> palier N (power_data « unlock »)
 var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers ouverts (jamais sauvegardé)
-var tuto_done := false  # tutoriel déjà fait (sinon il se lance au premier JOUER)
+var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passées (anciennes sauvegardes : ancien tutoriel fait)
+const COACH_MARKS := ["stroke", "cut", "dodge", "ink", "figure", "ult", "run"]  # bulles du coach (coach.gd)
+var coach_seen := {}  # id de bulle -> true : déjà montrée
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var world_best := {}  # monde -> meilleure salle atteinte
 var seal_owned := {}  # id de don -> true
@@ -184,6 +186,9 @@ func load_data() -> void:
 	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, WORLD_COUNT)
 	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
+	for id in COACH_MARKS:
+		if bool(cf.get_value("coach", id, false)):
+			coach_seen[id] = true
 	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
 	intro_done = bool(cf.get_value("meta", "intro_done", tuto_done))
 	start_power_id = String(cf.get_value("meta", "start_power", ""))
@@ -252,6 +257,8 @@ func save_data() -> void:
 	cf.set_value("meta", "unlocked", unlocked)
 	cf.set_value("meta", "power_tier", power_tier)
 	cf.set_value("meta", "tuto_done", tuto_done)
+	for id in COACH_MARKS:
+		cf.set_value("coach", id, coach_seen.has(id))
 	cf.set_value("meta", "intro_done", intro_done)
 	cf.set_value("meta", "start_power", start_power_id)
 	for wid in world_best.keys():
@@ -268,6 +275,35 @@ func save_data() -> void:
 	cf.set_value("wardrobe", "theme", theme)
 	cf.set_value("wardrobe", "bought", bought.keys())
 	cf.save(SAVE_PATH)
+
+
+# --- Coach (tutoriel en jeu) ------------------------------------------------
+
+## Bulle vue : le tutoriel est fini quand toutes l'ont été.
+func coach_see(id: String) -> void:
+	coach_seen[id] = true
+	for m in COACH_MARKS:
+		if not coach_seen.has(m):
+			return
+	tuto_done = true
+
+
+## « Passer » : tout est vu.
+func coach_skip() -> void:
+	for m in COACH_MARKS:
+		coach_seen[m] = true
+	tuto_done = true
+
+
+## « Revoir le tutoriel » : les bulles reviendront, et le prochain JOUER mène droit au monde 1.
+func coach_reset() -> void:
+	coach_seen = {}
+	tuto_done = false
+
+
+## Tout premier lancement (ou tutoriel à revoir) : JOUER mène droit au monde 1, avec le coach.
+func coach_first_run() -> bool:
+	return not tuto_done and not coach_seen.has("stroke")
 
 
 # --- Pierre à encre ---------------------------------------------------------

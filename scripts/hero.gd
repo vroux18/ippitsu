@@ -38,11 +38,12 @@ const TRAIL_LIFE := 0.22
 var _trail: MeshInstance3D
 var _trail_mesh: ImmediateMesh
 var _trail_col := Color.WHITE
-var _trail_pts: Array = []  # [point, âge]
+var _trail_pts: Array = []  # [point, âge, naissance]
+var _trail_clock := 0.0
 
 
 func _ready() -> void:
-	Toon.disc(self, 0.42, Color(0, 0, 0, 0.12))
+	Toon.blob(self, 0.5, 0.32)  # ombre de contact douce
 	body = Node3D.new()
 	add_child(body)
 	ch = Character.new()
@@ -200,7 +201,8 @@ func _process(delta: float) -> void:
 		body.visible = true
 	if _flash > 0.0:
 		_flash -= delta
-		ch.set_flash(1.0 if _flash > 0.0 else 0.0)
+		# éclat blanc qui retombe (plus net qu'un simple allumé / éteint)
+		ch.set_flash(0.35 + 0.65 * clampf(_flash / 0.15, 0.0, 1.0) if _flash > 0.0 else 0.0)
 
 	# orientation et posture
 	var target_rot := atan2(-facing.x, -facing.z)
@@ -241,9 +243,7 @@ func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
 		_trail.top_level = true
 		_trail.mesh = _trail_mesh
 		_trail.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var mat := Toon.flat(Color.WHITE)
-		mat.vertex_color_use_as_albedo = true
-		_trail.material_override = mat
+		_trail.material_override = Toon.brush_mat()  # pinceau qui s'effiloche
 		add_child(_trail)
 
 
@@ -266,22 +266,32 @@ func set_outfit(tex: Texture2D) -> void:
 
 ## Ruban vertical à hauteur de lame, qui s'efface en TRAIL_LIFE secondes.
 func _update_trail(delta: float) -> void:
+	_trail_clock = fmod(_trail_clock + delta, 1000.0)
 	for p in _trail_pts:
 		p[1] = float(p[1]) + delta
 	while not _trail_pts.is_empty() and float(_trail_pts[0][1]) > TRAIL_LIFE:
 		_trail_pts.pop_front()
 	if dashing or _leap_t >= 0.0:
-		_trail_pts.append([body.global_position + Vector3(0, 0.9, 0), 0.0])
+		_trail_pts.append([body.global_position + Vector3(0, 0.9, 0), 0.0, _trail_clock])
 	_trail_mesh.clear_surfaces()
 	if _trail_pts.size() < 2:
 		return
 	_trail_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
-	for p in _trail_pts:
+	var n := _trail_pts.size()
+	for i in n:
+		var p: Array = _trail_pts[i]
 		var k := 1.0 - float(p[1]) / TRAIL_LIFE
+		# pointe effilée à la tête du trait
+		var tip := minf(1.0, float(n - 1 - i) * 0.45 + 0.4)
 		var c := Color(_trail_col, 0.8 * k)
 		var pos: Vector3 = p[0]
+		var u := float(p[2]) * 7.0
 		_trail_mesh.surface_set_color(c)
-		_trail_mesh.surface_add_vertex(pos + Vector3(0, 0.34 * k, 0))
+		_trail_mesh.surface_set_uv(Vector2(u, 0.0))
+		_trail_mesh.surface_set_uv2(Vector2(1.0 - k, 0.0))
+		_trail_mesh.surface_add_vertex(pos + Vector3(0, 0.34 * k * tip, 0))
 		_trail_mesh.surface_set_color(c)
-		_trail_mesh.surface_add_vertex(pos - Vector3(0, 0.34 * k, 0))
+		_trail_mesh.surface_set_uv(Vector2(u, 1.0))
+		_trail_mesh.surface_set_uv2(Vector2(1.0 - k, 0.0))
+		_trail_mesh.surface_add_vertex(pos - Vector3(0, 0.34 * k * tip, 0))
 	_trail_mesh.surface_end()

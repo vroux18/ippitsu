@@ -10,6 +10,7 @@ extends RefCounted
 
 const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
+const WATER_SHADER = preload("res://shaders/water.gdshader")
 
 ## Surface du vide (eau, lave, encre) : le plan de arena.gd est à y = -0.6, épaisseur 0.1.
 const VOID_Y := -0.55
@@ -57,10 +58,10 @@ const WORLDS: Array = [
 		"sun_energy": 0.72,
 		"ambient_color": Color(0.86, 0.9, 1.0),
 		"ambient_energy": 0.3,
-		"ground": [Color("#B98E52"), Color("#AD8148"), Color("#C39A5E"), Color("#A57A43"), Color("#B48A50")],
+		"ground": [Color("#8E8274"), Color("#857A6D"), Color("#978B7C"), Color("#7D7266"), Color("#8A7F71")],  # cèdre délavé par la mer (plus d'orange saturé)
 		"ground_style": "planks",
 		"edge": Color("#1B1A1E"),
-		"under": Color("#5B4630"),
+		"under": Color("#3E3631"),
 		"void": Color("#1F3A5F"),
 		"void_metal": true,
 		"enemies": {"oni": 4, "kappa": 2, "brute": 1, "tate": 1, "funa": 2, "umibozu": 2, "kappa_yumi": 2, "ika": 2, "umi_nyobo": 1},
@@ -79,7 +80,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.55,
 		"ambient_color": Color(0.58, 0.68, 0.88),
 		"ambient_energy": 0.5,
-		"ground": [Color("#8E8A7C"), Color("#827E70"), Color("#97937F"), Color("#7A7668"), Color("#8A8676")],
+		"ground": [Color("#6E726E"), Color("#656965"), Color("#777B76"), Color("#5E625E"), Color("#6A6E69")],  # ardoise froide, mousse dans les joints
 		"ground_style": "stones",
 		"edge": Color("#26252B"),
 		"under": Color("#3E4A3A"),
@@ -101,7 +102,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.55,
 		"ambient_color": Color(0.8, 0.86, 0.95),
 		"ambient_energy": 0.45,
-		"ground": [Color("#DDE4EC"), Color("#D0D9E3"), Color("#C6D0DC"), Color("#D8DFE8"), Color("#BFCAD8")],
+		"ground": [Color("#DDE1E6"), Color("#D2D7DE"), Color("#C8CFD8"), Color("#D7DCE2"), Color("#C2CAD4")],
 		"ground_style": "snow",
 		"edge": Color("#3A3A48"),
 		"under": Color("#8C8FA8"),
@@ -123,7 +124,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.8,
 		"ambient_color": Color(1.0, 0.75, 0.6),
 		"ambient_energy": 0.3,
-		"ground": [Color("#4A4542"), Color("#55504B"), Color("#5A5550"), Color("#3F3B39"), Color("#4F4945")],
+		"ground": [Color("#47423F"), Color("#4F4A46"), Color("#55504B"), Color("#3D3937"), Color("#4A4541")],
 		"ground_style": "basalt",
 		"edge": Color("#141215"),
 		"under": Color("#2A2220"),
@@ -145,7 +146,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.7,
 		"ambient_color": Color(1.0, 0.9, 0.9),
 		"ambient_energy": 0.35,
-		"ground": [Color("#B3A58C"), Color("#AA9C83"), Color("#BBAD94"), Color("#A3957C"), Color("#B0A289")],  # papier vieilli, plus soutenu (le blanc saturait)
+		"ground": [Color("#B2AA9A"), Color("#A9A191"), Color("#BAB2A2"), Color("#A39B8B"), Color("#AFA797")],  # papier vieilli, plus soutenu (le blanc saturait)
 		"ground_style": "paper",
 		"edge": Color("#1B1A1E"),
 		"under": Color("#3A3530"),
@@ -167,7 +168,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.64,
 		"ambient_color": Color(0.74, 0.88, 0.76),
 		"ambient_energy": 0.42,
-		"ground": [Color("#6A6955"), Color("#5E5F4B"), Color("#727157"), Color("#575946"), Color("#65654F")],  # dalles moussues
+		"ground": [Color("#676856"), Color("#5E5F4D"), Color("#6E6F5C"), Color("#57594A"), Color("#636452")],  # dalles moussues
 		"ground_style": "stones",
 		"edge": Color("#1A1E1A"),
 		"under": Color("#33402F"),
@@ -189,7 +190,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.6,
 		"ambient_color": Color(0.6, 0.9, 0.92),
 		"ambient_energy": 0.5,
-		"ground": [Color("#7A3A2E"), Color("#6E3328"), Color("#84412F"), Color("#682F26"), Color("#763A2C")],  # planches laquées du palais
+		"ground": [Color("#6A3C35"), Color("#61362F"), Color("#73443B"), Color("#5A332D"), Color("#673A33")],  # planches laquées du palais
 		"ground_style": "planks",
 		"edge": Color("#14181C"),
 		"under": Color("#2A3A3E"),
@@ -211,7 +212,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.55,
 		"ambient_color": Color(0.7, 0.64, 0.88),
 		"ambient_energy": 0.48,
-		"ground": [Color("#5E5B60"), Color("#555258"), Color("#636066"), Color("#4E4B52"), Color("#5A575D")],  # dalles de cendre
+		"ground": [Color("#5B585E"), Color("#525056"), Color("#615E64"), Color("#4B494F"), Color("#57545A")],  # dalles de cendre
 		"ground_style": "stones",
 		"edge": Color("#0E0C10"),
 		"under": Color("#242028"),
@@ -230,6 +231,65 @@ static var _meshes: Dictionary = {}
 static func world(id: int) -> Dictionary:
 	var d: Dictionary = WORLDS[clampi(id, 1, WORLDS.size()) - 1]
 	return d
+
+
+## Matière du sol du monde (shaders/ground.gdshader) : 2e teinte des tuiles, mousse, usure,
+## couleur d'incrustation rare (accent unique du monde, alpha 0 = aucune).
+static func floor_look(id: int) -> Dictionary:
+	match clampi(id, 1, WORLDS.size()):
+		1:
+			return {"alt": Color("#6F6A63"), "alt_k": 0.55, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#8E3A2E"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
+		2:
+			return {"alt": Color("#5D6B60"), "alt_k": 0.5, "moss": Color("#3F5440"), "moss_k": 0.45, "wear": 0.2, "accent": Color(0, 0, 0, 0), "leaves": [Color("#7E8F55"), Color("#9AA36A")]}
+		3:
+			return {"alt": Color("#B8C2CE"), "alt_k": 0.4, "moss": Color("#9AA6B4"), "moss_k": 0.0, "wear": 0.0, "accent": Color(0, 0, 0, 0)}
+		4:
+			return {"alt": Color("#3A3230"), "alt_k": 0.6, "moss": Color("#5A3A2C"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0)}
+		6:
+			return {"alt": Color("#556048"), "alt_k": 0.6, "moss": Color("#3D5236"), "moss_k": 0.6, "wear": 0.15, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8A6A3A"), Color("#6B7240")]}
+		7:
+			return {"alt": Color("#4E3A36"), "alt_k": 0.5, "moss": Color("#2E4A48"), "moss_k": 0.2, "wear": 0.35, "accent": Color("#A8843E"), "leaves": [Color("#D6C7B2")]}
+		8:
+			return {"alt": Color("#4A4552"), "alt_k": 0.55, "moss": Color("#3E3A48"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8C8794")]}
+		_:
+			return {"alt": Color("#9C9384"), "alt_k": 0.5, "moss": Color("#7E786A"), "moss_k": 0.0, "wear": 0.25, "accent": Color(0, 0, 0, 0)}
+
+
+## Eau (ou lave, encre) du vide : fond profond / clair, écume, intensité des rubans, vitesse, rubans par mètre, écume du bord.
+static func water_style(id: int) -> Dictionary:
+	match clampi(id, 1, WORLDS.size()):
+		1:
+			return {"deep": Color("#142A48"), "shallow": Color("#24466E"), "foam": Color("#E2E8EA"), "k": 0.42, "flow": 1.0, "band": 0.8, "shore": 0.55}
+		2:
+			return {"deep": Color("#13221F"), "shallow": Color("#24403B"), "foam": Color("#9FB8A8"), "k": 0.25, "flow": 0.5, "band": 0.6, "shore": 0.3}
+		3:
+			return {"deep": Color("#26364A"), "shallow": Color("#3E536A"), "foam": Color("#DCE6EE"), "k": 0.35, "flow": 0.6, "band": 0.7, "shore": 0.5}
+		4:
+			return {"deep": Color("#1A1212"), "shallow": Color("#2E201E"), "foam": Color("#7A3018"), "k": 0.3, "flow": 0.35, "band": 0.5, "shore": 0.35}
+		6:
+			return {"deep": Color("#121E17"), "shallow": Color("#26392D"), "foam": Color("#A9B89C"), "k": 0.22, "flow": 0.45, "band": 0.6, "shore": 0.3}
+		7:
+			return {"deep": Color("#082A33"), "shallow": Color("#145060"), "foam": Color("#9EE0DA"), "k": 0.3, "flow": 0.6, "band": 0.7, "shore": 0.4}
+		8:
+			return {"deep": Color("#0D0A13"), "shallow": Color("#211A2C"), "foam": Color("#8E7FB0"), "k": 0.22, "flow": 0.3, "band": 0.5, "shore": 0.3}
+		_:
+			return {"deep": Color("#0A1322"), "shallow": Color("#16243A"), "foam": Color("#CFC6B2"), "k": 0.3, "flow": 0.7, "band": 0.9, "shore": 0.45}
+
+
+## Matériau du vide d'un monde (un par monde affiché : son cadre d'écume change d'une salle à l'autre).
+static func water_material(id: int) -> ShaderMaterial:
+	var s := water_style(id)
+	var m := ShaderMaterial.new()
+	m.shader = WATER_SHADER
+	m.set_shader_parameter("deep", s["deep"])
+	m.set_shader_parameter("shallow", s["shallow"])
+	m.set_shader_parameter("foam", s["foam"])
+	m.set_shader_parameter("foam_k", float(s["k"]))
+	m.set_shader_parameter("flow", float(s["flow"]))
+	m.set_shader_parameter("band", float(s["band"]))
+	m.set_shader_parameter("shore_k", float(s["shore"]))
+	m.set_shader_parameter("fine", not Toon.lite)
+	return m
 
 
 # ------------------------------------------------------------------ matériaux (cache)
@@ -1299,6 +1359,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 			continue
 		_take(ctx, p)
 		_prop_big(wid, ctx, p, rng)
+		_contact(ctx, p, 1.5)
 	# alignements de bord : clôtures, cordes sacrées, fanions…
 	for i in rng.randi_range(2, 4):
 		var run := _spot_run(ctx, rng)
@@ -1312,6 +1373,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 			continue
 		_take(ctx, Vector2(e.x, e.y))
 		_prop_edge(wid, ctx, e, rng)
+		_contact(ctx, Vector2(e.x, e.y), 0.7)
 	# petits props dans les vides entre plateformes
 	for i in rng.randi_range(3, 7):
 		var p := _spot_gap(ctx, rng)
@@ -1319,6 +1381,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 			continue
 		_take(ctx, p)
 		_prop_small(wid, ctx, p, rng)
+		_contact(ctx, p, 0.8)
 	# tapis d'éléments répétés
 	_fill(wid, ctx, rng)
 	var bs: Dictionary = ctx["bs"]
@@ -1350,6 +1413,11 @@ static func _in_zone(ctx: Dictionary, p: Vector2) -> bool:
 	if not zone.has_area():
 		return true
 	return p.y >= zone.position.y - 0.6 and p.y <= zone.end.y + 0.6
+
+
+## Ombre de contact douce dans l'eau au pied d'un prop (instances : un seul draw call par salle).
+static func _contact(ctx: Dictionary, p: Vector2, r: float) -> void:
+	_inst(ctx, "contact_ao", Toon.blob_mesh(), Toon.blob_mat(0.34), _at(Vector3(p.x, PIT_Y + 0.004, p.y), Vector3.ZERO, Vector3(r, 1.0, r)))
 
 
 static func _take(ctx: Dictionary, p: Vector2) -> void:
@@ -1565,7 +1633,7 @@ static func _foam_ring(ctx: Dictionary, p: Vector2, r: float, rng: RandomNumberG
 	for k in n:
 		var yaw := a0 + TAU * k / n + rng.randf_range(-0.3, 0.3)
 		var s := r / 0.5 * rng.randf_range(1.05, 1.3)
-		_inst(ctx, "foam", _crescent_mesh(), _flat(Toon.FOAM), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, yaw, 0), Vector3(s, 1, s)))
+		_inst(ctx, "foam", _crescent_mesh(), _flat(Color(Toon.FOAM, 0.5)), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, yaw, 0), Vector3(s, 1, s)))
 
 
 static func _prop_big(wid: int, ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
@@ -2089,7 +2157,7 @@ static func _piles(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> v
 static func _fill_wave(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
-	var fm := _flat(Toon.FOAM)
+	var fm := _flat(Color(Toon.FOAM, 0.5))  # écume en lavis (plus de taches blanches franches)
 	var cm := _crescent_mesh()
 	for i in 46:
 		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
@@ -3147,6 +3215,36 @@ static func build_particles(world_id: int, parent: Node3D) -> void:
 			p.color_ramp = _fade(0.1, 0.85)
 			p.color_initial_ramp = _ramp([Toon.WASHI, Color("#F6F0E2"), Toon.SUMI], true)
 			p.emitting = true
+	if not Toon.lite:
+		_motes(clampi(world_id, 1, WORLDS.size()), parent, area, ctr)
+
+
+## Poussière en suspension qui dérive lentement à hauteur d'homme (pas en mode léger) : la lumière
+## a de l'épaisseur. Rien pour la neige, le plancton et les braises (déjà des particules qui flottent).
+static func _motes(wid: int, parent: Node3D, area: AABB, ctr: Vector3) -> void:
+	var cols: Array = []
+	match wid:
+		1:
+			cols = [Color(1.0, 0.93, 0.8, 0.55), Color(0.95, 0.9, 0.82, 0.4)]
+		5:
+			cols = [Color(0.3, 0.27, 0.3, 0.45), Color(0.95, 0.9, 0.82, 0.45)]
+		6:
+			cols = [Color(0.92, 0.9, 0.6, 0.5), Color(0.8, 0.85, 0.6, 0.4)]
+		8:
+			cols = [Color(0.78, 0.72, 0.95, 0.45), Color(0.6, 0.58, 0.7, 0.35)]
+		_:
+			return
+	var p := _emitter(parent, "Motes", Vector3(ctr.x, 1.3, ctr.z), Vector3(area.size.x * 0.5, 1.1, area.size.z * 0.5), 22, 8.0, _quad_mesh("mote", Vector2(0.035, 0.035), false))
+	p.direction = Vector3(1.0, 0.2, 0.0)
+	p.spread = 180.0
+	p.gravity = Vector3(0.02, 0.01, 0)
+	p.initial_velocity_min = 0.03
+	p.initial_velocity_max = 0.1
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.4
+	p.color_ramp = _fade(0.25, 0.7)
+	p.color_initial_ramp = _ramp(cols, false)
+	p.emitting = true
 
 
 static func _emitter(parent: Node3D, nm: String, center: Vector3, extents: Vector3, amount: int, life: float, mesh: Mesh) -> CPUParticles3D:
@@ -3255,7 +3353,7 @@ const PIT_BRIDGE_W := 2.7  # comme arena.gd : un rectangle plus étroit est une 
 static func _pit_style(wid: int) -> Dictionary:
 	match wid:
 		1:
-			return {"wall": Color("#6A4E36"), "low": Color("#2B1F16"), "deep": Color("#03070D"), "floor": Color("#0D2036"),
+			return {"wall": Color("#5E554B"), "low": Color("#262019"), "deep": Color("#03070D"), "floor": Color("#0D2036"),
 				"line": Color("#2E2116"), "glint": Color(0.72, 0.86, 1.0)}
 		2:
 			return {"wall": Color("#5C5E54"), "low": Color("#24271F"), "deep": Color("#020606"), "floor": Color("#0A221E"),

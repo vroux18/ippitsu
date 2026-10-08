@@ -107,7 +107,7 @@ var gate_open := false
 var _world_root: Node3D
 var _world_holder: Node3D = null  # vide + lointain du monde affiché
 var _worlds_kept := {}  # monde quitté -> [racine cachée, matériau du vide, lointain]
-static var _void_noise: NoiseTexture2D = null  # relief du vide (partagé par tous les mondes)
+const GROUND_SHADER = preload("res://shaders/ground.gdshader")
 static var _mat_cache := {}  # matériaux des sols, bords et dessous, partagés d'une salle à l'autre (jamais modifiés)
 static var _unit_tile: BoxMesh = null
 static var _unit_lump: SphereMesh = null
@@ -124,11 +124,13 @@ var _gate_rope_mat: StandardMaterial3D
 var _gate_ray_mat: StandardMaterial3D
 var _gate_rays: MeshInstance3D
 var _gate_motes: CPUParticles3D
-var _void_mat: StandardMaterial3D
+var _void_mat: ShaderMaterial
 var _t := 0.0
 var _batches := {}  # matériau -> transformations des tuiles du sol
 var _sbatches := {}  # matériau -> transformations des bosses (sphères) du sol
 var _ink_mat: StandardMaterial3D = null  # traits d'encre sèche du sol de papier
+var _deco_rng := RandomNumberGenerator.new()  # habillage du sol (n'entame pas les tirages de la salle)
+var _accent_mat: Material = null  # planches de laque rares (accent du monde), null : aucune
 var _pits := {}  # état d'animation des fosses (Worlds.build_pits)
 
 
@@ -168,32 +170,13 @@ func set_world(id: int) -> void:
 		_far_root = back[2]
 		_world_holder.visible = true
 		_world_holder.process_mode = Node.PROCESS_MODE_INHERIT
+		_push_shore()
 		return
 	_world_holder = Node3D.new()
 	_world_root.add_child(_world_holder)
-	var w: Dictionary = Worlds.world(id)
-	_void_mat = StandardMaterial3D.new()
-	_void_mat.albedo_color = w["void"]
-	if bool(w.get("void_metal", true)):
-		_void_mat.roughness = 0.25
-		_void_mat.metallic_specular = 0.7
-		# même bruit pour tous les mondes : fabriqué une seule fois
-		if _void_noise == null:
-			var noise := FastNoiseLite.new()
-			noise.frequency = 0.035
-			_void_noise = NoiseTexture2D.new()
-			_void_noise.noise = noise
-			_void_noise.seamless = true
-			_void_noise.as_normal_map = true
-			_void_noise.bump_strength = 6.0
-			_void_noise.width = 256
-			_void_noise.height = 256
-		_void_mat.normal_enabled = true
-		_void_mat.normal_texture = _void_noise
-		_void_mat.normal_scale = 0.6
-		_void_mat.uv1_scale = Vector3(60, 60, 1)
-	else:
-		_void_mat.roughness = 0.9
+	# eau d'estampe (shaders/water.gdshader) : lavis de profondeur, rubans de vague, écume au pied du cadre
+	_void_mat = Worlds.water_material(id)
+	_push_shore()
 	var v := Toon.part(_world_holder, Toon.box(Vector3(600, 0.1, 600)), _void_mat, Vector3(0, -0.6, 0))
 	v.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# le lointain est peint pour une caméra au-dessus de la salle : il la suit le long de l'étape
@@ -207,6 +190,13 @@ func set_world(id: int) -> void:
 func follow_camera(dz: float) -> void:
 	if _far_root != null and is_instance_valid(_far_root):
 		_far_root.position.z = dz
+
+
+## Cadre de l'arène (ou de l'étape) transmis à l'eau : l'écume lèche le pied des plateformes.
+func _push_shore() -> void:
+	if _void_mat == null:
+		return
+	_void_mat.set_shader_parameter("shore_rect", Vector4(stage_rect.position.x, stage_rect.position.y, stage_rect.end.x, stage_rect.end.y))
 
 
 ## Construit la salle : forme, sol, bords, décor, torii de sortie (caché).
@@ -244,6 +234,7 @@ func _clear_room() -> void:
 func _single_frame() -> void:
 	stage_rect = Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0)
 	_set_bounds(stage_rect)
+	_push_shore()
 
 
 ## Cadre de déplacement courant ; on garde à part les plateformes qui le touchent (tests rapides).
@@ -313,6 +304,7 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 	mirrored = false
 	var top := -HALF.y - float(chunks - 1) * CHUNK_L
 	stage_rect = Rect2(-HALF.x, top, HALF.x * 2.0, HALF.y - top)
+	_push_shore()
 	zones = []
 	zone_state = []
 	for i in range(1, chunks):
@@ -1310,15 +1302,23 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 	var dec: Dictionary = _decompose(rects)
 	pieces = dec["pieces"]
 	bridges = []
+	var style := String(w.ground_style)
+	var look: Dictionary = Worlds.floor_look(world_id)
 	var mats: Array = []
 	for col in w.ground:
-		mats.append(_ground_mat(col))
+		mats.append(_ground_mat(col, style, look))
 	var woods: Array = []
 	for col in WOOD:
-		woods.append(_ground_mat(col))
-	var under := _shared_mat(w.under, false)
-	var deck := _ground_mat(Color("#3E2C1C"))
-	var style := String(w.ground_style)
+		woods.append(_ground_mat(col, "wood", look))
+	var under := _ground_mat(w.under, "under", look)
+	var deck := _ground_mat(Color("#3E2C1C"), "wood", look)
+	# tirages du décor du sol à part : la forme de la salle et ses recoins ne changent pas
+	_deco_rng = RandomNumberGenerator.new()
+	_deco_rng.seed = rng.seed + 7717
+	_accent_mat = null
+	var accent: Color = look.get("accent", Color(0, 0, 0, 0))
+	if accent.a > 0.0:
+		_accent_mat = _ground_mat(accent, style, look)
 	for pc in pieces:
 		var r: Rect2 = pc[0]
 		var c := r.get_center()
@@ -1329,11 +1329,86 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 		else:
 			_tile(Vector3(r.size.x, 0.46, r.size.y), Vector3(c.x, -0.27, c.y), under)
 			_floor_piece(r, style, mats, rng)
+			_floor_dressing(r, style, look)
 	_build_edges(dec, w, woods[2])
 
 
-func _ground_mat(col: Color) -> StandardMaterial3D:
-	return _shared_mat(col, true)
+## Matière du sol (shaders/ground.gdshader), partagée par couleur, style et monde.
+## Styles : planks, stones, basalt, snow, paper (sols), wood (ponts, poutres), under (flancs des plateformes).
+func _ground_mat(col: Color, style: String, look: Dictionary) -> ShaderMaterial:
+	var key := "g%s_%s_%d_%d" % [col.to_html(true), style, world_id, 1 if Toon.lite else 0]
+	if _mat_cache.has(key):
+		var cached: ShaderMaterial = _mat_cache[key]
+		return cached
+	var m := ShaderMaterial.new()
+	m.shader = GROUND_SHADER
+	m.set_shader_parameter("albedo", col)
+	m.set_shader_parameter("ink", Toon.SUMI)
+	m.set_shader_parameter("fine", not Toon.lite)
+	# [variation, joint, largeur du joint, flanc, grain, échelle du grain, mouchetis, 2e teinte, mousse, usure]
+	var p := [0.07, 0.25, 0.08, 0.4, 0.06, Vector2(5, 5), 0.18, 1.0, 1.0, 1.0]
+	match style:
+		"planks":
+			p = [0.07, 0.3, 0.06, 0.45, 0.09, Vector2(22, 1.5), 0.1, 1.0, 0.4, 1.0]  # fil du bois le long des planches
+		"stones":
+			p = [0.08, 0.32, 0.1, 0.45, 0.06, Vector2(5, 5), 0.16, 1.0, 1.0, 0.8]
+		"basalt":
+			p = [0.1, 0.35, 0.1, 0.45, 0.07, Vector2(6, 6), 0.0, 1.0, 0.0, 1.0]
+		"snow":
+			p = [0.03, 0.16, 0.25, 0.3, 0.025, Vector2(3, 3), 0.03, 0.6, 0.0, 0.0]
+		"paper":
+			p = [0.0, 0.22, 0.3, 0.4, 0.07, Vector2(4, 9), 0.32, 0.0, 0.0, 1.0]
+		"wood":
+			p = [0.09, 0.28, 0.05, 0.45, 0.08, Vector2(6, 6), 0.06, 0.6, 0.3, 0.6]
+		"under":
+			p = [0.0, 0.0, 0.08, 0.55, 0.05, Vector2(4, 4), 0.0, 0.0, 0.0, 0.0]
+	m.set_shader_parameter("tile_var", float(p[0]))
+	m.set_shader_parameter("edge_ao", float(p[1]))
+	m.set_shader_parameter("edge_w", float(p[2]))
+	m.set_shader_parameter("side_ao", float(p[3]))
+	m.set_shader_parameter("grain", float(p[4]))
+	m.set_shader_parameter("grain_scale", p[5])
+	m.set_shader_parameter("speckle", float(p[6]))
+	m.set_shader_parameter("alt", look.get("alt", col))
+	m.set_shader_parameter("alt_k", float(look.get("alt_k", 0.0)) * float(p[7]))
+	m.set_shader_parameter("moss", look.get("moss", col))
+	m.set_shader_parameter("moss_k", float(look.get("moss_k", 0.0)) * float(p[8]))
+	m.set_shader_parameter("wear_k", float(look.get("wear", 0.0)) * float(p[9]))
+	_mat_cache[key] = m
+	return m
+
+
+## Habillage d'un morceau de sol (tirages à part) : planches de laque rares (accent du monde), ferrures en
+## travers des planches, feuilles / pétales tombés. Tout part dans les lots de tuiles (MultiMesh par matériau).
+func _floor_dressing(r: Rect2, style: String, look: Dictionary) -> void:
+	var drng := _deco_rng
+	if style == "planks":
+		var band := _shared_mat(Color("#2B2622"), true)
+		var pw := 0.62
+		var x := -HALF.x + floorf((r.position.x + HALF.x) / pw + 0.001) * pw
+		while x < r.end.x - 0.02:
+			var x0 := maxf(x, r.position.x)
+			var x1 := minf(x + pw, r.end.x)
+			if x1 - x0 > 0.2:
+				# ferrures : une ou deux par colonne, en travers
+				var nb := drng.randi_range(0, 2)
+				for k in nb:
+					var z := drng.randf_range(r.position.y + 0.3, r.end.y - 0.3)
+					_tile(Vector3(x1 - x0 - 0.06, 0.024, 0.06), Vector3((x0 + x1) / 2.0, 0.0, z), band)
+			x += pw
+	var leaves: Array = look.get("leaves", [])
+	if leaves.is_empty() or style == "snow" or style == "paper":
+		return
+	var lmats: Array = []
+	for lc in leaves:
+		lmats.append(_shared_mat(lc, true))
+	var n := int(r.size.x * r.size.y / (6.0 if Toon.lite else 3.0))
+	for i in n:
+		# en grappes : quelques feuilles autour d'un point
+		var cx := drng.randf_range(r.position.x + 0.3, r.end.x - 0.3)
+		var cz := drng.randf_range(r.position.y + 0.3, r.end.y - 0.3)
+		var m: Material = lmats[drng.randi() % lmats.size()]
+		_tile(Vector3(drng.randf_range(0.08, 0.14), 0.006, drng.randf_range(0.05, 0.08)), Vector3(cx, 0.014, cz), m, drng.randf() * PI)
 
 
 ## Toon sans contour, partagé par couleur (`plain` : sans liseré ni reflet, comme les sols).
@@ -1400,7 +1475,12 @@ func _floor_piece(r: Rect2, style: String, mats: Array, rng: RandomNumberGenerat
 					var z0 := r.position.y
 					while z0 < r.end.y - 0.01:
 						var l := minf(rng.randf_range(2.6, 5.5), r.end.y - z0)
-						_tile(Vector3(maxf(x1 - x0 - g0 - g1, 0.01), 0.09, maxf(l - 0.03, 0.01)), Vector3((x0 + g0 + x1 - g1) / 2.0, -0.045 + rng.randf_range(-0.006, 0.006), z0 + l / 2.0), mats[rng.randi() % mats.size()])
+						# même ordre de tirages qu'avant (hauteur puis teinte) : la suite de la salle est inchangée
+						var py := -0.045 + rng.randf_range(-0.006, 0.006)
+						var pm: Material = mats[rng.randi() % mats.size()]
+						if _accent_mat != null and _deco_rng.randf() < 0.035:
+							pm = _accent_mat  # planche de laque (accent du monde), rare
+						_tile(Vector3(maxf(x1 - x0 - g0 - g1, 0.01), 0.09, maxf(l - 0.03, 0.01)), Vector3((x0 + g0 + x1 - g1) / 2.0, py, z0 + l / 2.0), pm)
 						z0 += l
 				x += pw
 		"stones", "basalt":
@@ -1909,8 +1989,6 @@ func gate_reached(p: Vector3) -> bool:
 
 func _process(delta: float) -> void:
 	_t += delta
-	if _void_mat and _void_mat.normal_enabled:
-		_void_mat.uv1_offset += Vector3(0.0035, 0.0018, 0) * delta
 	if not _pits.is_empty():
 		Worlds.animate_pits(_pits, _t)
 	for ps in _pit_states:

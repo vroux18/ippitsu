@@ -19,6 +19,14 @@ static var ui_ink := SUMI
 static var ui_dark := false  # papier sombre, encre claire (Nuit) : les accents foncés passent au clair
 static var ui_rev := 0  # change à chaque thème : les écrans qui ne se redessinent pas seuls le guettent
 
+# rendu allégé (téléphone) : posé par main avant de bâtir le monde ; coupe grain, détails des shaders, poussières
+static var lite := false
+
+static var _blob_mesh: PlaneMesh = null
+static var _blob_tex: GradientTexture2D = null
+static var _blob_mats := {}  # alpha ("%.2f") -> matériau
+static var _brush: ShaderMaterial = null
+
 
 ## Thème choisi (meta.theme_colors()) : {paper, wash, ink}.
 static func set_ui_theme(d: Dictionary) -> void:
@@ -107,6 +115,62 @@ static func disc(parent: Node3D, r: float, color: Color, y := 0.01) -> MeshInsta
 	var d := part(parent, cyl(r, r, 0.004, 24), flat(color), Vector3(0, y, 0))
 	d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return d
+
+
+## Plan unité (2 × 2) pour les ombres douces.
+static func blob_mesh() -> PlaneMesh:
+	if _blob_mesh == null:
+		_blob_mesh = PlaneMesh.new()
+		_blob_mesh.size = Vector2(2.0, 2.0)
+		var g := Gradient.new()
+		g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+		g.colors = PackedColorArray([Color(1, 1, 1, 1), Color(1, 1, 1, 0.6), Color(1, 1, 1, 0)])
+		_blob_tex = GradientTexture2D.new()
+		_blob_tex.gradient = g
+		_blob_tex.fill = GradientTexture2D.FILL_RADIAL
+		_blob_tex.fill_from = Vector2(0.5, 0.5)
+		_blob_tex.fill_to = Vector2(1.0, 0.5)
+		_blob_tex.width = 64
+		_blob_tex.height = 64
+	return _blob_mesh
+
+
+## Ombre douce (dégradé radial d'encre), partagée par opacité.
+static func blob_mat(alpha: float) -> StandardMaterial3D:
+	blob_mesh()
+	var key := "%.2f" % alpha
+	if _blob_mats.has(key):
+		var cached: StandardMaterial3D = _blob_mats[key]
+		return cached
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(0.04, 0.035, 0.05, alpha)
+	m.albedo_texture = _blob_tex
+	m.render_priority = -1
+	_blob_mats[key] = m
+	return m
+
+
+## Ombre de contact douce posée au sol (personnages) : plus dense au centre, sans bord dur.
+static func blob(parent: Node3D, r: float, alpha: float, y := 0.012) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = blob_mesh()
+	mi.material_override = blob_mat(alpha)
+	mi.position = Vector3(0, y, 0)
+	mi.scale = Vector3(r, 1.0, r)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+## Matériau des traînées au pinceau (couleurs de sommets, poils qui s'effilochent), partagé.
+static func brush_mat() -> ShaderMaterial:
+	if _brush == null:
+		_brush = ShaderMaterial.new()
+		_brush.shader = load("res://shaders/brush.gdshader")
+		_brush.set_shader_parameter("dry", 0.45 if lite else 0.8)
+	return _brush
 
 
 ## Distance au sol (plan XZ, y ignoré) du point `p` au segment [a, b] (boss, pouvoirs).

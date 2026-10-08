@@ -96,6 +96,10 @@ func begin(m: Node) -> void:
 	if not bool(main.meta.test_unlock_all):
 		main.meta.test_unlock_all = true
 		alert("progression : test_unlock_all n'était pas posé par main, forcé")
+	# hors mode ui : pas de tutoriel en jeu (ni ralenti du premier trait, ni combats adoucis)
+	if mode != "ui":
+		main.meta.tuto_done = true
+		main.coach.clear()
 	match mode:
 		"ui":
 			cinematics = true
@@ -526,24 +530,20 @@ func figure(kind: String, target: Vector3) -> bool:
 	return true
 
 
-## Esquive comme au doigt : petit coup sec au centre du pad (main._touch_down / _touch_up).
+## Esquive comme au doigt : petit coup sec posé sur le héros (main._touch_down / _touch_up).
 func dodge(dir: Vector3) -> bool:
 	if main.touching or main.game_over or main.hero.dashing:
-		return false
-	var pr: Rect2 = main.pad_rect()
-	var sp: Vector2 = pr.get_center()
-	if main.hud.is_over_pause(sp) or main.tuto.is_over_ui(sp):
 		return false
 	var d := Vector2(dir.x, dir.z)
 	if d.length_squared() < 0.0001:
 		d = Vector2(0, -1)
-	var flick := d.normalized() * 0.4 * maxf(pr.size.x, 1.0) / 15.0  # 0,4 m de geste : un bond, pas un trait
-	var screen := String(main.ctrl_mode) == "screen"
-	if screen:
-		# commande « sur l'écran » : le geste se lit au sol, on vise un point à 0,4 m du héros
-		var hp: Vector3 = main.hero.position
-		sp = main.cam.unproject_position(hp)
-		flick = main.cam.unproject_position(hp + Vector3(d.normalized().x, 0, d.normalized().y) * 0.4) - sp
+	d = d.normalized()
+	# le geste se lit au sol : on vise un point à 0,4 m du héros (un bond, pas un trait)
+	var hp: Vector3 = main.hero.position
+	var sp: Vector2 = main.cam.unproject_position(hp)
+	var flick: Vector2 = main.cam.unproject_position(hp + Vector3(d.x, 0, d.y) * 0.4) - sp
+	if main.hud.is_over_pause(sp) or main.tuto.is_over_ui(sp) or main.coach.is_over_ui(sp):
+		return false
 	main._touch_down(sp)
 	main._touch_up(sp + flick)
 	if bool(main.hero.dashing):

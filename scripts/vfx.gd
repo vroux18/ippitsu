@@ -35,7 +35,8 @@ var _fx: Array = []  # {node, t, life, kind, ...}
 var _trail_pts: Array = []  # [position, âge]
 var _trail_mesh := ImmediateMesh.new()
 var _trail_live := false  # la traînée a des surfaces à effacer
-var _trail_mat: StandardMaterial3D
+var _trail_mat: Material
+var _trail_clock := 0.0  # horloge des poils du pinceau (coordonnée fixe le long du trait)
 var _glow_mats := {}
 # maillages partagés par tous les impacts (forme constante ; l'échelle se fait sur le nœud)
 var _star_quad: QuadMesh
@@ -57,11 +58,8 @@ func _ready() -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = _trail_mesh
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_trail_mat = StandardMaterial3D.new()
-	_trail_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_trail_mat.vertex_color_use_as_albedo = true
-	_trail_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_trail_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	# pinceau (shaders/brush.gdshader) : les poils s'effilochent vers la queue du trait
+	_trail_mat = Toon.brush_mat()
 	mi.material_override = _trail_mat
 	add_child(mi)
 
@@ -88,10 +86,11 @@ func glow_mat(c: Color, energy := 3.0) -> StandardMaterial3D:
 # ------------------------------------------------------------------ traînée de lame
 
 func trail_point(p: Vector3) -> void:
-	_trail_pts.append([p + Vector3(0, 0.75, 0), 0.0])
+	_trail_pts.append([p + Vector3(0, 0.75, 0), 0.0, _trail_clock])
 
 
 func _update_trail(dt: float) -> void:
+	_trail_clock = fmod(_trail_clock + dt, 1000.0)
 	if _trail_pts.is_empty():
 		if _trail_live:
 			_trail_mesh.clear_surfaces()
@@ -118,13 +117,20 @@ func _update_trail(dt: float) -> void:
 		if t.length_squared() < 0.0001:
 			t = Vector3.FORWARD
 		var side := Vector3(-t.z, 0, t.x).normalized()
-		var w := TRAIL_W * k
+		# pointe effilée à la tête (le pinceau se pose), queue qui s'amincit avec l'âge
+		var tip := minf(1.0, float(n - 1 - i) * 0.45 + 0.35)
+		var w := TRAIL_W * k * tip
 		# fil blanc net côté tranchant, lavis d'encre de l'autre ; une pointe de vermillon en fin de trace
 		var col := Color(1.0, 0.97, 0.92).lerp(Toon.VERMILION, (1.0 - k) * 0.35)
 		col.a = k * 0.9
+		var u := float(_trail_pts[i][2]) * 7.0
 		_trail_mesh.surface_set_color(col)
+		_trail_mesh.surface_set_uv(Vector2(u, 0.0))
+		_trail_mesh.surface_set_uv2(Vector2(1.0 - k, 0.0))
 		_trail_mesh.surface_add_vertex(p + side * w + Vector3(0, 0.12 * k, 0))
-		_trail_mesh.surface_set_color(Color(Toon.SUMI, 0.3 * k))
+		_trail_mesh.surface_set_color(Color(Toon.SUMI, 0.38 * k))
+		_trail_mesh.surface_set_uv(Vector2(u, 1.0))
+		_trail_mesh.surface_set_uv2(Vector2(1.0 - k, 0.0))
 		_trail_mesh.surface_add_vertex(p - side * w - Vector3(0, 0.06, 0))
 	_trail_mesh.surface_end()
 
@@ -281,6 +287,13 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false) -> void:
 	add_child(p)
 	p.emitting = true
 	_fx.append({"node": p, "t": 0.0, "life": 1.4, "kind": "none"})
+	# éclat d'encre face caméra qui jaillit derrière l'étoile d'or (dessiné avant les lueurs)
+	var burst := Node3D.new()
+	add_child(burst)
+	burst.position = pos + Vector3(0, 0.9, 0)
+	_mi(burst, _splat_mesh(), _mat("ink_burst", Color(Toon.SUMI, 0.8), -1, false, 2))
+	burst.scale = Vector3.ONE * 0.2
+	_fx.append({"node": burst, "t": 0.0, "life": 0.3, "kind": "burst", "s": 0.75 if big else 0.6})
 	if not big:
 		return
 	# grand idéogramme au pinceau
@@ -297,6 +310,56 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false) -> void:
 	l.position = pos + Vector3(0.6, 2.0, 0)
 	add_child(l)
 	_fx.append({"node": l, "t": 0.0, "life": 0.55, "kind": "kanji"})
+
+
+## Flaque d'encre au sol : elle s'ouvre (apparition d'un yōkai, il en sort) ou l'avale (mort, il s'y enfonce),
+## puis se résorbe. `late` : la flaque s'ouvre un peu plus tard (pendant la chute du corps).
+func spawn_ink(pos: Vector3, r: float, late := false) -> void:
+	var node := Node3D.new()
+	add_child(node)
+	node.position = Vector3(pos.x, 0.045, pos.z)
+	node.rotation = Vector3(-PI / 2.0, randf() * TAU, 0)
+	node.scale = Vector3(0.01, 0.01, 1.0)
+	_mi(node, _splat_mesh(), _mat("ink_pool", Color(Toon.SUMI, 0.7), 1))
+	_fx.append({"node": node, "t": 0.0, "life": 1.3 if late else 1.15, "kind": "pool", "r": r * 1.45, "d": 0.25 if late else 0.0})
+	if main and not Toon.lite and not late:
+		main.splash(Vector3(pos.x, 0.3, pos.z), Toon.SUMI, 5)
+
+
+## Tache d'encre étoilée (plan XY, rayon ~1) : bord déchiqueté, coulures en pointe, gouttes autour.
+func _splat_mesh() -> ArrayMesh:
+	if _meshes.has("splat"):
+		return _meshes["splat"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7741
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 22
+	var pts: Array[Vector3] = []
+	for i in n:
+		var a := TAU * float(i) / n
+		var r := rng.randf_range(0.72, 1.0)
+		if i % 3 == 0:
+			r = rng.randf_range(1.05, 1.35)
+		pts.append(Vector3(cos(a) * r, sin(a) * r, 0))
+	for i in n:
+		st.add_vertex(Vector3.ZERO)
+		st.add_vertex(pts[i])
+		st.add_vertex(pts[(i + 1) % n])
+	for k in 6:
+		var a := rng.randf() * TAU
+		var d := rng.randf_range(1.3, 1.75)
+		var s := rng.randf_range(0.06, 0.13)
+		var c := Vector3(cos(a) * d, sin(a) * d, 0)
+		for j in 6:
+			var a0 := TAU * float(j) / 6.0
+			var a1 := TAU * float(j + 1) / 6.0
+			st.add_vertex(c)
+			st.add_vertex(c + Vector3(cos(a0), sin(a0), 0) * s)
+			st.add_vertex(c + Vector3(cos(a1), sin(a1), 0) * s)
+	var mesh := st.commit()
+	_meshes["splat"] = mesh
+	return mesh
 
 
 # ------------------------------------------------------------------ outils partagés
@@ -1138,6 +1201,19 @@ func _process(delta: float) -> void:
 				node.visible = k < 0.9
 			"stab":
 				node.visible = k < 0.85
+			"burst":
+				# jaillit vite puis se disperse (rétrécit)
+				var bsz: float = fx.s
+				var b_grow := 1.0 - pow(1.0 - clampf(k / 0.35, 0.0, 1.0), 3.0)
+				var b_gone := clampf((1.0 - k) / 0.45, 0.0, 1.0)
+				node.scale = Vector3.ONE * maxf(bsz * (0.3 + 0.8 * b_grow) * b_gone, 0.01)
+			"pool":
+				var pr: float = fx.r
+				var kd := clampf((float(fx.t) - float(fx.d)) / maxf(float(fx.life) - float(fx.d), 0.01), 0.0, 1.0)
+				var p_open := 1.0 - pow(1.0 - clampf(kd / 0.3, 0.0, 1.0), 3.0)
+				var p_shut := clampf((1.0 - kd) / 0.45, 0.0, 1.0)
+				var pz := maxf(pr * p_open * p_shut, 0.01)
+				node.scale = Vector3(pz, pz, 1.0)
 			"iai":
 				var mi := node.get_child(0) as MeshInstance3D
 				mi.scale = Vector3(1.3 * sqrt(maxf(1.0 - k, 0.0)), 1, float(fx.l))

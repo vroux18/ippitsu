@@ -424,7 +424,11 @@ func _ready() -> void:
 	if _glow_a > 0.0:
 		_base_glow()
 	ch.idle = "Blocking" if kind == "tate" else ("Idle" if kind == "kagebo" or _rogue else "Idle_Combat")
-	_shadow = Toon.disc(self, radius * 0.95, Color(0, 0, 0, 0.12))
+	_shadow = Toon.blob(self, radius * 1.1, 0.3)  # ombre de contact douce
+	# (pas pour les modèles de préchauffage, accrochés en miniature à la caméra)
+	if kind != "funa" and kind != "umibozu" and kind != "tanuki_d" and get_parent() == main:
+		# il sort d'une flaque d'encre qui s'ouvre puis se résorbe
+		main.vfx.spawn_ink(position, radius)
 	if kind == "funa":
 		# pas d'apparition au sol : il sort de l'eau au bord du ponton
 		_spawn = 0.0
@@ -1466,6 +1470,9 @@ func _die() -> void:
 		body.visible = false
 	elif kind == "fugu":
 		main.vfx.water_burst(Vector3(position.x, 0, position.z), 0.7)
+	if body.visible:
+		# il s'enfonce dans une flaque d'encre (visuel seulement)
+		main.vfx.spawn_ink(position, radius * 0.9, true)
 	if elite and not _selfkill and not dummy and not has_meta("elite"):
 		# élite de vague : butin en plus (le défi d'un recoin a le sien, dans main)
 		main.pickups.drop(position, "coin", 4)
@@ -1514,7 +1521,8 @@ func _process(delta: float) -> void:
 		_shield_frac = 0.0
 	if _flash > 0.0:
 		_flash -= delta
-		ch.set_flash(1.0 if _flash > 0.0 else 0.0)
+		# éclat blanc qui retombe (plus net qu'un simple allumé / éteint)
+		ch.set_flash(0.35 + 0.65 * clampf(_flash / 0.12, 0.0, 1.0) if _flash > 0.0 else 0.0)
 		if _flash <= 0.0 and _glow_a > 0.0:
 			_base_glow()
 	if _bubble != null or _aura != null:

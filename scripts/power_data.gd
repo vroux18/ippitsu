@@ -285,7 +285,7 @@ const POWERS := {
 	# boucle
 	"fig_loop": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Tourbillon", "short": "Boucle : toupie {v}/coup", "icon": "fig_loop", "trig": "figure",
 		"name": "Uzu", "sub": "Tourbillon", "kanji": "渦", "when": "FIGURE : BOUCLE",
-		"text": "Débloque la toupie : trace une boucle, le héros tourne sur lui-même, aspire et lacère autour de lui.",
+		"text": "Nouvelle technique sur ta boucle : quand tu traces une boucle, le héros tourne sur lui-même, aspire et lacère autour de lui.",
 		"stat": "Toupie 0,8 s : {v} dégât par coup", "v": [0.45, 0.6, 0.75]},
 	"fig_loop_pull": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Tourbillon aspirant", "short": "Toupie : aspire à {v} m", "icon": "fig_loop_pull", "trig": "figure",
 		"name": "Uzumaki", "sub": "Tourbillon aspirant", "kanji": "渦", "max": 2, "when": "TECHNIQUE : TOUPIE",
@@ -294,7 +294,7 @@ const POWERS := {
 	# zigzag
 	"fig_zigzag": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Éclair en chaîne", "short": "Zigzag : foudre sur {v} ennemis", "icon": "fig_zigzag", "trig": "figure",
 		"name": "Inazuma", "sub": "Éclair en chaîne", "kanji": "雷", "when": "FIGURE : ZIGZAG",
-		"text": "Débloque l'éclair : trace un zigzag, ta course accélère et la foudre saute d'ennemi en ennemi.",
+		"text": "Nouvelle technique sur ton zigzag : quand tu traces un zigzag, ta course accélère et la foudre saute d'ennemi en ennemi.",
 		"stat": "Éclair : {v} ennemis, 1 dégât · course ×1,4", "v": [3, 4, 5]},
 	"fig_zigzag_long": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Chaîne longue", "short": "Éclair : +{v} cibles", "icon": "fig_zigzag_long", "trig": "figure",
 		"name": "Nagare", "sub": "Chaîne longue", "kanji": "雷", "max": 2, "when": "TECHNIQUE : ÉCLAIR",
@@ -303,7 +303,7 @@ const POWERS := {
 	# trait droit
 	"fig_straight": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Iaï", "short": "Trait droit : coupe {v}", "icon": "fig_straight", "trig": "figure",
 		"name": "Ittō", "sub": "Coupe iaï", "kanji": "一", "when": "FIGURE : TRAIT DROIT",
-		"text": "Débloque l'iaï : un long trait droit perce les gardes, puis une coupe tombe sur toute la ligne.",
+		"text": "Nouvelle technique sur ton trait droit : un long trait droit (tu le traces déjà) perce désormais les gardes, puis une coupe tombe sur toute la ligne.",
 		"stat": "Coupe : {v} dégâts · course ×1,4", "v": [1.5, 1.8, 2.1]},
 	"fig_straight_double": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Double coupe", "short": "Iaï : 2e coupe à {v} %", "icon": "fig_straight_double", "trig": "figure",
 		"name": "Nitō", "sub": "Double coupe", "kanji": "一", "max": 2, "when": "TECHNIQUE : IAÏ",
@@ -316,7 +316,7 @@ const POWERS := {
 	# aller-retour
 	"fig_return": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Garde", "short": "Aller-retour : garde {v} s", "icon": "fig_return", "trig": "figure",
 		"name": "Kaeshi", "sub": "Garde", "kanji": "返", "when": "FIGURE : ALLER-RETOUR",
-		"text": "Débloque la garde : après un aller-retour, tu te mets en garde et rien ne te touche.",
+		"text": "Nouvelle technique sur ton aller-retour : après un aller-retour, tu te mets en garde et rien ne te touche.",
 		"stat": "Garde : {v} s", "v": [0.5, 0.65, 0.8]},
 	"fig_return_reflect": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Renvoi", "short": "Renvoie les tirs à {v} m", "icon": "fig_return_reflect", "trig": "figure",
 		"name": "Hanekaeshi", "sub": "Renvoi des tirs", "kanji": "返", "max": 2, "when": "TECHNIQUE : GARDE",
@@ -329,7 +329,7 @@ const POWERS := {
 	# ensō
 	"fig_enso": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Frappe au sol", "short": "Ensō : bond et onde {v}", "icon": "fig_enso", "trig": "figure",
 		"name": "Ensō", "sub": "Frappe au sol", "kanji": "円", "when": "FIGURE : ENSŌ",
-		"text": "Débloque la frappe : trace un grand cercle presque fermé, le héros bondit au centre et frappe le sol.",
+		"text": "Nouvelle technique sur ton ensō : quand tu traces un grand cercle presque fermé, le héros bondit au centre et frappe le sol.",
 		"stat": "Onde de choc : {v} dégâts", "v": [1.5, 1.8, 2.1]},
 	"fig_enso_big": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Grand ensō", "short": "Ensō : onde +{v} %", "icon": "fig_enso_big", "trig": "figure",
 		"name": "Dai-ensō", "sub": "Grand cercle", "kanji": "円", "max": 2, "when": "TECHNIQUE : FRAPPE AU SOL",
@@ -342,7 +342,7 @@ const POWERS := {
 	# crochet
 	"fig_hook": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Estoc", "short": "Crochet : estoc {v}", "icon": "fig_hook", "trig": "figure",
 		"name": "Kagi", "sub": "Estoc", "kanji": "鉤", "when": "FIGURE : CROCHET",
-		"text": "Débloque l'estoc : trace un crochet, le héros fait demi-tour et transperce l'ennemi le plus proche.",
+		"text": "Nouvelle technique sur ton crochet : quand tu traces un crochet, le héros fait demi-tour et transperce l'ennemi le plus proche.",
 		"stat": "Estoc : {v} dégâts", "v": [2.0, 2.5, 3.0]},
 	"fig_hook_back": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Estoc assassin", "short": "Estoc ×{v} : blessé ou de dos", "icon": "fig_hook_back", "trig": "figure",
 		"name": "Ansatsu", "sub": "Estoc assassin", "kanji": "背", "max": 2, "when": "TECHNIQUE : ESTOC",

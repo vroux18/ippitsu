@@ -1026,3 +1026,198 @@ static func hanger_icon(ci: CanvasItem, c: Vector2, s: float, col: Color) -> voi
 	ci.draw_line(c + Vector2(-s * 0.3, -s * 0.22), c + Vector2(s * 0.12, s * 0.4), hole, w * 0.8, true)
 	ci.draw_line(c + Vector2(s * 0.3, -s * 0.22), c + Vector2(-s * 0.02, s * 0.18), hole, w * 0.8, true)
 	ci.draw_line(c + Vector2(-s * 0.5, s * 0.52), c + Vector2(s * 0.5, s * 0.52), hole, w * 0.9, true)
+
+
+# ------------------------------------------------------------------ pinceau et papier (accueil, pause, résultats)
+
+## Petit bruit déterministe dans -1..1 (bords irréguliers, sans aléatoire : même dessin à chaque image).
+static func _wob(x: float, sd: float) -> float:
+	return 0.5 * sin(x * 12.9898 + sd * 78.233) + 0.5 * sin(x * 4.1 + sd * 3.7)
+
+
+## Demi-épaisseur relative (0..1) d'un coup de pinceau horizontal en t : tête ronde, queue effilée.
+static func swash_half(t: float) -> float:
+	var x := clampf(t, 0.0, 1.0)
+	return maxf(0.05, pow(maxf(0.0, sin(PI * x)), 0.3) * (1.0 - 0.5 * x * x))
+
+
+## Point de l'axe du coup de pinceau tenant dans r (léger arc vers le haut).
+static func swash_mid(r: Rect2, t: float) -> Vector2:
+	return Vector2(r.position.x + r.size.x * t, r.get_center().y - r.size.y * 0.06 * sin(PI * clampf(t, 0.0, 1.0)))
+
+
+## Contour du coup de pinceau tenant dans r ; reveal (0..1) le trace de gauche à droite.
+static func swash_points(r: Rect2, reveal := 1.0, sd := 0.0) -> PackedVector2Array:
+	var top := PackedVector2Array()
+	var bot := PackedVector2Array()
+	var hh := r.size.y * 0.5
+	var k := clampf(reveal, 0.02, 1.0)
+	var n := clampi(int(r.size.x * k / 5.0), 4, 28)
+	for i in n + 1:
+		var t := k * float(i) / float(n)
+		var mid := swash_mid(r, t)
+		var th := hh * swash_half(t)
+		top.append(mid - Vector2(0, th * (1.0 + 0.05 * _wob(float(i), sd))))
+		bot.append(mid + Vector2(0, th * (1.0 + 0.05 * _wob(float(i) + 0.5, sd + 1.0))))
+	bot.reverse()
+	top.append_array(bot)
+	return top
+
+
+## Trait de pinceau de p0 (épais) à p1 (effilé), largeur w.
+static func brush_line(ci: CanvasItem, p0: Vector2, p1: Vector2, w: float, col: Color) -> void:
+	var d := p1 - p0
+	if d.length() < 1.0 or w <= 0.0:
+		return
+	var nrm := Vector2(-d.y, d.x).normalized()
+	var pts := PackedVector2Array()
+	var steps := 10
+	for i in steps + 1:
+		var t := float(i) / float(steps)
+		pts.append(p0 + d * t + nrm * w * 0.5 * (0.55 + 0.45 * sin(PI * minf(1.0, t * 1.4 + 0.15))) * (1.0 - 0.7 * t))
+	for i in range(steps, -1, -1):
+		var t := float(i) / float(steps)
+		pts.append(p0 + d * t - nrm * w * 0.5 * (0.55 + 0.45 * sin(PI * minf(1.0, t * 1.4 + 0.15))) * (1.0 - 0.7 * t))
+	ci.draw_colored_polygon(pts, col)
+
+
+## Ensō au pinceau : anneau ouvert, épais au départ et effilé au bout ; k (0..1) le trace depuis a0.
+static func enso(ci: CanvasItem, c: Vector2, r: float, w: float, col: Color, k := 1.0, a0 := -PI * 0.4) -> void:
+	var sweep := TAU * 0.92 * clampf(k, 0.0, 1.0)
+	if sweep < 0.05 or w <= 0.0 or r <= w:
+		return
+	var n := maxi(8, int(48.0 * sweep / TAU))
+	var outer := PackedVector2Array()
+	var inner := PackedVector2Array()
+	for i in n + 1:
+		var t := float(i) / float(n)
+		var dir := Vector2.from_angle(a0 + sweep * t)
+		var hw := w * 0.5 * (1.0 - 0.7 * t) * (1.0 + 0.08 * _wob(float(i), 4.0))
+		outer.append(c + dir * (r + hw))
+		inner.append(c + dir * (r - hw))
+	inner.reverse()
+	outer.append_array(inner)
+	ci.draw_colored_polygon(outer, col)
+
+
+## Contour d'un rectangle aux bords barbés (deckle), coins nets : amp = écart, step = pas.
+static func deckle_points(r: Rect2, amp: float, step: float, sd := 0.0) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var corners := [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	var idx := 0
+	for e in 4:
+		var p0: Vector2 = corners[e]
+		var p1: Vector2 = corners[(e + 1) % 4]
+		var d := p1 - p0
+		var n := maxi(2, int(d.length() / maxf(step, 1.0)))
+		var out := Vector2(d.y, -d.x).normalized()  # vers l'extérieur (tour dans le sens horaire)
+		for i in n:
+			var t := float(i) / float(n)
+			var j := 0.0
+			if i > 0:
+				j = amp * _wob(float(idx), sd)
+			pts.append(p0 + d * t + out * j)
+			idx += 1
+	return pts
+
+
+## Feuille de washi : ombre douce, papier aux bords barbés, quelques fibres et un filet intérieur.
+static func washi_sheet(ci: CanvasItem, r: Rect2, paper: Color, ink: Color, a: float, u: float, sd := 0.0) -> void:
+	var pts := deckle_points(r, 1.6 * u, 6.0 * u, sd)
+	ci.draw_colored_polygon(Transform2D(0.0, Vector2.ONE, 0.0, Vector2(0, 9.0 * u)) * pts, Color(0, 0, 0, 0.1 * a))
+	ci.draw_colored_polygon(Transform2D(0.0, Vector2.ONE, 0.0, Vector2(0, 3.0 * u)) * pts, Color(0, 0, 0, 0.14 * a))
+	ci.draw_colored_polygon(pts, Color(paper, a))
+	var loop := pts.duplicate()
+	loop.append(pts[0])
+	ci.draw_polyline(loop, Color(ink, 0.22 * a), maxf(1.0, 1.1 * u), true)
+	# fibres du papier
+	for i in 14:
+		var p := r.position + Vector2((0.5 + 0.46 * _wob(float(i), sd + 7.0)) * r.size.x, (0.5 + 0.46 * _wob(float(i) + 2.3, sd + 9.0)) * r.size.y)
+		var dv := Vector2.from_angle(_wob(float(i), sd + 11.0) * PI) * (6.0 + 5.0 * absf(_wob(float(i), sd + 13.0))) * u
+		ci.draw_line(p, p + dv, Color(ink, 0.045 * a), maxf(1.0, 0.8 * u), true)
+	ci.draw_rect(r.grow(-7.0 * u), Color(ink, 0.1 * a), false, maxf(1.0, 0.9 * u))
+
+
+## Sceau (hanko) : bords usés, filet intérieur, caractères en colonne (chars peut être vide).
+static func hanko(ci: CanvasItem, r: Rect2, chars: String, col: Color, paper: Color, a: float, u: float, sd := 0.0) -> void:
+	ci.draw_colored_polygon(deckle_points(r, 0.9 * u, 4.0 * u, sd), Color(col, a))
+	ci.draw_rect(r.grow(-3.0 * u), Color(paper, 0.7 * a), false, maxf(1.0, 1.2 * u))
+	var n := chars.length()
+	if n > 0:
+		var step := (r.size.y - 6.0 * u) / float(n)
+		var fs := int(minf(r.size.x * 0.64, step * 0.84))
+		for i in n:
+			var cy := r.position.y + 3.0 * u + step * (float(i) + 0.5)
+			text(ci, TITLE_FONT, chars.substr(i, 1), Vector2(r.get_center().x, cy + fs * 0.36), fs, Color(paper, a))
+	# usure : quelques points de papier
+	for i in 5:
+		var p := r.position + Vector2((0.5 + 0.4 * _wob(float(i), sd + 2.0)) * r.size.x, (0.5 + 0.4 * _wob(float(i) + 3.0, sd)) * r.size.y)
+		ci.draw_circle(p, (0.5 + 0.5 * absf(_wob(float(i), sd + 5.0))) * u, Color(paper, 0.45 * a))
+
+
+## Marges de sécurité (encoche en haut, barre de geste en bas) en pixels de l'écran `view` ; nulles sur ordinateur.
+static func safe_insets(view: Vector2) -> Vector2:
+	if not (OS.has_feature("android") or OS.has_feature("ios")):
+		return Vector2.ZERO
+	var win := DisplayServer.window_get_size()
+	var safe := DisplayServer.get_display_safe_area()
+	if win.y <= 0 or safe.size.y <= 0:
+		return Vector2.ZERO
+	var k := view.y / float(win.y)
+	var top := clampf(float(safe.position.y) * k, 0.0, view.y * 0.1)
+	var bot := clampf(float(win.y - safe.end.y) * k, 0.0, view.y * 0.1)
+	return Vector2(top, bot)
+
+
+# ------------------------------------------------------------------ libellés des rouleaux (choix de pouvoir)
+
+# nom en clair de chaque figure tracée
+const FIG_WORD := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOUR", "straight": "TRAIT DROIT",
+	"enso": "ENSO", "hook": "CROCHET"}
+# déclencheur (champ « trig ») en un ou deux mots, quand la phrase complète ne tient pas
+const TRIG_WORD := {"hit": "À CHAQUE COUP", "stroke": "À CHAQUE TRAIT", "arrive": "À L'ARRIVÉE", "kill": "EN TUANT",
+	"always": "PERMANENT", "dodge": "ESQUIVE", "hurt": "SI TOUCHÉ", "multi": "MULTI-TOUCHE", "target": "CIBLE",
+	"timer": "MINUTERIE", "once": "1 FOIS", "now": "IMMÉDIAT", "luck": "ROULEAUX", "school": "ÉCOLE",
+	"back": "DANS LE DOS", "touch": "DOIGT POSÉ", "figure": "TECHNIQUE"}
+
+
+## Figure qui déclenche un pouvoir ("loop", "zigzag"…) : la sienne pour un rouleau de figure,
+## sinon celle de l'unique technique requise ; "" s'il n'y en a pas.
+static func trigger_figure(id: String) -> String:
+	for f in Data.FIG_UNLOCK.keys():
+		if id == String(Data.FIG_UNLOCK[f]) or id.begins_with(String(Data.FIG_UNLOCK[f]) + "_"):
+			return String(f)
+	var d: Dictionary = Data.POWERS.get(id, {})
+	var needs: Array = d.get("needs", [])
+	if needs.size() == 1:
+		for f in Data.FIG_UNLOCK.keys():
+			if String(needs[0]) == String(Data.FIG_UNLOCK[f]):
+				return String(f)
+	return ""
+
+
+## Déclencheur en un ou deux mots (sans macrons).
+static func trigger_word(id: String) -> String:
+	var f := trigger_figure(id)
+	if f != "":
+		return String(FIG_WORD.get(f, "FIGURE"))
+	var d: Dictionary = Data.POWERS.get(id, {})
+	return plain(String(TRIG_WORD.get(String(d.get("trig", "always")), "PERMANENT")))
+
+
+## Pictogramme d'une ligne de valeur (« Explosion : 3 dégâts », « Garde : 1,2 s »…), d'après ses mots.
+static func stat_icon(txt: String) -> String:
+	var t := txt.to_lower()
+	if t.contains("cœur"):
+		return "heart_plus"
+	if t.contains("dégât") or t.contains("×"):
+		return "t_hit"
+	if t.contains("ennemi") or t.contains("cible"):
+		return "t_multi"
+	if t.ends_with(" s") or t.contains(" s ") or t.contains("ralenti") or t.contains("invincible"):
+		return "hourglass"
+	if t.ends_with(" m") or t.contains(" m ") or t.contains("portée") or t.contains("trait"):
+		return "long_stroke"
+	if t.contains("%"):
+		return "t_luck"
+	return "t_always"

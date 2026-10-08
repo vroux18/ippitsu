@@ -22,8 +22,8 @@ const Y_PIECE2 := 0.034
 const Y_ENCRE := 0.037
 # allure des trous selon le monde : fond (loin/près), liseré, paroi (arête, face, dessous), profondeurs, reflets
 const HOLE_STYLES := {
-	1: {"deep": Color("#07111C"), "near": Color("#18395A"), "rim": Color("#4F86A6"), "lip": Color("#E2BF84"),
-		"face": Color("#8A6236"), "face2": Color("#4E3520"), "dark": Color("#1E150E"), "abyss": Color("#0A1420"),
+	1: {"deep": Color("#07111C"), "near": Color("#18395A"), "rim": Color("#4F86A6"), "lip": Color("#B5A994"),
+		"face": Color("#6E6458"), "face2": Color("#3E3631"), "dark": Color("#1A1612"), "abyss": Color("#0A1420"),
 		"ink": Color("#1B1A1E"), "d_slab": 0.25, "d_total": 0.5, "glint": Color("#E9F2F5")},
 	2: {"deep": Color("#040608"), "near": Color("#0E1A1C"), "rim": Color("#2A6662"), "lip": Color("#BDB7A4"),
 		"face": Color("#7A7567"), "face2": Color("#4C4942"), "dark": Color("#17181A"), "abyss": Color("#050709"),
@@ -384,7 +384,7 @@ func _dangling_plank(flat: Mb, runs: Array, pal: Dictionary, spots: Array) -> vo
 		bot.append(Vector2(lerpf(a + 0.07, b - 0.07, f) + sk, zt + lp + float(jag[i]) + (f - 0.5) * 0.04))
 	# penchée à 55° : la ligne d'eau sur la planche (profondeur s/K) se voit à s/K·(cot 55° + K)
 	var zw := zt + s / K_PROJ * (0.7 + K_PROJ)
-	var mid := _leaner(flat, top, bot, zw, Color("#B48D58"), Color("#4A3420"), Color("#22384A"), pal["deep"], pal["ink"])
+	var mid := _leaner(flat, top, bot, zw, Color("#8E8274"), Color("#3E3631"), Color("#22384A"), pal["deep"], pal["ink"])
 	for f in [0.34, 0.68]:
 		_line(flat, PackedVector2Array([top[0].lerp(top[3], f), mid[0].lerp(mid[3], f)]), 0.012, 0.012, Color("#7A5631"), Y_PIECE2)
 	if zt + lp > zw + 0.06:

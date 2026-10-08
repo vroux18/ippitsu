@@ -790,6 +790,9 @@ static func _rock_tools(rng: RandomNumberGenerator, rad: Vector3, near: bool, ba
 		var col := base.lerp(base.lightened(0.22), clampf(n.y, 0.0, 1.0) * 0.7).darkened(rng.randf_range(0.0, 0.12))
 		if n.y > 0.62 and rng.randf() < 0.5:
 			col = col.lerp(MOSS, 0.6)
+		# pied du rocher dans l'ombre (occlusion peinte dans les couleurs de sommets)
+		var hk := clampf((out.y / maxf(rad.y, 0.01) + 0.35) / 1.17, 0.0, 1.0)
+		col = col.darkened(0.24 * (1.0 - hk))
 		st.set_color(col)
 		st.set_normal(n)
 		_tri_o(st, a, b, c, out)
