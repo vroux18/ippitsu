@@ -892,8 +892,9 @@ func _menu_transform() -> Transform3D:
 	bp.y = 0.0
 	var dx := sin(_drift_t * 0.11) * 0.55
 	var dy := sin(_drift_t * 0.07 + 1.3) * 0.12
-	var pos := bp + Vector3(0.95 + dx, 1.95 + dy, 4.1)
-	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.15 + dx * 0.25, 1.15, -7.0), Vector3.UP)
+	# en retrait et en hauteur : toute la barque tient entre le titre et JOUER, le décor respire
+	var pos := bp + Vector3(1.7 + dx, 3.1 + dy, 7.6)
+	return Transform3D(Basis(), pos).looking_at(bp + Vector3(-0.25 + dx * 0.25, 0.55, -6.0), Vector3.UP)
 
 
 ## Garde-robe : la caméra passe sur le flanc de la proue, le héros se tourne vers elle (haut de l'écran).

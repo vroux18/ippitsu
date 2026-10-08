@@ -103,16 +103,16 @@ func _draw() -> void:
 	var a := clampf(_t / 0.25, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
 	var card := Rect2(Vector2(w * 0.06, h * 0.5 - card_h * 0.5 * u), Vector2(w * 0.88, card_h * u))
-	UiKit.box(_sb, Color(Toon.PAPER, a), int(18 * u))
+	UiKit.box(_sb, Color(Toon.ui_paper, a), int(18 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
 	_sb.shadow_size = int(20 * u)
 	draw_style_box(_sb, card)
-	UiKit.text(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + 52 * u), int(28 * u), Color(Toon.SUMI, a))
+	UiKit.text(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + 52 * u), int(28 * u), Color(Toon.ui_ink, a))
 	draw_line(Vector2(card.get_center().x - 30 * u, card.position.y + 66 * u), Vector2(card.get_center().x + 30 * u, card.position.y + 66 * u), Color(Toon.VERMILION, a), 2 * u)
 	# retour : ensō et flèche en haut à gauche de la carte
 	var bc := card.position + Vector2(34, 40) * u
 	_back = Rect2(bc - Vector2(26, 26) * u, Vector2(52, 52) * u)
-	draw_arc(bc, 16 * u, -PI * 0.35, PI * 1.45, 28, Color(Toon.SUMI, a), 3.5 * u, true)
+	draw_arc(bc, 16 * u, -PI * 0.35, PI * 1.45, 28, Color(Toon.ui_ink, a), 3.5 * u, true)
 	var head := bc + Vector2(-7, 0) * u
 	draw_line(bc + Vector2(8, 0) * u, head, Color(Toon.VERMILION, a), 3 * u, true)
 	draw_line(head, head + Vector2(5, -5) * u, Color(Toon.VERMILION, a), 3 * u, true)
@@ -123,7 +123,7 @@ func _draw() -> void:
 	for row in ROWS:
 		var key := String(row.key)
 		var dim := key in ["pad_size", "pad_show"] and String(values.get("control", "pad")) == "screen"
-		draw_string(_ui, Vector2(card.position.x + 22 * u, y), String(row.label), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.SUMI, (0.3 if dim else 0.6) * a))
+		draw_string(_ui, Vector2(card.position.x + 22 * u, y), String(row.label), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.ui_ink, (0.3 if dim else 0.6) * a))
 		var opts: Array = row.opts
 		var x0 := card.position.x + 18 * u
 		var bw := (card.size.x - 36 * u - (opts.size() - 1) * 6 * u) / opts.size()
@@ -132,15 +132,15 @@ func _draw() -> void:
 			var r := Rect2(Vector2(x0 + i * (bw + 6 * u), y + 10 * u), Vector2(bw, 42 * u))
 			var on := String(values.get(key, "")) == String(o[0])
 			if on:
-				UiKit.box(_sb, Color(Toon.SUMI, a * (0.4 if dim else 1.0)), int(10 * u))
+				UiKit.box(_sb, Color(Toon.ui_ink, a * (0.4 if dim else 1.0)), int(10 * u))
 			else:
-				UiKit.box(_sb, Color(0, 0, 0, 0), int(10 * u), Color(Toon.SUMI, 0.35 * a), int(1.5 * u))
+				UiKit.box(_sb, Color(0, 0, 0, 0), int(10 * u), Color(Toon.ui_ink, 0.35 * a), int(1.5 * u))
 			draw_style_box(_sb, r)
 			if on and not dim:
 				draw_rect(Rect2(r.position + Vector2(8 * u, r.size.y * 0.3), Vector2(3 * u, r.size.y * 0.4)), Color(Toon.VERMILION, a))
 			var fs := int(12 * u)
 			UiKit.text(self, _ui, String(o[1]), Vector2(r.get_center().x, r.get_center().y + fs * 0.36), fs,
-				Color(Toon.WASHI if on else Toon.SUMI, a * (0.5 if dim else 1.0)))
+				Color(Toon.ui_wash if on else Toon.ui_ink, a * (0.5 if dim else 1.0)))
 			if not dim:
 				_hits.append([r, key, String(o[0])])
 		y += 92 * u

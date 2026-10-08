@@ -12,6 +12,20 @@ const WOOD := Color("#CDB78E")
 const PAPER := Color("#F5EEDD")  # cartes et feuilles de l'interface
 const VEIL := Color("#110E11")  # voile d'encre derrière les fenêtres
 
+# thème de l'interface (garde-robe) : papier des cartes, lavis des fonds, encre du texte
+static var ui_paper := PAPER
+static var ui_wash := WASHI
+static var ui_ink := SUMI
+static var ui_rev := 0  # change à chaque thème : les écrans qui ne se redessinent pas seuls le guettent
+
+
+## Thème choisi (meta.theme_colors()) : {paper, wash, ink}.
+static func set_ui_theme(d: Dictionary) -> void:
+	ui_paper = d.get("paper", PAPER)
+	ui_wash = d.get("wash", WASHI)
+	ui_ink = d.get("ink", SUMI)
+	ui_rev += 1
+
 
 static func mat(color: Color, outline := true, outline_size := 0.035) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
