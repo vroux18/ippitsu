@@ -91,3 +91,27 @@ static func disc(parent: Node3D, r: float, color: Color, y := 0.01) -> MeshInsta
 	var d := part(parent, cyl(r, r, 0.004, 24), flat(color), Vector3(0, y, 0))
 	d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return d
+
+
+# ------------------------------------------------------------------ chargement en arrière-plan
+
+static var _asked := {}  # chemin -> true : chargement en arrière-plan demandé, pas encore récupéré
+
+
+## Lance le chargement de `path` sur un fil d'arrière-plan (sans effet s'il est déjà en mémoire ou demandé).
+static func request(path: String) -> void:
+	if _asked.has(path) or ResourceLoader.has_cached(path):
+		return
+	if ResourceLoader.load_threaded_request(path) == OK:
+		_asked[path] = true
+
+
+## La ressource `path`, prête : attend la fin de son chargement en arrière-plan s'il a été demandé,
+## sinon la charge tout de suite.
+static func fetch(path: String) -> Resource:
+	if _asked.has(path):
+		_asked.erase(path)
+		var r := ResourceLoader.load_threaded_get(path)
+		if r != null:
+			return r
+	return load(path)

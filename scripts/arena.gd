@@ -9,6 +9,8 @@ const Worlds = preload("res://scripts/worlds.gd")
 
 const HALF := Vector2(4.6, 8.6)  # bornes de l'arène (comme main.gd)
 
+signal perf(label: String, usec: int)  # mesure d'une construction différée (robot du CI : « BOT PERF »)
+
 # Rect2 : position = (x min, z min), size = (largeur x, profondeur z)
 const LAYOUTS := {
 	"full": [Rect2(-4.6, -8.6, 9.2, 17.2)],
@@ -79,7 +81,9 @@ var _act: Array = []  # plateformes qui touchent `bounds` (tests rapides)
 var _barriers: Array = []  # {j, node, k, want, mode, …} : haies sacrées aux passages
 var _bar_meshes := {}  # maillages partagés des haies (bambou, traverse, tache, goutte, ofuda par monde)
 var _bar_noise: NoiseTexture2D = null  # texture de la brume des haies
-var _pending: Array = []  # tronçons dont le décor reste à construire (un par image)
+var _pending: Array = []  # tronçons dont le décor reste à construire (un morceau par image)
+var _pending_us := 0  # temps passé sur le décor différé de l'étape (mesure)
+var _pending_max := 0
 var _pit_states: Array = []
 var _stage_seed := 0
 var hub_training_center := Vector3(-2.0, 0, -1.1)
@@ -96,6 +100,12 @@ var gate_pos := Vector3(0, 0, -8.0)
 var gate_open := false
 
 var _world_root: Node3D
+var _world_holder: Node3D = null  # vide + lointain du monde affiché
+var _worlds_kept := {}  # monde quitté -> [racine cachée, matériau du vide, lointain]
+static var _void_noise: NoiseTexture2D = null  # relief du vide (partagé par tous les mondes)
+static var _mat_cache := {}  # matériaux des sols, bords et dessous, partagés d'une salle à l'autre (jamais modifiés)
+static var _unit_tile: BoxMesh = null
+static var _unit_lump: SphereMesh = null
 var _far_root: Node3D  # lointain et particules : suivent la caméra le long de l'étape
 var _room_root: Node3D
 var _gate: Node3D
@@ -130,38 +140,60 @@ func _ready() -> void:
 
 
 ## Change de monde : le vide sous l'arène, le lointain et les particules.
+## Le monde quitté reste en mémoire, caché (un seul) : y revenir ne reconstruit rien.
 func set_world(id: int) -> void:
 	if id == world_id:
 		return
+	var prev := world_id
+	var back: Array = _worlds_kept.get(id, [])
+	_worlds_kept.erase(id)
+	for k in _worlds_kept.keys():
+		var old: Array = _worlds_kept[k]
+		if is_instance_valid(old[0]):
+			old[0].queue_free()
+	_worlds_kept.clear()
+	if is_instance_valid(_world_holder):
+		_world_holder.visible = false
+		_world_holder.process_mode = Node.PROCESS_MODE_DISABLED
+		_worlds_kept[prev] = [_world_holder, _void_mat, _far_root]
 	world_id = id
-	for ch in _world_root.get_children():
-		ch.queue_free()
+	if not back.is_empty() and is_instance_valid(back[0]):
+		_world_holder = back[0]
+		_void_mat = back[1]
+		_far_root = back[2]
+		_world_holder.visible = true
+		_world_holder.process_mode = Node.PROCESS_MODE_INHERIT
+		return
+	_world_holder = Node3D.new()
+	_world_root.add_child(_world_holder)
 	var w: Dictionary = Worlds.world(id)
 	_void_mat = StandardMaterial3D.new()
 	_void_mat.albedo_color = w["void"]
 	if bool(w.get("void_metal", true)):
 		_void_mat.roughness = 0.25
 		_void_mat.metallic_specular = 0.7
-		var noise := FastNoiseLite.new()
-		noise.frequency = 0.035
-		var ntex := NoiseTexture2D.new()
-		ntex.noise = noise
-		ntex.seamless = true
-		ntex.as_normal_map = true
-		ntex.bump_strength = 6.0
-		ntex.width = 256
-		ntex.height = 256
+		# même bruit pour tous les mondes : fabriqué une seule fois
+		if _void_noise == null:
+			var noise := FastNoiseLite.new()
+			noise.frequency = 0.035
+			_void_noise = NoiseTexture2D.new()
+			_void_noise.noise = noise
+			_void_noise.seamless = true
+			_void_noise.as_normal_map = true
+			_void_noise.bump_strength = 6.0
+			_void_noise.width = 256
+			_void_noise.height = 256
 		_void_mat.normal_enabled = true
-		_void_mat.normal_texture = ntex
+		_void_mat.normal_texture = _void_noise
 		_void_mat.normal_scale = 0.6
 		_void_mat.uv1_scale = Vector3(60, 60, 1)
 	else:
 		_void_mat.roughness = 0.9
-	var v := Toon.part(_world_root, Toon.box(Vector3(600, 0.1, 600)), _void_mat, Vector3(0, -0.6, 0))
+	var v := Toon.part(_world_holder, Toon.box(Vector3(600, 0.1, 600)), _void_mat, Vector3(0, -0.6, 0))
 	v.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# le lointain est peint pour une caméra au-dessus de la salle : il la suit le long de l'étape
 	_far_root = Node3D.new()
-	_world_root.add_child(_far_root)
+	_world_holder.add_child(_far_root)
 	Worlds.build_backdrop(id, _far_root)
 	Worlds.build_particles(id, _far_root)
 
@@ -190,6 +222,8 @@ func _clear_room() -> void:
 	for ch in _room_root.get_children():
 		ch.queue_free()
 	_pending.clear()
+	_pending_us = 0
+	_pending_max = 0
 	_barriers.clear()
 	_pit_states.clear()
 	_pits = {}
@@ -298,31 +332,49 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 		_build_barrier(j)
 	refresh_barriers(true)
 	# décor et fosses : les deux premiers tronçons tout de suite, les suivants une image après l'autre
+	# (et en deux temps : décor, puis fosses, pour de plus petites images)
 	var high: Rect2 = ends[3]
 	for i in chunks:
 		var job := {"i": i, "rs": per_chunk[i], "high": high if i == chunks - 1 else Rect2()}
 		if i < 2:
 			_build_chunk_decor(job)
 		else:
-			_pending.append(job)
+			var props := job.duplicate()
+			props["part"] = "props"
+			_pending.append(props)
+			var pits := job.duplicate()
+			pits["part"] = "pits"
+			_pending.append(pits)
 
 
 ## Décor (props hors du cadre de l'étape) et fosses (vides du tronçon), en coordonnées du tronçon.
+## `job.part` : "props" ou "pits" pour n'en construire qu'une moitié (sinon les deux).
 func _build_chunk_decor(job: Dictionary) -> void:
 	var i: int = job["i"]
+	var part := String(job.get("part", ""))
 	var dz := -float(i) * CHUNK_L
 	var holder := Node3D.new()
 	holder.position = Vector3(0, 0, dz)
 	_room_root.add_child(holder)
+	var seed_i := _stage_seed + i * 7919
+	if part != "pits":
+		_chunk_props(job, holder, dz, seed_i)
+	if part != "props":
+		_chunk_pits(job, holder, dz, seed_i)
+
+
+func _chunk_props(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> void:
 	var frame := Rect2(stage_rect.position.x, stage_rect.position.y - dz + 0.01, stage_rect.size.x, stage_rect.size.y - 0.01)
 	var prs: Array = []
 	var high: Rect2 = job["high"]
 	if high.has_area():
 		prs.append(Rect2(high.position.x, high.position.y - dz, high.size.x, high.size.y))
 	prs.append(frame)
-	var seed_i := _stage_seed + i * 7919
 	# une seule lumière ponctuelle par tronçon (une étape en compte 3 ou 4 à l'écran au plus)
 	Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1)
+
+
+func _chunk_pits(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> void:
 	var local: Array = []
 	for r in job["rs"]:
 		var rr: Rect2 = r
@@ -1153,9 +1205,7 @@ func _build_dojo() -> void:
 
 
 func _flat_disc(c: Vector3, r: float, col: Color, y: float) -> void:
-	var m := Toon.mat(col, false)
-	m.rim_enabled = false
-	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	var m := _shared_mat(col, true)
 	var d := Toon.part(_room_root, Toon.cyl(r, r, 0.004, 40), m, Vector3(c.x, y, c.z))
 	d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
@@ -1249,7 +1299,7 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 	var woods: Array = []
 	for col in WOOD:
 		woods.append(_ground_mat(col))
-	var under := Toon.mat(w.under, false)
+	var under := _shared_mat(w.under, false)
 	var deck := _ground_mat(Color("#3E2C1C"))
 	var style := String(w.ground_style)
 	for pc in pieces:
@@ -1266,9 +1316,21 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 
 
 func _ground_mat(col: Color) -> StandardMaterial3D:
+	return _shared_mat(col, true)
+
+
+## Toon sans contour, partagé par couleur (`plain` : sans liseré ni reflet, comme les sols).
+## Les mêmes tuiles d'une salle à l'autre réutilisent leur matériau (et leurs MultiMesh fusionnent mieux).
+static func _shared_mat(col: Color, plain: bool) -> StandardMaterial3D:
+	var key := "%s%d" % [col.to_html(true), 1 if plain else 0]
+	if _mat_cache.has(key):
+		var cached: StandardMaterial3D = _mat_cache[key]
+		return cached
 	var m := Toon.mat(col, false)
-	m.rim_enabled = false
-	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	if plain:
+		m.rim_enabled = false
+		m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	_mat_cache[key] = m
 	return m
 
 
@@ -1348,7 +1410,7 @@ func _floor_piece(r: Rect2, style: String, mats: Array, rng: RandomNumberGenerat
 				gz += s
 			if style == "basalt":
 				# veines d'or dans la roche noire
-				var gold := Toon.mat(Toon.GOLD, false)
+				var gold := _shared_mat(Toon.GOLD, false)
 				for i in int(r.size.x * r.size.y / 6.0):
 					_tile(Vector3(rng.randf_range(0.4, 1.2), 0.012, 0.05), Vector3(rng.randf_range(r.position.x + 0.3, r.end.x - 0.3), 0.003, rng.randf_range(r.position.y + 0.3, r.end.y - 0.3)), gold, rng.randf() * PI)
 		"snow":
@@ -1375,7 +1437,7 @@ func _build_edges(dec: Dictionary, w: Dictionary, beam: Material) -> void:
 	var kinds: Array = dec["kinds"]
 	var nx := xs.size() - 1
 	var nz := zs.size() - 1
-	var ink := Toon.mat(w.edge, false)
+	var ink := _shared_mat(w.edge, false)
 	# bords le long de x, sur chaque ligne de la grille
 	for jl in nz + 1:
 		var i := 0
@@ -1585,12 +1647,16 @@ func _lump(size: Vector3, pos: Vector3, m: Material) -> void:
 
 
 func _flush_tiles() -> void:
-	var unit := BoxMesh.new()
-	var ball := SphereMesh.new()
-	ball.radius = 0.5
-	ball.height = 1.0
-	ball.radial_segments = 12
-	ball.rings = 6
+	# tuile et bosse unité partagées par toutes les salles (mises à l'échelle par instance)
+	if _unit_tile == null:
+		_unit_tile = BoxMesh.new()
+		_unit_lump = SphereMesh.new()
+		_unit_lump.radius = 0.5
+		_unit_lump.height = 1.0
+		_unit_lump.radial_segments = 12
+		_unit_lump.rings = 6
+	var unit: BoxMesh = _unit_tile
+	var ball: SphereMesh = _unit_lump
 	for pass_i in 2:
 		var batches: Dictionary = _batches
 		var shape: Mesh = unit
@@ -1826,10 +1892,20 @@ func _process(delta: float) -> void:
 		Worlds.animate_pits(_pits, _t)
 	for ps in _pit_states:
 		Worlds.animate_pits(ps, _t)
-	# décor des tronçons lointains : un par image, après l'arrivée
+	# décor des tronçons lointains : un morceau par image, après l'arrivée
 	if not _pending.is_empty():
 		var job: Dictionary = _pending.pop_front()
+		var t0 := Time.get_ticks_usec()
 		_build_chunk_decor(job)
+		var spent := Time.get_ticks_usec() - t0
+		_pending_us += spent
+		_pending_max = maxi(_pending_max, spent)
+		if _pending.is_empty():
+			# mesures : tout le décor différé de l'étape, et sa plus longue image
+			perf.emit("stage_decor_deferred", _pending_us)
+			perf.emit("stage_decor_frame_max", _pending_max)
+			_pending_us = 0
+			_pending_max = 0
 	# haies sacrées : elles se dressent ou brûlent et s'enfoncent
 	_animate_barriers(delta)
 	if is_instance_valid(_gate):

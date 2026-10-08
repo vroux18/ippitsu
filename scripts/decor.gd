@@ -221,7 +221,144 @@ static func _add(b: Dictionary, m: Material, mesh: Mesh, xf: Transform3D, surf :
 		b[k] = [st0, m]
 	var entry: Array = b[k]
 	var st: SurfaceTool = entry[0]
-	st.append_from(mesh, surf, xf)
+	merge_into(st, mesh, xf, surf)
+
+
+# ------------------------------------------------------------------ fusion rapide (copies CPU)
+
+## Copie en mémoire des sommets d'une surface. SurfaceTool.append_from relit sinon le maillage sur la
+## carte graphique à chaque pièce (GL Compatibility, WebGL : attente du GPU) ; ici une seule lecture par
+## maillage différent, puis la fusion se fait en C++ comme avant (même résultat, mêmes sommets).
+class CpuMesh extends Mesh:
+	var arrays: Array = []
+	var prim: int = Mesh.PRIMITIVE_TRIANGLES
+	var fmt: int = 0
+	var bounds := AABB()
+
+	func _get_surface_count():
+		return 1
+
+	func _surface_get_array_len(_index):
+		if arrays.size() > Mesh.ARRAY_VERTEX and arrays[Mesh.ARRAY_VERTEX] is PackedVector3Array:
+			var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			return v.size()
+		return 0
+
+	func _surface_get_array_index_len(_index):
+		if arrays.size() > Mesh.ARRAY_INDEX and arrays[Mesh.ARRAY_INDEX] is PackedInt32Array:
+			var v: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			return v.size()
+		return 0
+
+	func _surface_get_arrays(_index):
+		return arrays
+
+	func _surface_get_format(_index):
+		return fmt
+
+	func _surface_get_primitive_type(_index):
+		return prim
+
+	func _surface_get_material(_index):
+		return null
+
+	func _surface_set_material(_index, _material):
+		pass
+
+	func _get_blend_shape_count():
+		return 0
+
+	func _get_aabb():
+		return bounds
+
+
+static var _cpu: Dictionary = {}  # clé (paramètres ou identifiant) -> CpuMesh
+static var _unit_box: CpuMesh = null
+static var _cpu_ok := -1  # 1 : Mesh peut être étendu en script (sinon : ancien chemin, relecture GPU)
+const CPU_MAX := 2048  # au-delà, le cache repart de zéro (maillages uniques jetables)
+
+
+## Ajoute `mesh` (surface `surf`), placé par `xf`, au SurfaceTool `st` — sans relecture GPU.
+## Les boîtes deviennent une boîte unité mise à l'échelle (mêmes sommets, normales dans le même sens).
+static func merge_into(st: SurfaceTool, mesh: Mesh, xf: Transform3D, surf := 0) -> void:
+	if _cpu_ok < 0:
+		_cpu_ok = 1 if ClassDB.can_instantiate("Mesh") else 0
+	if _cpu_ok == 0 or mesh is CpuMesh:
+		st.append_from(mesh, surf, xf)
+		return
+	var bm := mesh as BoxMesh
+	if bm != null and surf == 0 and _unit_ok(bm):
+		if _unit_box == null:
+			_unit_box = _cpu_of(BoxMesh.new(), 0)
+		st.append_from(_unit_box, 0, xf * Transform3D(Basis.from_scale(bm.size), Vector3.ZERO))
+		return
+	var key := _cpu_key(mesh, surf)
+	if key == "":
+		st.append_from(mesh, surf, xf)
+		return
+	var c: CpuMesh = _cpu.get(key, null)
+	if c == null:
+		if _cpu.size() >= CPU_MAX:
+			_cpu.clear()
+		c = _cpu_of(mesh, surf)
+		_cpu[key] = c
+	st.append_from(c, 0, xf)
+
+
+## Boîte simple (sans subdivision ni UV2), de taille strictement positive.
+static func _unit_ok(bm: BoxMesh) -> bool:
+	if bm.subdivide_width != 0 or bm.subdivide_height != 0 or bm.subdivide_depth != 0 or bm.add_uv2 or bm.flip_faces:
+		return false
+	return bm.size.x > 0.00001 and bm.size.y > 0.00001 and bm.size.z > 0.00001
+
+
+## Copie CPU d'un SurfaceTool qu'on vient de remplir (maillage jetable : rien n'est envoyé au GPU).
+static func cpu_from(st: SurfaceTool) -> Mesh:
+	if _cpu_ok < 0:
+		_cpu_ok = 1 if ClassDB.can_instantiate("Mesh") else 0
+	if _cpu_ok == 0:
+		return st.commit()
+	var c := CpuMesh.new()
+	c.arrays = st.commit_to_arrays()
+	c.prim = Mesh.PRIMITIVE_TRIANGLES
+	return c
+
+
+static func _cpu_of(mesh: Mesh, surf: int) -> CpuMesh:
+	var c := CpuMesh.new()
+	c.arrays = mesh.surface_get_arrays(surf)
+	c.prim = mesh.surface_get_primitive_type(surf)
+	c.fmt = mesh.surface_get_format(surf)
+	c.bounds = mesh.get_aabb()
+	return c
+
+
+## Clé de cache : paramètres des primitives (deux cylindres égaux partagent leurs sommets), identifiant
+## pour les maillages faits main (jamais modifiés après coup) ; "" : pas de cache.
+static func _cpu_key(mesh: Mesh, surf: int) -> String:
+	if mesh is CpuMesh:
+		return ""
+	var pm := mesh as PrimitiveMesh
+	if pm != null:
+		if surf != 0 or pm.add_uv2 or pm.flip_faces:
+			return ""
+		var cm := mesh as CylinderMesh
+		if cm != null:
+			return "c%s|%s|%s|%d|%d|%d%d" % [cm.top_radius, cm.bottom_radius, cm.height, cm.radial_segments, cm.rings,
+				1 if cm.cap_top else 0, 1 if cm.cap_bottom else 0]
+		var sm := mesh as SphereMesh
+		if sm != null:
+			return "s%s|%s|%d|%d|%d" % [sm.radius, sm.height, sm.radial_segments, sm.rings, 1 if sm.is_hemisphere else 0]
+		var tm := mesh as TorusMesh
+		if tm != null:
+			return "t%s|%s|%d|%d" % [tm.inner_radius, tm.outer_radius, tm.rings, tm.ring_segments]
+		var bx := mesh as BoxMesh
+		if bx != null:
+			return "b%s|%d|%d|%d" % [bx.size, bx.subdivide_width, bx.subdivide_height, bx.subdivide_depth]
+		return ""
+	if mesh is ArrayMesh:
+		return "i%d|%d" % [mesh.get_instance_id(), surf]
+	return ""
 
 
 ## Transforme chaque lot en un MeshInstance3D.
@@ -587,9 +724,12 @@ static func rock_into(bs: Dictionary, xf: Transform3D, sd := 0, base := ROCK) ->
 	var rng := _rng(sd)
 	var x2 := xf * Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3.ZERO)
 	var rad := Vector3(rng.randf_range(0.5, 0.7), rng.randf_range(0.35, 0.5), rng.randf_range(0.45, 0.6))
-	var mesh := _rock_mesh(rng, rad, true, base)
-	_add(bs, _toon_vc("rock_vc"), mesh, x2, 0)
-	_add(bs, _ink(0.03), mesh, x2, 1)
+	# copies CPU des deux surfaces : le rocher n'est jamais envoyé seul au GPU, juste fusionné
+	var sts: Array = _rock_tools(rng, rad, true, base)
+	var st0: SurfaceTool = sts[0]
+	var st1: SurfaceTool = sts[1]
+	_add(bs, _toon_vc("rock_vc"), cpu_from(st0), x2, 0)
+	_add(bs, _ink(0.03), cpu_from(st1), x2, 0)
 
 
 ## Maillage du rocher en MeshInstance3D (ombre portée).
@@ -602,6 +742,19 @@ static func _rock_mi(rng: RandomNumberGenerator, rad: Vector3, near: bool, base:
 
 ## Maillage du rocher : surface 0 facettée à couleurs de sommets, surface 1 contour (si proche).
 static func _rock_mesh(rng: RandomNumberGenerator, rad: Vector3, near: bool, base: Color) -> ArrayMesh:
+	var sts: Array = _rock_tools(rng, rad, near, base)
+	var st: SurfaceTool = sts[0]
+	var mesh := st.commit()
+	mesh.surface_set_material(0, _toon_vc("rock_vc"))
+	if near:
+		var st2: SurfaceTool = sts[1]
+		st2.commit(mesh)
+		mesh.surface_set_material(1, _ink(0.03))
+	return mesh
+
+
+## Surfaces du rocher remplies (facettes, puis contour si `near`, sinon null), pas encore validées.
+static func _rock_tools(rng: RandomNumberGenerator, rad: Vector3, near: bool, base: Color) -> Array:
 	var rings := 5
 	var segs := 7
 	var pts: Array[Vector3] = [Vector3(0, rad.y * rng.randf_range(0.82, 0.95), 0)]
@@ -644,19 +797,16 @@ static func _rock_mesh(rng: RandomNumberGenerator, rad: Vector3, near: bool, bas
 		st.set_color(col)
 		st.set_normal(n)
 		_tri_o(st, a, b, c, out)
-	var mesh := st.commit()
-	mesh.surface_set_material(0, _toon_vc("rock_vc"))
+	var st2: SurfaceTool = null
 	if near:
-		var st2 := SurfaceTool.new()
+		st2 = SurfaceTool.new()
 		st2.begin(Mesh.PRIMITIVE_TRIANGLES)
 		for f in range(0, tris.size(), 3):
 			var a: Vector3 = pts[tris[f]]
 			var b: Vector3 = pts[tris[f + 1]]
 			var c: Vector3 = pts[tris[f + 2]]
 			_tri_s(st2, a, b, c, a.normalized(), b.normalized(), c.normalized())
-		st2.commit(mesh)
-		mesh.surface_set_material(1, _ink(0.03))
-	return mesh
+	return [st, st2]
 
 
 # ------------------------------------------------------------------ shimenawa
@@ -695,7 +845,7 @@ static func _shimenawa_build(rope_b: Dictionary, bits: Dictionary, d: Vector3, x
 			pts.append(c + (side * cos(th) + up2 * sin(th)) * thick * 0.5)
 			rad.append(thick * 0.62)
 		_tube(st, pts, rad, 6)
-	_add(rope_b, straw, st.commit(), xf)
+	_add(rope_b, straw, cpu_from(st), xf)
 
 	# nœuds aux extrémités
 	_add(bits, straw, ball(r0 * 0.7, r0 * 1.4, 7, 4), xf)

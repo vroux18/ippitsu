@@ -1,7 +1,8 @@
 extends Node
 ## Sons synthétisés (pas de fichiers audio) et vibrations courtes (Android / iOS / web Android).
 ## Plusieurs variantes par son et une légère variation de hauteur : les coups répétés ne « mitraillent » pas.
-## Les sons de base sont créés au démarrage, les autres un par image ensuite (pas d'à-coup).
+## Tous les sons sont fabriqués un par image après l'affichage de l'accueil (les sons de base d'abord) ;
+## un son demandé avant son tour est fabriqué sur-le-champ.
 
 const RATE := 22050
 const PLAYERS := 16
@@ -37,6 +38,7 @@ var _players: Array[AudioStreamPlayer] = []
 var _next := 0
 var _last := {}  # id -> dernier départ (ms)
 var _todo: Array = []
+var _wait := 2  # images laissées à l'affichage de l'accueil avant de fabriquer les sons
 var _native_vib := false
 var _web_vib := false
 var _buzz_ms := -1000
@@ -48,9 +50,8 @@ func _ready() -> void:
 		var p := AudioStreamPlayer.new()
 		add_child(p)
 		_players.append(p)
-	for id in CORE:
-		_streams[String(id)] = _build(String(id))
-	_todo = LATER.duplicate()
+	_todo = CORE.duplicate()
+	_todo.append_array(LATER)
 	if DisplayServer.get_name() != "headless":
 		_native_vib = OS.has_feature("android") or OS.has_feature("ios")
 		if OS.has_feature("web_android"):
@@ -58,6 +59,9 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	if _wait > 0:
+		_wait -= 1
+		return
 	if _todo.is_empty():
 		set_process(false)
 		return
@@ -69,7 +73,7 @@ func _process(_delta: float) -> void:
 ## Joue le son `id` (variante au hasard). Noms : voir CORE et LATER.
 func play(id: String, pitch := 1.0, volume_db := 0.0) -> void:
 	if not _streams.has(id):
-		if not id in LATER:
+		if not id in LATER and not id in CORE:
 			return
 		_streams[id] = _build(id)  # demandé avant son tour : créé tout de suite
 		_todo.erase(id)

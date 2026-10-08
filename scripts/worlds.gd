@@ -315,7 +315,7 @@ static func _add(b: Dictionary, m: Material, mesh: Mesh, xf: Transform3D) -> voi
 		b[k] = [st0, m]
 	var entry: Array = b[k]
 	var st: SurfaceTool = entry[0]
-	st.append_from(mesh, 0, xf)
+	Decor.merge_into(st, mesh, xf)  # copie CPU : pas de relecture GPU par pièce
 
 
 static func _flush(b: Dictionary, parent: Node3D, shadow := false) -> void:

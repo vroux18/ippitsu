@@ -113,7 +113,24 @@ jobs:
           # noms de fichiers uniques à chaque build : pas de mélange de versions dans le cache du téléphone
           # (passer en --export-debug pour voir les erreurs de script dans la console du navigateur)
           godot --headless --path . --export-release "Web" build/web/ippitsu-${{ github.run_number }}.html
-          cp build/web/ippitsu-${{ github.run_number }}.html build/web/index.html
+          # le moteur (wasm ~10 Mo compressé, js, worklets audio) ne change pas d'un build à l'autre :
+          # nom fixe par version de Godot, le navigateur le garde en cache (seuls la page et le .pck changent)
+          n=${{ github.run_number }}
+          eng=godot-${GODOT_VERSION}
+          html=build/web/ippitsu-$n.html
+          if grep -q "\"executable\":\"ippitsu-$n\"" $html && [ -f build/web/ippitsu-$n.wasm ] && [ -f build/web/ippitsu-$n.js ]; then
+            for ext in wasm js audio.worklet.js audio.position.worklet.js; do
+              if [ -f build/web/ippitsu-$n.$ext ]; then mv build/web/ippitsu-$n.$ext build/web/$eng.$ext; fi
+            done
+            sed -i -e "s/\"executable\":\"ippitsu-$n\"/\"executable\":\"$eng\",\"mainPack\":\"ippitsu-$n.pck\"/" \
+              -e "s/\"ippitsu-$n\.wasm\"/\"$eng.wasm\"/" \
+              -e "s/src=\"ippitsu-$n\.js\"/src=\"$eng.js\"/" $html
+            echo "moteur web : $eng.wasm / $eng.js (nom fixe, gardé en cache)"
+          else
+            echo "::warning::page web d'un format inattendu : noms de fichiers du build gardés"
+          fi
+          ls -la build/web
+          cp $html build/web/index.html
           test -s build/web/index.html
 
       - name: Publication (release)

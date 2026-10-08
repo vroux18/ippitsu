@@ -124,10 +124,23 @@ func finish() -> void:
 		return
 	_done = true
 	print("BOT alertes : %d, coups reçus : %d" % [alerts.size(), _hits_taken])
+	_perf_summary()
 	for a in alerts:
 		print("BOT ALERTE ", a)
 	print("BOT DONE")
 	main.get_tree().quit()
+
+
+## Bilan des temps de chargement (main.perf_mark) : nombre, moyenne et pire cas de chaque étape.
+func _perf_summary() -> void:
+	var perf: Dictionary = main.perf
+	var labels: Array = perf.keys()
+	labels.sort()
+	print("BOT PERF bilan : %d étapes mesurées (ms : nombre, moyenne, max)" % labels.size())
+	for l in labels:
+		var e: Array = perf[l]
+		var n := int(e[0])
+		print("BOT PERF bilan %s : n=%d moy=%.1f max=%.1f" % [String(l), n, float(e[1]) / maxf(1.0, float(n)), float(e[2])])
 
 
 func _new_run() -> void:

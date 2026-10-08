@@ -25,10 +25,14 @@ extends Node3D
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
-const MINION = preload("res://assets/kaykit/Skeleton_Minion.glb")
-const WARRIOR = preload("res://assets/kaykit/Skeleton_Warrior.glb")
-const MAGE = preload("res://assets/kaykit/Skeleton_Mage.glb")
-const ROGUE = preload("res://assets/kaykit/Rogue_Hooded.glb")
+const ROGUE = preload("res://assets/kaykit/Rogue_Hooded.glb")  # (aussi le héros : chargé au démarrage)
+# squelettes : pas préchargés (démarrage plus court), lus en arrière-plan pendant l'accueil (request_models)
+const MINION_PATH := "res://assets/kaykit/Skeleton_Minion.glb"
+const WARRIOR_PATH := "res://assets/kaykit/Skeleton_Warrior.glb"
+const MAGE_PATH := "res://assets/kaykit/Skeleton_Mage.glb"
+static var MINION: PackedScene = null
+static var WARRIOR: PackedScene = null
+static var MAGE: PackedScene = null
 
 const SPAWN_TIME := 1.0
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (même valeur que main.HALF)
@@ -238,7 +242,25 @@ func setup(k: String, h: Node3D, m: Node) -> void:
 	main = m
 
 
+## Démarrage (main, après la première image) : les squelettes se chargent sur un fil d'arrière-plan.
+static func request_models() -> void:
+	Toon.request(MINION_PATH)
+	Toon.request(WARRIOR_PATH)
+	Toon.request(MAGE_PATH)
+
+
+## Squelettes prêts avant le premier ennemi (attend la fin du chargement en arrière-plan si besoin).
+static func _need_models() -> void:
+	if MINION == null:
+		MINION = Toon.fetch(MINION_PATH) as PackedScene
+	if WARRIOR == null:
+		WARRIOR = Toon.fetch(WARRIOR_PATH) as PackedScene
+	if MAGE == null:
+		MAGE = Toon.fetch(MAGE_PATH) as PackedScene
+
+
 func _ready() -> void:
+	_need_models()
 	_t = randf() * 10.0
 	body = Node3D.new()
 	add_child(body)

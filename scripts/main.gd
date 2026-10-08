@@ -13,11 +13,14 @@ const Hud = preload("res://scripts/hud.gd")
 const Menu = preload("res://scripts/menu.gd")
 const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
-const Boss = preload("res://scripts/boss.gd")
-const BOSS_SCRIPTS := {"kyubi": preload("res://scripts/boss_kyubi.gd"), "gashadokuro": preload("res://scripts/boss_gasha.gd"),
-	"daidara": preload("res://scripts/boss_daidara.gd"), "kuronami": preload("res://scripts/boss_kuronami.gd"),
-	"tsuchigumo": preload("res://scripts/boss_mini_tsuchigumo.gd"), "yukionna": preload("res://scripts/boss_mini_yukionna.gd"),
-	"ibaraki": preload("res://scripts/boss_mini_ibaraki.gd"), "bakekujira": preload("res://scripts/boss_mini_kujira.gd")}
+# scripts des boss : pas préchargés (démarrage plus court), compilés un par image après l'accueil (_boot_async)
+const BOSS_BASE := "res://scripts/boss.gd"  # okappa, uwabami
+const BOSS_PATHS := {"kyubi": "res://scripts/boss_kyubi.gd", "gashadokuro": "res://scripts/boss_gasha.gd",
+	"daidara": "res://scripts/boss_daidara.gd", "kuronami": "res://scripts/boss_kuronami.gd",
+	"bakekujira": "res://scripts/boss_mini_kujira.gd",
+	# (ceux-ci préchargent un squelette : après les autres, le temps qu'il arrive en arrière-plan)
+	"tsuchigumo": "res://scripts/boss_mini_tsuchigumo.gd", "yukionna": "res://scripts/boss_mini_yukionna.gd",
+	"ibaraki": "res://scripts/boss_mini_ibaraki.gd"}
 const WORLD_BOSS := {1: "uwabami", 2: "kyubi", 3: "gashadokuro", 4: "daidara", 5: "kuronami"}
 # gardien de la salle MINI_ROOM : chacun enseigne le geste utile contre le boss de son monde
 # point faible de chaque boss, montré en astuce quand la lame ricoche
@@ -52,7 +55,7 @@ const Worlds = preload("res://scripts/worlds.gd")
 const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
-const Bot = preload("res://scripts/bot.gd")
+const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
@@ -259,15 +262,28 @@ var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
 var _flawless_boss := false  # boss du monde vaincu sans dégât
 var _pass_bonus := ""
+var _boss_scripts := {}  # chemin -> GDScript chargé (gardé : pas recompilé à chaque boss)
+var _frame_cache := {}  # cadrages calculés par taille d'écran (_frame), gardés aussi sur le disque
+var _frame_disk_key := ""  # version du jeu et réglages du cadrage : un cadrage enregistré n'est repris que s'ils sont les mêmes
+const FRAMES_PATH := "user://frames.cfg"
+const FRAMES_MAX := 12
+# mesures de chargement : lignes « BOT PERF <étape> <ms> » avec le robot, bilan à sa fin (bot.finish)
+var perf := {}  # étape -> [nombre, total ms, max ms]
+var _perf_on := false
 
 
 func _ready() -> void:
+	var t_ready := Time.get_ticks_usec()
+	_perf_on = "--bot" in OS.get_cmdline_user_args()
+	# du lancement du moteur jusqu'ici : scripts compilés et ressources préchargées
+	perf_mark("boot_load", t_ready)
 	randomize()
 	# `-- --seed=N` (robot du CI) : tirages fixés par la graine (salles, ennemis, rouleaux)
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("--seed="):
 			seed(int(String(a).substr(7)))
 	_build_world()
+	_load_frames()
 	sfx = Sfx.new()
 	add_child(sfx)
 	var layer := CanvasLayer.new()
@@ -397,30 +413,98 @@ func _ready() -> void:
 		_on_pause()
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
-		_bot = Bot.new()
+		var bot_script: GDScript = load(BOT_PATH)
+		_bot = bot_script.new()
 		add_child(_bot)
 		_bot.begin(self)
-	_warmup()
 	_ticks = Time.get_ticks_usec()
+	perf_mark("boot_ready", _ticks - t_ready)
+	# la suite (squelettes, boss, préchauffage) vient après l'affichage de l'accueil
+	_boot_async(t_ready)
+
+
+## Mesure de chargement : gardée pour le bilan du robot, et affichée (« BOT PERF <étape> <ms> ») avec lui.
+func perf_mark(label: String, usec: int) -> void:
+	var ms := float(usec) / 1000.0
+	var e: Array = perf.get(label, [0, 0.0, 0.0])
+	e[0] = int(e[0]) + 1
+	e[1] = float(e[1]) + ms
+	e[2] = maxf(float(e[2]), ms)
+	perf[label] = e
+	if _perf_on:
+		print("BOT PERF %s %.1f" % [label, ms])
+
+
+func _on_arena_perf(label: String, usec: int) -> void:
+	perf_mark(label, usec)
+
+
+## Démarrage progressif : l'accueil s'affiche d'abord. Ensuite, une chose par image : les squelettes
+## partent se charger en arrière-plan, les scripts des boss se compilent, puis le préchauffage.
+func _boot_async(t_ready: int) -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame  # (la première image vient d'être dessinée)
+	var now := Time.get_ticks_usec()
+	perf_mark("boot_first_frame", now)  # depuis le lancement du moteur
+	perf_mark("boot_ready_to_frame", now - t_ready)
+	Enemy.request_models()
+	var t_boss := 0
+	for k in BOSS_PATHS.keys():
+		var t0 := Time.get_ticks_usec()
+		_boss_script(String(k))
+		t_boss += Time.get_ticks_usec() - t0
+		await get_tree().process_frame
+	var t1 := Time.get_ticks_usec()
+	_boss_script("uwabami")
+	t_boss += Time.get_ticks_usec() - t1
+	perf_mark("boss_scripts", t_boss)
+	await get_tree().process_frame
+	await _warmup()
+
+
+## Script du boss `k` (compilé une seule fois, gardé).
+func _boss_script(k: String) -> GDScript:
+	var path: String = BOSS_PATHS.get(k, BOSS_BASE)
+	if not _boss_scripts.has(path):
+		_boss_scripts[path] = load(path)
+	var scr: GDScript = _boss_scripts[path]
+	return scr
+
+
+const WARM_KINDS := ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo",
+	"kappa_yumi", "ika", "umi_nyobo", "kamaitachi", "tanuki", "kitsune_tsukai", "yuki_warashi", "tsurara", "onryo",
+	"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo"]
+const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins un ennemi
 
 
 ## Préchauffage : on affiche une fois, cachés sous le sol, un exemplaire de chaque ennemi et de chaque
 ## effet. Godot prépare ainsi leurs shaders pendant l'accueil au lieu de figer l'image en pleine partie.
+## Étalé sur plusieurs images (quelques ennemis par image) : l'accueil reste fluide.
 func _warmup() -> void:
+	var t_all := Time.get_ticks_usec()
+	var t_cpu := 0
+	var t_max := 0
+	var t0 := Time.get_ticks_usec()
 	var w := Node3D.new()
 	add_child(w)
 	# dans le champ de la caméra d'accueil mais sous le sol : rendus (donc compilés) sans être vus
 	w.position = hero.position + Vector3(0, -0.7, -3.0)
 	var x := -3.0
-	for k in ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo",
-			"kappa_yumi", "ika", "umi_nyobo", "kamaitachi", "tanuki", "kitsune_tsukai", "yuki_warashi", "tsurara", "onryo",
-			"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo"]:
+	for k in WARM_KINDS:
 		var e := Enemy.new()
 		e.setup(String(k), hero, self)
 		e.position = Vector3(x, 0, 0)
 		w.add_child(e)
 		e.process_mode = Node.PROCESS_MODE_DISABLED
 		x += 0.35
+		var spent := Time.get_ticks_usec() - t0
+		if spent >= WARM_BUDGET_US:
+			t_cpu += spent
+			t_max = maxi(t_max, spent)
+			await get_tree().process_frame
+			if not is_instance_valid(w):
+				return
+			t0 = Time.get_ticks_usec()
 	# une élite blindée : bulle de bouclier et aura d'or compilées d'avance
 	var el := Enemy.new()
 	el.setup("oni", hero, self)
@@ -451,6 +535,12 @@ func _warmup() -> void:
 	vfx.impact(w.position, Vector3.FORWARD, true)
 	vfx.kill_burst(w.position, Vector3.FORWARD, true)
 	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
+	var spent_end := Time.get_ticks_usec() - t0
+	t_cpu += spent_end
+	t_max = maxi(t_max, spent_end)
+	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
+	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
+	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
 
 
 # ------------------------------------------------------------------ états
@@ -899,11 +989,14 @@ func _build_world() -> void:
 	# la salle (sol, décor, torii de sortie) et le monde (vide, lointain, particules)
 	arena = Arena.new()
 	world.add_child(arena)
+	arena.perf.connect(_on_arena_perf)
 	_build_menu_boat()
 
 
 ## Applique l'ambiance d'un monde : ciel, brume, lumière, puis le décor lointain.
 func apply_world(id: int) -> void:
+	var t0 := Time.get_ticks_usec()
+	var fresh: bool = id != arena.world_id
 	current_world = id
 	var w: Dictionary = Worlds.world(id)
 	_env.background_color = w.sky
@@ -915,6 +1008,8 @@ func apply_world(id: int) -> void:
 	_sun.light_color = w.sun_color
 	_sun.light_energy = float(w.sun_energy) * 0.86
 	arena.set_world(id)
+	if fresh:
+		perf_mark("world_build", Time.get_ticks_usec() - t0)  # lointain du monde (ou monde gardé en mémoire)
 
 
 ## Deux cadrages : avec le pad (arène en haut, pad dessous) et sans (arène qui occupe l'écran).
@@ -932,6 +1027,11 @@ func _fit_camera() -> void:
 
 ## Caméra la plus proche qui montre toute l'arène entre le haut de l'écran et `bottom_k` (fraction de hauteur).
 func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
+	# même écran, même cadrage : la recherche (des milliers de projections) n'est faite qu'une fois
+	var key := "%.2fx%.2f_%.3f" % [vs.x, vs.y, bottom_k]
+	if _frame_cache.has(key):
+		var cached: Transform3D = _frame_cache[key]
+		return cached
 	var tilt := deg_to_rad(54.0)
 	# marges serrées : caméra un peu plus proche (le haut du torii peut toucher le bandeau)
 	var corners := [Vector3(-HALF.x - 0.15, 0, -HALF.y - 0.2), Vector3(HALF.x + 0.15, 0, -HALF.y - 0.2),
@@ -970,7 +1070,33 @@ func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
 		dist += 0.25
 	if not found:
 		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)
+	if _frame_cache.size() >= FRAMES_MAX:
+		_frame_cache.clear()
+	_frame_cache[key] = best
+	_save_frames()
 	return best
+
+
+## Cadrages des lancements précédents (même version du jeu, même écran) : la recherche est évitée.
+func _load_frames() -> void:
+	_frame_disk_key = "%s|%s|%.2f|1" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam.fov]
+	var cfg := ConfigFile.new()
+	if cfg.load(FRAMES_PATH) != OK:
+		return
+	if str(cfg.get_value("meta", "key", "")) != _frame_disk_key or not cfg.has_section("frames"):
+		return
+	for k in cfg.get_section_keys("frames"):
+		var v: Variant = cfg.get_value("frames", k)
+		if v is Transform3D:
+			_frame_cache[String(k)] = v
+
+
+func _save_frames() -> void:
+	var cfg := ConfigFile.new()
+	cfg.set_value("meta", "key", _frame_disk_key)
+	for k in _frame_cache.keys():
+		cfg.set_value("frames", String(k), _frame_cache[k])
+	cfg.save(FRAMES_PATH)
 
 
 # ------------------------------------------------------------------ partie
@@ -978,6 +1104,7 @@ func _frame(vs: Vector2, bottom_k: float) -> Transform3D:
 ## Nouvelle partie. `hub` : on démarre dans le sanctuaire (zone d'entraînement, torii vers l'étape 1) ;
 ## sinon directement dans l'étape 1 (tests), ou dans une salle simple pour le tutoriel (`tutorial`).
 func _start(hub := true, tutorial := false) -> void:
+	var t0 := Time.get_ticks_usec()
 	for e in enemies:
 		if is_instance_valid(e):
 			e.queue_free()
@@ -1002,6 +1129,7 @@ func _start(hub := true, tutorial := false) -> void:
 	_enc = -1
 	_slowmo_t = -1.0
 	_alive_prev = 0
+	var t_arena := Time.get_ticks_usec()
 	if hub:
 		arena.build_hub(randi())
 		arena.open_gate()
@@ -1009,6 +1137,7 @@ func _start(hub := true, tutorial := false) -> void:
 		arena.build_room(1, ROOMS, randi(), MINI_ROOM)
 	else:
 		arena.build_stage(STAGE_PLAN[0].size(), randi(), true)
+	perf_mark("hub_build" if hub else ("room_build" if tutorial else "stage_build"), Time.get_ticks_usec() - t_arena)
 	hero = Hero.new()
 	add_child(hero)
 	hero.position = arena.start
@@ -1072,6 +1201,7 @@ func _start(hub := true, tutorial := false) -> void:
 	shake = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
+	perf_mark("start", Time.get_ticks_usec() - t0)  # nouvelle partie entière (salle, héros, remise à zéro)
 
 
 ## Mannequin d'entraînement dans le cercle du dojo du sanctuaire.
@@ -1175,7 +1305,8 @@ func _weighted_kind(weights: Dictionary) -> String:
 	return "oni"
 
 func _spawn_boss(k: String) -> Node3D:
-	var b: Node3D = BOSS_SCRIPTS[k].new() if BOSS_SCRIPTS.has(k) else Boss.new()
+	var t0 := Time.get_ticks_usec()
+	var b: Node3D = _boss_script(k).new()
 	b.setup(k, self)
 	if is_mini_boss(k):
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
@@ -1189,6 +1320,7 @@ func _spawn_boss(k: String) -> Node3D:
 	music.play_boss(current_world, is_mini_boss(k))
 	sfx.play("strike", 0.5)
 	shake = 0.4
+	perf_mark("boss_spawn", Time.get_ticks_usec() - t0)
 	return b
 
 
@@ -1723,6 +1855,7 @@ func _rebuild_room() -> void:
 ## Construit la suite pour le combat `room + 1` : l'étape qui le contient (on arrive au sud, les zones
 ## de combat se déclenchent en marchant) ou l'arène d'un gardien (le combat commence tout de suite).
 func _build_segment() -> void:
+	var t0 := Time.get_ticks_usec()
 	var next := room + 1
 	stage_i = clampi(stage_of(next) - 1, 0, STAGE_PLAN.size() - 1)
 	var plan: Array = STAGE_PLAN[stage_i]
@@ -1745,6 +1878,8 @@ func _build_segment() -> void:
 	hero.snap_facing()
 	_cam_dz = _cam_target()
 	arena.follow_camera(_cam_dz)
+	# (arène de boss : la mesure s'arrête avant le combat, l'apparition du boss a la sienne)
+	perf_mark("arena_build" if boss_seg else "stage_build", Time.get_ticks_usec() - t0)
 	if boss_seg:
 		_begin_room()
 	elif room > 0:
