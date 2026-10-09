@@ -7,11 +7,25 @@ extends "res://scripts/boss_mini_base.gd"
 ##  Attaques : ruée vorace en ligne (bande annoncée 1.0 s, 9 m/s) ; hurlement de faim (disque r2.4,
 ##  1.2 s) ; os crachés en éventail (lueur 0.8 s).
 
-const MINION = preload("res://assets/kaykit/Skeleton_Minion.glb")
+##  Apparence (direction « Masque d'encre ») : le gaki commun (yokai_ink_w8.gd) en GÉANT, modelé en primitives
+##  fusionnées (Yokai.Mesher, couleurs de sommets) : corps d'encre fluet au VENTRE ÉNORME de cendre, côtes d'os,
+##  masque gris décharné cerné d'or (orbites creuses à lueur verte, bouche béante aux dents d'os), COURONNE D'OR
+##  à pointes, collier d'or où s'accrochent les chaînes, bras maigres aux bracelets d'or, grand os rongé en main
+##  droite, gouttes d'encre qui s'étirent sous lui. Pieux et chaînes de fer (mécanique) inchangés.
+
+const Yokai = preload("res://scripts/yokai_parts.gd")
 const Loop = preload("res://scripts/boss_loop.gd")
 const BONE := Color("#D8D2C4")
 const IRON := Color("#3A3C42")
 const HUNGER := Color("#9AE070")
+const INK_GAKI := Color("#2A2428")
+const CLOTH := Color("#5A3A7A")  # violet des haies (étoffe du monde 8)
+const WAVE := Color("#B9A8E8")  # lilas des âmes
+const BELLY := Color("#8A8290")  # cendre du ventre
+const MASK_GAKI := Color("#CFC9C4")
+const U := 1.9  # échelle du modelé (H_REF 1,75 m -> ~3,3 m, deux fois le gaki commun)
+const REST_R := Vector3(1.1, 0, 0.3)  # bras au repos (comme ink_rig.REST_ARMS["gaki"])
+const REST_L := Vector3(1.0, 0, -0.35)
 const SHIELD := 10.0
 const CHAIN_CHIP := 1.2  # éclat de bouclier par chaîne rompue
 const RESOLDER := 8.0  # délai pour rompre les trois chaînes
@@ -24,15 +38,20 @@ const SPIT_TELE := 0.8
 const STAKES := [Vector3(-3.4, 0, -6.6), Vector3(3.4, 0, -6.6), Vector3(0.0, 0, 1.4)]
 const HOME := Vector3(0, 0, -3.6)
 
+static var _ink_mat: StandardMaterial3D = null
+
 var _belly: MeshInstance3D
-var _collar: Node3D
+var _head: Node3D
+var _maw: MeshInstance3D  # lueur verte de la faim au fond de la gueule (remplace la lueur du personnage)
+var _arms: Array = []  # [droit, gauche] (pivots d'épaule)
+var _drips: Array = []
+var _glow := 0.0
+var _lean := 0.0  # penché en avant (ruée), en arrière (charge, hurlement)
 var _chains: Array = []  # {stake (Vector3), node (Node3D, maillons), mesh, cut}
 var _cut_t := 0.0  # temps restant avant que les chaînes rompues se ressoudent
 var _cycle := 0
 var _lunge_end := Vector3.ZERO
 var _lunge_dir := Vector3(0, 0, 1)
-var _anim_lock := 0.0
-var _death_played := false
 
 
 func _ready() -> void:
@@ -48,31 +67,128 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ construction
 
+## Toon à contour épais (géant) aux couleurs de sommets : un seul matériau pour l'encre, la cendre, l'os et l'or.
+static func ink_mat() -> StandardMaterial3D:
+	if _ink_mat == null:
+		_ink_mat = Toon.mat(Color.WHITE, true, 0.04)
+		_ink_mat.vertex_color_use_as_albedo = true
+		_ink_mat.vertex_color_is_srgb = true
+	return _ink_mat
+
+
+## Pièce fusionnée posée sur `parent` : surface toon, et aplat lumineux si `f` n'est pas vide.
+static func piece(parent: Node3D, a: Yokai.Mesher, f: Yokai.Mesher = null) -> MeshInstance3D:
+	var m: ArrayMesh = a.mesh() if f == null else Yokai.two(a, f)
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.set_surface_override_material(0, Yokai.ink_flat_mat() if a.arrays().is_empty() else ink_mat())
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	parent.add_child(mi)
+	return mi
+
+
 func _build() -> void:
+	var lite := Toon.lite
 	Toon.disc(self, 1.1, Color(0, 0, 0, 0.18))
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
-	body.add_child(ch)
-	var ink: Texture2D = load("res://assets/kaykit/tex/skeleton_ink.png")
-	ch.setup(MINION, 2.8, [["", ink]], [], HUNGER)
-	ch.idle = "Idle_Combat"
-	ch.play("Idle_Combat")
-	# ventre gonflé de l'affamé, cornes, collier de fer
-	_belly = Toon.part(body, Toon.sphere(0.62), Toon.mat_shared(Color("#A89E8A")), Vector3(0, 1.05, -0.25), Vector3(1.0, 0.95, 0.85))
-	for sx: float in [-1.0, 1.0]:
-		var horn := Toon.part(body, Toon.cyl(0.0, 0.09, 0.45, 6), Toon.mat_shared(BONE), Vector3(sx * 0.22, 2.75, -0.05))
-		horn.rotation.z = -sx * 0.5
-	_collar = Node3D.new()
-	body.add_child(_collar)
-	_collar.position = Vector3(0, 2.0, 0)
-	var tm := TorusMesh.new()
-	tm.inner_radius = 0.42
-	tm.outer_radius = 0.56
-	tm.rings = 24
-	tm.ring_segments = 6
-	Toon.part(_collar, tm, Toon.mat_shared(IRON), Vector3.ZERO, Vector3(1, 0.7, 1))
-	# pieux de fer et leurs chaînes
+	body.rotation.y = PI  # il surgit déjà tourné vers le héros (le modèle regarde vers -Z)
+	# corps : encre fluette (w 0,9), obi violet à seigaiha lilas liseré d'or, côtes d'os saillantes
+	var w := 0.9
+	var b := Yokai.Mesher.new(U)
+	Yokai.ink_body(b, w, INK_GAKI, CLOTH, WAVE, Toon.GOLD, lite, true)
+	var n := 2 if lite else 4
+	for i in n:
+		var y := 1.02 - 0.065 * float(i)
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			b.box(Vector3(x * 0.15, y, -0.34 + 0.02 * float(i)), Vector3(0.22, 0.024, 0.02), BONE, Vector3(0, -x * 0.5, x * 0.3))
+	# collier d'or (kubiwa) où les chaînes s'accrochent (y = 2,0 m : ancre des chaînes), bord sumi
+	b.cyl(Vector3(0, 2.0 / U, 0), Vector3(0.5, 0.05, 0.47), Toon.GOLD, Vector3.ZERO, 1.0, 14)
+	b.cyl(Vector3(0, 2.0 / U, 0), Vector3(0.52, 0.02, 0.49), Toon.SUMI, Vector3.ZERO, 1.0, 14)
+	for k in 3:
+		var ang := PI * 0.5 + TAU * float(k) / 3.0
+		b.ball(Vector3(cos(ang) * 0.48, 2.0 / U, sin(ang) * 0.45), Vector3.ONE * 0.05, IRON, Vector3.ZERO, 6)
+	piece(body, b)
+	# ventre : énorme boule de cendre qui déborde sous l'obi (pièce à part : il gonfle avant le hurlement),
+	# nombril sumi, cerne d'or
+	var bm := Yokai.Mesher.new(U)
+	bm.ball(Vector3.ZERO, Vector3(0.5, 0.42, 0.46), BELLY, Vector3.ZERO, 12)
+	bm.ball(Vector3(0, -0.04, -0.45), Vector3(0.04, 0.05, 0.02), Toon.SUMI, Vector3.ZERO, 6)
+	bm.cyl(Vector3(0, -0.08, 0), Vector3(0.505, 0.035, 0.465), Toon.GOLD, Vector3.ZERO, 1.0, 14)
+	_belly = piece(body, bm)
+	_belly.position = Vector3(0, 0.5, -0.08) * U
+	# tête : dôme d'encre, masque gris décharné cerné d'or, couronne d'or à pointes, mèches rares
+	_head = Node3D.new()
+	body.add_child(_head)
+	_head.position = Vector3(0, 1.22, 0) * U
+	var a := Yokai.Mesher.new(U)
+	var f := Yokai.Mesher.new(U)
+	Yokai.mask_plate(a, MASK_GAKI, 0.95, 1.05, true)
+	for s in [-1.0, 1.0]:
+		var x := float(s)
+		# joues creuses, orbites creuses à lueur verte, sourcils de douleur (relevés vers l'intérieur)
+		a.ball(Vector3(x * 0.12, 0.07, Yokai.FACE_Z + 0.005), Vector3(0.085, 0.1, 0.025), Toon.SUMI, Vector3.ZERO, 8)
+		f.ball(Vector3(x * 0.12, 0.06, Yokai.FACE_Z - 0.018), Vector3(0.035, 0.035, 0.01), HUNGER, Vector3.ZERO, 6)
+		a.box(Vector3(x * 0.1, 0.2, Yokai.FACE_Z), Vector3(0.14, 0.03, 0.02), Toon.SUMI, Vector3(0, 0, -x * 0.35))
+		a.box(Vector3(x * 0.19, -0.1, Yokai.FACE_Z + 0.012), Vector3(0.07, 0.14, 0.02), Color("#9A9290"), Vector3(0, 0, x * 0.2))
+	# bouche béante pleine de dents d'os, lueur de la faim au fond (pièce à part, mise à l'échelle)
+	a.ball(Vector3(0, -0.18, Yokai.FACE_Z), Vector3(0.13, 0.11, 0.03), Toon.SUMI, Vector3.ZERO, 8)
+	var teeth := 3 if lite else 6
+	for i in teeth:
+		var x := -0.095 + 0.19 * float(i) / float(teeth - 1)
+		a.spike(Vector3(x, -0.1, Yokai.FACE_Z - 0.015), 0.016, 0.06, BONE, Vector3(PI, 0, 0), 0.0, 4)
+		a.spike(Vector3(x + 0.016, -0.27, Yokai.FACE_Z - 0.015), 0.013, 0.045, BONE, Vector3.ZERO, 0.0, 4)
+	# couronne d'or : bandeau sur le crâne, cinq pointes, perle verte au front
+	a.cyl(Vector3(0, 0.3, Yokai.MASK_Z + 0.1), Vector3(0.26, 0.05, 0.25), Toon.GOLD, Vector3(0.2, 0, 0), 0.92, 12)
+	var pts := 3 if lite else 5
+	for i in pts:
+		var ang := -0.9 + 1.8 * float(i) / float(pts - 1)
+		var base := Vector3(sin(ang) * 0.24, 0.32 - 0.04 * absf(ang), Yokai.MASK_Z + 0.1 - cos(ang) * 0.22)
+		a.spike(base, 0.035, 0.16 + 0.08 * (1.0 - absf(ang)), Toon.GOLD, Vector3(0.1 - 0.15 * absf(ang), 0, -ang * 0.35), 0.0, 4, 0.5)
+	f.ball(Vector3(0, 0.3, Yokai.MASK_Z - 0.16), Vector3(0.035, 0.04, 0.02), HUNGER, Vector3.ZERO, 6)
+	# mèches rares : quelques brins raides derrière la couronne
+	var m := 3 if lite else 5
+	for i in m:
+		var k := float(i) - float(m - 1) * 0.5
+		a.stick(Vector3(k * 0.1, 0.3, Yokai.MASK_Z + 0.2 + 0.03 * absf(k)), Vector3(0.025, 0.26, 0.02), Yokai.HAIR, Vector3(-0.4 - 0.2 * absf(k), 0, -k * 0.5))
+	piece(_head, a, f)
+	_maw = Toon.part(_head, Toon.sphere(0.1 * U), main.vfx.glow_mat(HUNGER, 2.0), Vector3(0, -0.16, Yokai.FACE_Z + 0.02) * U)
+	_maw.scale = Vector3.ONE * 0.01
+	# bras maigres (pivot à l'épaule, pendent vers -Y), bracelets d'or ; grand os rongé en main droite
+	for sx: float in [1.0, -1.0]:
+		var piv := Node3D.new()
+		body.add_child(piv)
+		piv.position = Vector3(sx * 0.4 * w, 1.0, 0) * U
+		var am := Yokai.Mesher.new(U)
+		am.cyl(Vector3(0, -0.22, 0), Vector3(0.07, 0.44, 0.07), INK_GAKI, Vector3(PI, 0, 0), 0.7, 7)
+		am.cyl(Vector3(0, -0.36, 0), Vector3(0.07, 0.035, 0.07), Toon.GOLD, Vector3.ZERO, 1.0, 8)
+		am.ball(Vector3(0, -0.46, 0), Vector3(0.085, 0.075, 0.085), INK_GAKI)
+		if sx > 0.0:
+			# os (fémur) tenu en travers de la main : fût et deux têtes
+			am.cyl(Vector3(0, -0.46, 0), Vector3(0.03, 0.62, 0.03), BONE, Vector3(PI / 2.0 + 0.3, 0, 0), 1.0, 6)
+			for e in [-1.0, 1.0]:
+				var ez := float(e) * 0.31
+				am.ball(Vector3(0.03, -0.46 + ez * sin(0.3), ez * cos(0.3)), Vector3.ONE * 0.05, BONE, Vector3.ZERO, 6)
+				am.ball(Vector3(-0.03, -0.46 + ez * sin(0.3), ez * cos(0.3)), Vector3.ONE * 0.05, BONE, Vector3.ZERO, 6)
+		piece(piv, am)
+		_arms.append(piv)
+	# gouttes d'encre sous le corps (étirées en code)
+	var dpts := [Vector3(0.16, 0.36, -0.14), Vector3(-0.19, 0.35, 0.06), Vector3(0.05, 0.34, 0.18)]
+	if lite:
+		dpts = [Vector3(0.16, 0.36, -0.14), Vector3(-0.17, 0.35, 0.1)]
+	for p: Vector3 in dpts:
+		var piv := Node3D.new()
+		body.add_child(piv)
+		piv.position = p * U
+		var dm := Yokai.Mesher.new(U)
+		dm.ball(Vector3.ZERO, Vector3(0.06, 0.08, 0.06), INK_GAKI, Vector3.ZERO, 6)
+		dm.spike(Vector3.ZERO, 0.055, 0.2, INK_GAKI, Vector3(PI, 0, 0), 0.3, 5)
+		dm.ball(Vector3(0, -0.21, 0), Vector3(0.04, 0.045, 0.04), INK_GAKI, Vector3.ZERO, 6)
+		piece(piv, dm)
+		_drips.append(piv)
+	# pieux de fer et leurs chaînes (mécanique : inchangés)
 	var iron := Toon.mat_shared(IRON, true, 0.03)
 	for k in STAKES.size():
 		var sp: Vector3 = STAKES[k]
@@ -89,6 +205,11 @@ func _build() -> void:
 		_chains.append({"stake": Vector3(sp.x, 0, sp.z), "stake_node": stake, "mesh": link, "cut": false})
 	_make_stars(body, 3.2)
 	body.scale = Vector3.ONE * 0.01
+
+
+## Lueur verte de la faim au fond de la gueule (0 : éteinte).
+func _set_glow(a: float) -> void:
+	_glow = clampf(a, 0.0, 1.0)
 
 
 # ------------------------------------------------------------------ interface avec main
@@ -138,7 +259,6 @@ func _zone_fire(z: Dictionary) -> void:
 	var tag := String(z["tag"])
 	if tag == "lunge":
 		_state = "lunge"
-		ch.play("Walking_D_Skeletons", 2.8)
 	elif tag == "howl":
 		var c: Vector3 = z["c"]
 		main.enemy_strike(c, HOWL_R)
@@ -153,7 +273,7 @@ func _on_die() -> void:
 		var cd: Dictionary = c
 		var m = cd["mesh"]
 		m.visible = false
-	ch.set_glow(0.0)
+	_set_glow(0.0)
 
 
 ## Chaînes rompues : il s'effondre, plus d'attaque jusqu'à la fin de la fenêtre.
@@ -161,7 +281,7 @@ func _on_shield_break() -> void:
 	_clear_zones()
 	_state = "fallen"
 	_cut_t = 0.0
-	ch.play_once("Hit_A", 1.0)
+	_set_glow(0.0)
 
 
 ## Fin de la fenêtre : les chaînes se ressoudent, il se relève.
@@ -177,8 +297,6 @@ func _on_shield_back() -> void:
 
 func _step(delta: float) -> void:
 	var dir := _dir_to_hero()
-	if _anim_lock > 0.0:
-		_anim_lock -= delta
 	if _cut_t > 0.0 and _state != "fallen":
 		_cut_t -= delta
 		if _cut_t <= 0.0:
@@ -199,10 +317,6 @@ func _step(delta: float) -> void:
 			var mv := Vector3(want.x - position.x, 0, want.z - position.z)
 			if mv.length() > 0.1:
 				position += mv.normalized() * minf(1.0 * delta, mv.length())
-				if _anim_lock <= 0.0:
-					ch.play("Walking_A", 0.7)
-			elif _anim_lock <= 0.0:
-				ch.play("Idle_Combat")
 			_timer -= delta
 			if _timer <= 0.0:
 				_cycle += 1
@@ -212,11 +326,9 @@ func _step(delta: float) -> void:
 					2:
 						_zone_disc(position, HOWL_R, HOWL_TELE, "howl")
 						_state = "howl"
-						ch.play("Idle_Combat")
 					_:
 						_state = "spit"
 						_timer = SPIT_TELE
-						ch.play_once("Throw", ch.length("Throw") * 0.5 / SPIT_TELE)
 		"charge":
 			_face(_lunge_dir, delta, 8.0)
 		"howl":
@@ -226,9 +338,9 @@ func _step(delta: float) -> void:
 			_face(dir, delta, 5.0)
 			_timer -= delta
 			if _flash <= 0.0:
-				ch.set_glow(0.6 * clampf(1.0 - _timer / SPIT_TELE, 0.0, 1.0), HUNGER)
+				_set_glow(0.6 * clampf(1.0 - _timer / SPIT_TELE, 0.0, 1.0))
 			if _timer <= 0.0:
-				ch.set_glow(0.0)
+				_set_glow(0.0)
 				var n := 5 if hp > max_hp * 0.5 else 7
 				var spread := deg_to_rad(56.0 if n == 5 else 80.0)
 				for i in n:
@@ -245,7 +357,6 @@ func _step(delta: float) -> void:
 				main.clamp_to_arena(self, radius)
 				_state = "idle"
 				_timer = 1.6 if hp > max_hp * 0.5 else 1.2
-				ch.play("Idle_Combat")
 				main.splash(position + Vector3(0, 0.3, 0), BONE, 10)
 			else:
 				position += _lunge_dir * step
@@ -254,15 +365,11 @@ func _step(delta: float) -> void:
 			pass
 		"dying":
 			_timer += delta
-			if not _death_played:
-				_death_played = true
-				ch.hold()
-				ch.play_once("Death_C_Skeletons", 1.2, 0.05)
 			if _timer > 1.4:
 				body.position.y -= delta * 1.5
 			if _timer > 2.2:
 				queue_free()
-	_animate()
+	_animate(delta)
 
 
 func _start_lunge(dir: Vector3) -> void:
@@ -273,7 +380,6 @@ func _start_lunge(dir: Vector3) -> void:
 	_lunge_end = me + dir * l
 	_zone_rect(me + dir * (l * 0.5), dir, LUNGE_W, l * 0.5, LUNGE_TELE, "lunge", Vector2(0, -1))
 	_state = "charge"
-	ch.play_once("1H_Melee_Attack_Chop", ch.length("1H_Melee_Attack_Chop") * 0.4 / LUNGE_TELE)
 
 
 func _bound() -> bool:
@@ -325,8 +431,10 @@ func _resolder() -> void:
 			main.vfx.sparks(sp + Vector3(0, 1.4, 0), Vector3.UP, 5, SHIELD_C)
 
 
-## Chaînes tendues (pieu -> collier), ventre qui gonfle, corps effondré.
-func _animate() -> void:
+## Chaînes tendues (pieu -> collier), ventre qui gonfle, corps effondré ; pose procédurale : penché en arrière
+## pour la charge et le hurlement, jeté en avant pour la ruée, bras levés pour cracher, écroulé renversé ;
+## gouttes qui s'étirent, lueur de la faim au fond de la gueule.
+func _animate(delta: float) -> void:
 	var neck := position + Vector3(0, 2.0 + body.position.y, 0)
 	for c in _chains:
 		var cd: Dictionary = c
@@ -343,17 +451,74 @@ func _animate() -> void:
 				q = Quaternion(Vector3.UP, d.normalized())
 			m.global_transform = Transform3D(Basis(q) * Basis.from_scale(Vector3(1, l, 1)), (a + neck) * 0.5)
 	var swell := 1.0
+	var howl := 0.0
 	if _state == "howl":
 		for z in _zones:
 			var zd: Dictionary = z
-			swell = 1.0 + 0.35 * clampf(1.0 - float(zd["t"]) / float(zd["total"]), 0.0, 1.0)
-	_belly.scale = Vector3(1.0, 0.95, 0.85) * swell
+			howl = clampf(1.0 - float(zd["t"]) / float(zd["total"]), 0.0, 1.0)
+		swell = 1.0 + 0.35 * howl
+	_belly.scale = Vector3.ONE * swell
+	# penché : charge et hurlement en arrière, ruée en avant, sinon respiration
+	var want_lean := 0.0
+	var want_r := REST_R
+	var want_l := REST_L
+	var nod := 0.06 * sin(_t * 1.7)
+	match _state:
+		"charge":
+			want_lean = -0.3
+			want_r = Vector3(-0.6, 0, 0.6)
+			want_l = Vector3(-0.6, 0, -0.6)
+			nod = -0.2
+		"lunge":
+			want_lean = 0.45
+			want_r = Vector3(1.9, 0, 0.3)
+			want_l = Vector3(1.9, 0, -0.3)
+			nod = 0.25
+		"howl":
+			want_lean = -0.25 * howl
+			want_r = Vector3(0.4, 0, 0.9 + 0.3 * howl)
+			want_l = Vector3(0.4, 0, -0.9 - 0.3 * howl)
+			nod = -0.35 * howl
+		"spit":
+			var k := clampf(1.0 - _timer / SPIT_TELE, 0.0, 1.0)
+			want_r = Vector3(2.6 * k + REST_R.x * (1.0 - k), 0, 0.4)
+			want_l = Vector3(2.6 * k + REST_L.x * (1.0 - k), 0, -0.4)
+			nod = -0.2 * k
+		"fallen":
+			want_r = Vector3(0.3, 0, 1.2 + 0.08 * sin(_t * 9.0))
+			want_l = Vector3(0.3, 0, -1.2 - 0.08 * sin(_t * 9.0))
+			nod = 0.3
+		"dying":
+			want_lean = 0.9
+			want_r = Vector3(0.2, 0, 0.3)
+			want_l = Vector3(0.2, 0, -0.3)
+			nod = 0.5
+		_:
+			want_r += Vector3(0.1 * sin(_t * 1.7), 0, 0)
+			want_l += Vector3(0.1 * sin(_t * 1.7 + 1.2), 0, 0)
+	var k2 := minf(1.0, delta * 7.0)
+	_lean = lerpf(_lean, want_lean, k2)
+	var ar: Node3D = _arms[0]
+	var al: Node3D = _arms[1]
+	ar.rotation = ar.rotation.lerp(want_r, k2)
+	al.rotation = al.rotation.lerp(want_l, k2)
+	_head.rotation.x = lerpf(_head.rotation.x, nod, k2)
+	var stretch := 1.6 if _state == "lunge" else 1.0
+	for i in _drips.size():
+		var n: Node3D = _drips[i]
+		var ph := _t * 2.4 + float(i) * 1.7
+		n.scale = Vector3(1, stretch * (1.0 + 0.3 * sin(ph)), 1)
+		n.rotation = Vector3(0.1 * sin(ph * 0.7) + 0.4 * _lean, 0, 0.1 * cos(ph * 0.9 + 0.5))
+	# le modèle regarde vers -Z : penché en avant = rotation.x négative
 	if _state == "fallen":
 		body.rotation.x = lerpf(body.rotation.x, 0.5, 0.1)
 		body.position.y = -0.3
 	elif _state != "dying":
-		body.rotation.x = lerpf(body.rotation.x, 0.0, 0.2)
-		body.position.y = 0.0
+		body.rotation.x = lerpf(body.rotation.x, -_lean, 0.2)
+		body.position.y = 0.04 * sin(_t * 1.7)
+	else:
+		body.rotation.x = lerpf(body.rotation.x, -_lean, 0.1)
+	_maw.scale = Vector3.ONE * maxf(0.01, _glow * (1.0 + 0.15 * sin(_t * 14.0)))
 	if _state != "spawn" and _state != "dying":
 		body.scale = Vector3.ONE * (1.06 if _flash > 0.0 else 1.0)
 
