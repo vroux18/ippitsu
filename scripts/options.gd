@@ -1,6 +1,7 @@
 extends Control
 ## Options : son, vibrations, contrôles (tracer sur l'écran, ou pad en bas), taille et affichage du pad,
-## revoir le tutoriel. Carte de papier sur voile d'encre, choix en boutons segmentés. main lit/écrit `values`.
+## revoir le tutoriel. Carte de papier sur voile d'encre ; oui/non en interrupteurs, le reste en segments
+## d'un mot (UI v2 : pas de phrase d'aide). main lit/écrit `values`.
 ## Le mode de contrôle ne change qu'au prochain lancement (cadrage de l'arène) : main pose `active_control`,
 ## une note le rappelle tant que le choix diffère.
 
@@ -11,14 +12,15 @@ signal changed(key: String, value: String)
 signal closed
 
 const ROWS := [
-	{"key": "sound", "label": "SON", "opts": [["on", "OUI"], ["off", "NON"]]},
-	{"key": "vibration", "label": "VIBRATIONS", "opts": [["on", "OUI"], ["off", "NON"]]},
-	{"key": "control", "label": "CONTRÔLES", "opts": [["screen", "SUR L'ÉCRAN"], ["pad", "PAD EN BAS"]]},
+	# "toggle" : interrupteur (on / off) ; sinon segments d'un mot
+	{"key": "sound", "label": "SON", "toggle": true, "opts": [["on", ""], ["off", ""]]},
+	{"key": "vibration", "label": "VIBRATIONS", "toggle": true, "opts": [["on", ""], ["off", ""]]},
+	{"key": "control", "label": "CONTRÔLES", "opts": [["screen", "ÉCRAN"], ["pad", "PAD"]]},
 	# réglages du pad : grisés (et sans effet) quand on trace sur l'écran
-	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "PETIT"], ["m", "MOYEN"], ["l", "GRAND"]]},
-	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "AU DÉBUT"], ["never", "JAMAIS"]]},
-	# une seule case : cochée tant que le tutoriel en jeu (coach) est à faire
-	{"key": "tuto", "label": "TUTORIEL", "opts": [["replay", "REVOIR LE TUTORIEL"]]},
+	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "S"], ["m", "M"], ["l", "L"]]},
+	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "DÉBUT"], ["never", "JAMAIS"]]},
+	# une seule case : revoir le tutoriel en jeu (coach)
+	{"key": "tuto", "label": "TUTORIEL", "opts": [["replay", "REVOIR"]]},
 ]
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert la carte ne doit rien choisir
 const NO_TARGET := -2
@@ -26,7 +28,7 @@ const BACK_TARGET := -1
 
 const PAD_KEYS := ["pad_size", "pad_show"]
 const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sous l'en-tête
-const ROW_STEP := 92.0  # pas entre deux lignes (× u)
+const ROW_STEP := 84.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
 var values := {"sound": "on", "vibration": "on", "control": "screen", "pad_size": "m", "pad_show": "start"}
@@ -114,7 +116,7 @@ func _draw() -> void:
 	if w < 10.0:
 		return
 	# la carte grandit avec le nombre de lignes ; sur écran trop bas, tout rétrécit pour tenir
-	var card_h := ROW_TOP + float(ROWS.size()) * ROW_STEP - 18.0
+	var card_h := ROW_TOP + float(ROWS.size()) * ROW_STEP - 18.0 - 2.0 * 30.0
 	var u := minf(w / 400.0, h / (card_h + 40.0))
 	var a := clampf(_t / 0.25, 0.0, 1.0)
 	var ka := UiKit.ease_out(a)
@@ -128,7 +130,7 @@ func _draw() -> void:
 	_back = UiKit.back_rect(bc, u)
 	UiKit.back_button(self, bc, u, a, 1.0 if _pressed == BACK_TARGET else 0.0)
 	var tmax: float = card.size.x - 2.0 * (UiKit.HEAD_X + 26.0) * u
-	UiKit.screen_title(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + UiKit.HEAD_BASE * u), u, ink, a, "設", tmax, UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0)))
+	UiKit.screen_title(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + UiKit.HEAD_BASE * u), u, ink, a, "", tmax, UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0)))
 	# lignes d'options : libellé (puce shuriken), choix en pilules
 	_hits.clear()
 	var lfs: int = int(UiKit.FS_CAPTION * u)
@@ -144,6 +146,21 @@ func _draw() -> void:
 		UiKit.shuriken(self, Vector2(x0 + 4.0 * u, y - lfs * 0.36), 4.0 * u, Color(Toon.VERMILION, (0.35 if dim else 0.85) * a), 0.25)
 		draw_string(_ui, Vector2(x0 + 14.0 * u, y), UiKit.plain(String(row.label)), HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(ink, la))
 		var opts: Array = row.opts
+		if bool(row.get("toggle", false)):
+			# interrupteur à droite du libellé : pilule, bouton rond ; allumé = vermillon (le toucher inverse)
+			var on := String(values.get(key, "on")) == "on"
+			var tr := Rect2(Vector2(x0 + inner_w - 52.0 * u, y - lfs * 0.36 - 13.0 * u), Vector2(52.0, 26.0) * u)
+			var hit := Rect2(Vector2(x0, tr.position.y - 8.0 * u), Vector2(inner_w, tr.size.y + 16.0 * u))
+			var pressed := _pressed == _hits.size()
+			var bg: Color = Toon.VERMILION if on else Color(ink, 0.18)
+			draw_style_box(UiKit.box(_sb, Color(bg, a * (0.8 if pressed else 1.0)), int(13 * u)), tr)
+			var kx := tr.end.x - 13.0 * u if on else tr.position.x + 13.0 * u
+			draw_circle(Vector2(kx, tr.get_center().y) + Vector2(0, 1.5 * u), 10.0 * u, Color(0, 0, 0, 0.2 * a))
+			draw_circle(Vector2(kx, tr.get_center().y), 10.0 * u, Color(Toon.ui_paper, a))
+			draw_arc(Vector2(kx, tr.get_center().y), 10.0 * u, 0.0, TAU, 24, Color(ink, 0.5 * a), maxf(1.0, 1.0 * u), true)
+			_hits.append([hit, key, "off" if on else "on"])
+			y += ROW_STEP * u - 30.0 * u
+			continue
 		var bw := (inner_w - float(opts.size() - 1) * gap) / float(opts.size())
 		for i in opts.size():
 			var o: Array = opts[i]
