@@ -1793,40 +1793,11 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	parent.add_child(root)
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
-	# grands props dans le vide autour de l'arène
-	for i in rng.randi_range(13, 17):
-		var p := _spot_outer(ctx, rng)
-		if p == NONE2:
-			continue
-		_take(ctx, p)
-		_no_ink(ctx, Toon.lite and p.y < NO_INK_Z)
-		_prop_big(wid, ctx, p, rng)
-		_no_ink(ctx, false)
-		_contact(ctx, p, 1.5)
-	# alignements de bord : clôtures, cordes sacrées, fanions…
-	for i in rng.randi_range(2, 4):
-		var run := _spot_run(ctx, rng)
-		if run.is_empty():
-			continue
-		_prop_run(wid, ctx, run, rng)
-	# petits props de bord, juste à côté d'une plateforme
-	for i in rng.randi_range(5, 8):
-		var e := _spot_edge(ctx, rng)
-		if e == NONE4:
-			continue
-		_take(ctx, Vector2(e.x, e.y))
-		_prop_edge(wid, ctx, e, rng)
-		_contact(ctx, Vector2(e.x, e.y), 0.7)
-	# petits props dans les vides entre plateformes
-	for i in rng.randi_range(3, 7):
-		var p := _spot_gap(ctx, rng)
-		if p == NONE2:
-			continue
-		_take(ctx, p)
-		_prop_small(wid, ctx, p, rng)
-		_contact(ctx, p, 0.8)
-	# tapis d'éléments répétés
-	_fill(wid, ctx, rng)
+	# abords : paysage composé par monde (voir « paysage des abords »)
+	if wid == 1:
+		_landscape(wid, ctx, rng)
+	else:
+		_ls_legacy(wid, ctx, rng)
 	# pièces de décor sur la terre ferme (tirages à part : le décor autour ne change pas)
 	if not pieces.is_empty():
 		_set_pieces(wid, ctx, pieces, _rng(rng_seed * 13 + 7))
@@ -2145,6 +2116,467 @@ static func _fill(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void
 			_fill_yomi(ctx, rng)
 		_:
 			_fill_ink(ctx, rng)
+
+
+# --- paysage des abords (couches 3 à 6 : vide, repères, fond lointain, props)
+#
+# Les abords d'un tronçon ne sont plus un tirage de props au hasard : chaque monde compose un paysage
+# par règles, le même d'une partie à l'autre dans sa structure, différent dans ses détails.
+#  - deux rives (ouest et est du cadre de l'étape), chacune en trois bandes parallèles au bord :
+#      · bande proche (0,35 à 0,9 m du bord) : petits éléments bas et continus (roseaux, galets, bouées) ;
+#      · bande moyenne (1,1 à 1,6 m) : la rive bâtie, en tronçons qui se suivent (pilotis, barque, ponton…) ;
+#      · bande lointaine (1,3 à 4 m) : un groupe cohérent par rive (hameau, bosquet), les grands volumes
+#        au fond (l'écran, en portrait, ne montre que 1 à 3 m de chaque côté de l'arène) ;
+#  - un fond (nord du dernier tronçon) : ce qu'on voit au bout du chemin ;
+#  - symétrie cassée : une rive « principale » reçoit le groupe le plus riche, l'autre un groupe mineur,
+#    et les tronçons de la bande moyenne ne se répètent jamais deux fois de suite.
+# Tout prop dans le vide repose sur un socle (pieux, rocher, îlot) ; vermillon et or restent au fond.
+# Mode allégé (Toon.lite) : même structure, bande proche et groupes moins denses.
+
+const HINOKI := Color("#CDB78E")  # monde 1 : hinoki pâle des maisons de pêcheurs
+const THATCH := Color("#7A6A50")  # chaume gris-brun des toits du port
+const REED_A := Color("#7E8A58")  # roseaux verts
+const REED_B := Color("#B0A070")  # roseaux secs
+
+
+## Cadre de l'étape : le plus grand rectangle de `rects` (les abords sont tout ce qui est en dehors).
+static func _ls_frame(ctx: Dictionary) -> Rect2:
+	var rects: Array = ctx["rects"]
+	var best := Rect2(-PIT_HALF.x, -PIT_HALF.y, PIT_HALF.x * 2.0, PIT_HALF.y * 2.0)
+	var area := 0.0
+	for r in rects:
+		var rr: Rect2 = r
+		if rr.get_area() > area:
+			area = rr.get_area()
+			best = rr
+	return best
+
+
+## Tranche de z des abords de ce tronçon (x = début, y = fin) : la zone du tronçon, ou, pour une salle
+## seule, le cadre prolongé vers le fond.
+static func _ls_span(ctx: Dictionary, frame: Rect2) -> Vector2:
+	var zone: Rect2 = ctx.get("zone", Rect2())
+	if zone.has_area():
+		return Vector2(zone.position.y, zone.end.y)
+	return Vector2(frame.position.y - 5.0, frame.end.y + 0.2)
+
+
+## Compose les abords du tronçon (voir l'en-tête de la section).
+static func _landscape(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
+	var frame := _ls_frame(ctx)
+	var span := _ls_span(ctx, frame)
+	var has_north := frame.position.y > span.x - 0.01  # le fond de l'étape tombe dans ce tronçon
+	var main_side: float = -1.0 if rng.randf() < 0.5 else 1.0
+	ctx["ls_dens"] = 0.62 if Toon.lite else 1.0
+	if has_north:
+		_ls_north(wid, ctx, frame, rng)
+	for s: float in [-1.0, 1.0]:
+		var shore := {
+			"s": s,
+			"x": frame.end.x if s > 0.0 else frame.position.x,
+			"z0": span.x,
+			"z1": span.y,
+			"main": s == main_side,
+			"north": has_north,
+		}
+		_ls_shore(wid, ctx, shore, rng)
+	if frame.end.y < span.y + 0.01:
+		_ls_south(wid, ctx, frame, rng)
+
+
+## Une rive : le groupe lointain d'abord (il réserve sa place), puis la bande moyenne en tronçons, puis
+## la bande proche, continue d'un bout à l'autre.
+static func _ls_shore(wid: int, ctx: Dictionary, sh: Dictionary, rng: RandomNumberGenerator) -> void:
+	var s: float = sh["s"]
+	var x: float = sh["x"]
+	var z0: float = sh["z0"]
+	var z1: float = sh["z1"]
+	var dens: float = ctx["ls_dens"]
+	var avoid: Array = ctx["avoid"]
+	# rien de haut au bas de l'écran (ça masquerait le bord de la plateforme vue d'en haut)
+	var z_tall := minf(z1, 6.5)
+	# groupe lointain : le hameau sur la rive principale, un groupe mineur sur l'autre, à des hauteurs
+	# différentes pour que les deux rives ne se répondent pas
+	if z_tall - z0 > 7.0:
+		var zc: float = lerpf(z0 + 3.4, z_tall - 3.0, rng.randf_range(0.15, 0.4) if sh["main"] else rng.randf_range(0.6, 0.85))
+		var c := Vector2(x + s * 1.65, zc)
+		var r := 3.0 if sh["main"] else 1.7
+		if _ok(ctx, c, 1.0, 0.0):
+			avoid.append(Vector3(c.x, c.y, r))
+			_ls_group(wid, ctx, c, s, bool(sh["main"]), rng)
+	# bande moyenne : tronçons de 3 à 4,5 m qui se suivent le long du bord, jamais deux fois le même
+	var kinds: Array = _ls_mid_kinds(wid)
+	var z := z0 + rng.randf_range(0.2, 1.0)
+	var last := ""
+	while z < z_tall - 1.4:
+		var ln := rng.randf_range(3.0, 4.5)
+		var zb := minf(z + ln, z_tall - 0.2)
+		var kind := String(kinds[rng.randi_range(0, kinds.size() - 1)])
+		if kind == last and kinds.size() > 1:
+			kind = String(kinds[(kinds.find(kind) + 1) % kinds.size()])
+		last = kind
+		var d := rng.randf_range(1.15, 1.55)
+		# le tronçon est sauté s'il mord sur le groupe lointain (qui descend jusqu'à la bande moyenne)
+		var free := true
+		var steps := int(ceil((zb - z) / 0.5))
+		for i in steps + 1:
+			if not _ok(ctx, Vector2(x + s * d, lerpf(z, zb, float(i) / maxf(float(steps), 1.0))), 0.3, 0.0):
+				free = false
+				break
+		if free:
+			_ls_mid(wid, ctx, kind, Vector2(x + s * d, z), Vector2(x + s * d, zb), s, rng)
+		z = zb + rng.randf_range(0.5, 1.2)
+	# bande proche : un élément bas tous les 0,55 à 0,9 m, du début à la fin du tronçon
+	var step := 0.62 / dens
+	z = z0 + rng.randf_range(0.1, step)
+	var k := 0
+	while z < z1 - 0.2:
+		var p := Vector2(x + s * rng.randf_range(0.36, 0.9), z)
+		if _ok(ctx, p, 0.3, 0.0):
+			_ls_near(wid, ctx, p, s, k, rng)
+		z += step * rng.randf_range(0.85, 1.35)
+		k += 1
+
+
+## Bord sud du premier tronçon (bas de l'écran) : la bande proche continue, rien de plus haut.
+static func _ls_south(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var dens: float = ctx["ls_dens"]
+	var step := 0.7 / dens
+	var x := frame.position.x + rng.randf_range(0.1, step)
+	var k := 0
+	while x < frame.end.x:
+		var p := Vector2(x, frame.end.y + rng.randf_range(0.45, 0.9))
+		if _ok(ctx, p, 0.3, 0.0):
+			_ls_near(wid, ctx, p, 0.0, k, rng)
+		x += step * rng.randf_range(0.85, 1.35)
+		k += 1
+
+
+## Tronçons possibles de la bande moyenne du monde (la rive bâtie).
+static func _ls_mid_kinds(wid: int) -> Array:
+	match wid:
+		1:
+			return ["piles", "boat", "pier", "nets", "piles", "lantern"]
+		_:
+			return ["piles"]
+
+
+## Petit élément bas de la bande proche en `p` (`s` : côté, 0 au sud ; `k` : rang le long du bord).
+static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	match wid:
+		_:
+			_ls_near_wave(ctx, p, s, k, rng)
+
+
+## Tronçon de la bande moyenne de `a` à `b` (même x), `s` : côté.
+static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	match wid:
+		_:
+			_ls_mid_wave(ctx, kind, a, b, s, rng)
+
+
+## Groupe lointain centré en `c` : le riche (`main`) ou le mineur.
+static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: bool, rng: RandomNumberGenerator) -> void:
+	match wid:
+		_:
+			if main:
+				_ls_hamlet(ctx, c, s, rng)
+			else:
+				_ls_outcrop(ctx, c, s, rng)
+
+
+## Fond de l'étape (au nord du cadre, derrière le torii de sortie).
+static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	match wid:
+		_:
+			_ls_north_wave(ctx, frame, rng)
+
+
+# --- monde 1 : rive du port de Kanagawa
+
+## Bande proche : roseaux en touffes, galets, une bouée de verre de loin en loin, écume.
+static func _ls_near_wave(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var dens: float = ctx["ls_dens"]
+	var cm := _crescent_mesh()
+	var fm := _flat(Color(Toon.FOAM, 0.5))
+	if k % 6 == 5:
+		# galet et son écume (une mouette dessus parfois)
+		var sc := rng.randf_range(0.3, 0.5)
+		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * sc), rng.randi() % 100000)
+		_inst(ctx, "foam", cm, fm, _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc * 1.6, 1, sc * 1.6)))
+		if rng.randf() < 0.3:
+			Decor.gull_into(bn, _at(Vector3(p.x, VOID_Y + 0.33 * sc, p.y), Vector3(0, rng.randf() * TAU, 0)))
+		return
+	if k % 9 == 4:
+		Decor.glass_float_into(bn, _at(Vector3(p.x, VOID_Y - 0.06, p.y), Vector3(0, rng.randf() * TAU, 0)), k % 3)
+		return
+	# touffe de roseaux : 2 ou 3 brins serrés, verts près de l'eau, secs vers la terre
+	var n := 4 if dens > 0.9 else 2
+	for i in n:
+		var q := p + Vector2(rng.randf_range(-0.25, 0.25), rng.randf_range(-0.22, 0.22))
+		var sc := rng.randf_range(1.0, 1.5)
+		var dry := rng.randf() < 0.35
+		_inst(ctx, "reed_b" if dry else "reed_a", _tuft_mesh(), _toon_ds(REED_B if dry else REED_A),
+			_at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * rng.randf_range(1.4, 2.0), sc)))
+	if k % 3 == 0:
+		_inst(ctx, "foam", cm, fm, _at(Vector3(p.x + s * 0.35, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(0.8, 1, 0.8)))
+
+
+## Bande moyenne : pilotis cordés, barque amarrée, ponton à tonneaux, filets qui sèchent, lanterne de port.
+static func _ls_mid_wave(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	var rope := _toon(Decor.KOMO, false)
+	var to_arena := _face(Vector2(x, zc), x - s * 5.0, zc)
+	match kind:
+		"boat":
+			# barque le long de la rive, proue au nord, amarrée à deux pieux ; tonneau et flotteurs dedans
+			var sc := rng.randf_range(0.62, 0.74)
+			var xf := _at(Vector3(x, VOID_Y, zc), Vector3(0, PI * 0.5 + rng.randf_range(-0.08, 0.08), 0), Vector3.ONE * sc)
+			_boat_into(bs, xf, 0)
+			Decor.sake_barrel_into(bn, bn, xf * _at(Vector3(-0.4, 0.24, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7))
+			for k in 2:
+				Decor.glass_float_into(bn, xf * _at(Vector3(0.5 + k * 0.4, 0.24, (k - 0.5) * 0.2)), k)
+			_contact(ctx, Vector2(x, zc), 1.3)
+			for sz: float in [-1.0, 1.0]:
+				var q := Vector2(x + s * 0.55, zc + sz * (1.5 * sc + 0.5))
+				var top := _bitt_into(bs, bn, Vector3(q.x, VOID_Y - 0.3, q.y), rng.randf_range(0.9, 1.2))
+				_rope(bn, rope, xf * Vector3(-sz * 1.45, 0.3, s * 0.3), top - Vector3(0, 0.22, 0), 0.12, 0.016)
+				_foam_ring(ctx, q, 0.2, rng)
+			if rng.randf() < 0.5:
+				Decor.gull_into(bn, xf * _at(Vector3(2.2, 0.56, 0), Vector3(0, PI * 0.5, 0)))
+		"pier":
+			# ponton de planches parallèle au bord, tonneaux de saké, lanterne de papier au bout
+			var l := minf(ln - 0.4, 3.4)
+			var xf := _at(Vector3(x, 0.0, zc), Vector3(0, rng.randf_range(-0.04, 0.04), 0))
+			Decor.pier_into(bs, xf, 1.2, l, -0.08, VOID_Y - 0.3)
+			_contact(ctx, Vector2(x, zc), 1.0)
+			var labels: Array[Color] = [Color("#2E3446"), Toon.PRUSSIAN, Color("#5B4630")]
+			for k in rng.randi_range(2, 3):
+				var q := Vector3(rng.randf_range(-0.3, 0.3), -0.08, -l * 0.3 + k * 0.45)
+				Decor.sake_barrel_into(bs, bn, xf * _at(q, Vector3(0, rng.randf_range(-0.5, 0.5), 0), Vector3.ONE * 0.78), labels[k % labels.size()])
+			Decor.paper_lantern_into(bs, bn, xf * _at(Vector3(s * 0.45, -0.08, l * 0.42), Vector3(0, PI if s < 0.0 else 0.0, 0)), Toon.WASHI)
+			if rng.randf() < 0.5:
+				Decor.gull_into(bn, xf * _at(Vector3(-0.5, 0.0, -l * 0.45), Vector3(0, rng.randf() * TAU, 0)))
+		"nets":
+			# séchoirs à filets en file le long de la rive, flotteurs de liège à leurs pieds
+			var n := 2 if ln > 3.4 else 1
+			for k in n:
+				var q := Vector2(x, zc + (float(k) - (n - 1) * 0.5) * 1.9)
+				Decor.net_rack_into(bs, bn, _at(Vector3(q.x, 0.0, q.y), Vector3(0, PI * 0.5 + rng.randf_range(-0.1, 0.1), 0)), VOID_Y - 0.3)
+				_foam_ring(ctx, q, 0.4, rng)
+			Decor.glass_float_into(bn, _at(Vector3(x - s * 0.5, VOID_Y - 0.06, zc + 0.3)), 1)
+		"lantern":
+			# lanterne de port sur son socle de pierre, un pieu de chaque côté
+			var sc := 0.78
+			var xf := _at(Vector3(x, VOID_Y, zc), Vector3(0, to_arena, 0), Vector3.ONE * sc)
+			_port_lantern_into(bs, bn, xf)
+			_light(ctx, xf * Vector3(0, 2.46, 0), Color(1.0, 0.78, 0.5), 0.7, 3.5)
+			_foam_ring(ctx, Vector2(x, zc), 0.75 * sc, rng)
+			for sz: float in [-1.0, 1.0]:
+				var q := Vector2(x, zc + sz * 1.3)
+				_bitt_into(bs, bn, Vector3(q.x, VOID_Y - 0.3, q.y), 0.9)
+				_foam_ring(ctx, q, 0.2, rng)
+		_:
+			# pilotis en ligne reliés d'un cordage, mouettes perchées
+			var n := maxi(int(ln / 0.95), 2)
+			var tops: Array[Vector3] = []
+			for k in n + 1:
+				var q := a.lerp(b, float(k) / n) + Vector2(s * rng.randf_range(-0.12, 0.12), 0)
+				var top := _bitt_into(bs, bn, Vector3(q.x, VOID_Y - 0.3, q.y), rng.randf_range(1.0, 1.4))
+				tops.append(top - Vector3(0, 0.2, 0))
+				if k % 3 == 1:
+					_foam_ring(ctx, q, 0.2, rng)
+				if rng.randf() < 0.25:
+					Decor.gull_into(bn, _at(top, Vector3(0, rng.randf() * TAU, 0)))
+			for k in tops.size() - 1:
+				_rope(bn, rope, tops[k], tops[k + 1], 0.16, 0.018)
+
+
+## Maison de pêcheur sur pilotis (la porte regarde +Z local) : pieux jusqu'à `low_y`, plancher débordant,
+## murs de planches d'hinoki pâle, bandeau sombre, porte, fenêtre de papier, toit de chaume à quatre pans,
+## lanterne de papier accrochée près de la porte si `lit`.
+static func _stilt_house_into(b: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float, low_y: float, lit: bool) -> void:
+	var pile := _toon(Decor.PILE, true, 0.02)
+	var wall := _toon(HINOKI, true, 0.025)
+	var band := _toon(Color("#5A4A3A"), false)
+	var deck := _toon(Decor.PLANK, true, 0.02)
+	var thatch := _toon(THATCH, true, 0.025)
+	var ridge := _toon(Color("#3A3028"), false)
+	var door := _toon(Color("#2A221C"), false)
+	var paper := _toon(Toon.WASHI, false)
+	var ink := _toon(Toon.SUMI, false)
+	var hh := 0.0 - low_y
+	for sx: float in [-1.0, 1.0]:
+		for sz: float in [-1.0, 1.0]:
+			_add(b, pile, _cyl(0.07, 0.085, hh, 6), xf * _at(Vector3(sx * (w * 0.5 - 0.1), low_y + hh * 0.5, sz * (d * 0.5 - 0.1))))
+	_add(b, deck, _box(Vector3(w + 0.5, 0.1, d + 0.5)), xf * _at(Vector3(0, -0.05, 0)))
+	_add(b, wall, _box(Vector3(w, h, d)), xf * _at(Vector3(0, h * 0.5, 0)))
+	_add(bn, band, _box(Vector3(w + 0.04, 0.1, d + 0.04)), xf * _at(Vector3(0, 0.28, 0)))
+	_add(bn, door, _box(Vector3(0.36, h * 0.62, 0.03)), xf * _at(Vector3(-w * 0.2, h * 0.31, d * 0.5 + 0.01)))
+	_add(bn, paper, _box(Vector3(0.36, 0.3, 0.03)), xf * _at(Vector3(w * 0.22, h * 0.6, d * 0.5 + 0.01)))
+	_add(bn, ink, _box(Vector3(0.02, 0.3, 0.036)), xf * _at(Vector3(w * 0.22, h * 0.6, d * 0.5 + 0.012)))
+	_add(bn, ink, _box(Vector3(0.36, 0.02, 0.036)), xf * _at(Vector3(w * 0.22, h * 0.6, d * 0.5 + 0.012)))
+	Decor.roof_into(b, bn, thatch, ridge, xf * _at(Vector3(0, h, 0)), w + 0.8, d + 0.8, h * 0.52, 0.45, 0.18)
+	if lit:
+		_add(bn, ink, _box(Vector3(0.02, 0.14, 0.02)), xf * _at(Vector3(w * 0.5 - 0.06, h * 0.86, d * 0.5 + 0.14)))
+		_add(bn, _glow(Color("#FBE3B0"), 1.0), _ball(0.09, 0.17, 7, 4), xf * _at(Vector3(w * 0.5 - 0.06, h * 0.72, d * 0.5 + 0.14)))
+
+
+## Hameau de pêcheurs sur pilotis (rive principale) : plancher commun sur pieux, 2 à 3 maisons tournées
+## vers l'eau, filets tendus entre deux perches, barque amarrée au plancher, tonneaux, bouées, mouettes.
+static func _ls_hamlet(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var lite: bool = Toon.lite
+	var face := _face(c, c.x - s * 6.0, c.y)  # la façade regarde l'arène
+	# plancher commun, un peu plus large que les maisons
+	Decor.pier_into(bs, _at(Vector3(c.x + s * 0.6, 0.0, c.y)), 3.2, 4.8, -0.1, VOID_Y - 0.3)
+	_contact(ctx, c + Vector2(s * 0.6, 0.0), 1.9)
+	# maisons : la grande au sud, la moyenne au nord un peu en retrait, la petite derrière (hors mode allégé)
+	var h1 := _at(Vector3(c.x - s * 0.3, 0.0, c.y + 1.15), Vector3(0, face + rng.randf_range(-0.1, 0.1), 0))
+	_stilt_house_into(bs, bn, h1, 1.6, 1.4, 1.1, VOID_Y - 0.3, true)
+	var h2 := _at(Vector3(c.x + s * 0.3, 0.0, c.y - 1.25), Vector3(0, face + rng.randf_range(-0.2, 0.2), 0))
+	_stilt_house_into(bs, bn, h2, 1.3, 1.2, 0.95, VOID_Y - 0.3, not lite)
+	if not lite:
+		var h3 := _at(Vector3(c.x + s * 1.6, 0.0, c.y + rng.randf_range(-0.3, 0.3)), Vector3(0, face + rng.randf_range(-0.5, 0.5), 0))
+		_stilt_house_into(bs, bn, h3, 1.0, 1.0, 0.8, VOID_Y - 0.3, false)
+	_light(ctx, Vector3(c.x - s * 0.8, 0.9, c.y + 1.3), Color(1.0, 0.78, 0.5), 0.6, 3.2)
+	# filets qui sèchent entre les deux maisons, face à l'eau
+	Decor.net_rack_into(bs, bn, _at(Vector3(c.x - s * 0.2, 0.0, c.y - 0.05), Vector3(0, face + PI * 0.5, 0)), -0.1)
+	# tonneaux et mouette sur le plancher
+	for k in 2:
+		Decor.sake_barrel_into(bs, bn, _at(Vector3(c.x + s * (1.3 + k * 0.4), -0.1, c.y + 0.3 - k * 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7),
+			Toon.PRUSSIAN if k == 0 else Decor.LABEL)
+	Decor.gull_into(bn, _at(h1 * Vector3(0, 1.05 * 0.52 + 1.05 + 0.1, 0.1), Vector3(0, rng.randf() * TAU, 0)))
+	# barque amarrée au sud du plancher, le long de la rive, pieu d'amarrage et cordage
+	var bx := c.x - s * 1.1
+	var bz := c.y + 2.75
+	var bxf := _at(Vector3(bx, VOID_Y, bz), Vector3(0, PI * 0.5 + rng.randf_range(-0.1, 0.1), 0), Vector3.ONE * 0.66)
+	_boat_into(bs, bxf, 1)
+	_contact(ctx, Vector2(bx, bz), 1.2)
+	var rope := _toon(Decor.KOMO, false)
+	var top := _bitt_into(bs, bn, Vector3(c.x - s * 0.6, VOID_Y - 0.3, bz - 1.3), 1.0)
+	_rope(bn, rope, bxf * Vector3(1.4, 0.3, 0), top - Vector3(0, 0.2, 0), 0.1, 0.016)
+	_foam_ring(ctx, Vector2(c.x - s * 0.6, bz - 1.3), 0.2, rng)
+	# bouées de verre à la dérive devant le hameau
+	for k in (2 if lite else 3):
+		var q := Vector2(c.x - s * rng.randf_range(0.5, 1.2), c.y - 1.8 - k * 0.5)
+		if _ok(ctx, q, 0.3, 0.0):
+			Decor.glass_float_into(bn, _at(Vector3(q.x, VOID_Y - 0.06, q.y), Vector3(0, rng.randf() * TAU, 0)), k)
+
+
+## Groupe mineur de l'autre rive : récif de rochers couronné d'un ou deux pins, écume, mouettes ;
+## parfois un petit sanctuaire flottant à la place.
+static func _ls_outcrop(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	if rng.randf() < 0.3:
+		_floating_shrine(ctx, c, rng)
+		_contact(ctx, c, 1.0)
+		return
+	var sc := rng.randf_range(1.5, 1.9)
+	Decor.rock_into(bs, _at(Vector3(c.x, VOID_Y, c.y), Vector3.ZERO, Vector3.ONE * sc), rng.randi() % 100000)
+	_foam_ring(ctx, c, sc * 0.72, rng)
+	_contact(ctx, c, sc * 0.9)
+	var top := Vector3(c.x, VOID_Y + 0.33 * sc, c.y)
+	Decor.pine_into(bs, _at(top + Vector3(s * 0.2, 0, -0.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(1.0, 1.2)), rng.randi() % 100000)
+	if not Toon.lite:
+		Decor.pine_into(bs, _at(top + Vector3(-s * 0.3, -0.08, 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.75), rng.randi() % 100000)
+	# rocher satellite et mouettes
+	var q := c + Vector2(-s * 0.4, 1.4)
+	var sq := sc * 0.45
+	Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * sq), rng.randi() % 100000)
+	_foam_ring(ctx, q, sq * 0.7, rng)
+	Decor.gull_into(bn, _at(Vector3(q.x, VOID_Y + 0.33 * sq, q.y), Vector3(0, rng.randf() * TAU, 0)))
+	if rng.randf() < 0.6:
+		Decor.gull_into(bn, _at(top + Vector3(-s * 0.5, -0.05, -0.5), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Fond du port (nord du dernier tronçon) : estacade de pieux cordés qui barre la baie de part et d'autre
+## du torii, deux barques qui partent au large, un hameau de deux maisons dans un coin.
+static func _ls_north_wave(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var rope := _toon(Decor.KOMO, false)
+	# estacade : une ligne de pieux à 1,6 m derrière le bord, trouée devant le torii
+	var z := top - 1.6
+	for sx: float in [-1.0, 1.0]:
+		var tops: Array[Vector3] = []
+		var x := sx * 1.9
+		while absf(x) < frame.size.x * 0.5 + 2.6:
+			var q := Vector2(x, z + rng.randf_range(-0.1, 0.1))
+			if _ok(ctx, q, 0.4, 0.0):
+				var t := _bitt_into(bs, bn, Vector3(q.x, VOID_Y - 0.3, q.y), rng.randf_range(1.0, 1.3))
+				tops.append(t - Vector3(0, 0.2, 0))
+				if rng.randf() < 0.3:
+					Decor.gull_into(bn, _at(t, Vector3(0, rng.randf() * TAU, 0)))
+			x += sx * 0.95
+		for k in tops.size() - 1:
+			_rope(bn, rope, tops[k], tops[k + 1], 0.16, 0.018)
+	# barques qui s'éloignent vers la Grande Vague
+	var side: float = -1.0 if rng.randf() < 0.5 else 1.0
+	for k in 2:
+		var bx := side * (1.6 + k * 2.4) * (1.0 if k == 0 else -1.0)
+		var bz := top - 3.6 - k * 1.1
+		var bxf := _at(Vector3(bx, VOID_Y, bz), Vector3(0, PI * 0.5 + rng.randf_range(-0.2, 0.2), 0), Vector3.ONE * 0.6)
+		_boat_into(bs, bxf, 2)
+		_contact(ctx, Vector2(bx, bz), 1.1)
+		avoid.append(Vector3(bx, bz, 1.4))
+	# hameau du coin opposé aux barques : deux maisons et leurs filets, à 3 m derrière le bord
+	var hx := -side * (frame.size.x * 0.5 + 1.4)
+	var hc := Vector2(hx, top - 3.2)
+	var face := _face(hc, 0.0, top)
+	Decor.pier_into(bs, _at(Vector3(hc.x, 0.0, hc.y), Vector3(0, PI * 0.5, 0)), 2.6, 3.6, -0.1, VOID_Y - 0.3)
+	_stilt_house_into(bs, bn, _at(Vector3(hc.x - side * 0.9, 0.0, hc.y - 0.2), Vector3(0, face, 0)), 1.3, 1.2, 0.95, VOID_Y - 0.3, true)
+	_stilt_house_into(bs, bn, _at(Vector3(hc.x + side * 0.9, 0.0, hc.y - 0.6), Vector3(0, face + 0.3, 0)), 1.1, 1.0, 0.85, VOID_Y - 0.3, false)
+	Decor.net_rack_into(bs, bn, _at(Vector3(hc.x, 0.0, hc.y + 1.1), Vector3(0, face + PI * 0.5, 0)), -0.1)
+	_contact(ctx, hc, 1.8)
+	avoid.append(Vector3(hc.x, hc.y, 2.4))
+
+## Ancien remplissage au hasard des abords (mondes pas encore composés).
+static func _ls_legacy(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
+	# grands props dans le vide autour de l'arène
+	for i in rng.randi_range(13, 17):
+		var p := _spot_outer(ctx, rng)
+		if p == NONE2:
+			continue
+		_take(ctx, p)
+		_no_ink(ctx, Toon.lite and p.y < NO_INK_Z)
+		_prop_big(wid, ctx, p, rng)
+		_no_ink(ctx, false)
+		_contact(ctx, p, 1.5)
+	# alignements de bord : clôtures, cordes sacrées, fanions…
+	for i in rng.randi_range(2, 4):
+		var run := _spot_run(ctx, rng)
+		if run.is_empty():
+			continue
+		_prop_run(wid, ctx, run, rng)
+	# petits props de bord, juste à côté d'une plateforme
+	for i in rng.randi_range(5, 8):
+		var e := _spot_edge(ctx, rng)
+		if e == NONE4:
+			continue
+		_take(ctx, Vector2(e.x, e.y))
+		_prop_edge(wid, ctx, e, rng)
+		_contact(ctx, Vector2(e.x, e.y), 0.7)
+	# petits props dans les vides entre plateformes
+	for i in rng.randi_range(3, 7):
+		var p := _spot_gap(ctx, rng)
+		if p == NONE2:
+			continue
+		_take(ctx, p)
+		_prop_small(wid, ctx, p, rng)
+		_contact(ctx, p, 0.8)
+	# tapis d'éléments répétés
+	_fill(wid, ctx, rng)
 
 
 # --- pièces de décor sur la terre ferme (étapes)
