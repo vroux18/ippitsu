@@ -14,14 +14,24 @@ extends Node3D
 ## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 ## Tous les visuels vivent sous `_rig` (top_level) : `position` du nœud racine sert seulement de
 ## point d'impact pour les effets de main.gd (déplacé sur la main / le crâne touchés).
+## Apparence (direction « Masque d'encre », règles en tête de yokai_ink_w1.gd) : plus d'os blancs. Un GÉANT
+## D'ENCRE BLEUTÉE qui monte d'une flaque au fond de l'arène ; son squelette est PEINT EN TRAITS WASHI sur le
+## corps d'encre (côtes, sternum, clavicules, vertèbres sur le dos autour des lampes de la colonne, os des
+## doigts) ; le crâne est un MASQUE DE NŌ GÉANT pâle cerné d'or, aux orbites creuses à lueur froide, sourcils
+## froncés, dents peintes sur une gueule vermillon ; halo d'or derrière la tête, collier d'or, griffes d'or ;
+## l'encre goutte sous les épaules, le menton et les poignets. Les points d'ancrage de la mécanique (vertèbres,
+## crâne, épaules, mains, poignets) sont aux mêmes coordonnées ; seuls les maillages et matériaux ont changé.
 
 const Toon = preload("res://scripts/toon.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
-const IVORY := Color("#E8DFC8")
+const INK := Color("#222A38")  # encre bleutée du monde 3 (yokai_ink_w3.INK_SNOW)
+const INK_D := Color("#161B26")  # flaque d'où il sort
+const MASK := Color("#E4E8F2")  # masque pâle (yokai_ink_w3.MASK_GHOST)
+const BONE := Color("#EFE6D2")  # traits de washi du squelette peint (Toon.WASHI)
 const ICE := Color("#BFD6E3")
 const LAVENDER := Color("#8C8FA8")
-const SOCKET := Color("#23222B")
 const SNOW := Color("#F3F5F7")
 const STONE := Color("#9C9EB2")
 
@@ -80,7 +90,7 @@ var _torso: Node3D
 var _skull: Node3D
 var _jaw: Node3D
 var _soul: MeshInstance3D
-var _bone_mat: StandardMaterial3D
+var _ink_mat: StandardMaterial3D  # encre du buste, des bras et du crâne (couleurs de sommets ; éclat, lueur)
 var _eyes: Array = []  # pupilles glacées
 var _vert_lamps: Array = []  # lampes des vertèbres, de la queue (0) au crâne (8)
 var _lamp_mats: Array = []
@@ -158,19 +168,195 @@ func _ball(r: float) -> SphereMesh:
 	return m
 
 
+## Matériau toon à contour des pièces d'encre (couleurs de sommets ; émission pour l'éclat et la lueur froide).
+static func _ink_material() -> StandardMaterial3D:
+	var m := Toon.mat(Color.WHITE, true, 0.04)
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.rim = 0.35
+	m.rim_tint = 0.5
+	m.emission_enabled = true
+	m.emission = ICE
+	m.emission_energy_multiplier = 0.0
+	return m
+
+
+## Pièce d'encre posée sur `parent` (surface 0 : toon à contour `mat`, surface 1 : aplat lumineux).
+static func _piece(parent: Node3D, mesh: ArrayMesh, mat: StandardMaterial3D, pos := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	mi.set_surface_override_material(0, mat)
+	if mesh.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	if Toon.lite:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+## Enveloppe du torse à la hauteur y : (demi-largeur x, demi-profondeur z, z du centre) de la forme la plus large
+## (tronc, poitrine ou ventre), pour peindre les côtes à fleur d'encre.
+static func _profile(y: float) -> Vector3:
+	var best := Vector3(0.0, 0.0, 0.0)
+	# boules : [cy, rx, ry, rz, cz] ; tronc : cône de 1,2 (bas, y 0,6) à 1,32 (haut, y 4,2), centré en z 0,2
+	for bl in [[2.9, 1.42, 1.6, 1.0, 0.3], [1.5, 1.3, 1.0, 0.95, 0.25]]:
+		var u := (y - float(bl[0])) / float(bl[2])
+		if absf(u) >= 1.0:
+			continue
+		var k := sqrt(1.0 - u * u)
+		if float(bl[1]) * k > best.x:
+			best = Vector3(float(bl[1]) * k, float(bl[3]) * k, float(bl[4]))
+	if y > 0.6 and y < 4.2:
+		var kc := 1.0 + 0.1 * (y - 0.6) / 3.6
+		if 1.2 * kc > best.x:
+			best = Vector3(1.2 * kc, 0.95 * kc, 0.2)
+	return best
+
+
+## Côte peinte à la hauteur y : trois traits de washi par côté, tangents à l'enveloppe du torse, qui descendent
+## du sternum vers les flancs.
+static func _rib(m: Yokai.Mesher, y: float, lite: bool) -> void:
+	var pr := _profile(y)
+	var steps := [0.22, 0.6, 1.0] if not lite else [0.3, 0.85]
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		for th in steps:
+			var ang := float(th)
+			var c := Vector3(x * pr.x * sin(ang), y - 0.16 * ang, pr.z + pr.y * cos(ang))
+			var nrm := Vector3(x * sin(ang) / pr.x, 0, cos(ang) / pr.y).normalized()
+			var tng := Vector3(x * pr.x * cos(ang), 0, -pr.y * sin(ang)).normalized()
+			var ln := 0.46 if not lite else 0.7
+			m.box(c + nrm * 0.03, Vector3(0.05, 0.075, ln), BONE, Vector3(0, atan2(tng.x, tng.z), 0))
+
+
+## Buste d'encre (repère de _torso : pivot au sol, face vers +Z, dos vers -Z) : socle évasé, tronc, poitrine,
+## clavicules, épaules, cou ; squelette peint en washi ; gouttes ; collier d'or.
+static func _torso_mesh(lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3(0, 0.25, 0.2), Vector3(1.9, 0.8, 1.5), INK, Vector3.ZERO, 10)
+	m.cyl(Vector3(0, 2.4, 0.2), Vector3(1.2, 3.6, 0.95), INK, Vector3.ZERO, 1.1, 12)
+	m.ball(Vector3(0, 2.9, 0.3), Vector3(1.42, 1.6, 1.0), INK, Vector3.ZERO, 10)
+	m.ball(Vector3(0, 1.5, 0.25), Vector3(1.3, 1.0, 0.95), INK, Vector3.ZERO, 10)
+	m.box(Vector3(0, 4.5, 0.05), Vector3(3.9, 0.5, 0.6), INK)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		m.ball(Vector3(x * 1.95, 4.42, 0.0), Vector3(0.62, 0.5, 0.55), INK, Vector3.ZERO, 8)
+		# clavicules peintes
+		m.box(Vector3(x * 1.0, 4.62, 0.36), Vector3(1.8, 0.07, 0.05), BONE, Vector3(0, 0, x * 0.08))
+		# gouttes sous les épaules et les clavicules
+		m.spike(Vector3(x * 2.3, 4.0, 0.0), 0.14, 0.75, INK, Vector3(PI, 0, 0), 0.0, 5)
+		if not lite:
+			m.spike(Vector3(x * 1.5, 4.25, 0.3), 0.11, 0.5, INK, Vector3(PI, 0, 0), 0.0, 5)
+			m.spike(Vector3(x * 2.5, 4.3, -0.25), 0.09, 0.4, INK, Vector3(PI, 0, 0), 0.0, 5)
+	m.cyl(Vector3(0, 5.3, 0.1), Vector3(0.6, 1.2, 0.55), INK, Vector3.ZERO, 0.85, 8)
+	# côtes peintes sur le devant de la poitrine
+	var ribs := [1.7, 2.2, 2.7, 3.2, 3.7] if not lite else [1.9, 2.6, 3.4]
+	for y in ribs:
+		_rib(m, float(y), lite)
+	# sternum : trait vertical
+	m.ball(Vector3(0, 2.75, 0.5), Vector3(0.08, 1.35, 0.9), BONE, Vector3.ZERO, 8)
+	# colonne peinte dans le dos : bosse d'encre et vertèbre de washi autour de chaque lampe (mêmes coordonnées)
+	for i in VERTS:
+		var fi := float(i)
+		var v := Vector3(0.18 * sin(fi * 0.9), 0.35 + fi * 0.6, -0.45)
+		var w := 1.0 - fi * 0.04
+		m.ball(v + Vector3(0, 0, 0.1), Vector3(0.5 * w, 0.36, 0.32), INK, Vector3.ZERO, 8)
+		m.box(v + Vector3(0, 0, -0.23), Vector3(0.44 * w, 0.2, 0.04), BONE)
+		if not lite:
+			for sx in [-1.0, 1.0]:
+				m.box(v + Vector3(float(sx) * 0.34 * w, 0.0, -0.15), Vector3(0.26, 0.08, 0.04), BONE, Vector3(0, -float(sx) * 0.35, 0))
+	# collier de gros grains d'or autour du cou
+	var n := 7 if lite else 11
+	for i in n:
+		var ang := TAU * (float(i) + 0.5) / float(n)
+		m.ball(Vector3(sin(ang) * 0.95, 4.85 + 0.12 * cos(ang), 0.1 + cos(ang) * 0.75), Vector3(0.17, 0.17, 0.17), Toon.GOLD, Vector3.ZERO, 6)
+	return m.mesh()
+
+
+## Crâne (repère de _skull) : tête d'encre, halo d'or, masque de nō pâle cerné d'or aux orbites creuses, sourcils
+## froncés, nez, gueule vermillon aux dents peintes ; gouttes sous le menton. Les yeux (lueur froide) sont à part.
+static func _skull_mesh(lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3(0, 0.2, -0.12), Vector3(1.0, 0.95, 0.95), INK, Vector3.ZERO, 10)
+	m.cyl(Vector3(0, 0.45, -0.78), Vector3(1.5, 0.06, 1.5), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 16)
+	m.ball(Vector3(0, 0.0, 0.5), Vector3(1.04, 1.26, 0.3), Toon.GOLD, Vector3.ZERO, 12)
+	m.ball(Vector3(0, 0.0, 0.56), Vector3(0.95, 1.18, 0.3), MASK, Vector3.ZERO, 12)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		m.ball(Vector3(x * 0.38, 0.22, 0.82), Vector3(0.3, 0.32, 0.12), Toon.SUMI, Vector3(0, 0, x * 0.15), 8)
+		m.box(Vector3(x * 0.42, 0.62, 0.8), Vector3(0.5, 0.075, 0.04), Toon.SUMI, Vector3(0, 0, x * 0.35))
+		m.spike(Vector3(x * 0.75, -0.45, 0.05), 0.12, 0.7, INK, Vector3(PI, 0, 0), 0.0, 5)
+	m.spike(Vector3(0, -0.05, 0.84), 0.12, 0.3, Toon.SUMI, Vector3(PI, 0, 0), 0.0, 3, 0.4)
+	m.box(Vector3(0, -0.62, 0.8), Vector3(0.95, 0.14, 0.06), Toon.VERMILION)
+	for k in (4 if lite else 6):
+		var x := (float(k) - (1.5 if lite else 2.5)) * (0.24 if lite else 0.16)
+		m.box(Vector3(x, -0.6, 0.83), Vector3(0.1, 0.12, 0.03), BONE)
+	m.ball(Vector3(0, 0.8, 0.72), Vector3(0.08, 0.1, 0.05), Toon.GOLD, Vector3.ZERO, 6)
+	return m.mesh()
+
+
+## Mâchoire (repère de _jaw, elle pivote) : menton du masque bordé d'or, dents peintes, intérieur vermillon.
+static func _jaw_mesh(lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3(0, -0.18, 0.3), Vector3(0.58, 0.2, 0.52), MASK, Vector3.ZERO, 8)
+	m.cyl(Vector3(0, -0.32, 0.3), Vector3(0.5, 0.05, 0.45), Toon.GOLD, Vector3.ZERO, 1.0, 10)
+	m.box(Vector3(0, 0.0, 0.35), Vector3(0.9, 0.05, 0.5), Toon.VERMILION)
+	for k in (4 if lite else 6):
+		var x := (float(k) - (1.5 if lite else 2.5)) * (0.24 if lite else 0.16)
+		m.box(Vector3(x, -0.02, 0.72), Vector3(0.1, 0.14, 0.04), BONE)
+	return m.mesh()
+
+
+## Main (repère de la main, doigts vers +Z, poignet en (0, 0.32, -0.62)) : paume et doigts d'encre, griffes d'or,
+## os peints sur le dos de la main et des phalanges, bracelet d'or, gouttes sous le poignet.
+static func _hand_mesh(side: float, lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3(0, 0.28, 0.05), Vector3(0.66, 0.3, 0.62), INK, Vector3.ZERO, 8)
+	m.ball(Vector3(0, 0.32, -0.62), Vector3(0.36, 0.3, 0.36), INK, Vector3.ZERO, 8)
+	m.cyl(Vector3(0, 0.32, -0.36), Vector3(0.37, 0.14, 0.35), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 10)
+	for f in 4:
+		var fx := -0.45 + float(f) * 0.3
+		var p1 := m.ray(Vector3(fx, 0.24, 0.5), Vector3(0, 0, 1), 0.13, 0.62, INK, 0.85, 6)
+		var p2 := m.ray(p1, Vector3(0, -0.45, 1).normalized(), 0.11, 0.5, INK, 0.8, 6)
+		m.ray(p2, Vector3(0, -0.7, 1).normalized(), 0.09, 0.28, Toon.GOLD, 0.0, 5)
+		m.box(Vector3(fx, 0.37, 0.8), Vector3(0.09, 0.03, 0.46), BONE)
+		if not lite:
+			m.box(Vector3(fx * 0.7, 0.56, 0.12), Vector3(0.07, 0.03, 0.62), BONE, Vector3(0, -fx * 0.35, 0))
+	var td := Vector3(-side * 0.55, 0, 1).normalized()
+	var t1 := m.ray(Vector3(-side * 0.6, 0.25, 0.1), td, 0.14, 0.55, INK, 0.85, 6)
+	m.ray(t1, td, 0.1, 0.3, Toon.GOLD, 0.0, 5)
+	m.spike(Vector3(0, 0.1, -0.55), 0.1, 0.5, INK, Vector3(PI, 0, 0), 0.0, 5)
+	if not lite:
+		m.spike(Vector3(side * 0.4, 0.05, 0.0), 0.08, 0.4, INK, Vector3(PI, 0, 0), 0.0, 5)
+	return m.mesh()
+
+
+## Segment de bras : cylindre d'encre de hauteur 1 centré (étiré de l'épaule au coude, du coude au poignet).
+static func _bone_mesh(r: float) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.cyl(Vector3.ZERO, Vector3(r, 1.0, r), INK, Vector3.ZERO, 0.85, 7)
+	return m.mesh()
+
+
+static func _elbow_mesh() -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3.ZERO, Vector3(0.33, 0.3, 0.33), INK, Vector3.ZERO, 8)
+	return m.mesh()
+
+
 func _build() -> void:
+	var lite := Toon.lite
 	_rig = Node3D.new()
 	_rig.top_level = true
 	add_child(_rig)
-	_bone_mat = Toon.mat(IVORY, true, 0.04)
-	_bone_mat.emission_enabled = true
-	_bone_mat.emission = ICE
-	_bone_mat.emission_energy_multiplier = 0.0
-	var dark := Toon.mat_shared(SOCKET, false)
+	_ink_mat = _ink_material()
 
-	# sol fendu et congères autour de la sortie
-	var crack := Toon.disc(_rig, 2.4, Color(LAVENDER, 0.4), 0.012)
-	crack.position = Vector3(0, 0.012, Z_BUST + 0.3)
+	# flaque d'encre bordée d'or d'où il monte, coulées sumi, congères autour
+	var rim := Toon.disc(_rig, 2.6, Color(Toon.GOLD, 0.55), 0.012)
+	rim.position = Vector3(0, 0.012, Z_BUST + 0.3)
+	var pool := Toon.disc(_rig, 2.4, Color(INK_D, 0.92), 0.014)
+	pool.position = Vector3(0, 0.014, Z_BUST + 0.3)
 	for i in 7:
 		var a := float(i) / 7.0 * TAU + 0.3
 		var c := Toon.part(_rig, Toon.box(Vector3(0.1, 0.01, 1.4)), Toon.flat(Color(Toon.SUMI, 0.55)), Vector3.ZERO)
@@ -186,17 +372,15 @@ func _build() -> void:
 	_torso = Node3D.new()
 	_rig.add_child(_torso)
 	_torso.position = Vector3(0, -7.5, Z_BUST)
+	_piece(_torso, _torso_mesh(lite), _ink_mat)
 
-	# colonne vertébrale (dos = -Z local : sur le dessus une fois effondré)
+	# colonne vertébrale (dos = -Z local : sur le dessus une fois effondré) : les lampes, aux coordonnées de la
+	# mécanique ; les vertèbres peintes sont dans le maillage du buste
 	for i in VERTS:
 		var fi := float(i)
 		var v := Node3D.new()
 		_torso.add_child(v)
 		v.position = Vector3(0.18 * sin(fi * 0.9), 0.35 + fi * 0.6, -0.45)
-		var w := 1.0 - fi * 0.04
-		Toon.part(v, Toon.box(Vector3(0.6 * w, 0.32, 0.5 * w)), _bone_mat, Vector3.ZERO)
-		var spike := Toon.part(v, Toon.cyl(0.0, 0.13, 0.4, 4), _bone_mat, Vector3(0, 0, -0.38))
-		spike.rotation.x = -PI / 2.0
 		var lm := Toon.flat(ICE)
 		var lamp := Toon.part(v, _ball(0.2 if i > 0 else 0.28), lm, Vector3(0, 0, -0.62))
 		lamp.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -204,54 +388,30 @@ func _build() -> void:
 		_vert_lamps.append(lamp)
 		_lamp_mats.append(lm)
 
-	# cage thoracique : anneaux aplatis autour d'une lueur bleu glace
-	var ribs := [1.0, 1.2, 1.28, 1.18, 0.98]
-	for j in ribs.size():
-		var rr := float(ribs[j])
-		var tm := TorusMesh.new()
-		tm.inner_radius = rr - 0.14
-		tm.outer_radius = rr
-		tm.rings = 10
-		tm.ring_segments = 4
-		var rib := Toon.part(_torso, tm, _bone_mat, Vector3(0, 1.3 + float(j) * 0.62, 0.3), Vector3(1.0, 1.0, 0.72))
-		rib.rotation.x = 0.22
-	Toon.part(_torso, Toon.box(Vector3(0.3, 2.5, 0.2)), _bone_mat, Vector3(0, 2.5, 1.12))
-	_soul = Toon.part(_torso, _ball(0.55), Toon.flat(Color(ICE, 0.55)), Vector3(0, 2.5, 0.3))
+	# lueur froide au creux du sternum (elle bat)
+	_soul = Toon.part(_torso, _ball(0.24), Toon.flat(Color(ICE, 0.55)), Vector3(0, 3.35, 1.3))
 	_soul.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
-	# épaules, clavicules, omoplates
-	Toon.part(_torso, Toon.box(Vector3(3.6, 0.28, 0.35)), _bone_mat, Vector3(0, 4.55, 0.05))
+	# marqueurs d'épaule (départ des bras)
 	for sx in [-1.0, 1.0]:
-		Toon.part(_torso, _ball(0.4), _bone_mat, Vector3(sx * 1.9, 4.45, 0.0))
-		var sc := Toon.part(_torso, Toon.box(Vector3(0.9, 1.2, 0.16)), _bone_mat, Vector3(sx * 0.95, 3.95, -0.62))
-		sc.rotation.z = sx * 0.2
 		var mk := Node3D.new()
 		_torso.add_child(mk)
 		mk.position = Vector3(sx * 1.95, 4.4, 0.0)
 		_shoulders.append(mk)
 
-	# crâne
+	# crâne : masque de nō géant ; yeux de lueur froide au fond des orbites
 	_skull = Node3D.new()
 	_torso.add_child(_skull)
 	_skull.position = Vector3(0, 6.0, 0.1)
-	Toon.part(_skull, _ball(1.0), _bone_mat, Vector3(0, 0.2, 0), Vector3(1.0, 0.92, 1.05))
-	Toon.part(_skull, Toon.box(Vector3(1.25, 0.6, 0.7)), _bone_mat, Vector3(0, -0.35, 0.45))
-	Toon.part(_skull, Toon.box(Vector3(1.5, 0.18, 0.35)), _bone_mat, Vector3(0, 0.38, 0.82))
+	_piece(_skull, _skull_mesh(lite), _ink_mat)
 	for sx in [-1.0, 1.0]:
-		Toon.part(_skull, _ball(0.28), dark, Vector3(sx * 0.4, 0.1, 0.86), Vector3(1.0, 0.85, 0.5))
-		var eye := Toon.part(_skull, _ball(0.09), Toon.flat(ICE), Vector3(sx * 0.4, 0.1, 0.99))
+		var eye := Toon.part(_skull, _ball(0.1), Toon.flat(ICE), Vector3(sx * 0.38, 0.2, 0.95))
 		eye.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_eyes.append(eye)
-	var nose := Toon.part(_skull, Toon.box(Vector3(0.18, 0.18, 0.1)), dark, Vector3(0, -0.22, 0.97))
-	nose.rotation.z = PI / 4.0
-	for k in 6:
-		Toon.part(_skull, Toon.box(Vector3(0.14, 0.18, 0.1)), _bone_mat, Vector3(-0.4 + float(k) * 0.16, -0.62, 0.78))
 	_jaw = Node3D.new()
 	_skull.add_child(_jaw)
 	_jaw.position = Vector3(0, -0.62, 0.1)
-	Toon.part(_jaw, Toon.box(Vector3(1.05, 0.24, 0.85)), _bone_mat, Vector3(0, -0.2, 0.3))
-	for k in 6:
-		Toon.part(_jaw, Toon.box(Vector3(0.13, 0.16, 0.1)), _bone_mat, Vector3(-0.4 + float(k) * 0.16, -0.02, 0.66))
+	_piece(_jaw, _jaw_mesh(lite), _ink_mat)
 
 	# mains
 	_hands.append(_build_hand(-1.0))
@@ -261,31 +421,22 @@ func _build() -> void:
 func _build_hand(side: float) -> Dictionary:
 	var n := Node3D.new()
 	_rig.add_child(n)
-	var m := Toon.mat(IVORY, true, 0.04)
-	m.emission_enabled = true
-	m.emission = ICE
-	m.emission_energy_multiplier = 0.0
-	# paume, phalanges griffues (doigts vers +Z), pouce côté intérieur, poignet
-	Toon.part(n, Toon.box(Vector3(1.2, 0.34, 1.05)), m, Vector3(0, 0.26, 0.05))
+	var m := _ink_material()
+	# paume, doigts griffus (vers +Z), pouce côté intérieur, poignet ; lampes des phalanges (main tranchable)
+	_piece(n, _hand_mesh(side, Toon.lite), m)
 	var lamps: Array = []
 	for f in 4:
 		var fx := -0.45 + float(f) * 0.3
-		Toon.part(n, Toon.box(Vector3(0.21, 0.21, 0.6)), m, Vector3(fx, 0.22, 0.85))
-		var tip := Toon.part(n, Toon.box(Vector3(0.18, 0.18, 0.5)), m, Vector3(fx, 0.12, 1.38))
-		tip.rotation.x = 0.4
 		var kn := Toon.part(n, _ball(0.12), Toon.flat(ICE), Vector3(fx, 0.47, 0.55))
 		kn.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		kn.visible = false
 		lamps.append(kn)
-	var thumb := Toon.part(n, Toon.box(Vector3(0.22, 0.22, 0.65)), m, Vector3(-side * 0.72, 0.22, 0.3))
-	thumb.rotation.y = -side * 0.6
-	Toon.part(n, _ball(0.34), m, Vector3(0, 0.32, -0.62))
 	n.position = _home(side)
 	n.visible = false
-	# bras en deux os + coude (placés chaque image entre l'épaule et le poignet)
-	var upper := Toon.part(_rig, Toon.cyl(0.2, 0.24, 1.0, 6), _bone_mat, Vector3.ZERO)
-	var fore := Toon.part(_rig, Toon.cyl(0.15, 0.19, 1.0, 6), _bone_mat, Vector3.ZERO)
-	var elbow := Toon.part(_rig, _ball(0.3), _bone_mat, Vector3.ZERO)
+	# bras en deux segments d'encre + coude (placés chaque image entre l'épaule et le poignet)
+	var upper := _piece(_rig, _bone_mesh(0.4), _ink_mat)
+	var fore := _piece(_rig, _bone_mesh(0.33), _ink_mat)
+	var elbow := _piece(_rig, _elbow_mesh(), _ink_mat)
 	var shadow := Toon.disc(_rig, 1.2, Color(0, 0, 0, 0.18), 0.015)
 	upper.visible = false
 	fore.visible = false
@@ -609,7 +760,7 @@ func _break_hand(i: int) -> void:
 	var n: Node3D = h["node"]
 	var p := Vector3(n.position.x, 0.4, n.position.z + HAND_OFF)
 	main.big_hit(p)
-	main.splash(p, IVORY, 26)
+	main.splash(p, INK, 26)
 	main.splash(p, ICE, 12)
 	for k in h["lamps"]:
 		var ln: Node3D = k
@@ -942,7 +1093,7 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
-	_bone_mat.emission_energy_multiplier = 0.9 if _flash > 0.0 else (0.35 + 0.25 * sin(_t * 9.0) if vulnerable_t > 0.0 else 0.0)
+	_ink_mat.emission_energy_multiplier = 0.9 if _flash > 0.0 else (0.35 + 0.25 * sin(_t * 9.0) if vulnerable_t > 0.0 else 0.0)
 	_shield_tick(delta)
 	_update_state(delta)
 	_update_stele_queue(delta)
@@ -1045,7 +1196,7 @@ func _update_state(delta: float) -> void:
 			_wobble = sin(_t * 22.0) * 0.05
 			if _timer > 0.5:
 				_torso.position.y -= delta * 2.4
-			_puff(delta, IVORY)
+			_puff(delta, INK)
 			if _timer > 3.2:
 				queue_free()
 
