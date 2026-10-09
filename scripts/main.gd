@@ -478,6 +478,13 @@ func _ready() -> void:
 		_set_state("play" if autoplay or "hub" in wsearch else "menu")
 	# `?pick` (web) : ouvre directement le choix de rouleau, pour vérifier l'écran
 	if "pick" in wsearch:
+		# hors salle (accueil) : on ouvre d'abord une vraie salle, le rouleau s'affiche au-dessus du combat
+		if rm < 0:
+			_start(false)
+			room = 2
+			_build_segment()
+			_set_state("play")
+			music.play_world(current_world)
 		_pick_context = "room"
 		_set_state("pick")
 		# `?pickstyle=N` : style des cartes à comparer (0 kakemono, 1 ofuda, 2 estampe), ex. `?pick&pickstyle=1`
