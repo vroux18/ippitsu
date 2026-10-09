@@ -10,14 +10,19 @@ extends Node3D
 ## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
 
 const Toon = preload("res://scripts/toon.gd")
-const Character = preload("res://scripts/character.gd")
-const MAGE = preload("res://assets/kaykit/Skeleton_Mage.glb")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 
 const SEGMENTS := 12
 const SPACING := 0.9
 const SEG_R := 0.55
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
 const BOWL_WATER := Color("#7FB2C8")
+# apparence (direction « Masque d'encre », règles en tête de yokai_ink_w1.gd)
+const KAPPA_U := 1.68  # échelle d'Ō-Kappa (unités du modèle → m) : le dôme affleure la coupelle (y 2,62)
+const KAPPA_W := 1.15  # largeur du corps d'encre (le masque reste devant le dôme)
+const SHELL := Color("#5E6B3A")  # carapace olive des kappa
+const SHELL_D := Color("#4A5530")
+const INK_WAVE := Color("#1B2A3E")  # encre bleue d'Uwabami
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 const SHIELD_C := Color("#6FB7FF")  # bleu des boucliers (comme enemy.gd)
 const CHIP_HP := 0.1  # part des dégâts qui traverse le bouclier
@@ -49,10 +54,16 @@ var _zone_r := 1.6
 var _cycle := 0
 var _summoned := false
 
-# Ō-Kappa
+# Ō-Kappa (corps d'encre modelé en code : tête, bras, gouttes ; la coupelle garde sa place, y 2,62)
 var body: Node3D
-var ch: Node3D
-var _anim_lock := 0.0  # laisse finir une animation jouée une fois
+var _mat: StandardMaterial3D  # toon à couleurs de sommets, propre au gardien (éclat des coups, lueur d'annonce)
+var _arms: Array = []  # [gauche, droit]
+var _drips: Array = []  # pivots des gouttes sous le corps
+var _bowl: Node3D
+var _water: Node3D
+var _pose := 0.0  # 0 : bras au repos (bâton dressé) ; 1 : bras levés et écartés (salve, sortie de l'eau)
+var _pose_tgt := 0.0
+var _anim_lock := 0.0  # garde la pose levée un instant (sortie de l'eau)
 var _death_played := false
 
 # Uwabami
@@ -110,50 +121,180 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ construction
 
+## Ō-Kappa : le kappa commun (yokai_ink_w1.gd) en géant — corps d'encre à obi d'étang (liserés et oreilles
+## d'or de l'élite), grande carapace à plaques cerclées d'or, masque vert cerné d'or au bec d'or, grand bâton
+## dressé ; la coupelle d'or (son point faible, visible de dos) reste au nœud « bowl », y 2,62. Deux matériaux :
+## toon à couleurs de sommets (propre : éclat, lueur) et l'aplat partagé (yeux, eau). Bras et gouttes animés
+## en code (_kp_anim).
 func _build_okappa() -> void:
+	var lite := Toon.lite
+	var u := KAPPA_U
+	var w := KAPPA_W
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
-	body.add_child(ch)
-	var tex: Texture2D = load("res://assets/kaykit/tex/skeleton_prussian.png")
-	ch.setup(MAGE, 2.8, [["Hat", tex], ["Body", tex]], ["Skeleton_Mage_Hat"], Toon.GOLD)
-	ch.idle = "Idle_Combat"
-	# la coupelle d'eau sur le crâne : son point faible, visible de dos
-	var bowl := Toon.part(body, Toon.cyl(0.42, 0.3, 0.12, 20), Toon.mat_shared(Toon.GOLD), Vector3(0, 2.62, 0.05))
-	bowl.name = "bowl"
-	Toon.part(body, Toon.cyl(0.34, 0.34, 0.02, 20), Toon.mat_shared(BOWL_WATER, false), Vector3(0, 2.69, 0.05))
+	_mat = Toon.mat(Color.WHITE, true, 0.03)
+	_mat.vertex_color_use_as_albedo = true
+	_mat.vertex_color_is_srgb = true
+	_mat.rim = 0.35
+	_mat.rim_tint = 0.5
+	_mat.emission_enabled = true
+	_mat.emission = Color.WHITE
+	_mat.emission_energy_multiplier = 0.0
+	# corps : dôme d'encre et obi d'étang ; carapace olive dans le dos, plaques sombres cerclées d'or
+	var b := Yokai.Mesher.new(u)
+	Yokai.ink_body(b, w, Yokai.INK, Yokai.POND_CLOTH, Yokai.POND_WAVE, Toon.GOLD, lite, true)
+	var sc := Vector3(0, 0.95, 0.3 * w)
+	var sr := Vector3(0.42 * w, 0.52, 0.2)
+	b.ball(sc, sr, SHELL, Vector3.ZERO, 10)
+	b.cyl(Vector3(0, 0.95, 0.3 * w), Vector3(0.44 * w, 0.06, 0.1), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 12)
+	var plates := [Vector2(0, 0.2), Vector2(0.22, 0.0), Vector2(-0.22, 0.0), Vector2(0, -0.22)]
+	if not lite:
+		plates.append_array([Vector2(0.2, -0.3), Vector2(-0.2, -0.3), Vector2(0.24, 0.26), Vector2(-0.24, 0.26)])
+	for q in plates:
+		var pv: Vector2 = q
+		# plaque posée sur l'ellipsoïde de la carapace (profondeur z déduite), cerne d'or en dessous
+		var nz := sqrt(maxf(1.0 - pow(pv.x / sr.x, 2.0) - pow(pv.y / sr.y, 2.0), 0.0))
+		var at := sc + Vector3(pv.x, pv.y, sr.z * nz)
+		b.ball(at - Vector3(0, 0, 0.012), Vector3(0.12, 0.13, 0.025), Toon.GOLD, Vector3.ZERO, 8)
+		b.ball(at, Vector3(0.095, 0.105, 0.03), SHELL_D, Vector3.ZERO, 8)
+	_kp_part(body, b.mesh(), Vector3.ZERO)
+	# tête : masque vert cerné d'or, sourcils froncés, yeux d'étang, bec d'or, rides d'or ; couronne de paille
+	# autour de la coupelle. Le nœud est avancé pour que le masque sorte du dôme élargi.
+	var head_z := -0.08 * u
+	var a := Yokai.Mesher.new(u)
+	var f := Yokai.Mesher.new(u)
+	Yokai.mask_plate(a, Yokai.MASK_KAPPA, 1.25, 1.15, true)
+	Yokai.mask_brows(a, Toon.SUMI, true, 1.25)
+	Yokai.mask_eyes(f, Yokai.EYE_POND, 0.07, 1.25)
+	a.spike(Vector3(0, -0.1, Yokai.FACE_Z + 0.01), 0.1, 0.22, Toon.GOLD, Vector3(-PI / 2.0 - 0.3, 0, 0), 0.0, 5, 0.55)
+	a.box(Vector3(0, -0.24, Yokai.FACE_Z), Vector3(0.2, 0.03, 0.02), Toon.SUMI)
+	if not lite:
+		for sx in [-1.0, 1.0]:
+			a.box(Vector3(float(sx) * 0.27, -0.06, Yokai.FACE_Z), Vector3(0.03, 0.16, 0.015), Toon.GOLD, Vector3(0, 0, float(sx) * 0.3))
+	var crown_z := (0.05 - head_z) / u
+	a.cyl(Vector3(0, 0.31, crown_z), Vector3(0.3, 0.06, 0.3), Yokai.STRAW, Vector3.ZERO, 0.9, 12)
+	_kp_part(body, Yokai.two(a, f), Vector3(0, 1.22 * u, head_z))
+	# coupelle d'or (point faible) et son eau : même place et même nom qu'avant
+	_bowl = Node3D.new()
+	_bowl.name = "bowl"
+	_bowl.position = Vector3(0, 2.62, 0.05)
+	body.add_child(_bowl)
+	Toon.part(_bowl, Toon.cyl(0.42, 0.3, 0.12, 20), Toon.mat_shared(Toon.GOLD), Vector3.ZERO)
+	_water = Toon.part(_bowl, Toon.cyl(0.34, 0.34, 0.02, 20), Toon.mat_shared(BOWL_WATER, false), Vector3(0, 0.07, 0))
+	# bras d'encre (épaules du rig d'encre) ; bâton en main droite, dressé (rôle de tireur)
+	var ad := {}
+	Yokai.ink_arm(ad, Yokai.INK, 1.3)
+	_arms.clear()
+	for sx in [-1.0, 1.0]:
+		var arm := Node3D.new()
+		arm.position = Vector3(float(sx) * 0.42 * w * u, 1.0 * u, -0.02 * u)
+		body.add_child(arm)
+		var am := _kp_part(arm, ad["arm"], Vector3.ZERO)
+		am.scale = Vector3.ONE * u
+		_arms.append(arm)
+	var hand := Node3D.new()
+	hand.position = Vector3(0, -0.44 * u, 0)
+	hand.rotation.x = PI
+	hand.scale = Vector3.ONE * 1.6
+	(_arms[1] as Node3D).add_child(hand)
+	_kp_part(hand, Yokai.weapon("staff"), Vector3(0, 0.02, 0))
+	# gouttes d'encre sous le corps (elles s'étirent et retombent)
+	var dd := {}
+	Yokai.ink_drip(dd, Yokai.INK)
+	var pts := [Vector3(0.16, 0.36, -0.14), Vector3(-0.19, 0.35, 0.05), Vector3(0.05, 0.34, 0.2)]
+	if not lite:
+		pts.append(Vector3(-0.08, 0.37, -0.22))
+	_drips.clear()
+	for p in pts:
+		var piv := Node3D.new()
+		piv.position = (p as Vector3) * u * Vector3(w, 1.0, w)
+		body.add_child(piv)
+		var dm := _kp_part(piv, dd["drip"], Vector3.ZERO)
+		dm.scale = Vector3.ONE * u
+		_drips.append(piv)
 	Toon.disc(self, 1.0, Color(0, 0, 0, 0.14))
 	body.scale = Vector3.ONE * 0.01
-	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 1.2, 0.0)
+	_arms[1].rotation = Vector3(2.75, 0, 0.3)
+	_arms[0].rotation = Vector3(0.35, 0, -0.3)
 
 
+## Pièce d'Ō-Kappa : surface 0 = toon du gardien, surface 1 (s'il y en a une) = aplat lumineux.
+func _kp_part(parent: Node3D, m: Mesh, pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.position = pos
+	mi.set_surface_override_material(0, _mat)
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	if Toon.lite:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+## Lueur d'annonce (vermillon) ou éclat blanc des coups sur l'encre du gardien.
+func _kp_glow(a: float, col := Toon.VERMILION) -> void:
+	if _mat == null:
+		return
+	_mat.emission = col
+	_mat.emission_energy_multiplier = a
+
+
+## Ō-Kappa : respiration, bras (repos : bâton dressé ; levés et écartés pour la salve et la sortie de l'eau ;
+## pendants quand il est sonné), gouttes qui s'étirent, coupelle renversée tant qu'il est sonné.
+func _kp_anim(delta: float) -> void:
+	if _anim_lock <= 0.0 and _state != "fan":
+		_pose_tgt = 0.0
+	_pose = move_toward(_pose, _pose_tgt, delta * 4.5)
+	var stunned := _state == "stun"
+	var dying := _state == "dying"
+	if _state == "idle" or _state == "fan":
+		body.position.y = absf(sin(_t * 3.2)) * 0.05 if _state == "idle" else 0.0
+	for i in 2:
+		var arm: Node3D = _arms[i]
+		var sx := -1.0 if i == 0 else 1.0
+		var rest := Vector3(0.35, 0, -0.3) if i == 0 else Vector3(2.75, 0, 0.3)
+		var up := Vector3(2.9, 0, sx * 0.9)
+		var want := rest.lerp(up, _pose)
+		want.x += sin(_t * 2.2 + float(i) * PI) * 0.1 * (1.0 - _pose)
+		if stunned:
+			want = Vector3(0.3 + sin(_t * 12.0) * 0.1, 0, sx * 1.25)
+		elif dying:
+			want = Vector3(0.1, 0, sx * 0.5)
+		arm.rotation = arm.rotation.lerp(want, minf(1.0, delta * 8.0))
+	var k := 0
+	for d in _drips:
+		var piv: Node3D = d
+		var fast := _state == "sink" or _state == "hidden" or _anim_lock > 0.0
+		var st := 1.0 + 0.35 * maxf(sin(_t * (6.0 if fast else 2.4) + float(k) * 1.7), -0.6)
+		piv.scale = Vector3(1.0, st, 1.0)
+		k += 1
+	var tilt := 1.25 if stunned else 0.0
+	_bowl.rotation.x = lerpf(_bowl.rotation.x, tilt, minf(1.0, delta * 6.0))
+	_water.visible = not stunned and not dying
+
+
+## Uwabami : long corps d'encre bleue — tête à grand masque de serpent (washi cerné d'or, sourcils froncés,
+## yeux d'or, gueule vermillon aux crocs d'or), cornes d'or, crinière d'encre, collerette d'étoffe de Prusse
+## à seigaiha ; chaque segment est ceint de la même étoffe, coiffé d'un petit masque washi aux yeux d'or,
+## porte une nageoire d'or une fois sur deux et des gouttes aux flancs. Les nœuds des segments gardent leurs
+## positions et leur taille (mécanique) ; seule la pièce qu'ils portent change. Deux matériaux partagés.
 func _build_uwabami() -> void:
-	var skin := Toon.mat_shared(Toon.PRUSSIAN)
-	var belly := Toon.mat_shared(Color("#C9D6DC"))
-	var fin := Toon.mat_shared(Toon.GOLD)
-	var horn := Toon.mat_shared(Toon.FOAM)
+	var lite := Toon.lite
+	var head_m := _uwabami_head(lite)
+	var seg_m: Array = [_uwabami_seg(lite, false), _uwabami_seg(lite, true)]
 	for i in SEGMENTS:
 		var s := Node3D.new()
 		add_child(s)
 		var k := 1.0 - 0.5 * float(i) / float(SEGMENTS - 1)
-		if i == 0:
-			# tête de dragon d'eau
-			Toon.part(s, Toon.sphere(0.72), skin, Vector3(0, 0.55, 0), Vector3(1.0, 0.85, 1.15))
-			Toon.part(s, Toon.box(Vector3(0.7, 0.4, 0.8)), skin, Vector3(0, 0.45, -0.75))
-			Toon.part(s, Toon.box(Vector3(0.6, 0.12, 0.7)), belly, Vector3(0, 0.22, -0.7))
-			for sx in [-1.0, 1.0]:
-				var h := Toon.part(s, Toon.cyl(0.0, 0.1, 0.7, 8), horn, Vector3(sx * 0.35, 1.15, 0.15))
-				h.rotation = Vector3(0.6, 0, sx * 0.35)
-				Toon.part(s, Toon.sphere(0.12), Toon.mat_shared(Toon.GOLD, false), Vector3(sx * 0.32, 0.78, -0.45))
-				Toon.part(s, Toon.sphere(0.06), Toon.mat_shared(Toon.SUMI, false), Vector3(sx * 0.34, 0.8, -0.55))
-			var mane := Toon.part(s, Toon.cyl(0.0, 0.35, 0.8, 6), Toon.mat_shared(Toon.VERMILION), Vector3(0, 1.0, 0.45))
-			mane.rotation.x = -1.0
-		else:
-			Toon.part(s, Toon.sphere(SEG_R * k), skin, Vector3(0, 0.45 * k, 0), Vector3(1.0, 0.85, 1.25))
-			Toon.part(s, Toon.sphere(SEG_R * k * 0.8), belly, Vector3(0, 0.25 * k, 0), Vector3(1.0, 0.5, 1.2))
-			if i % 2 == 1:
-				var f := Toon.part(s, Toon.cyl(0.0, 0.18 * k, 0.5 * k, 4), fin, Vector3(0, 0.95 * k, 0))
-				f.rotation.x = -0.5
+		var mi := MeshInstance3D.new()
+		mi.mesh = head_m if i == 0 else seg_m[i % 2]
+		mi.scale = Vector3.ONE * (1.0 if i == 0 else k)
+		mi.set_surface_override_material(0, Yokai.mat())
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+		if lite:
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		s.add_child(mi)
 		s.position = Vector3(0, _depth, -HALF.y - 4.0 - i * SPACING)
 		_segs.append(s)
 	for i in SEGMENTS * 12:
@@ -163,6 +304,93 @@ func _build_uwabami() -> void:
 	add_child(_marks)
 	_state = "dive"
 	_timer = 0.5
+
+
+## Tête d'Uwabami (unités du monde, face vers -Z) : crâne et mufle d'encre, grand masque de nō de serpent,
+## cornes d'or, crinière d'encre, collerette d'étoffe à la nuque, deux gouttes sous la mâchoire.
+static func _uwabami_head(lite: bool) -> ArrayMesh:
+	var a := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	a.ball(Vector3(0, 0.55, 0.05), Vector3(0.74, 0.62, 0.9), INK_WAVE, Vector3.ZERO, 10)
+	a.ball(Vector3(0, 0.42, -0.72), Vector3(0.56, 0.4, 0.5), INK_WAVE, Vector3.ZERO, 8)
+	# collerette : anneau d'étoffe de Prusse à la nuque, liseré d'or, écailles d'écume sur le dessus
+	a.cyl(Vector3(0, 0.5, 0.78), Vector3(0.8, 0.34, 0.7), Yokai.SEA_CLOTH, Vector3(PI / 2.0, 0, 0), 0.92, 12)
+	a.cyl(Vector3(0, 0.5, 0.97), Vector3(0.78, 0.05, 0.68), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 12)
+	_seigaiha(a, Vector3(0, 0.5, 0.78), Vector2(0.8, 0.7), 5 if lite else 8, 0.1)
+	# masque : plaque washi légèrement relevée, cerne d'or ; traits posés dans son repère
+	var mrot := Vector3(-0.62, 0, 0)  # relevé vers le ciel : la caméra plonge, la face doit se lire du dessus
+	var mb := Basis.from_euler(mrot)
+	var mc := Vector3(0, 0.78, -0.9)
+	a.ball(mc, Vector3(0.64, 0.6, 0.14), Yokai.MASK_WASHI, mrot, 10)
+	a.ball(mc + mb * Vector3(0, 0, 0.06), Vector3(0.7, 0.66, 0.1), Toon.GOLD, mrot, 10)
+	var fz := -0.135
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		a.box(mc + mb * Vector3(x * 0.27, 0.3, fz), Vector3(0.3, 0.07, 0.03), Toon.SUMI, Vector3(-0.62, 0, x * 0.42))
+		f.ball(mc + mb * Vector3(x * 0.25, 0.1, fz), Vector3(0.14, 0.11, 0.02), Yokai.EYE_GOLD, mrot, 8)
+		f.box(mc + mb * Vector3(x * 0.25, 0.1, fz - 0.014), Vector3(0.04, 0.15, 0.012), Toon.SUMI, mrot)
+		# crocs d'or qui descendent de la lèvre
+		a.spike(mc + mb * Vector3(x * 0.24, -0.17, fz + 0.01), 0.05, 0.22, Toon.GOLD, Vector3(PI - 0.45, 0, x * 0.1), 0.0, 4)
+		if not lite:
+			a.ball(mc + mb * Vector3(x * 0.07, -0.06, fz), Vector3(0.03, 0.02, 0.012), Toon.SUMI, mrot, 6)
+	# gueule : la seule tache de vermillon, là où il crache
+	a.box(mc + mb * Vector3(0, -0.24, fz + 0.005), Vector3(0.74, 0.16, 0.04), Toon.VERMILION, mrot)
+	a.box(mc + mb * Vector3(0, -0.24, fz - 0.01), Vector3(0.74, 0.03, 0.02), Toon.SUMI, mrot)
+	# cornes d'or, crinière d'encre qui coule en arrière
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		a.spike(Vector3(x * 0.36, 1.05, 0.1), 0.12, 0.75, Toon.GOLD, Vector3(0.6, 0, x * 0.35), 0.0, 6)
+	var n := 3 if lite else 5
+	for i in n:
+		var x := (float(i) - 0.5 * float(n - 1)) * 0.22
+		a.spike(Vector3(x, 1.0 - absf(x) * 0.5, 0.35), 0.11, 0.7 - absf(x) * 0.6, INK_WAVE, Vector3(-1.1, 0, x * 0.8), 0.0, 5)
+	# crête d'or au sommet du crâne (lisible du dessus)
+	a.spike(Vector3(0, 1.0, 0.1), 0.2, 0.55, Toon.GOLD, Vector3(-0.35, 0, 0), 0.0, 4, 0.25)
+	if not lite:
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			var tip := a.spike(Vector3(x * 0.3, 0.16, -0.62), 0.07, 0.3, INK_WAVE, Vector3(PI, 0, -x * 0.25), 0.3, 5)
+			a.ball(tip, Vector3(0.05, 0.06, 0.05), INK_WAVE, Vector3.ZERO, 6)
+	return Yokai.two(a, f)
+
+
+## Segment d'Uwabami (unité ; le nœud le réduit vers la queue) : boule d'encre ceinte d'étoffe de Prusse
+## à seigaiha et liserés d'or, petit masque washi aux yeux d'or sur le dos, nageoire d'or (`fin`), gouttes.
+static func _uwabami_seg(lite: bool, fin: bool) -> ArrayMesh:
+	var a := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	a.ball(Vector3(0, 0.45, 0), Vector3(0.55, 0.47, 0.69), INK_WAVE, Vector3.ZERO, 10)
+	a.cyl(Vector3(0, 0.45, 0.22), Vector3(0.56, 0.24, 0.48), Yokai.SEA_CLOTH, Vector3(PI / 2.0, 0, 0), 1.0, 12)
+	for z in [0.09, 0.35]:
+		a.cyl(Vector3(0, 0.45, float(z)), Vector3(0.575, 0.035, 0.495), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 12)
+	_seigaiha(a, Vector3(0, 0.45, 0.22), Vector2(0.56, 0.48), 5 if lite else 8, 0.065)
+	# petit masque washi posé sur le dos, tourné vers le ciel : cerne d'or, yeux d'or, sourcil, bouche
+	var mrot := Vector3(-1.25, 0, 0)
+	var mb := Basis.from_euler(mrot)
+	var pc := Vector3(0, 0.9, -0.2)
+	a.ball(pc, Vector3(0.26, 0.3, 0.07), Yokai.MASK_WASHI, mrot, 8)
+	a.ball(pc + mb * Vector3(0, 0, 0.035), Vector3(0.29, 0.33, 0.05), Toon.GOLD, mrot, 8)
+	for sx in [-1.0, 1.0]:
+		f.ball(pc + mb * Vector3(float(sx) * 0.1, 0.03, -0.075), Vector3(0.06, 0.045, 0.012), Yokai.EYE_GOLD, mrot, 6)
+		f.ball(pc + mb * Vector3(float(sx) * 0.1, 0.03, -0.085), Vector3(0.022, 0.028, 0.01), Toon.SUMI, mrot, 6)
+	a.box(pc + mb * Vector3(0, 0.15, -0.075), Vector3(0.26, 0.03, 0.012), Toon.SUMI, mrot)
+	a.box(pc + mb * Vector3(0, -0.13, -0.075), Vector3(0.12, 0.024, 0.012), Toon.SUMI, mrot)
+	if fin:
+		a.spike(Vector3(0, 0.8, 0.42), 0.24, 0.62, Toon.GOLD, Vector3(-0.75, 0, 0), 0.0, 4, 0.3)
+	if not lite:
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			var tip := a.spike(Vector3(x * 0.5, 0.3, 0.1), 0.07, 0.3, INK_WAVE, Vector3(PI, 0, -x * 0.25), 0.3, 5)
+			a.ball(tip, Vector3(0.05, 0.06, 0.05), INK_WAVE, Vector3.ZERO, 6)
+	return Yokai.two(a, f)
+
+
+## Écailles d'écume (seigaiha) sur le dessus d'un anneau d'étoffe d'axe z : centre `c`, demi-axes `r` (x, y).
+static func _seigaiha(a: Yokai.Mesher, c: Vector3, r: Vector2, n: int, w: float) -> void:
+	for i in n:
+		var ang := -1.9 + 3.8 * float(i) / float(n - 1)
+		var at := c + Vector3(sin(ang) * r.x, cos(ang) * r.y, 0)
+		a.ball(at, Vector3(w, 0.022, w * 0.6), Yokai.SEA_WAVE, Vector3(0, 0, -ang), 6)
 
 
 # ------------------------------------------------------------------ interface avec main
@@ -472,14 +700,13 @@ func _shield_break() -> void:
 	main.feel("heavy")
 	main.shake = maxf(float(main.shake), 0.69)
 	if kind == "okappa":
-		# sonné : coupelle renversée, plus d'attaque
+		# sonné : coupelle renversée (_kp_anim la penche), bras pendants, plus d'attaque
 		_cancel()
-		if ch != null:
-			ch.set_glow(0.0)
+		_kp_glow(0.0)
 		body.position.y = 0.0
 		_state = "stun"
-		ch.play_once("Hit_A", 1.0)
-		_anim_lock = 0.6
+		_pose_tgt = 0.0
+		_anim_lock = 0.0
 	else:
 		# il reste en surface là où il est, sonné, le temps de la fenêtre
 		_clear_marks()
@@ -573,8 +800,8 @@ func _process(delta: float) -> void:
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
-		if ch:
-			ch.set_flash(1.0 if _flash > 0.0 else 0.0)
+		if kind == "okappa":
+			_kp_glow(1.0 if _flash > 0.0 else 0.0, Color.WHITE)
 	_shield_tick(delta)
 	if kind == "okappa":
 		_okappa(delta)
@@ -607,26 +834,24 @@ func _okappa(delta: float) -> void:
 			var want := -1.0 if dist < 4.0 else (1.0 if dist > 6.5 else 0.0)
 			position += (dir * want + side * 0.7) * 1.3 * delta
 			main.clamp_to_arena(self, radius)
-			if _anim_lock <= 0.0:
-				ch.play("Walking_B", 0.7)
 			_timer -= delta
 			if _timer <= 0.0:
 				_cycle += 1
 				if _cycle % 3 == 0:
 					_state = "sink"
 					_timer = 0.6
-					ch.play_once("Death_C_Skeletons", 2.0)
 				else:
+					# bras levés, bâton dressé : la salve se charge
 					_state = "fan"
 					_timer = 0.8
-					ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / 0.8)
+					_pose_tgt = 1.0
 		"fan":
 			if _flash <= 0.0:
-				ch.set_glow(0.55 * (1.0 - _timer / 0.8))
+				_kp_glow(0.55 * (1.0 - _timer / 0.8))
 			_timer -= delta
 			if _timer <= 0.0:
 				if _flash <= 0.0:
-					ch.set_glow(0.0)
+					_kp_glow(0.0)
 				for i in 5:
 					var a := deg_to_rad(-30.0 + 15.0 * i)
 					var d := dir.rotated(Vector3.UP, a)
@@ -648,8 +873,8 @@ func _okappa(delta: float) -> void:
 				main.clamp_to_arena(self, radius)
 				main.enemy_strike(c, 1.6)
 				body.position.y = 0.0
-				ch.idle = "Idle_Combat"
-				ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 0.5, 0.0)
+				# il jaillit bras écartés, puis les laisse retomber
+				_pose_tgt = 1.0
 				_anim_lock = 0.5
 				_state = "idle"
 				_timer = 1.4
@@ -661,12 +886,16 @@ func _okappa(delta: float) -> void:
 			_timer += delta
 			if not _death_played:
 				_death_played = true
-				ch.hold()
-				ch.play_once("Death_C_Skeletons", 1.2, 0.05)
+				_kp_glow(0.0)
+			# il s'affaisse, penche, puis coule
+			var kd := minf(_timer, 1.0)
+			body.rotation.z = minf(_timer * 1.5, 1.0) * 0.45
+			body.scale = Vector3(1.0 + 0.1 * kd, 1.0 - 0.15 * kd, 1.0 + 0.1 * kd)
 			if _timer > 1.4:
 				body.position.y -= delta * 1.5
 			if _timer > 2.2:
 				queue_free()
+	_kp_anim(delta)
 
 
 func _uwabami(delta: float) -> void:
