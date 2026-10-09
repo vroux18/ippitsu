@@ -883,7 +883,7 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		if side.dot(e.position - main.hero.position) < 0.0:
 			side = -side
 		e.push(side * val("water_push") * 3.0 * _wave_mult())
-		main.vfx.wave_arc(e.position, side, 0.7)
+		main.vfx.wave_arc(e.position, side, 0.7, true)
 	_storm(e.position)
 	if lvl("bolt_arc") > 0:
 		for o in main.nearest_enemies(e.position, 3.0, int(val("bolt_arc")), e):
@@ -937,8 +937,7 @@ func _common_hit(pos: Vector3) -> void:
 	if lvl("shadow_stolen") > 0 and combo >= 4 and _stolen_stroke != int(main.stroke_id):
 		_stolen_stroke = int(main.stroke_id)
 		_slow(val("shadow_stolen"), 0.3)
-		main.vfx.ring(Vector3(pos.x, 0.06, pos.z), Vfx.SHADOW, 2.0)
-		main.vfx.smoke(pos, 0.6, 7)
+		main.vfx.shadow_burst(pos, 2.0)
 		main.sfx.play("puff", 0.8, -3.0)
 		main.vfx.school_kanji(pos, "shadow")
 
@@ -998,11 +997,11 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		main.damage_bosses(pos, 1.8, hd)
 	if lvl("shadow_veil") > 0 and kills >= 2:
 		main.hero.invuln = maxf(float(main.hero.invuln), val("shadow_veil"))
-		main.vfx.smoke(pos, 0.5, 6)
+		main.vfx.shadow_burst(pos, 1.4)
 		main.sfx.play("puff", 0.9, -5.0)
 	if lvl("water_tide") > 0:
 		var td := val("water_tide") * _wave_mult()
-		main.vfx.water_burst(pos, 1.75)
+		main.vfx.water_burst(pos, 1.75, true)
 		_burst(pos, 2.6, td, 9.0)
 	if lvl("water_uzushio") > 0 and combo >= 3:
 		_add_whirl(pos)
@@ -1016,8 +1015,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		main.damage_bosses(pos, 2.2, cd)
 	if lvl("wind_fujin") > 0:
 		# l'arrivée souffle : repousse et blesse un peu
-		main.vfx.ring(Vector3(pos.x, 0.07, pos.z), WIND_COLOR, 1.6)
-		main.vfx.swirl(pos, 1.8)
+		main.vfx.wind_burst(pos, 1.6)
 		_burst(pos, 2.4, 0.8, 12.0)
 	if lvl("water_kanagawa") > 0 and _strokes % 3 == 0 and _last_pts.size() > 1:
 		_add_wave(_last_pts)
@@ -1025,7 +1023,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		_drum()
 	if lvl("ink_ippitsu") > 0 and _stroke_hits >= 4:
 		_ippitsu_next = true
-		main.vfx.ink_wave(pos, 1.6)
+		main.vfx.ink_wave(pos, 1.6, true)
 		main.shape_text(pos, "筆")
 	_ippitsu_now = false
 
@@ -1203,7 +1201,7 @@ func figure_landed(pos: Vector3) -> void:
 	var r := _fig_enso_r
 	main._blot(pos, Color(Toon.VERMILION, 0.3), r, 1.2)
 	main.splash(pos, Toon.SUMI, 24)
-	main.ink_wave(pos, r * 0.6)
+	main.ink_wave(pos, r / 1.5)
 	var dmg := _fv("fig_enso")
 	var push := 4.0 if lvl("fig_enso_big") == 0 else 8.0
 	for o in main.nearest_enemies(pos, r + 0.4, 99, null):
@@ -1221,7 +1219,7 @@ func figure_landed(pos: Vector3) -> void:
 	if lvl("ink_enso") > 0:
 		# Ensō parfait : grande onde d'encre et cercle d'encre qui blesse
 		var rr := r * 1.4 + 0.4
-		main.vfx.ink_wave(pos, rr / 1.5)
+		main.vfx.ink_wave(pos, rr / 1.5, true)
 		main.vfx.school_kanji(pos, "ink")
 		main.shake = maxf(float(main.shake), 0.6)
 		_burst(pos, rr, val("ink_enso"), 8.0)
@@ -1332,10 +1330,10 @@ func _fig_return(hp: Vector3) -> void:
 	var d := _fv("fig_return")
 	main.hero.guard(d)
 	main.splash(hp, Toon.GOLD, 12)
+	main.vfx.guard(hp, _fig_r(2.4) if lvl("fig_return_counter") > 0 else 1.3)
 	if lvl("fig_return_counter") > 0:
 		_fig_counter_t = d + 0.15
 		_fig_countered.clear()
-		main.vfx.ring(Vector3(hp.x, 0.07, hp.z), Toon.GOLD, _fig_r(2.4))
 
 
 ## Contre : chaque ennemi proche qui prépare un coup est contré une fois (dégâts, étourdi).
@@ -1476,7 +1474,7 @@ func on_hurt() -> bool:
 		main.sfx.play("whoosh", 0.7)
 		var d := val2("shadow_utsusemi")
 		for o in main.nearest_enemies(p, 2.4, 99, null):
-			main.vfx.shadow_stab(p, o.position)
+			main.vfx.shadow_stab(p, o.position, true)
 			main.damage_enemy(o, d)
 		main.damage_bosses(p, 2.4, d)
 		return true
@@ -1487,7 +1485,7 @@ func on_hurt() -> bool:
 		var p2: Vector3 = h.position
 		main.shape_text(p2, "鳳")
 		# renaissance : grande couronne de flammes et braises
-		main.vfx.fire_burst(p2, 2.4)
+		main.vfx.fire_burst(p2, 2.4, true)
 		main.vfx.ring(Vector3(p2.x, 0.1, p2.z), Vfx.FIRE_HOT, 1.5)
 		main.vfx.embers(p2, 0.8, 10)
 		main.splash(p2, Vfx.FIRE_HOT, 14)
@@ -1611,7 +1609,7 @@ func _watch_foam() -> void:
 	var f := int(main.foam)
 	if f < _foam_seen and lvl("water_foam") > 0:
 		var p: Vector3 = main.hero.position
-		main.vfx.water_burst(p, 1.5)
+		main.vfx.water_burst(p, 1.5, true)
 		_burst(p, 2.2, val2("water_foam") * _wave_mult(), 10.0)
 	_foam_seen = f
 
@@ -1629,7 +1627,7 @@ func _blades(p: Vector3) -> void:
 			_blade_hit[eid] = true
 			main.damage_enemy(e, d)
 			# lame de vent : croissant jade
-			main.vfx.wind_slash(e.position, e.position - p)
+			main.vfx.wind_slash(e.position, e.position - p, 0.9, true)
 
 
 ## Kagami : la ruée renvoie les boules qu'elle frôle vers l'ennemi le plus proche.
@@ -1782,7 +1780,7 @@ func _burst(p: Vector3, r: float, dmg: float, push: float) -> void:
 
 ## Ensō parfait : onde d'encre (chaque forme), qui brûle avec Foyer.
 func _ink_wave(p: Vector3, r: float, dmg: float) -> void:
-	main.vfx.ink_wave(p, r / 1.5)
+	main.vfx.ink_wave(p, r / 1.5, true)
 	if lvl("fire_hearth") > 0:
 		for o in main.nearest_enemies(p, r, 99, null):
 			_ignite(o, maxf(val("fire_burn"), 0.6), 3.0)
@@ -1792,7 +1790,7 @@ func _ink_wave(p: Vector3, r: float, dmg: float) -> void:
 func _whirl_burst(p: Vector3, r: float, dmg: float) -> void:
 	# tourbillon tranchant : spirale jade et lames de vent
 	main.vfx.swirl(p, r)
-	main.vfx.wind_slash(p, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.1)
+	main.vfx.wind_slash(p, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.1, true)
 	_burst(p, r, dmg, 7.0)
 
 
@@ -1881,7 +1879,7 @@ func _add_whirl(p: Vector3) -> void:
 	var dur := 3.0 + (1.0 if lvl("water_tide") > 0 else 0.0)
 	_zones.append({"kind": "whirl", "pos": Vector3(p.x, 0, p.z), "t": dur, "tick": 0.0, "r": 2.2,
 		"dps": val("water_uzushio") * _wave_mult(), "node": node, "spin": spin})
-	main.vfx.water_burst(p, 1.6)
+	main.vfx.water_burst(p, 1.6, true)
 
 
 func _add_inkring(p: Vector3, r: float) -> void:
@@ -1975,12 +1973,8 @@ func _update_zones(dt: float) -> void:
 func _add_wave(points: PackedVector3Array) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
-	var wall := _part(node, _box(), _flat("wave", Color("#1668B0", 0.88)))
-	wall.scale = Vector3(2.6, 0.75, 0.45)
-	wall.position = Vector3(0, 0.38, 0)
-	var crest := _part(node, _box(), main.vfx.glow_mat(Vfx.WATER_FOAM, 1.4))
-	crest.scale = Vector3(2.9, 0.2, 0.6)
-	crest.position = Vector3(0, 0.8, -0.1)
+	# crête de vague à la Hokusai (maillage et matériau partagés de vfx)
+	main.vfx.dress_wave(node)
 	var dmg := (3.0 + (1.0 if lvl("water_push") > 0 else 0.0)) * _wave_mult()
 	_sweeps.append(_sweep(points, "wave", node, 22.0, 0.0, 1.3, dmg))
 	main.shape_text(points[0], "波")

@@ -613,6 +613,7 @@ func _warmup() -> void:
 	_slash_mark(fxp, Vector3.FORWARD)
 	vfx.impact(fxp, Vector3.FORWARD, true)
 	vfx.kill_burst(fxp, Vector3.FORWARD, true)
+	vfx.warm(fxp)  # effets riches des pouvoirs (pinceau, additifs, crête de vague)
 	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
 	var spent_end := Time.get_ticks_usec() - t0
 	t_cpu += spent_end
@@ -3476,12 +3477,12 @@ func heal(n: int) -> void:
 
 ## Éclair (雷) : zigzag jaune cerné d'encre, de a à b (à hauteur de torse).
 func zap(a: Vector3, b: Vector3) -> void:
-	vfx.bolt(Vector3(a.x, 0.9, a.z), Vector3(b.x, 0.9, b.z))
+	vfx.bolt(Vector3(a.x, 0.9, a.z), Vector3(b.x, 0.9, b.z), 3, true)
 
 
 ## Cercle de feu (火) : couronne de flammes, anneau orange, braises, roussi.
 func fire_ring(pos: Vector3, r: float) -> void:
-	vfx.fire_burst(pos, r)
+	vfx.fire_burst(pos, r, true)
 
 
 ## Sillage de feu : vraies flammes le long du trait et traînée de suie (durée en temps du jeu).
@@ -3491,17 +3492,17 @@ func fire_trail_fx(points: PackedVector3Array, dur: float) -> void:
 
 ## Estoc d'ombre (影) de a vers b (crochet, riposte d'Utsusemi).
 func shadow_stab(a: Vector3, b: Vector3) -> void:
-	vfx.shadow_stab(a, b)
+	vfx.shadow_stab(a, b, true)
 
 
 ## Tourbillon de vent (風) : toupie de la boucle, tourbillons.
 func wind_spin(pos: Vector3, r: float) -> void:
-	vfx.swirl(pos, r)
+	vfx.toupie(pos, r)
 
 
 ## Onde d'encre (墨) : choc de l'ensō.
 func ink_wave(pos: Vector3, r: float) -> void:
-	vfx.ink_wave(pos, r)
+	vfx.ink_wave(pos, r, true)
 
 
 ## Figure reconnue, à l'arrivée de la ruée : sa technique vient des rouleaux de figure (powers.figure_end).

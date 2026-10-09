@@ -504,10 +504,12 @@ static func _solve_spirit(pk: Dictionary, root: Node3D) -> void:
 		tf.set_parallel(true)
 		var rmv = pk.get("rmat")
 		if rmv is ShaderMaterial:
-			tf.tween_property(rmv, "shader_parameter/fade", 0.0, 0.5)
+			var sm_rmv: ShaderMaterial = rmv
+			tf.tween_method(func(x: float) -> void: sm_rmv.set_shader_parameter("fade", x), 1.0, 0.0, 0.5)
 		var amv = pk.get("amat")
 		if amv is ShaderMaterial:
-			tf.tween_property(amv, "shader_parameter/fade", 0.0, 0.5)
+			var sm_amv: ShaderMaterial = amv
+			tf.tween_method(func(x: float) -> void: sm_amv.set_shader_parameter("fade", x), 1.0, 0.0, 0.5)
 		tf.chain().tween_callback(ring.queue_free)
 	var wisps: Array = pk["wisps"]
 	for w in wisps:

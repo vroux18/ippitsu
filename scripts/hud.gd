@@ -809,7 +809,7 @@ func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 			draw_polyline(pts, ink, w, true)
 		"zigzag":
 			# éclair
-			draw_polyline(PackedVector2Array([c + Vector2(-0.6, -0.9) * s, c + Vector2(0.25, -0.15) * s, c + Vector2(-0.25, 0.1) * s, c + Vector2(0.6, 0.9) * s]), Color(Toon.GOLD.darkened(0.2), a), w * 1.2, true)
+			draw_polyline(PackedVector2Array([c + Vector2(-0.6, -0.9) * s, c + Vector2(0.25, -0.15) * s, c + Vector2(-0.25, 0.1) * s, c + Vector2(0.6, 0.9) * s]), ink, w * 1.2, true)
 		"straight":
 			# coupe nette en diagonale
 			draw_line(c + Vector2(-0.95, 0.55) * s, c + Vector2(0.95, -0.55) * s, ink, w * 1.3, true)

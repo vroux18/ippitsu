@@ -482,7 +482,8 @@ func _play(sound: String, pitch := 1.0, vol := 0.0) -> void:
 ## Secousse d'écran brève (la plus forte demandée l'emporte).
 func _shake(v: float) -> void:
 	if main and not _warming:
-		main.shake = maxf(float(main.shake), v)
+		var m = main
+		m.shake = maxf(float(m.shake), v)
 
 
 ## Éclair d'écran (papier) pour les très grands moments.
@@ -1572,7 +1573,7 @@ func _flame_crown(g: Vector3, r: float) -> void:
 		f.scale = Vector3.ONE * randf_range(1.5, 2.3) * (1.15 if hot else 1.0)
 	# cœur : une grande langue au centre
 	var c := _mi(node, _tongue(), flame_mat(FIRE_HOT))
-	c.scale = Vector3.ONE * clampf(r * 1.4, 1.8, 3.2)
+	c.scale = Vector3.ONE * clampf(r * 0.9, 1.2, 2.2)
 	_anim(node, 0.55, Vector3(1.0, 0.25, 1.0), Vector3.ONE, {"g": 0.3, "pu": 0.25, "sh": 0.45, "sm": Vector3(0.2, 1.0, 0.2)})
 
 
@@ -1967,8 +1968,8 @@ func ink_wave(pos: Vector3, r: float, hero := false) -> void:
 	if main:
 		main.splash(pos, Toon.WASHI, 6)
 	_shake(0.3)
-	if r >= 1.2:
-		_flash(0.12)
+	if r >= 1.3:
+		_flash(0.08)
 
 
 func _blade_mesh() -> ArrayMesh:
@@ -2098,9 +2099,9 @@ func school_kanji(pos: Vector3, school: String) -> void:
 ## pour compiler d'avance le pinceau des effets, les variantes additives et la crête de vague.
 func warm(p: Vector3) -> void:
 	_warming = true
+	var first := get_child_count()
 	var q := p + Vector3(1.5, 0, 0)
-	bolt(p, q, 2, true)
-	sky_bolt(p, true)
+	bolt(p, q, 2, true)  # (pas d'éclair du ciel : il dépasserait de la cachette ; ses briques sont toutes ici)
 	fire_burst(p, 1.5, true)
 	fire_trail(PackedVector3Array([p, p + Vector3(0.6, 0, 0), q]), 0.3)
 	water_burst(p, 1.2, true)
@@ -2118,6 +2119,11 @@ func warm(p: Vector3) -> void:
 	wave.position = p
 	dress_wave(wave)
 	_fx.append({"node": wave, "t": 0.0, "life": 0.5, "kind": "none"})
+	# les effets posés au ras du sol (ondes, taches, sillage) descendent eux aussi dans la cachette
+	for i in range(first, get_child_count()):
+		var ch := get_child(i) as Node3D
+		if ch != null:
+			ch.position.y -= 3.0
 	_warming = false
 
 
