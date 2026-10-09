@@ -330,394 +330,313 @@ func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
 
 
 # ------------------------------------------------------------------ planches
+# Chaque planche joue en boucle une petite scène avec le ronin, qui montre une seule mécanique.
+# Les boucles commencent et finissent dans un fondu : le raccord ne se voit pas.
 
-## 1. Un doigt trace, le ronin fonce le long du trait et tranche deux squelettes.
+## 1. Un doigt trace un trait au sol ; le ronin fonce le long et tranche les deux oni qu'il croise.
 func _page_trait(t0: float) -> void:
 	var u := _u
-	var t := fmod(t0, 3.4)
-	var fade := 1.0 - _k(t, 3.0, 0.4)
-	var a0 := _at(0.12, 0.8)
-	var path := _bez_pts(a0, _at(0.42, -0.1), _at(0.88, 0.48), 40)
-	var feet := Vector2(0, 14) * u
-	var drawn := _k(t, 0.15, 0.9)
-	var dash := _k(t, 1.1, 0.7)
-	for j in 2:
-		var hp := 0.45 if j == 0 else 0.78
-		var t_hit := 1.1 + 0.7 * hp
-		var sp := _pt_at(path, hp) + feet
-		var cut := -1.0
-		if t >= t_hit:
-			cut = _k(t, t_hit, 0.8)
-		_skeleton(sp, 0.95 * u, cut, _k(t, 0.0, 0.25))
-		if cut >= 0.0:
-			_slash_fx(sp - Vector2(0, 16) * u, cut)
+	var lp := 3.8
+	var t := fmod(t0, lp)
+	var fade := _k(t, 0.0, 0.25) * (1.0 - _k(t, lp - 0.4, 0.4))
+	var path := _bez_pts(_at(0.12, 0.84), _at(0.4, 0.08), _at(0.88, 0.7), 40)
+	var drawn := _k(t, 0.3, 1.0)
+	var dash := _k(t, 1.45, 0.6)
 	if drawn > 0.0:
-		_stroke(path, dash, drawn, 6.0 * u, _c(Toon.SUMI, fade))
-	var rp := a0 + feet
-	if dash > 0.0:
-		rp = _pt_at(path, dash) + feet
-		if dash < 1.0:
-			for g in 3:
-				var gd := maxf(0.0, dash - 0.07 * (g + 1))
-				_ronin(_pt_at(path, gd) + feet, u, 1.0, true, 0.22 * (3 - g) / 3.0 * fade)
-	_ronin(rp, u, 1.0, dash > 0.0 and dash < 1.0, fade * _k(t, 0.0, 0.2))
-	if t < 1.3:
-		_finger(_pt_at(path, drawn), u, _k(t, 0.0, 0.15) * (1.0 - _k(t, 1.05, 0.2)))
-	if t > 1.85:
-		var pk := UiKit.ease_out(_k(t, 1.85, 0.25))
-		UiKit.text(self, UiKit.TITLE_FONT, "×2", rp + Vector2(0, -50) * u, int((18.0 + 10.0 * (1.0 - pk)) * u), _c(Toon.VERMILION, pk * fade))
+		_stroke(path, 0.0, drawn, 7.0 * u, _c(Toon.SUMI, 0.85 * fade))
+	# deux oni sur le chemin
+	var kills := 0
+	for j in 2:
+		var hp := 0.42 if j == 0 else 0.76
+		var sp := _pt_at(path, hp)
+		var t_hit := 1.45 + 0.6 * hp
+		var hit := -1.0
+		if t >= t_hit:
+			hit = t - t_hit
+			kills += 1
+		_oni(sp, u, -1.0, fade, 0.0, hit)
+		if hit >= 0.0:
+			_slash_fx(sp - Vector2(0, 12) * u, _k(hit, 0.0, 0.4))
+			_puff(sp - Vector2(0, 10) * u, _k(hit, 0.12, 0.6))
+	# le ronin attend au départ du trait, puis le suit
+	var rp := _pt_at(path, dash)
+	var dashing := dash > 0.0 and dash < 1.0
+	if dashing:
+		_speed_lines(rp, _dir_at(path, dash), u, fade)
+	_ronin(rp, u, 1.0, 1 if dashing else 0, fade)
+	if t < 1.5:
+		_finger(_pt_at(path, drawn), u, _k(t, 0.15, 0.15) * (1.0 - _k(t, 1.3, 0.2)) * fade)
+	if kills >= 2:
+		var pk := UiKit.ease_out(_k(t, 1.45 + 0.6 * 0.76, 0.25))
+		UiKit.text(self, UiKit.TITLE_FONT, "×2", rp + Vector2(0, -54) * u, int((18.0 + 10.0 * (1.0 - pk)) * u), _c(Toon.VERMILION, pk * fade))
 
 
-## 2. Petit lexique : huit mots du jeu, chacun avec sa pastille ; les lignes arrivent l'une après l'autre.
-func _page_lexique(pg: Dictionary, card: Rect2, dx: float, t: float) -> void:
-	var u := _u
-	var base_a := _a
-	var cx := card.get_center().x + dx
-	var ty := card.position.y + 74.0 * u
-	UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain(String(pg.title)), Vector2(cx, ty), int(25 * u), _c(Toon.SUMI))
-	draw_line(Vector2(cx - 22.0 * u, ty + 12.0 * u), Vector2(cx + 22.0 * u, ty + 12.0 * u), _c(Toon.VERMILION), 2.0 * u)
-	var terms: Array = pg.terms
-	var wmax := card.size.x - 88.0 * u
-	for j in terms.size():
-		var row: Array = terms[j]
-		var k := UiKit.ease_out(_k(t, 0.1 + 0.07 * j, 0.4))
-		if k <= 0.0:
-			continue
-		_a = base_a * k
-		var y := card.position.y + (100.0 + 48.0 * j) * u
-		var ox := card.position.x + dx + 14.0 * u * (1.0 - k)
-		if j > 0:
-			draw_line(Vector2(ox + 24.0 * u, y), Vector2(ox + card.size.x - 24.0 * u, y), _c(Toon.SUMI, 0.08), maxf(1.0, u))
-		_lex_icon(String(row[0]), Vector2(ox + 38.0 * u, y + 24.0 * u), 17.0 * u, k)
-		draw_string(UiKit.TITLE_FONT, Vector2(ox + 70.0 * u, y + 21.0 * u), UiKit.plain(String(row[1])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), _c(Toon.SUMI))
-		var d := UiKit.plain(String(row[2]))
-		var fs := int(12 * u)
-		while fs > 8 and UiKit.UI_FONT.get_string_size(d, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > wmax:
-			fs -= 1
-		draw_string(UiKit.UI_FONT, Vector2(ox + 70.0 * u, y + 39.0 * u), d, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, _c(Toon.SUMI, 0.75))
-	_a = base_a
-
-
-## Pastille d'un mot du lexique : sceau rond (comme ceux des figures) et petit dessin à l'encre.
-## r = rayon du sceau ; k = arrivée de la ligne (le trait se dessine pendant ce temps).
-func _lex_icon(kind: String, c: Vector2, r: float, k: float) -> void:
-	if kind == "figure":
-		_symbol("loop", c, r, 1.0)
-		return
-	draw_circle(c, r + 2.5 * r / 30.0, _c(Toon.SUMI, 0.85))
-	draw_circle(c, r, _c(Toon.PAPER, 0.95))
-	var s := r / 17.0
-	match kind:
-		"trait":
-			# un trait de pinceau, la pointe vermillon au bout
-			var pts := _bez_pts(c + Vector2(-10, 7) * s, c + Vector2(-2, -15) * s, c + Vector2(10, -3) * s, 16)
-			_stroke(pts, 0.0, k, 4.0 * s, _c(Toon.SUMI))
-			draw_circle(_pt_at(pts, k), 2.0 * s, _c(Toon.VERMILION))
-		"encre":
-			# une goutte au-dessus de la jauge
-			_drop(c + Vector2(0, -3) * s, 5.5 * s, _c(Toon.SUMI))
-			_bar(c + Vector2(-10, 6.5) * s, 20.0 * s, 4.5 * s, 1.0, _c(Toon.SUMI, 0.15))
-			_bar(c + Vector2(-10, 6.5) * s, 20.0 * s, 4.5 * s, 0.6, _c(Toon.SUMI))
-		"esquive":
-			# un bond hors de la zone rouge
-			draw_line(c + Vector2(-13, 8) * s, c + Vector2(13, 8) * s, _c(Toon.SUMI, 0.3), 1.2 * s, true)
-			_ellipse(c + Vector2(-8, 8) * s, 6.0 * s, 2.2 * s, _c(Toon.VERMILION, 0.5))
-			draw_circle(c + Vector2(-8, 3) * s, 3.0 * s, _c(Toon.SUMI, 0.25))
-			draw_arc(c + Vector2(0, 3) * s, 8.0 * s, PI * 1.1, PI * 1.9, 12, _c(Toon.SUMI, 0.7), 1.6 * s, true)
-			draw_circle(c + Vector2(8, 3) * s, 3.2 * s, _c(Toon.SUMI))
-			draw_line(c + Vector2(6, 2) * s, c + Vector2(2, 1) * s, _c(Toon.VERMILION), 1.2 * s, true)
-		"chaine":
-			# trois maillons
-			_ellipse_line(c + Vector2(-8, 0) * s, 5.5 * s, 3.6 * s, _c(Toon.PRUSSIAN), 2.2 * s)
-			_ellipse_line(c, 3.6 * s, 5.5 * s, _c(Toon.PRUSSIAN), 2.2 * s)
-			_ellipse_line(c + Vector2(8, 0) * s, 5.5 * s, 3.6 * s, _c(Toon.PRUSSIAN), 2.2 * s)
-		"rouleau":
-			# un rouleau dont le liseré passe par les quatre raretés
-			var rc: Color = RARITY_COLS[int(_now / 0.9) % RARITY_COLS.size()]
-			var body := Rect2(c + Vector2(-7, -9) * s, Vector2(14, 18) * s)
-			draw_style_box(UiKit.box(_sb, _c(Toon.WASHI), int(2 * s), _c(rc), int(maxf(1.0, 1.6 * s))), body)
-			draw_rect(Rect2(c + Vector2(-9, -11) * s, Vector2(18, 2.5) * s), _c(Toon.SUMI))
-			draw_rect(Rect2(c + Vector2(-9, 8.5) * s, Vector2(18, 2.5) * s), _c(Toon.SUMI))
-			draw_rect(Rect2(c + Vector2(-4, -6) * s, Vector2(8, 6) * s), _c(rc))
-			draw_line(c + Vector2(-4, 3.5) * s, c + Vector2(4, 3.5) * s, _c(Toon.SUMI, 0.35), 1.5 * s)
-		"affinite":
-			# deux sceaux d'une même école, reliés par un arc d'or
-			var pulse := 0.6 + 0.4 * sin(_now * 3.0)
-			draw_arc(c + Vector2(0, -2) * s, 7.0 * s, PI * 1.15, PI * 1.85, 10, _c(Toon.GOLD, pulse), 1.8 * s, true)
-			for sx in [-1.0, 1.0]:
-				var q := Rect2(c + Vector2(6.5 * sx - 4.5, -2.0) * s, Vector2(9, 9) * s)
-				draw_style_box(UiKit.box(_sb, _c(Toon.VERMILION), int(2 * s)), q)
-			draw_circle(c + Vector2(0, -12.5) * s, 1.6 * s, _c(Toon.GOLD, pulse))
-		_:
-			# la porte, entrouverte sur l'or
-			_torii(c + Vector2(0, 10) * s, 0.36 * s, 0.35 + 0.1 * sin(_now * 2.0), 1.0)
-
-
-## 3. Tracer vide la jauge d'encre ; toucher un ennemi en rend un peu ; au repos, elle remonte.
+## 2. Tracer vide la jauge d'encre (même pilule que le HUD) ; quand le doigt se repose, elle remonte.
 func _page_encre(t0: float) -> void:
 	var u := _u
-	var t := fmod(t0, 3.8)
-	var fade := 1.0 - _k(t, 3.4, 0.4)
-	var feet := Vector2(0, 14) * u
-	var a0 := _at(0.1, 0.42)
-	var b0 := _at(0.84, 0.42)
+	var lp := 5.4
+	var t := fmod(t0, lp)
+	var fade := _k(t, 0.0, 0.25) * (1.0 - _k(t, lp - 0.4, 0.4))
 	var path := PackedVector2Array()
 	for i in 41:
 		var f := float(i) / 40.0
-		path.append(a0.lerp(b0, f) + Vector2(0, sin(f * TAU * 1.5) * 24.0 * u))
-	var drawn := _k(t, 0.1, 1.3)
-	var dash := _k(t, 1.5, 0.45)
-	var sk := b0 + feet + Vector2(8, 0) * u
-	var cut := -1.0
-	if t >= 1.95:
-		cut = _k(t, 1.95, 0.8)
-	_skeleton(sk, 0.95 * u, cut, _k(t, 0.0, 0.25))
-	if cut >= 0.0:
-		_slash_fx(sk - Vector2(0, 16) * u, cut)
+		path.append(_at(lerpf(0.08, 0.66, f), 0.7 + 0.1 * sin(f * TAU * 1.25)))
+	var drawn := _k(t, 0.3, 1.6)
+	var dash := _k(t, 2.05, 0.6)
+	var rest := t >= 2.7
+	var ink := 1.0 - 0.75 * drawn
+	if rest:
+		ink = lerpf(0.25, 1.0, smoothstep(2.8, 4.4, t))
+	# le trait sèche pendant que l'encre revient
+	var dry := _k(t, 2.8, 1.2)
 	if drawn > 0.0:
-		_stroke(path, dash, drawn, 6.0 * u, _c(Toon.SUMI, fade))
-	var rp := a0 + feet
-	if dash > 0.0:
-		rp = _pt_at(path, dash) + feet
-	_ronin(rp, u, 1.0, dash > 0.0 and dash < 1.0, fade * _k(t, 0.0, 0.2))
-	if t < 1.6:
-		_finger(_pt_at(path, drawn), u, _k(t, 0.0, 0.15) * (1.0 - _k(t, 1.35, 0.2)))
-	# la jauge
-	var ink := 1.0 - 0.72 * drawn
-	if t >= 2.4:
-		ink = lerpf(0.46, 1.0, UiKit.ease_out(_k(t, 2.5, 0.9)))
-	var gx := _at(0.17, 0.0).x
-	var gw := _r.size.x * 0.7
-	var gh := 15.0 * u
-	var gy := _at(0.0, 0.78).y
-	_drop(Vector2(gx - 16.0 * u, gy + gh / 2.0), 5.5 * u, _c(Toon.SUMI))
-	_bar(Vector2(gx, gy), gw, gh, 1.0, _c(Toon.SUMI, 0.13))
-	var col := Toon.SUMI
-	if ink < 0.32:
-		col = Toon.VERMILION if int(t * 8.0) % 2 == 0 else Toon.SUMI
-	_bar(Vector2(gx, gy), gw, gh, ink, _c(col))
-	if ink >= 0.999:
-		draw_circle(Vector2(gx + gw, gy + gh / 2.0), 3.5 * u + 1.5 * u * sin(t * 6.0), _c(Toon.GOLD))
-	# gouttes d'encre rendues par l'ennemi touché
-	if t >= 1.95 and t < 2.4:
-		var dk := _k(t, 1.95, 0.45)
-		var en := Vector2(gx + gw * 0.4, gy + gh / 2.0)
-		for j in 3:
-			var q := clampf(dk * 1.3 - j * 0.15, 0.0, 1.0)
-			if q > 0.0 and q < 1.0:
-				var st := sk - Vector2(0, 18) * u
-				_drop(_bez(st, (st + en) / 2.0 + Vector2(-40.0 + 25.0 * j, -40.0) * u, en, q), 4.0 * u, _c(Toon.SUMI))
-	if t >= 2.4 and t < 2.9:
-		var fk := _k(t, 2.4, 0.5)
-		draw_arc(Vector2(gx + gw * 0.46, gy + gh / 2.0), (6.0 + 18.0 * fk) * u, 0, TAU, 24, _c(Toon.GOLD, 1.0 - fk), 2.5 * u, true)
+		_stroke(path, 0.0, drawn, 7.0 * u, _c(Toon.SUMI.lerp(InkStroke.DRY, dry), 0.85 * (1.0 - 0.75 * dry) * fade))
+	var rp := _pt_at(path, dash)
+	var dashing := dash > 0.0 and dash < 1.0
+	if dashing:
+		_speed_lines(rp, _dir_at(path, dash), u, fade)
+	_ronin(rp, u, 1.0, 1 if dashing else 0, fade)
+	if t < 2.1:
+		_finger(_pt_at(path, drawn), u, _k(t, 0.15, 0.15) * (1.0 - _k(t, 1.9, 0.2)) * fade)
+	# la jauge, comme en jeu : pilule verticale, goutte dessous ; vermillon quand il en reste peu
+	var gw := 16.0 * u
+	var gr := Rect2(Vector2(_at(0.87, 0.0).x - gw / 2.0, _at(0.0, 0.1).y), Vector2(gw, _r.size.y * 0.6))
+	var col := GAUGE_INK
+	if ink < 0.3:
+		col = Toon.VERMILION
+	_ink_gauge(gr, ink, col, fade)
+	if rest and ink >= 0.999:
+		draw_circle(Vector2(gr.get_center().x, gr.position.y), 3.5 * u + 1.5 * u * sin(t * 6.0), _c(Toon.GOLD, fade))
+	# flèche à côté du niveau : elle descend quand on trace, remonte au repos
+	var going := t > 0.3 and t < 1.9
+	if going or (rest and ink < 0.999):
+		var sgn := 1.0 if going else -1.0  # 1 : vers le bas
+		var ay := gr.end.y - gr.size.y * ink
+		var tipp := Vector2(gr.position.x - 14.0 * u, ay + sgn * (6.0 + 3.0 * sin(t * 10.0)) * u)
+		var acol: Color = Toon.VERMILION if going else JADE.darkened(0.3)
+		draw_colored_polygon(PackedVector2Array([tipp, tipp + Vector2(-5.0, -sgn * 7.0) * u, tipp + Vector2(5.0, -sgn * 7.0) * u]), _c(acol, fade))
 	var cap := "TU TRACES : L'ENCRE BAISSE"
-	if t >= 2.6:
-		cap = "TU NE TRACES PAS : ELLE REMONTE"
-	elif t >= 1.95:
-		cap = "ENNEMI TOUCHÉ : + ENCRE"
-	UiKit.text(self, _ui, cap, _at(0.5, 0.95), int(10 * u), _c(Toon.SUMI, 0.7))
+	if rest:
+		cap = "TU ATTENDS : ELLE REVIENT"
+	UiKit.text(self, _ui, UiKit.plain(cap), _at(0.4, 0.95), int(11 * u), _c(Toon.SUMI, 0.75 * fade))
 
 
-## 4. Quatre formes tracées tour à tour : chacune allume son sceau et montre la technique que son rouleau débloque.
+## 3. Les six figures tour à tour : le doigt trace, l'encre prend la couleur de la figure, le ronin la suit,
+## puis part la technique que débloque son rouleau. La figure (kanji et tracé) est montrée en grand, en fond.
 func _page_figures(t0: float) -> void:
 	var u := _u
-	var cyc := 1.9
-	var si := int(t0 / cyc) % SHAPES.size()
+	var cyc := 2.6
+	var fi := int(t0 / cyc) % FIGS.size()
 	var t := fmod(t0, cyc)
-	var fade := 1.0 - _k(t, 1.55, 0.35)
-	var box := Rect2(_at(0.3, 0.04), _r.size * Vector2(0.4, 0.46))
-	var kind := String(SHAPES[si])
-	var raw := _gesture_points(kind)
+	var kind := String(FIGS[fi])
+	var fc: Color = InkStroke.FIG_INK[kind]
+	var dark := fc.darkened(0.2)  # plus lisible sur le papier
+	var fade := _k(t, 0.0, 0.2) * (1.0 - _k(t, cyc - 0.3, 0.3))
+	var box := Rect2(_at(0.3, 0.25), _r.size * Vector2(0.4, 0.48))
+	var raw := UiKit.gesture_points(kind)
 	var pts := PackedVector2Array()
 	for i in raw.size():
 		pts.append(box.position + raw[i] * box.size)
-	var drawn := _k(t, 0.05, 0.85)
+	var center := box.get_center()
+	# en fond : le kanji de la figure et le tracé à suivre (départ marqué d'un point)
+	UiKit.text(self, UiKit.TITLE_FONT, String(FIG_KANJI[kind]), center + Vector2(0, 44) * u, int(128 * u), _c(fc, 0.1 * fade))
+	draw_polyline(pts, _c(fc, 0.22 * fade), 3.0 * u, true)
+	draw_circle(pts[0], 4.0 * u, _c(fc, 0.35 * fade))
+	# le tracé : l'encre se teinte dès que la figure est reconnue
+	var drawn := _k(t, 0.15, 0.8)
+	var rec := 0.95
 	if drawn > 0.0:
-		_stroke(pts, 0.0, drawn, 6.0 * u, _c(Toon.SUMI, fade))
-	if t >= 0.9:
-		_tech_fx(kind, box, pts, _k(t, 0.9, 0.65), fade)
-		var nk := UiKit.ease_out(_k(t, 0.9, 0.2))
-		UiKit.text(self, UiKit.TITLE_FONT, String(TECH_NAMES[si]) + " !", _at(0.5, 0.63), int(17.0 * u * (1.0 + 0.3 * (1.0 - nk))), _c(Toon.VERMILION, nk * fade))
-	if t < 1.1:
-		_finger(_pt_at(pts, drawn), u, _k(t, 0.0, 0.12) * (1.0 - _k(t, 0.85, 0.15)))
-	# la rangée des sceaux
-	for j in SHAPES.size():
-		var c := _at(0.2 + 0.2 * j, 0.79)
-		var al := 0.35
-		var rr := 19.0 * u
-		if j == si and t >= 0.9:
+		_stroke(pts, 0.0, drawn, 6.0 * u, _c(Toon.SUMI.lerp(dark, _k(t, rec - 0.1, 0.2)), fade))
+	if t >= rec and t < rec + 0.4:
+		var pk := _k(t, rec, 0.4)
+		draw_arc(pts[pts.size() - 1], (6.0 + 22.0 * pk) * u, 0, TAU, 24, _c(fc, (1.0 - pk) * fade), 3.0 * u, true)
+	# le ronin suit la figure (ensō : il bondit ensuite au centre du cercle, d'où part l'onde)
+	var s := 0.78 * u
+	var dash := _k(t, 1.05, 0.55)
+	var fx_t := 1.6
+	var rp := _pt_at(pts, dash)
+	var dir := _dir_at(pts, dash)
+	var face := -1.0 if dir.x < -0.2 else 1.0
+	var pose := 1 if dash > 0.0 and dash < 1.0 else 0
+	var lift := 0.0
+	if kind == "enso":
+		fx_t = 1.9
+		var hk := _k(t, 1.62, 0.28)
+		if hk > 0.0:
+			rp = rp.lerp(center + Vector2(0, 16) * u, UiKit.ease_out(hk))
+			if hk < 1.0:
+				lift = sin(PI * hk) * 34.0 * u
+				pose = 2
+	if pose == 1:
+		_speed_lines(rp, dir, s, fade)
+	if t >= fx_t:
+		_fig_fx(kind, fc, pts, rp, face, center + Vector2(0, 16) * u, _k(t, fx_t, 0.6), fade, s)
+	_ronin(rp, s, face, pose, fade, lift)
+	if t < 1.15:
+		_finger(_pt_at(pts, drawn), 0.9 * u, _k(t, 0.05, 0.12) * (1.0 - _k(t, 0.95, 0.15)) * fade)
+	# le nom de la figure, en grand ; dessous, ce qu'elle apporte
+	if t >= rec:
+		var nk := UiKit.ease_out(_k(t, rec, 0.25))
+		UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain(String(UiKit.FIG_WORD[kind])), _at(0.5, 0.14), int(26.0 * u * (1.0 + 0.25 * (1.0 - nk))), _c(dark, nk * fade))
+		var sub := "COUP PLUS FORT"
+		if t >= fx_t:
+			sub = "AVEC SON ROULEAU : " + String(FIG_TECH[kind])
+		UiKit.text(self, _ui, UiKit.plain(sub), _at(0.5, 0.215), int(10 * u), _c(Toon.SUMI, 0.75 * nk * fade))
+	# la rangée des six figures : celle du moment s'allume
+	for j in FIGS.size():
+		var c := _at(0.115 + 0.154 * j, 0.885)
+		var sh := String(FIGS[j])
+		var rr := 13.0 * u
+		var al := 0.4
+		if j == fi:
 			al = 1.0
-			rr *= 1.0 + 0.3 * (1.0 - UiKit.ease_out(_k(t, 0.9, 0.3)))
-			draw_arc(c, rr + 6.0 * u, 0, TAU, 32, _c(Toon.VERMILION, 1.0 - _k(t, 1.7, 0.2)), 2.5 * u, true)
-		_symbol(String(SHAPES[j]), c, rr, al)
-		UiKit.text(self, _ui, UiKit.plain(String(SHAPE_LABELS[j])), _at(0.2 + 0.2 * j, 0.96), int(9 * u), _c(Toon.SUMI, 0.4 + 0.5 * (al - 0.35) / 0.65))
+			rr *= 1.12
+			var ic: Color = InkStroke.FIG_INK[sh]
+			draw_arc(c, rr + 4.0 * u, 0, TAU, 28, _c(ic, fade), 2.5 * u, true)
+		_symbol(sh, c, rr, al)
 
 
-func _tech_fx(kind: String, box: Rect2, pts: PackedVector2Array, k: float, fade: float) -> void:
-	var u := _u
-	var c := box.position + box.size * Vector2(0.5, 0.55)
-	match kind:
-		"loop":
-			# toupie : arcs qui tournent autour du héros
-			var rot := k * TAU * 1.5
-			for j in 3:
-				var a0 := rot + TAU * j / 3.0
-				draw_arc(c, (30.0 + 14.0 * k) * u, a0, a0 + 1.4, 12, _c(Toon.VERMILION, (1.0 - k) * fade), 3.0 * u, true)
-		"zigzag":
-			# éclair : le trait s'électrise
-			var fl := 0.6 + 0.4 * sin(_now * 40.0)
-			draw_polyline(pts, _c(Toon.GOLD, (1.0 - k) * fl * fade), 4.0 * u, true)
-			for j in 5:
-				var p := _pt_at(pts, j / 4.0)
-				draw_line(p, p + Vector2.from_angle(j * 2.3 + _now * 9.0) * 9.0 * u, _c(Toon.GOLD, (1.0 - k) * fade), 2.0 * u, true)
-		"straight":
-			# iaï : une coupe nette prolonge la ligne
-			var top := _pt_at(pts, 1.0)
-			var bot := _pt_at(pts, 0.0)
-			var d := (top - bot).normalized()
-			var e := UiKit.ease_out(k * 2.0)
-			draw_line(bot - d * 16.0 * u * e, top + d * 16.0 * u * e, _c(Toon.VERMILION, (1.0 - k) * fade), 5.0 * u * (1.0 - k) + 1.0, true)
-		_:
-			# ensō : onde de choc au sol
-			var ce := box.get_center()
-			for j in 2:
-				var rk := clampf(k * 1.3 - j * 0.3, 0.0, 1.0)
-				if rk > 0.0 and rk < 1.0:
-					draw_arc(ce, (20.0 + 60.0 * rk) * u, 0, TAU, 40, _c(Toon.SUMI, (1.0 - rk) * 0.6 * fade), 3.0 * u * (1.0 - rk) + 1.0, true)
-
-
-## 5. Une zone rouge se remplit ; un tap fait bondir le ronin hors de portée ; la chaîne monte.
+## 4. Un oni lève sa massue, une zone rouge annonce le coup ; un toucher sur le ronin le fait bondir hors de la zone,
+## et le coup tombe dans le vide.
 func _page_esquive(t0: float) -> void:
 	var u := _u
-	var lp := 3.4
+	var lp := 3.6
 	var t := fmod(t0, lp)
-	var side := 1.0 if int(t0 / lp) % 2 == 0 else -1.0
-	var c0 := _at(0.5, 0.66)
-	var fade := (1.0 - _k(t, 3.0, 0.4)) * _k(t, 0.0, 0.2)
-	var rx := 72.0 * u
-	var ry := 28.0 * u
-	# la zone annonce le coup
-	if t < 1.8:
-		var za := _k(t, 0.1, 0.2) * (1.0 - _k(t, 1.3, 0.5))
-		var fill := _k(t, 0.2, 1.1)
-		_ellipse(c0, rx, ry, _c(Toon.VERMILION, 0.12 * za))
-		_ellipse(c0, rx * fill, ry * fill, _c(Toon.VERMILION, 0.35 * za))
-		_ellipse_line(c0, rx, ry, _c(Toon.VERMILION, 0.9 * za), 2.5 * u)
-	# le coup tombe…
-	if t >= 1.0 and t < 1.32:
-		var fk := _k(t, 1.0, 0.3)
-		var bp := _at(0.5, -0.05).lerp(c0 - Vector2(0, 6) * u, fk * fk)
-		draw_line(bp - Vector2(0, 46) * u, bp, _c(Toon.SUMI, 0.25), 12.0 * u, true)
-		draw_circle(bp, 14.0 * u, _c(Toon.SUMI, 0.95))
-	# … et frappe le sol
-	if t >= 1.3 and t < 2.2:
-		var ik := _k(t, 1.3, 0.9)
-		_ellipse(c0, rx * (1.0 + 0.3 * ik), ry * (1.0 + 0.3 * ik), _c(Toon.SUMI, 0.45 * (1.0 - ik)))
+	var fade := _k(t, 0.0, 0.25) * (1.0 - _k(t, lp - 0.4, 0.4))
+	var c0 := _at(0.42, 0.76)
+	var land := _at(0.12, 0.76)
+	var zc := c0 + Vector2(8, 0) * u
+	var rx := 64.0 * u
+	var ry := 22.0 * u
+	var tap_t := 0.8
+	var hit_t := 1.45
+	# la zone rouge se remplit : le coup arrive
+	var za := _k(t, 0.3, 0.2) * (1.0 - _k(t, hit_t + 0.1, 0.4)) * fade
+	if za > 0.0:
+		var fill := _k(t, 0.3, hit_t - 0.3)
+		_ellipse(zc, rx, ry, _c(Toon.VERMILION, 0.12 * za))
+		_ellipse(zc, rx * fill, ry * fill, _c(Toon.VERMILION, 0.3 * za))
+		_ellipse_line(zc, rx, ry, _c(Toon.VERMILION, 0.9 * za), 2.5 * u)
+	# l'oni lève sa massue, puis l'abat
+	var club := _k(t, 0.3, 0.8)
+	if t >= hit_t - 0.15:
+		club = 1.0 + _k(t, hit_t - 0.15, 0.15)
+	_oni(_at(0.72, 0.76), 1.25 * u, -1.0, fade, club)
+	# le coup frappe le sol… vide
+	if t >= hit_t and t < hit_t + 0.9:
+		var ik := _k(t, hit_t, 0.9)
+		_ellipse_line(zc, rx * (1.0 + 0.25 * ik), ry * (1.0 + 0.25 * ik), _c(Toon.SUMI, 0.6 * (1.0 - ik) * fade), 3.0 * u)
 		for j in 6:
 			var ang := TAU * j / 6.0 + 0.3
-			var reach := minf(1.0, ik * 3.0)
-			draw_line(c0, c0 + Vector2(cos(ang) * 64.0, sin(ang) * 26.0) * u * reach, _c(Toon.SUMI, 0.8 * (1.0 - ik)), 2.0 * u, true)
-	# le bond d'esquive
-	var hop := _k(t, 0.8, 0.32)
-	var land := c0 + Vector2(side * 108.0 * u, 0)
-	var rp := c0.lerp(land, UiKit.ease_out(hop)) + Vector2(0, -sin(PI * hop) * 30.0 * u)
-	if hop > 0.0 and hop < 1.0:
-		for g in 3:
-			var gh := maxf(0.0, hop - 0.12 * (g + 1))
-			_ronin(c0.lerp(land, UiKit.ease_out(gh)) + Vector2(0, -sin(PI * gh) * 30.0 * u), u, side, false, 0.2 * (3 - g) / 3.0 * fade)
-	_ronin(rp, u, side, false, fade)
-	if t >= 1.15 and t < 2.4:
-		var ek := _k(t, 1.15, 0.2) * (1.0 - _k(t, 2.1, 0.3))
-		UiKit.text(self, _ui, "ESQUIVE !", land + Vector2(0, -54) * u, int(11 * u), _c(Toon.PRUSSIAN, ek))
-	# le doigt qui tape (petit glissé vers le côté du bond)
-	var fk2 := _k(t, 0.4, 0.15) * (1.0 - _k(t, 1.0, 0.2))
-	if fk2 > 0.0:
-		var flick := UiKit.ease_out(_k(t, 0.62, 0.18))
-		var base := c0 + Vector2(-side * 14.0, 34.0) * u
-		var tip := base + Vector2(side * 34.0, -6.0) * u * flick
-		if flick > 0.0:
-			draw_line(base, tip, _c(Toon.SUMI, 0.6 * fk2), 4.0 * u, true)
-		_finger(tip, 0.9 * u, fk2)
-	# la chaîne (comme en jeu, sous les cœurs)
-	var up := t >= 1.55
-	var n := 5 if up else 4
-	var bp2 := _at(0.04, 0.06)
-	var tier: Color = Toon.PRUSSIAN if up else Toon.SUMI
-	draw_style_box(UiKit.box(_sb, _c(Toon.PAPER, 0.9), int(8 * u), _c(tier), int(2 * u)), Rect2(bp2, Vector2(132, 36) * u))
-	draw_string(UiKit.UI_FONT, bp2 + Vector2(9, 14) * u, "CHAÎNE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), _c(Toon.SUMI, 0.6))
-	var pop := 1.0
-	if up:
-		pop = 1.0 + 0.45 * (1.0 - UiKit.ease_out(_k(t, 1.55, 0.3)))
-	draw_string(UiKit.TITLE_FONT, bp2 + Vector2(9, 31) * u, str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17.0 * u * pop), _c(tier))
-	draw_string(UiKit.UI_FONT, bp2 + Vector2(52, 28) * u, "+%d %% DÉGÂTS" % (n * 5), HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), _c(Toon.SUMI, 0.8))
+			var a0 := zc + Vector2(cos(ang) * 20.0, sin(ang) * 7.0) * u
+			var a1 := zc + Vector2(cos(ang) * (20.0 + 50.0 * ik), sin(ang) * (7.0 + 18.0 * ik)) * u
+			draw_line(a0, a1, _c(Toon.SUMI, 0.7 * (1.0 - ik) * fade), 2.0 * u, true)
+	if t >= hit_t + 0.05:
+		var mk := UiKit.ease_out(_k(t, hit_t + 0.05, 0.25))
+		UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain("RATÉ !"), zc + Vector2(0, -50) * u, int((18.0 + 8.0 * (1.0 - mk)) * u), _c(Toon.VERMILION, mk * fade))
+	# le bond d'esquive, juste après le toucher
+	var hop := _k(t, tap_t + 0.05, 0.35)
+	var hopping := hop > 0.0 and hop < 1.0
+	var rp := c0.lerp(land, UiKit.ease_out(hop))
+	var lift := sin(PI * hop) * 34.0 * u
+	if hopping:
+		_speed_lines(rp - Vector2(0, lift), Vector2.LEFT, u, fade)
+	_ronin(rp, u, 1.0, 2 if hopping else 0, fade, lift)
+	# le doigt vient toucher le ronin
+	var body := c0 - Vector2(0, 20) * u
+	var fk := _k(t, 0.45, 0.15) * (1.0 - _k(t, tap_t + 0.15, 0.2)) * fade
+	if fk > 0.0:
+		var press := 1.0 - UiKit.ease_out(_k(t, tap_t - 0.25, 0.25))
+		_finger(body + Vector2(10, 14) * u * press, u, fk)
+	_tap_fx(body, _k(t, tap_t, 0.45))
+	if t >= tap_t and t < tap_t + 0.6:
+		UiKit.text(self, _ui, UiKit.plain("TOUCHE !"), body + Vector2(40, -30) * u, int(11 * u), _c(Toon.VERMILION, (1.0 - _k(t, tap_t + 0.4, 0.2)) * fade))
 
 
-## 6. Les vagues tombent, l'XP et l'or filent vers la barre, un rouleau apparaît, le torii s'ouvre.
+## 5. Le ronin tranche trois oni ; leur XP file vers la barre, il monte de niveau,
+## touche un des trois rouleaux qui s'offrent à lui, et le rouleau se déroule.
 func _page_progres(t0: float) -> void:
 	var u := _u
-	var lp := 4.6
+	var lp := 6.0
 	var t := fmod(t0, lp)
 	var rar := int(t0 / lp) % RARITY_COLS.size()
-	var fade := 1.0 - _k(t, 4.2, 0.4)
-	var ground := _at(0.0, 0.8).y
-	# le torii, qui s'ouvre quand la salle est nettoyée
-	var gate := Vector2(_at(0.85, 0.0).x, ground)
-	_torii(gate, 1.25 * u, _k(t, 3.3, 0.5), fade)
-	# niveau, barre d'XP et or
-	var lv_up := t >= 1.85
-	var bar_p := _at(0.05, 0.1)
-	var bx := bar_p.x + 40.0 * u
-	var bw := _r.size.x * 0.34
-	var bar_end := Vector2(bx + bw, bar_p.y)
-	var coin_p := Vector2(bx + bw + 16.0 * u, bar_p.y + 1.0 * u)
-	var xp_f := 0.3 + 0.7 * _k(t, 1.0, 0.8)
-	if lv_up:
-		xp_f = 0.06
-	draw_string(UiKit.UI_FONT, bar_p + Vector2(0, 4) * u, "NIV %d" % (2 if lv_up else 1), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), _c(Toon.SUMI))
-	draw_rect(Rect2(Vector2(bx, bar_p.y - 2.0 * u), Vector2(bw, 7.0 * u)), _c(Toon.SUMI, 0.55))
-	draw_rect(Rect2(Vector2(bx + 1.0 * u, bar_p.y - 1.0 * u), Vector2((bw - 2.0 * u) * xp_f, 5.0 * u)), _c(JADE))
-	if t >= 1.85 and t < 2.4:
-		var lk := _k(t, 1.85, 0.55)
-		draw_rect(Rect2(Vector2(bx, bar_p.y - 2.0 * u), Vector2(bw, 7.0 * u)).grow(5.0 * u * lk), _c(JADE, 0.6 * (1.0 - lk)))
-	_coin(coin_p, 5.5 * u, 1.0)
-	var coins := 12 + int(clampf((t - 1.0) / 0.25, 0.0, 3.0))
-	draw_string(UiKit.UI_FONT, coin_p + Vector2(9, 4) * u, str(coins), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), _c(Toon.SUMI))
-	# la vague : trois squelettes tranchés d'un trait, chacun lâche une gemme et une pièce
-	var rx0 := Vector2(_at(0.04, 0.0).x, ground)
-	var rx1 := Vector2(_at(0.66, 0.0).x, ground)
-	var dash := _k(t, 0.15, 0.55)
+	var fade := _k(t, 0.0, 0.25) * (1.0 - _k(t, lp - 0.4, 0.4))
+	var gy := _at(0.0, 0.86).y
+	var x0 := _at(0.08, 0.0).x
+	var x1 := _at(0.86, 0.0).x
+	# niveau et barre d'XP
+	var lv_t := 1.6
+	var up := t >= lv_t
+	var bar := Rect2(_at(0.2, 0.06), Vector2(_r.size.x * 0.7, 10.0 * u))
+	var xp := 0.2 + 0.8 * _k(t, 0.75, 0.8)
+	if up:
+		xp = 0.04
+	draw_string(UiKit.UI_FONT, Vector2(_at(0.04, 0.0).x, bar.end.y - 0.5 * u), "NIV %d" % (2 if up else 1), HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), _c(Toon.SUMI, fade))
+	draw_style_box(UiKit.box(_sb, _c(Toon.SUMI, 0.55 * fade), int(5 * u)), bar)
+	draw_style_box(UiKit.box(_sb, _c(JADE, fade), int(4 * u)), Rect2(bar.position + Vector2(2, 2) * u, Vector2(maxf(8.0 * u, (bar.size.x - 4.0 * u) * xp), bar.size.y - 4.0 * u)))
+	if up and t < lv_t + 0.6:
+		var lk := _k(t, lv_t, 0.6)
+		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(8 * u), _c(JADE, 0.8 * (1.0 - lk) * fade), int(maxf(1.0, 2.0 * u))), bar.grow(6.0 * u * lk))
+	# la vague : un trait au sol, la ruée, trois oni tranchés qui lâchent leur XP
+	var line := PackedVector2Array()
+	for i in 21:
+		line.append(Vector2(lerpf(x0, x1, float(i) / 20.0), gy))
+	var drawn := _k(t, 0.05, 0.25)
+	var dash := _k(t, 0.35, 0.6)
+	if drawn > 0.0:
+		_stroke(line, 0.0, drawn, 6.0 * u, _c(Toon.SUMI, 0.8 * fade * (1.0 - 0.7 * _k(t, 1.0, 0.6))))
+	var gem_to := bar.position + Vector2(bar.size.x * 0.92, bar.size.y / 2.0)
 	for j in 3:
-		var x := 0.18 + 0.16 * j
-		var sp := Vector2(_at(x, 0.0).x, ground)
-		var hit_t := 0.15 + 0.55 * (x - 0.04) / 0.62
-		var cut := -1.0
+		var sp := Vector2(_at(0.36 + 0.16 * j, 0.0).x, gy)
+		var hit_t := 0.35 + 0.6 * (sp.x - x0) / (x1 - x0)
+		var hit := -1.0
 		if t >= hit_t:
-			cut = _k(t, hit_t, 0.7)
-		_skeleton(sp, 0.9 * u, cut, _k(t, 0.0, 0.25))
-		if cut >= 0.0:
-			_slash_fx(sp - Vector2(0, 15) * u, cut)
-		if t >= hit_t + 0.1:
-			var jump := _k(t, hit_t + 0.1, 0.3)
-			var fly := _k(t, 1.0 + 0.1 * j, 0.5)
-			if fly < 1.0:
-				var lift := Vector2(0, -10.0 - sin(PI * jump) * 16.0) * u
-				var gp := (sp + lift + Vector2(-7, 0) * u).lerp(bar_end, fly * fly)
-				var cp := (sp + lift + Vector2(7, 0) * u).lerp(coin_p, fly * fly)
-				_gem(gp, 5.5 * u)
-				_coin(cp, 4.5 * u, 1.0)
-	# le ronin : ruée à travers la vague, puis il passe le torii
-	var rp := rx0.lerp(rx1, dash)
-	var ra := fade * _k(t, 0.0, 0.2)
+			hit = t - hit_t
+		_oni(sp, 0.85 * u, -1.0, fade, 0.0, hit)
+		if hit >= 0.0:
+			_slash_fx(sp - Vector2(0, 10) * u, _k(hit, 0.0, 0.4))
+			_puff(sp - Vector2(0, 9) * u, _k(hit, 0.12, 0.6))
+			var fly := _k(hit, 0.15, 0.5)
+			if fly > 0.0 and fly < 1.0:
+				_gem((sp - Vector2(0, 18) * u).lerp(gem_to, fly * fly) + Vector2(0, -sin(PI * fly) * 30.0 * u), 5.5 * u)
+	# le ronin : ruée, petite victoire au niveau, puis l'aura du pouvoir choisi
+	var rp := Vector2(lerpf(x0, x1, dash), gy)
+	var dashing := dash > 0.0 and dash < 1.0
+	var pose := 1 if dashing else 0
+	if up and t < lv_t + 0.8:
+		pose = 3
+	if dashing:
+		_speed_lines(rp, Vector2.RIGHT, u, fade)
 	if t >= 3.5:
-		rp = rx1.lerp(gate, _k(t, 3.5, 0.6))
-		ra *= 1.0 - _k(t, 3.85, 0.3)
-	_ronin(rp, u, 1.0, dash > 0.0 and dash < 1.0, ra)
-	# niveau supérieur : un rouleau de pouvoir (rareté différente à chaque tour)
-	if t >= 1.85 and t < 3.5:
-		_scroll_card(_at(0.4, 0.43), 0.95 * u, rar, UiKit.ease_out(_k(t, 1.85, 0.35)), 1.0 - _k(t, 3.2, 0.3))
+		var gk := _k(t, 3.5, 0.3) * fade
+		var gc := rp - Vector2(0, 18) * u
+		draw_circle(gc, 26.0 * u, _c(Toon.GOLD, 0.15 * gk))
+		draw_arc(gc, (26.0 + 2.0 * sin(t * 6.0)) * u, 0, TAU, 32, _c(Toon.GOLD, 0.7 * gk), 2.0 * u, true)
+	_ronin(rp, u, 1.0, pose, fade)
+	if up and t < lv_t + 0.9:
+		var nk := UiKit.ease_out(_k(t, lv_t, 0.25))
+		UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain("NIVEAU 2 !"), _at(0.5, 0.36), int((22.0 + 8.0 * (1.0 - nk)) * u), _c(Toon.GOLD.darkened(0.15), nk * (1.0 - _k(t, lv_t + 0.6, 0.3)) * fade))
+	# trois rouleaux s'offrent ; le doigt choisit celui du milieu, qui se déroule
+	var pick_t := 2.9
+	for j in 3:
+		var kin := UiKit.ease_out(_k(t, 2.1 + 0.1 * j, 0.3))
+		var kout := 1.0 - _k(t, pick_t + 0.05, 0.25)
+		if j == 1:
+			kout = 1.0 - _k(t, 3.0, 0.05)
+		var sc := _at(0.26 + 0.24 * j, 0.47) + Vector2(0, sin(t * 3.0 + j) * 3.0 * u)
+		var rc: Color = RARITY_COLS[(rar + j + RARITY_COLS.size() - 1) % RARITY_COLS.size()]
+		_rolled(sc, u * (0.6 + 0.4 * kin), rc, kin * kout * fade)
+	var mid := _at(0.5, 0.47)
+	var fk := _k(t, 2.45, 0.2) * (1.0 - _k(t, pick_t + 0.15, 0.2)) * fade
+	if fk > 0.0:
+		var press := 1.0 - UiKit.ease_out(_k(t, 2.45, pick_t - 2.45))
+		_finger(mid + Vector2(14, 22) * u * press, u, fk)
+	_tap_fx(mid, _k(t, pick_t, 0.45))
+	if t >= 3.0:
+		_scroll_card(_at(0.5, 0.46), 0.8 * u, rar, 1.0, fade, UiKit.ease_out(_k(t, 3.0, 0.45)))
 
 
-## 7. Le chemin des 8 étapes : sanctuaires, mini-boss, et le gardien qui attend au bout.
+## 6. Le chemin des 8 étapes : sanctuaires, mini-boss, et le gardien qui attend au bout.
 func _page_gardien(t0: float) -> void:
 	var u := _u
 	var lp := 4.4
@@ -769,7 +688,7 @@ func _page_gardien(t0: float) -> void:
 	UiKit.text(self, _ui, "1", first + Vector2(0, -10) * u, int(9 * u), _c(Toon.SUMI, 0.6))
 	UiKit.text(self, _ui, "8", last + Vector2(0, 21) * u, int(10 * u), _c(Toon.VERMILION))
 	# le ronin en route
-	_ronin(_pt_at(nodes, walk) + Vector2(0, 3) * u, 0.55 * u, 1.0, false, fade * _k(t, 0.0, 0.2))
+	_ronin(_pt_at(nodes, walk) + Vector2(0, 3) * u, 0.6 * u, 1.0, 1 if walk > 0.0 and walk < 1.0 else 0, fade * _k(t, 0.0, 0.2))
 	# le gardien s'éveille
 	if rage > 0.0:
 		var hc := _at(0.83, 0.97) + Vector2(0, -86) * 0.95 * u
@@ -780,72 +699,282 @@ func _page_gardien(t0: float) -> void:
 
 # ------------------------------------------------------------------ petits dessins
 
-## Petit ronin à l'encre, pieds en p ; s = pixels par unité (36 unités de haut), face = 1 (droite) ou -1.
-## slash : sabre tendu vers l'avant (pendant la ruée).
-func _ronin(p: Vector2, s: float, face: float, slash: bool, k: float) -> void:
+## Le ronin, à l'encre (même allure que le héros 3D) : capuche sombre, kimono indigo, écharpe vermillon, katana.
+## Pieds en p ; s = pixels par unité (environ 40 unités de haut) ; face = 1 (regarde à droite) ou -1.
+## pose : 0 debout, 1 ruée (sabre tendu), 2 bond, 3 victoire (sabre levé). lift : hauteur au-dessus du sol (pixels).
+func _ronin(p: Vector2, s: float, face: float, pose: int, k: float, lift := 0.0) -> void:
 	if k <= 0.01:
 		return
-	var xf := Transform2D(Vector2(face * s, 0.0), Vector2(0.0, -s), p)
-	_ellipse(p + Vector2(0, 1.5 * s), 11.0 * s, 3.0 * s, _c(Toon.SUMI, 0.18 * k))
-	# sabre
-	var h0 := xf * Vector2(5, 18)
-	var h1: Vector2 = xf * (Vector2(25, 16) if slash else Vector2(14, 34))
-	draw_line(h0, h1, _c(Toon.SUMI, k), 3.4 * s, true)
-	draw_line(h0.lerp(h1, 0.25), h1, _c(Toon.FOAM, k), 1.4 * s, true)
-	# hakama, kimono, ceinture
-	draw_colored_polygon(xf * PackedVector2Array([Vector2(-8, 0), Vector2(8, 0), Vector2(6, 14), Vector2(-6, 14)]), _c(Toon.SUMI, k))
-	var torso := xf * PackedVector2Array([Vector2(-7, 13), Vector2(7, 13), Vector2(6, 25), Vector2(-6, 25)])
-	draw_colored_polygon(torso, _c(Toon.WASHI, k))
-	_outline(torso, _c(Toon.SUMI, k), 1.5 * s)
-	draw_line(xf * Vector2(-7, 15.5), xf * Vector2(7, 15.5), _c(Toon.VERMILION, k), 3.0 * s)
-	draw_line(xf * Vector2(1, 22), h0, _c(Toon.SUMI, k), 2.6 * s, true)
-	# tête, cheveux, chignon, bandeau qui flotte
-	var hc := xf * Vector2(0, 30)
-	draw_circle(hc, 6.3 * s, _c(Toon.SUMI, k))
-	draw_circle(hc, 5.0 * s, _c(Toon.SKIN, k))
-	draw_arc(hc, 4.2 * s, PI * 1.05, PI * 1.95, 10, _c(Toon.SUMI, k), 2.6 * s, true)
-	draw_circle(xf * Vector2(-3, 37), 2.4 * s, _c(Toon.SUMI, k))
-	draw_line(xf * Vector2(-5, 31.5), xf * Vector2(-13, 30.0 + 2.5 * sin(_now * 9.0)), _c(Toon.VERMILION, k), 1.8 * s, true)
-	draw_circle(xf * Vector2(2.6, 30), 0.9 * s, _c(Toon.SUMI, k))
+	var lean := 0.0
+	var bob := 0.0
+	var back := Vector2(-4, 0)  # pied arrière
+	var front := Vector2(4, 0)
+	var hand := Vector2(7, 14)
+	var tip := Vector2(20, 5)  # pointe du sabre
+	var tail := 10.0  # longueur de l'écharpe
+	var droop := 6.0  # l'écharpe retombe au repos, flotte pendant la course
+	match pose:
+		1:
+			lean = 0.3
+			back = Vector2(-10, 3)
+			front = Vector2(9, 0)
+			hand = Vector2(9, 16)
+			tip = Vector2(31, 18)
+			tail = 18.0
+			droop = 0.0
+		2:
+			lean = -0.12
+			back = Vector2(-6, 6)
+			front = Vector2(5, 4)
+			hand = Vector2(4, 16)
+			tip = Vector2(-12, 8)
+			tail = 14.0
+			droop = -4.0
+		3:
+			back = Vector2(-5, 0)
+			front = Vector2(5, 0)
+			hand = Vector2(9, 24)
+			tip = Vector2(12, 46)
+			bob = absf(sin(_now * 6.0)) * 1.5
+		_:
+			bob = 0.5 + 0.5 * sin(_now * 4.0)
+	# ombre au sol (plus petite quand il est en l'air)
+	var sh := 1.0 / (1.0 + lift / (40.0 * s))
+	_ellipse(p + Vector2(0, 1.5 * s), 11.0 * s * sh, 3.0 * s * sh, _c(Toon.SUMI, 0.18 * k))
+	var xf := Transform2D(lean * face, Vector2(face * s, -s), 0.0, p - Vector2(0, lift + bob * s))
+	# écharpe qui flotte derrière
+	var w1 := sin(_now * 11.0)
+	var w2 := sin(_now * 11.0 - 1.2)
+	draw_polyline(xf * PackedVector2Array([Vector2(-1, 22.5), Vector2(-tail * 0.5, 22.0 - droop * 0.5 + 1.5 * w1), Vector2(-tail, 21.0 - droop + 2.5 * w2)]), _c(Toon.VERMILION, k), 3.2 * s, true)
+	draw_polyline(xf * PackedVector2Array([Vector2(-1, 21.5), Vector2(-tail * 0.45, 20.5 - droop * 0.5 + 1.5 * w2), Vector2(-tail * 0.8, 18.5 - droop + 2.0 * w1)]), _c(Toon.VERMILION.darkened(0.2), k), 2.2 * s, true)
+	# jambes et hakama
+	draw_line(xf * Vector2(-2.5, 9), xf * back, _c(HOOD, k), 5.5 * s, true)
+	draw_line(xf * Vector2(2.5, 9), xf * front, _c(HOOD, k), 5.5 * s, true)
+	draw_circle(xf * back, 2.5 * s, _c(Toon.SUMI, k))
+	draw_circle(xf * front, 2.5 * s, _c(Toon.SUMI, k))
+	draw_colored_polygon(xf * PackedVector2Array([Vector2(-7, 6), Vector2(7, 6), Vector2(6, 13), Vector2(-6, 13)]), _c(HOOD, k))
+	# kimono, ceinture, col, écharpe nouée au cou
+	var torso := xf * PackedVector2Array([Vector2(-6.5, 12), Vector2(6.5, 12), Vector2(5.5, 22.5), Vector2(-5.5, 22.5)])
+	draw_colored_polygon(torso, _c(ROBE, k))
+	_outline(torso, _c(Toon.SUMI, k), 1.2 * s)
+	draw_line(xf * Vector2(-6.4, 14), xf * Vector2(6.4, 14), _c(Toon.VERMILION, k), 2.4 * s)
+	draw_polyline(xf * PackedVector2Array([Vector2(-1.5, 22.5), Vector2(1.5, 18), Vector2(4.5, 22.5)]), _c(Toon.WASHI, k), 1.2 * s, true)
+	draw_line(xf * Vector2(-5.5, 22.8), xf * Vector2(6, 22.8), _c(Toon.VERMILION, k), 3.4 * s, true)
+	# tête : capuche à pointe, visage, yeux, joues
+	draw_colored_polygon(xf * PackedVector2Array([Vector2(-4, 36), Vector2(-12.5, 37.5), Vector2(-7.5, 30)]), _c(HOOD, k))
+	var hc := xf * Vector2(1, 30)
+	draw_circle(hc, 9.6 * s, _c(Toon.SUMI, k))
+	draw_circle(hc, 8.6 * s, _c(HOOD, k))
+	draw_circle(xf * Vector2(3.6, 28.4), 5.0 * s, _c(Toon.SKIN, k))
+	draw_circle(xf * Vector2(3.4, 33.2), 4.0 * s, _c(HOOD, k))
+	draw_circle(xf * Vector2(2.3, 27.8), 1.0 * s, _c(Toon.SUMI, k))
+	draw_circle(xf * Vector2(5.7, 27.8), 1.0 * s, _c(Toon.SUMI, k))
+	draw_circle(xf * Vector2(1.4, 26.2), 0.9 * s, _c(Toon.VERMILION, 0.35 * k))
+	draw_circle(xf * Vector2(6.8, 26.2), 0.9 * s, _c(Toon.VERMILION, 0.35 * k))
+	# bras et katana (poignée, tsuba d'or, lame claire)
+	var d := (tip - hand).normalized()
+	var sho := Vector2(1, 20)
+	draw_line(xf * sho, xf * hand, _c(Toon.SUMI, k), 4.6 * s, true)
+	draw_line(xf * sho, xf * hand, _c(ROBE, k), 3.0 * s, true)
+	draw_line(xf * (hand - d * 5.0), xf * (hand + d * 1.0), _c(Toon.SUMI, k), 2.6 * s, true)
+	draw_line(xf * (hand + d * 1.8), xf * tip, _c(Toon.SUMI, k), 2.8 * s, true)
+	draw_line(xf * (hand + d * 2.6), xf * tip, _c(Toon.FOAM, k), 1.2 * s, true)
+	draw_circle(xf * (hand + d * 1.3), 1.7 * s, _c(Toon.GOLD, k))
+	draw_circle(xf * hand, 2.2 * s, _c(Toon.SUMI, k))
+	draw_circle(xf * hand, 1.6 * s, _c(Toon.SKIN, k))
 
 
-## Squelette (os clairs cerclés d'encre), pieds en p. cut ∈ [0, 1] : tranché, le haut s'envole, le bas s'affaisse.
-func _skeleton(p: Vector2, s: float, cut: float, k: float) -> void:
+## Petit oni (yokai de base), pieds en p ; face = -1 : il regarde à gauche.
+## club : massue au repos (0), levée (1 : le coup s'annonce), abattue (2).
+## hit ≥ 0 : secondes depuis qu'il est tranché (éclair blanc, il s'écrase et disparaît).
+func _oni(p: Vector2, s: float, face: float, k: float, club := 0.0, hit := -1.0) -> void:
 	var fade := k
-	var up := Vector2.ZERO
-	var down := Vector2.ZERO
-	if cut >= 0.0:
-		fade = k * (1.0 - _k(cut, 0.35, 0.65))
-		up = Vector2(10, -12) * s * UiKit.ease_out(cut)
-		down = Vector2(-2, 3) * s * cut
+	var sq := Vector2.ONE
+	if hit >= 0.0:
+		fade = k * (1.0 - _k(hit, 0.15, 0.25))
+		var e := UiKit.ease_out(_k(hit, 0.0, 0.3))
+		sq = Vector2(1.0 + 0.35 * e, 1.0 - 0.55 * e)
 	if fade <= 0.01:
 		return
-	var sway := sin(_now * 3.0 + p.x * 0.05) * 0.8 * s
-	var xb := Transform2D(Vector2(s, 0.0), Vector2(0.0, -s), p + down)
-	var xt := Transform2D(Vector2(s, 0.0), Vector2(0.0, -s), p + up + Vector2(sway, 0))
-	_ellipse(p + Vector2(0, 1.5 * s), 9.0 * s, 2.6 * s, _c(Toon.SUMI, 0.16 * fade))
-	# bas : jambes, bassin, bas de la colonne
-	_bone(xb * Vector2(-4, 0), xb * Vector2(-1.5, 8), s, fade)
-	_bone(xb * Vector2(4, 0), xb * Vector2(1.5, 8), s, fade)
-	_bone(xb * Vector2(-3.5, 8), xb * Vector2(3.5, 8), s, fade)
-	_bone(xb * Vector2(0, 8), xb * Vector2(0, 12.5), s, fade)
-	# haut : colonne, côtes, bras, crâne
-	_bone(xt * Vector2(0, 12.5), xt * Vector2(0, 19), s, fade)
-	_bone(xt * Vector2(-4, 17), xt * Vector2(4, 17), s, fade)
-	_bone(xt * Vector2(-3.5, 14.5), xt * Vector2(3.5, 14.5), s, fade)
-	_bone(xt * Vector2(-4.5, 18.5), xt * Vector2(-8, 11), s, fade)
-	_bone(xt * Vector2(4.5, 18.5), xt * Vector2(8, 11), s, fade)
-	var hc := xt * Vector2(0, 24.5)
-	draw_circle(hc, 6.2 * s, _c(Toon.SUMI, fade))
-	draw_circle(hc, 5.0 * s, _c(Toon.WASHI, fade))
-	draw_circle(hc + Vector2(-2.0, 0.5) * s, 1.4 * s, _c(Toon.SUMI, fade))
-	draw_circle(hc + Vector2(2.0, 0.5) * s, 1.4 * s, _c(Toon.SUMI, fade))
-	draw_line(hc + Vector2(-2.0, 3.5) * s, hc + Vector2(2.0, 3.5) * s, _c(Toon.SUMI, fade), 1.0 * s)
+	var bob := 0.0
+	if hit < 0.0:
+		bob = absf(sin(_now * 5.0 + p.x * 0.07)) * 1.2 * s
+	var xf := Transform2D(0.0, Vector2(face * s * sq.x, -s * sq.y), 0.0, p - Vector2(0, bob))
+	_ellipse(p + Vector2(0, 1.5 * s), 10.0 * s, 2.8 * s, _c(Toon.SUMI, 0.18 * fade))
+	var ang := deg_to_rad(lerpf(65.0, 140.0, UiKit.ease_out(club)))
+	if club > 1.0:
+		ang = deg_to_rad(lerpf(140.0, -30.0, UiKit.ease_out(club - 1.0)))
+	var hand := Vector2(7, 9)
+	var ctip := hand + Vector2(cos(ang), sin(ang)) * 16.0
+	# pieds et cornes
+	draw_circle(xf * Vector2(-4, 1), 2.6 * s, _c(Toon.SUMI, fade))
+	draw_circle(xf * Vector2(4, 1), 2.6 * s, _c(Toon.SUMI, fade))
+	for sx in [-1.0, 1.0]:
+		var horn := xf * PackedVector2Array([Vector2(6.5 * sx, 18.0), Vector2(2.5 * sx, 19.5), Vector2(6.5 * sx, 27.0)])
+		draw_colored_polygon(horn, _c(Toon.WASHI, fade))
+		_outline(horn, _c(Toon.SUMI, fade), 1.2 * s)
+	# corps rond : il rougit en clignotant quand il prépare son coup
+	var col := ONI
+	if club > 0.0 and club <= 1.0:
+		col = ONI.lerp(Toon.VERMILION.lightened(0.25), 0.5 + 0.5 * sin(_now * 18.0))
+	var bc := xf * Vector2(0, 11)
+	_ellipse(bc, 11.0 * s * sq.x, 11.0 * s * sq.y, _c(Toon.SUMI, fade))
+	_ellipse(bc, 9.8 * s * sq.x, 9.8 * s * sq.y, _c(col, fade))
+	# pagne en peau de tigre
+	draw_colored_polygon(xf * PackedVector2Array([Vector2(-8, 2.5), Vector2(8, 2.5), Vector2(7, 6.5), Vector2(-7, 6.5)]), _c(Toon.GOLD, fade))
+	draw_line(xf * Vector2(-3, 2.5), xf * Vector2(-2, 6.5), _c(Toon.SUMI, fade), 1.2 * s)
+	draw_line(xf * Vector2(2, 2.5), xf * Vector2(3, 6.5), _c(Toon.SUMI, fade), 1.2 * s)
+	# yeux, sourcils froncés, crocs
+	for ex in [-1.2, 4.2]:
+		draw_circle(xf * Vector2(ex, 13.2), 2.3 * s, _c(Toon.WASHI, fade))
+		draw_circle(xf * Vector2(ex + 0.6, 13.0), 1.1 * s, _c(Toon.SUMI, fade))
+	draw_line(xf * Vector2(-3.8, 16.4), xf * Vector2(0.4, 15.0), _c(Toon.SUMI, fade), 1.5 * s, true)
+	draw_line(xf * Vector2(2.6, 15.0), xf * Vector2(6.8, 16.4), _c(Toon.SUMI, fade), 1.5 * s, true)
+	draw_line(xf * Vector2(0, 9.6), xf * Vector2(4.6, 9.6), _c(Toon.SUMI, fade), 1.3 * s)
+	draw_colored_polygon(xf * PackedVector2Array([Vector2(0.6, 9.6), Vector2(1.8, 9.6), Vector2(1.2, 11.2)]), _c(Toon.WASHI, fade))
+	draw_colored_polygon(xf * PackedVector2Array([Vector2(3.0, 9.6), Vector2(4.2, 9.6), Vector2(3.6, 11.2)]), _c(Toon.WASHI, fade))
+	# bras et massue cloutée
+	draw_line(xf * Vector2(4, 12), xf * hand, _c(Toon.SUMI, fade), 3.0 * s, true)
+	draw_line(xf * hand, xf * ctip, _c(Toon.SUMI, fade), 5.6 * s, true)
+	draw_line(xf * hand.lerp(ctip, 0.2), xf * ctip, _c(Toon.WOOD, fade), 3.4 * s, true)
+	for j in 3:
+		draw_circle(xf * hand.lerp(ctip, 0.5 + 0.17 * j), 0.9 * s, _c(Toon.SUMI, fade))
+	draw_circle(xf * hand, 2.0 * s, _c(col, fade))
+	if hit >= 0.0 and hit < 0.15:
+		_ellipse(bc, 11.0 * s * sq.x, 11.0 * s * sq.y, _c(Color.WHITE, 0.8 * (1.0 - hit / 0.15) * k))
+	if club > 0.0 and club <= 1.0:
+		UiKit.text(self, UiKit.TITLE_FONT, "!", p + Vector2(0, -34.0 * s), int(20 * s), _c(Toon.VERMILION, fade * minf(club * 4.0, 1.0)))
 
 
-func _bone(a: Vector2, b: Vector2, s: float, k: float) -> void:
-	draw_line(a, b, _c(Toon.SUMI, k), 3.4 * s, true)
-	draw_line(a, b, _c(Toon.WASHI, k), 1.6 * s, true)
+## Bouffée d'encre : le yokai tranché s'évapore.
+func _puff(c: Vector2, k: float) -> void:
+	if k <= 0.0 or k >= 1.0:
+		return
+	var u := _u
+	var a := 1.0 - k
+	var e := UiKit.ease_out(k)
+	for j in 6:
+		var d := Vector2.from_angle(TAU * j / 6.0 + 0.5) * (5.0 + 16.0 * e) * u
+		draw_circle(c + d + Vector2(0, -6.0 * e) * u, (4.0 + 4.0 * e) * u * a + 0.5, _c(Toon.SUMI, 0.3 * a))
+	draw_circle(c, 9.0 * u * (1.0 - e), _c(Toon.WASHI, 0.9 * a))
+
+
+## Toucher : un anneau vermillon s'ouvre sous le doigt.
+func _tap_fx(c: Vector2, k: float) -> void:
+	if k <= 0.0 or k >= 1.0:
+		return
+	var e := UiKit.ease_out(k)
+	draw_arc(c, (6.0 + 22.0 * e) * _u, 0, TAU, 28, _c(Toon.VERMILION, 0.85 * (1.0 - k)), 2.5 * _u, true)
+	draw_circle(c, 5.0 * _u * (1.0 - k), _c(Toon.VERMILION, 0.5 * (1.0 - k)))
+
+
+## Traits de vitesse derrière le ronin pendant la ruée (dir : sens de la course).
+func _speed_lines(p: Vector2, dir: Vector2, s: float, k: float) -> void:
+	if k <= 0.01 or dir.length_squared() < 0.0001:
+		return
+	var dn := dir.normalized()
+	var n := dn.orthogonal()
+	for g in 3:
+		var a0 := p + n * (g - 1) * 9.0 * s + Vector2(0, -16.0 * s) - dn * (12.0 + 4.0 * g) * s
+		draw_line(a0, a0 - dn * (18.0 + 6.0 * g) * s, _c(Toon.SUMI, 0.35 * k), 2.0 * s, true)
+
+
+## Sens de la course le long d'une polyligne, à la fraction f.
+func _dir_at(pts: PackedVector2Array, f: float) -> Vector2:
+	var d := _pt_at(pts, minf(f + 0.02, 1.0)) - _pt_at(pts, maxf(f - 0.02, 0.0))
+	if d.length_squared() < 0.0001:
+		return Vector2.RIGHT
+	return d.normalized()
+
+
+## Jauge d'encre du HUD (hud.gd _draw_gauge) : pilule sombre cerclée de blanc, remplie du bas, goutte dessous.
+func _ink_gauge(r: Rect2, fill: float, col: Color, k: float) -> void:
+	var u := _u
+	draw_style_box(UiKit.box(_sb, _c(Color(0.06, 0.06, 0.09, 0.62), k), int(r.size.x / 2.0 + 3.0 * u), _c(Color(1, 1, 1, 0.75), k), int(maxf(1.0, 1.5 * u))), r.grow(3.0 * u))
+	var fh := r.size.y * clampf(fill, 0.0, 1.0)
+	if fh > 1.0:
+		draw_style_box(UiKit.box(_sb, _c(col, k), int(r.size.x / 2.0)), Rect2(Vector2(r.position.x, r.end.y - fh), Vector2(r.size.x, fh)))
+		draw_rect(Rect2(Vector2(r.position.x + 3.0 * u, r.end.y - fh + 4.0 * u), Vector2(3.0 * u, maxf(0.0, fh - 8.0 * u))), _c(Color(1, 1, 1, 0.35), k))
+	var drop := Vector2(r.get_center().x, r.end.y + 16.0 * u)
+	draw_circle(drop + Vector2(0, 2) * u, 6.0 * u, _c(col, k))
+	draw_colored_polygon(PackedVector2Array([drop + Vector2(-5.5, 1) * u, drop + Vector2(0, -10) * u, drop + Vector2(5.5, 1) * u]), _c(col, k))
+	draw_circle(drop + Vector2(-2, 1) * u, 1.6 * u, _c(Color(1, 1, 1, 0.6), k))
+
+
+## Rouleau encore fermé (offre de pouvoir), liseré et halo à la couleur de sa rareté.
+func _rolled(c: Vector2, s: float, col: Color, k: float) -> void:
+	if k <= 0.01:
+		return
+	draw_circle(c, 26.0 * s, _c(col, 0.12 * k))
+	draw_style_box(UiKit.box(_sb, _c(Toon.PAPER, k), int(7 * s), _c(Toon.SUMI, k), int(maxf(1.0, 1.5 * s))), Rect2(c - Vector2(20, 7) * s, Vector2(40, 14) * s))
+	draw_rect(Rect2(c + Vector2(-23, -8.5) * s, Vector2(4, 17) * s), _c(Toon.SUMI, k))
+	draw_rect(Rect2(c + Vector2(19, -8.5) * s, Vector2(4, 17) * s), _c(Toon.SUMI, k))
+	draw_rect(Rect2(c + Vector2(-3, -7) * s, Vector2(6, 14) * s), _c(col, k))
+	draw_line(c + Vector2(-14, 0) * s, c + Vector2(-6, 0) * s, _c(Toon.SUMI, 0.3 * k), 1.5 * s)
+
+
+## Technique d'une figure (celle que débloque son rouleau), jouée en fond quand le ronin arrive ; k ∈ [0, 1].
+## rp : pieds du ronin ; center : centre de l'ensō (où tombe l'onde) ; s : échelle du ronin.
+func _fig_fx(kind: String, fc: Color, pts: PackedVector2Array, rp: Vector2, face: float, center: Vector2, k: float, fade: float, s: float) -> void:
+	if k <= 0.0 or k >= 1.0:
+		return
+	var u := _u
+	var c := rp - Vector2(0, 18) * s
+	var al := (1.0 - k) * fade
+	match kind:
+		"loop":
+			# toupie : des arcs tournent autour du ronin
+			var rot := k * TAU * 2.0
+			for j in 3:
+				var a0 := rot + TAU * j / 3.0
+				draw_arc(c, (24.0 + 8.0 * k) * u, a0, a0 + 1.5, 14, _c(fc, al), 4.0 * u, true)
+		"zigzag":
+			# éclair en chaîne : la foudre file vers trois points
+			var fl := 0.6 + 0.4 * sin(_now * 40.0)
+			for b in 3:
+				var tg := c + Vector2.from_angle(-PI * 0.5 + (b - 1) * 1.15) * 54.0 * u
+				var nrm := (tg - c).orthogonal().normalized()
+				var pl := PackedVector2Array()
+				for i in 7:
+					var q := c.lerp(tg, float(i) / 6.0)
+					if i > 0 and i < 6:
+						q += nrm * sin(float(i) * 2.7 + floor(_now * 14.0) + float(b)) * 7.0 * u
+					pl.append(q)
+				draw_polyline(pl, _c(fc, al * fl), 3.0 * u, true)
+				draw_circle(tg, 4.0 * u * (1.0 - k) + 1.0, _c(fc, al))
+		"straight":
+			# coupe iaï : une longue entaille prolonge le trait
+			var a := pts[0]
+			var b := pts[pts.size() - 1]
+			var d := (b - a).normalized()
+			var e := UiKit.ease_out(minf(k * 2.5, 1.0))
+			draw_line(a - d * 10.0 * u, b + d * (10.0 + 40.0 * e) * u, _c(fc, al), 7.0 * u * (1.0 - k) + 1.0, true)
+			draw_line(a, b + d * 40.0 * e * u, _c(Toon.WASHI, al), 2.0 * u * (1.0 - k) + 0.5, true)
+		"return":
+			# garde : un bouclier en arc devant le ronin
+			var ca := 0.0 if face > 0.0 else PI
+			var gr := (24.0 + 2.0 * sin(_now * 12.0)) * u
+			draw_circle(c, gr, _c(fc, 0.12 * al))
+			draw_arc(c, gr, ca - 1.3, ca + 1.3, 20, _c(fc, al), 4.0 * u, true)
+			draw_arc(c, gr + 5.0 * u, ca - 0.9, ca + 0.9, 14, _c(fc, 0.5 * al), 2.0 * u, true)
+		"enso":
+			# frappe au sol : l'onde part du centre du cercle
+			for j in 2:
+				var q := clampf(k * 1.4 - j * 0.35, 0.0, 1.0)
+				if q > 0.0 and q < 1.0:
+					draw_arc(center, (12.0 + 64.0 * q) * u, 0, TAU, 40, _c(fc, (1.0 - q) * 0.9 * fade), 5.0 * u * (1.0 - q) + 1.0, true)
+		_:
+			# estoc : une pointe filée dans le sens du crochet
+			var n := pts.size() - 1
+			var d := (pts[n] - pts[maxi(0, n - 3)]).normalized()
+			var e := UiKit.ease_out(minf(k * 3.0, 1.0))
+			if e > 0.05:
+				var tip := c + d * 58.0 * u * e
+				var side := d.orthogonal() * 4.0 * u * (1.0 - k) + d.orthogonal() * 0.5
+				draw_colored_polygon(PackedVector2Array([c + side, tip, c - side]), _c(fc, al))
+				for j in 4:
+					var ang := d.angle() + (j - 1.5) * 0.7
+					draw_line(tip, tip + Vector2.from_angle(ang) * 9.0 * u * e, _c(fc, al), 2.0 * u, true)
 
 
 ## Éclat de la coupe : trait vermillon et gouttes d'encre.
@@ -922,55 +1051,10 @@ func _bez_pts(a: Vector2, c: Vector2, b: Vector2, n: int) -> PackedVector2Array:
 	return out
 
 
-## Barre au pinceau (comme la jauge du HUD).
-func _bar(pos: Vector2, wd: float, h: float, fill: float, col: Color) -> void:
-	if fill <= 0.001:
-		return
-	var fw := wd * clampf(fill, 0.0, 1.0)
-	var top := PackedVector2Array()
-	var bot := PackedVector2Array()
-	for i in 17:
-		var x := pos.x + fw * i / 16.0
-		var th := h * (0.78 + 0.22 * sin(i * 1.9)) / 2.0
-		top.append(Vector2(x, pos.y + h / 2.0 - th))
-		bot.append(Vector2(x, pos.y + h / 2.0 + th))
-	bot.reverse()
-	top.append_array(bot)
-	draw_colored_polygon(top, col)
-
-
-func _drop(c: Vector2, r: float, col: Color) -> void:
-	draw_circle(c + Vector2(0, r * 0.35), r, col)
-	draw_colored_polygon(PackedVector2Array([c + Vector2(-r * 0.92, r * 0.2), c + Vector2(0, -r * 1.6), c + Vector2(r * 0.92, r * 0.2)]), col)
-
-
 func _gem(c: Vector2, r: float) -> void:
 	var pts := PackedVector2Array([c + Vector2(0, -r), c + Vector2(r * 0.75, 0), c + Vector2(0, r), c + Vector2(-r * 0.75, 0)])
 	draw_colored_polygon(pts, _c(JADE))
 	_outline(pts, _c(Toon.SUMI), 1.2 * _u)
-
-
-func _coin(c: Vector2, r: float, k: float) -> void:
-	draw_circle(c, r, _c(Toon.GOLD, k))
-	draw_circle(c, r * 0.55, _c(Color("#8C6A2A"), k))
-
-
-func _torii(base: Vector2, s: float, open_k: float, k: float) -> void:
-	var inner := Rect2(base + Vector2(-13, -38) * s, Vector2(26, 38) * s)
-	if open_k > 0.0:
-		draw_rect(inner, _c(Toon.GOLD, 0.6 * open_k * k))
-		var o := base + Vector2(0, -19) * s
-		for j in 5:
-			var ang := -PI / 2.0 + (j - 2) * 0.35
-			draw_line(o, o + Vector2.from_angle(ang) * (40.0 + 10.0 * sin(_now * 3.0 + j)) * s * open_k, _c(Toon.GOLD, 0.35 * open_k * k), 3.0 * s, true)
-	else:
-		draw_rect(inner, _c(Toon.SUMI, 0.1 * k))
-	draw_rect(Rect2(base + Vector2(-19, -46) * s, Vector2(6, 46) * s), _c(Toon.VERMILION, k))
-	draw_rect(Rect2(base + Vector2(13, -46) * s, Vector2(6, 46) * s), _c(Toon.VERMILION, k))
-	draw_rect(Rect2(base + Vector2(-25, -38) * s, Vector2(50, 4.5) * s), _c(Toon.VERMILION, k))
-	draw_rect(Rect2(base + Vector2(-2, -46) * s, Vector2(4, 8) * s), _c(Toon.VERMILION, k))
-	draw_rect(Rect2(base + Vector2(-28, -48) * s, Vector2(56, 3) * s), _c(Toon.VERMILION, k))
-	draw_colored_polygon(PackedVector2Array([base + Vector2(-34, -56) * s, base + Vector2(34, -56) * s, base + Vector2(29, -48) * s, base + Vector2(-29, -48) * s]), _c(Toon.SUMI, k))
 
 
 func _shrine(p: Vector2, s: float, lit: bool) -> void:
@@ -1001,8 +1085,8 @@ func _boss(c: Vector2, s: float, rage: float) -> void:
 		draw_circle(xf * Vector2(-24.0 + 12.0 * j, -52.0 + 4.0 * absf(j - 2.0)), 3.2 * s, _c(Toon.VERMILION, 0.8))
 
 
-## Rouleau de pouvoir (rareté rar), qui surgit (kin) puis s'efface (kout).
-func _scroll_card(c: Vector2, s: float, rar: int, kin: float, kout: float) -> void:
+## Rouleau de pouvoir (rareté rar), qui surgit (kin) puis s'efface (kout) ; unroll : il se déroule de haut en bas.
+func _scroll_card(c: Vector2, s: float, rar: int, kin: float, kout: float, unroll := 1.0) -> void:
 	var al := kin * kout
 	if al <= 0.01:
 		return
@@ -1013,9 +1097,9 @@ func _scroll_card(c: Vector2, s: float, rar: int, kin: float, kout: float) -> vo
 		var ang := _now * 0.6 + TAU * j / nr
 		var r0 := 44.0 * s
 		var r1 := (72.0 + 6.0 * sin(_now * 3.0 + j)) * s
-		draw_line(c + Vector2.from_angle(ang) * r0, c + Vector2.from_angle(ang) * r1, _c(rc, 0.5 * al), 3.0 * s, true)
+		draw_line(c + Vector2.from_angle(ang) * r0, c + Vector2.from_angle(ang) * r1, _c(rc, 0.5 * al * unroll), 3.0 * s, true)
 	var sc := 0.6 + 0.4 * kin
-	draw_set_transform(c, sin(_now * 2.0) * 0.04, Vector2(sc, sc))
+	draw_set_transform(c, sin(_now * 2.0) * 0.04, Vector2(sc, sc * lerpf(0.1, 1.0, clampf(unroll, 0.0, 1.0))))
 	var r := Rect2(Vector2(-44, -56) * s, Vector2(88, 112) * s)
 	draw_rect(Rect2(r.position + Vector2(-4, -4) * s, Vector2(r.size.x + 8.0 * s, 5.0 * s)), _c(Toon.SUMI, al))
 	draw_rect(Rect2(Vector2(r.position.x - 4.0 * s, r.end.y - 1.0 * s), Vector2(r.size.x + 8.0 * s, 5.0 * s)), _c(Toon.SUMI, al))
@@ -1050,39 +1134,21 @@ func _symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 		"straight":
 			draw_line(c + Vector2(-0.95, 0.55) * s, c + Vector2(0.95, -0.55) * s, ink, w * 1.3, true)
 			draw_line(c + Vector2(-0.6, 0.55) * s, c + Vector2(0.95, -0.35) * s, _c(Toon.VERMILION, a * 0.8), w * 0.5, true)
+		"return":
+			# demi-tour
+			draw_arc(c + Vector2(0, -0.1) * s, s * 0.55, PI, TAU, 16, ink, w, true)
+			draw_line(c + Vector2(-0.55, -0.1) * s, c + Vector2(-0.55, 0.8) * s, ink, w, true)
+			draw_line(c + Vector2(0.55, -0.1) * s, c + Vector2(0.55, 0.6) * s, ink, w, true)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(0.3, 0.55) * s, c + Vector2(0.8, 0.55) * s, c + Vector2(0.55, 0.95) * s]), ink)
+		"hook":
+			# hameçon
+			draw_line(c + Vector2(0.35, -0.9) * s, c + Vector2(0.35, 0.3) * s, ink, w, true)
+			draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
 		_:
+			# ensō : cercle ouvert, plus épais au départ
 			draw_arc(c, s * 0.85, -PI * 0.35, PI * 1.5, 32, ink, w * 1.5, true)
 			draw_circle(c + Vector2.from_angle(-PI * 0.35) * s * 0.85, w * 0.9, ink)
-
-
-## Gestes de démonstration (mêmes tracés que le tutoriel), en coordonnées 0..1.
-func _gesture_points(kind: String) -> PackedVector2Array:
-	var p := PackedVector2Array()
-	match kind:
-		"loop":
-			for i in 41:
-				var t := float(i) / 40.0
-				var base := Vector2(0.5, 0.92 - 0.82 * t)
-				var lp := clampf((t - 0.3) / 0.4, 0.0, 1.0)
-				if lp > 0.0 and lp < 1.0:
-					base += Vector2(sin(lp * TAU) * 0.22, (1.0 - cos(lp * TAU)) * 0.12)
-				p.append(base)
-		"zigzag":
-			var zz := [Vector2(0.5, 0.92), Vector2(0.2, 0.7), Vector2(0.8, 0.5), Vector2(0.2, 0.3), Vector2(0.75, 0.1)]
-			for i in range(zz.size() - 1):
-				var za: Vector2 = zz[i]
-				var zb: Vector2 = zz[i + 1]
-				for j in 6:
-					p.append(za.lerp(zb, j / 6.0))
-			p.append(zz[zz.size() - 1])
-		"straight":
-			for i in 13:
-				p.append(Vector2(0.5, 0.95 - 0.9 * i / 12.0))
-		_:
-			for i in 41:
-				var ang := PI / 2.0 + TAU * 0.92 * i / 40.0
-				p.append(Vector2(0.5, 0.5) + Vector2(cos(ang), sin(ang)) * 0.4)
-	return p
 
 
 # ------------------------------------------------------------------ outils
