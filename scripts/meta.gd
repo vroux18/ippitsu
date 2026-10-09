@@ -306,7 +306,7 @@ func save_data() -> void:
 # k : type d'ennemi (main.KIND_XP), ou « boss_<id> » pour un gardien ou un boss.
 
 func kind_seen(k: String) -> bool:
-	return seen.has(k)
+	return seen.has(k) or test_unlock_all  # ?unlockall : bestiaire complet (captures)
 
 
 ## Première rencontre : vrai si l'ennemi est nouveau (main l'annonce).
