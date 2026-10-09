@@ -186,6 +186,9 @@ var shake := 0.0  # secousse : amplitude linéaire (shake × 0,35 m)
 const HITSTOP_HIT := 0.035
 const HITSTOP_KILL := 0.065
 const HITSTOP_BOSS := 0.05
+## Dégâts du héros sur les gardiens et les boss, multipliés par ce facteur (ruée, pouvoirs, ultime) : à 1,0 ils
+## tombaient trop vite ; il faut maintenant tenir deux ou trois fenêtres de vulnérabilité.
+const BOSS_TOUGH := 0.55
 const HITSTOP_STEP := 0.01
 const HITSTOP_MAX := 0.12
 const HITSTOP_STROKE := 0.3  # arrêt cumulé maximal sur un trait
@@ -3907,7 +3910,7 @@ func damage_bosses(center: Vector3, r: float, dmg: float, fx := true) -> Array:
 	for bo in bosses:
 		if not is_instance_valid(bo) or bo.dead:
 			continue
-		var p: Vector3 = bo.aoe_hit(center, r, dmg, fx)
+		var p: Vector3 = bo.aoe_hit(center, r, dmg * BOSS_TOUGH, fx)
 		if p == Vector3.INF:
 			continue
 		hits.append(p)
@@ -3923,7 +3926,7 @@ func damage_bosses_line(pts: PackedVector3Array, r: float, dmg: float, fx := tru
 		if not is_instance_valid(bo) or bo.dead:
 			continue
 		for i in range(0, pts.size(), 3):
-			var p: Vector3 = bo.aoe_hit(pts[i], r, dmg, fx)
+			var p: Vector3 = bo.aoe_hit(pts[i], r, dmg * BOSS_TOUGH, fx)
 			if p != Vector3.INF:
 				if fx:
 					_dmg_text(p, dmg, false)
@@ -4462,7 +4465,7 @@ func _ultimate() -> void:
 			damage_enemy(e, ULT_DAMAGE * chain_mult())
 	for bo in bosses:
 		if is_instance_valid(bo) and not bo.dead:
-			bo.aoe_hit(bo.position, 6.0, ULT_DAMAGE * 2.0 * chain_mult(), true)
+			bo.aoe_hit(bo.position, 6.0, ULT_DAMAGE * 2.0 * chain_mult() * BOSS_TOUGH, true)
 	if state == "tuto":
 		tuto.on_ultimate()
 	coach.on_event("ult")
@@ -4786,7 +4789,7 @@ func _check_slashes() -> void:
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
-			bo.take_hit(powers.boss_dmg(bd), bdir)
+			bo.take_hit(powers.boss_dmg(bd) * BOSS_TOUGH, bdir)
 			gain_ult(0.025)
 			powers.on_boss_hit(bo.position, bd)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
