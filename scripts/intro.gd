@@ -7,30 +7,39 @@ extends Control
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const InkStroke = preload("res://scripts/ink_stroke.gd")
 
 signal finished(action: String)
 
 const PAGES := [
-	{"kanji": "一", "title": "Un seul trait",
-		"text": "Trace un trait du doigt : ton ronin fonce le long et tranche tout ce qu'il touche."},
+	{"kanji": "一", "title": "Trace un trait",
+		"text": "Glisse ton doigt : le ronin suit ton trait et tranche tout ce qu'il touche."},
 	{"kanji": "墨", "title": "L'encre",
-		"text": "Chaque trait coûte de l'encre (la jauge à droite). Elle remonte quand tu ne traces pas, et à chaque ennemi touché."},
+		"text": "Chaque trait use de l'encre. Elle revient quand tu ne traces pas."},
 	{"kanji": "円", "title": "Les figures",
-		"text": "Boucle, zigzag, ensō… Une forme cachée dans ton trait : +1 chaîne. Ramasse son rouleau de figure pour débloquer sa technique, puis l'améliorer."},
+		"text": "Dessine une forme (boucle, zigzag, cercle…) : ton coup devient plus fort. Trouve son rouleau pour débloquer sa technique."},
 	{"kanji": "風", "title": "Esquive",
-		"text": "Une zone rouge annonce un coup : sors-en ! Un tap = un bond d'esquive (gratuit). Pas touché ? Ta chaîne monte, tes dégâts aussi."},
+		"text": "Un ennemi va frapper ? Touche l'écran : le ronin bondit hors de danger."},
 	{"kanji": "道", "title": "Progresse",
-		"text": "Nettoie les vagues, ramasse l'XP et l'or. Chaque niveau t'offre un rouleau de pouvoir, du commun au légendaire. Puis le torii s'ouvre."},
+		"text": "Tue des yokai pour monter de niveau et choisis un pouvoir sur un rouleau."},
 	{"kanji": "鬼", "title": "8 étapes, un gardien",
-		"text": "Avance de combat en combat, fouille les recoins. Mini-boss à l'étape 4, gardien du monde à l'étape 8. Bonne route !"},
+		"text": "Chaque monde compte 8 étapes. Un mini-boss à la 4e, le gardien t'attend à la 8e. Bonne route !"},
 ]
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert l'intro (ou tourné la planche) ne compte pas
 const TRANS := 0.35  # durée du fondu entre deux planches
 const GLUE := [":", ";", "!", "?", "%", "=", "…"]  # jamais en début de ligne
 const JADE := Color("#3FD1B2")
-const SHAPES := ["loop", "zigzag", "straight", "enso"]
-const SHAPE_LABELS := ["BOUCLE", "ZIGZAG", "DROIT", "ENSŌ"]
-const TECH_NAMES := ["TOUPIE", "RUÉE ÉCLAIR", "IAÏ", "FRAPPE AU SOL"]
+# figures, dans l'ordre de la planche 3 (couleurs d'encre : ink_stroke.gd FIG_INK)
+const FIGS := ["loop", "zigzag", "straight", "return", "enso", "hook"]
+const FIG_KANJI := {"loop": "渦", "zigzag": "雷", "straight": "一", "return": "返", "enso": "円", "hook": "鉤"}
+# technique débloquée par le rouleau de chaque figure (powers.gd FIG_NAMES, en clair)
+const FIG_TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR EN CHAÎNE", "straight": "COUPE IAÏ", "return": "GARDE",
+	"enso": "FRAPPE AU SOL", "hook": "ESTOC"}
+# le ronin (même allure que le héros 3D : capuche sombre, kimono indigo, écharpe vermillon)
+const HOOD := Color("#2E2C38")
+const ROBE := Color("#2B4C7E")
+const ONI := Color("#C2453A")  # peau du petit oni
+const GAUGE_INK := Color("#7B7B83")  # encre par défaut de la jauge du HUD (sumi éclaircie, hud.gd)
 const RARITY_COLS := [Color("#8A8478"), Color("#3D78B8"), Color("#8752B5"), Color("#E2A93B")]
 const RARITY_NAMES := ["COMMUN", "RARE", "ÉPIQUE", "LÉGENDAIRE"]
 const CARD_KANJI := ["火", "水", "雷", "風"]
@@ -296,9 +305,6 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 	var seal := Rect2(Vector2(card.end.x - 48.0 * u, card.position.y + 10.0 * u), Vector2(30, 30) * u)
 	draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, alpha), int(6 * u)), seal)
 	UiKit.text(self, UiKit.TITLE_FONT, String(pg.kanji), seal.get_center() + Vector2(0, 8.0 * u), int(21 * u), Color(Toon.WASHI, alpha))
-	if pg.has("terms"):
-		_page_lexique(pg, card, dx, t)
-		return
 	# titre et texte
 	var cx := card.get_center().x + dx
 	var ty := panel.end.y + 44.0 * u
@@ -309,7 +315,11 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 	UiKit.text(self, UiKit.TITLE_FONT, title, Vector2(cx, ty), tfs, Color(Toon.SUMI, alpha))
 	draw_line(Vector2(cx - 22.0 * u, ty + 12.0 * u), Vector2(cx + 22.0 * u, ty + 12.0 * u), Color(Toon.VERMILION, alpha), 2.0 * u)
 	var fs := int(14 * u)
-	var lines := _wrap(UiKit.UI_FONT, UiKit.plain(String(pg.text)), fs, card.size.x - 48.0 * u)
+	var body := UiKit.plain(String(pg.text))
+	var lines := _wrap(UiKit.UI_FONT, body, fs, card.size.x - 48.0 * u)
+	while lines.size() > 4 and fs > 10:
+		fs -= 1  # jamais plus de 4 lignes : le texte rapetisse plutôt que d'être coupé
+		lines = _wrap(UiKit.UI_FONT, body, fs, card.size.x - 48.0 * u)
 	for j in mini(lines.size(), 4):
 		UiKit.text(self, UiKit.UI_FONT, lines[j], Vector2(cx, ty + 40.0 * u + j * 21.0 * u), fs, Color(Toon.SUMI, 0.8 * alpha))
 

@@ -37,9 +37,9 @@ const TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "retur
 const HOW := {
 	"straight": "Un trait bien droit d'au moins 7 m, sans onduler.",
 	"return": "Un aller d'au moins 3 m, puis repars sur tes pas jusqu'au départ.",
-	"zigzag": "Un Z ou un N : 2 virages nets (plus de 85 degrés), branches d'au moins 0,6 m.",
+	"zigzag": "Un Z ou un N : 2 virages nets (plus de 85 degrés) dans un sens puis dans l'autre.",
 	"loop": "Une boucle qui recoupe ton trait : presque un tour complet, 6 m de large au plus.",
-	"enso": "Un grand cercle presque fermé : 3 m de large au moins, deux tiers de tour ou plus.",
+	"enso": "Un grand cercle presque fermé : plus de 3 m de large, deux tiers de tour ou plus.",
 	"hook": "Un trait, puis un angle vif à la fin : repars en biais vers l'arrière sur 1,5 m.",
 }
 # ce que fait la technique (niveau 1, power_data)
@@ -211,8 +211,8 @@ func stop(notify := true) -> void:
 func is_over_ui(p: Vector2) -> bool:
 	if not active or not visible:
 		return false
-	if open or _open_k > 0.02:
-		return true
+	if open:
+		return true  # (en se refermant, la page laisse déjà passer les traits)
 	var u := size.x / 400.0
 	return _card_rect().grow(6 * u).has_point(p)
 
@@ -257,7 +257,7 @@ func _set_target(kind: String) -> void:
 	if open:
 		_toggle_book()
 	if target != "":
-		_show_verdict("CIBLE · " + String(UiKit.FIG_WORD.get(kind, kind)), String(HOW.get(kind, "")), kind, false)
+		_show_verdict("CIBLE · " + String(UiKit.FIG_WORD.get(kind, kind)), "à toi de la tracer", kind, false)
 
 
 # ------------------------------------------------------------------ événements transmis par main (via le tutoriel)
