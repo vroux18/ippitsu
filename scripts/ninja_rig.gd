@@ -1,9 +1,15 @@
 extends Node3D
-## Ninja procédural (héros et clan des ninjas) : modelé et animé entièrement en code, sans modèle importé.
+## Personnage procédural (héros et clan des ninjas) : modelé et animé entièrement en code, sans modèle importé.
 ## Proportions chibi héroïques (tête ≈ 1/3 de la hauteur, lisible à 10 m de la caméra), 1,75 m de référence.
-## Cagoule (zukin) avec une seule fente pour les yeux, masque de la même étoffe sur le nez et la bouche,
-## hachimaki à deux pans, veste croisée (V clair du sous-vêtement), obi noué, tekko, hakama serré dans les
-## kyahan, tabi à orteil séparé ; katana au fourreau laqué dans le dos (poignée au-dessus de l'épaule droite).
+## Deux allures sur le même squelette :
+## - ninja (ennemis, cfg « ronin » absent) : cagoule (zukin) à fente unique, masque de la même étoffe, hachimaki
+##   à deux pans, veste croisée (V clair), obi, tekko, hakama serré dans les kyahan, tabi ; katana au fourreau
+##   laqué dans le dos (poignée au-dessus de l'épaule droite) ;
+## - Ronin de papier (héros, cfg « ronin » vrai) : chapeau de paille conique (sandogasa) posé en arrière, visage
+##   nu aux traits d'encre (sourcils, yeux fendus, bouche fine), queue de cheval nouée sous le chapeau, kimono
+##   washi aux manches amples (ourlets et col marqués à l'encre, plis), hakama bleu de Prusse au motif seigaiha
+##   (écailles claires en couleurs de sommets), tabi et zōri ; katana au fourreau à la ceinture gauche, main
+##   gauche posée sur la garde au repos ; l'écharpe (hero.gd) part du nœud de la nuque.
 ## Squelette : hiérarchie de Node3D (articulations) ; les maillages sont enfants des articulations (pas de
 ## Skeleton3D). Animation : poses clés procédurales mêlées, seules les rotations des articulations bougent.
 ## Même interface que character.gd (setup, play, play_once, idle, _once, hold, set_flash, set_glow, length,
@@ -90,11 +96,13 @@ const K_CAST := 19
 const K_CHOP_UP := 20
 const K_CHOP_DOWN := 21
 const K_BOW := 22
+const K_SLASH_THRU := 23  # suivi du geste : la lame dépasse le point d'arrivée avant de se poser
 
 ## Enchaînements des clips joués une fois : [instant (0..1), pose clé, …], fondu lissé entre deux clés.
 ## Le coup tombe à mi-clip (comme les annonces des ennemis le supposent : length * 0.5 / windup).
+## Taille : anticipation (armé lent), frappe (rapide), suivi au-delà de l'arrivée, puis la pose se relâche.
 const SEQ := {
-	C_SLASH: [0.0, K_IDLE, 0.34, K_SLASH_WIND, 0.56, K_SLASH_HIT, 0.8, K_SLASH_END, 1.0, K_SLASH_END],
+	C_SLASH: [0.0, K_IDLE, 0.32, K_SLASH_WIND, 0.5, K_SLASH_HIT, 0.62, K_SLASH_THRU, 0.84, K_SLASH_END, 1.0, K_SLASH_END],
 	C_SPIN: [0.0, K_SPIN, 1.0, K_SPIN],
 	C_BLOCK: [0.0, K_GUARD, 0.12, K_GUARD_HIT, 0.3, K_GUARD, 1.0, K_GUARD],
 	C_JUMP: [0.0, K_CROUCH, 0.14, K_CROUCH, 0.28, K_EXTEND, 0.42, K_TUCK, 0.74, K_TUCK, 0.86, K_CROUCH, 1.0, K_IDLE],
@@ -111,6 +119,10 @@ const SEQ := {
 # fourreau dans le dos (repère du buste) : de la hanche gauche à l'épaule droite
 const SAYA_ROT := Vector3(0.12, 0.0, -0.78)
 const SAYA_POS := Vector3(0.0, 0.04, 0.165)
+# ronin : fourreau glissé dans l'obi, à la hanche gauche (repère du bassin) ; +Y du repère = vers l'embouchure
+# (devant, un peu vers le centre et en l'air), la pointe dépasse derrière à gauche
+const HIP_SAYA_ROT := Vector3(-1.22, -0.32, 0.0)
+const HIP_SAYA_POS := Vector3(-0.17, 0.07, 0.12)
 const IRON := Color("#3A3C42")
 const WOOD_D := Color("#4A3A2C")
 const EYE_WHITE := Color("#F6F1E6")
@@ -121,9 +133,20 @@ const DEF := {
 	"band": Color("#D7372B"), "wrap": Color("#D9D2C0"), "tekko": Color("#1B1A22"), "skin": Color("#F2D7B6"),
 	"glove": Color("#F2D7B6"), "tabi": Color("#3A3644"), "plate": Color("#C49A45"), "saya": Color("#2A1A1E"),
 	"steel": Color("#E9EEF0"), "eye": Color("#1B1A1E"), "hair": Color("#1E1B22"), "gold": Color("#C49A45"),
+	"hat": Color("#D8BE88"), "hatd": Color("#8F7646"), "wave": Color("#6F9BC8"), "hem": Color("#2A2733"),
 }
 const PAL_KEYS := ["cloth", "dark", "under", "accent", "band", "wrap", "tekko", "skin", "glove", "tabi", "plate",
-	"saya", "steel", "eye", "hair", "gold"]
+	"saya", "steel", "eye", "hair", "gold", "hat", "hatd", "wave", "hem"]
+
+## Ronin de papier (héros) : kimono washi, hakama bleu de Prusse aux vagues claires, obi d'encre, tabi blancs.
+## Le vermillon est réservé à l'écharpe (hero.gd) ; le chapeau de paille est la seule touche chaude.
+const RONIN_PAL := {
+	"cloth": Color("#F4EAD6"), "dark": Color("#1F3A5C"), "under": Color("#FBF6EA"), "accent": Color("#2A2733"),
+	"band": Color("#2A2733"), "wrap": Color("#EFE6D2"), "tekko": Color("#2A2733"), "skin": Color("#F2D7B6"),
+	"glove": Color("#F2D7B6"), "tabi": Color("#EFE6D2"), "plate": Color("#C49A45"), "saya": Color("#2A1A1E"),
+	"hair": Color("#1E1B22"), "hat": Color("#D8BE88"), "hatd": Color("#8F7646"), "wave": Color("#6F9BC8"),
+	"hem": Color("#2A2733"),
+}
 
 ## Tenues de la garde-robe (meta.OUTFITS) : couleurs de l'étoffe tirées de la teinte de chaque tenue.
 const OUTFIT_PAL := {
@@ -178,6 +201,7 @@ var _current := ""
 var _cfg := {}
 var _pk := ""
 var _weapon := "katana"
+var _ronin := false  # Ronin de papier (héros) : chapeau, visage nu, kimono, sabre à la hanche
 var _built := false
 var _mats: Array[StandardMaterial3D] = []
 var _mat_o: StandardMaterial3D  # étoffes, contour d'encre
@@ -208,12 +232,22 @@ var _last_gp := Vector3.ZERO
 
 # ------------------------------------------------------------------ palettes
 
-## Palette du héros pour une tenue de la garde-robe (id de meta.OUTFITS).
+## Palette du héros (Ronin de papier) pour une tenue de la garde-robe (id de meta.OUTFITS) : la tenue
+## teinte le hakama, ses vagues et l'obi ; le kimono washi, le chapeau et l'écharpe ne changent pas.
 static func hero_config(outfit := "sumi") -> Dictionary:
-	var d := {"weapon": "katana", "ponytail": false, "combat": false}
+	var d := {"weapon": "katana", "ponytail": true, "combat": false, "ronin": true}
+	for k in RONIN_PAL:
+		d[k] = RONIN_PAL[k]
 	var o: Dictionary = OUTFIT_PAL.get(outfit, {})
-	for k in o:
-		d[k] = o[k]
+	if o.has("cloth"):
+		var c: Color = o["cloth"]
+		d["dark"] = c
+		# vagues : plus claires sur une étoffe sombre, plus sombres sur une étoffe claire
+		d["wave"] = c.darkened(0.22) if c.get_luminance() > 0.45 else c.lightened(0.42)
+	if o.has("accent"):
+		d["accent"] = o["accent"]
+	if o.has("plate"):
+		d["plate"] = o["plate"]
 	return d
 
 
@@ -237,6 +271,7 @@ static func _pal_key(cfg: Dictionary) -> String:
 		s += _c(cfg, String(k)).to_html(false)
 	s += String(cfg.get("weapon", "katana"))
 	s += "p" if bool(cfg.get("ponytail", false)) else "-"
+	s += "R" if bool(cfg.get("ronin", false)) else "N"
 	s += "L" if Toon.lite else "F"
 	return s
 
@@ -248,6 +283,7 @@ func setup(cfg: Dictionary, height := H_REF) -> void:
 	_cfg = cfg
 	combat_idle = bool(cfg.get("combat", false))
 	_weapon = String(cfg.get("weapon", "katana"))
+	_ronin = bool(cfg.get("ronin", false))
 	scale_factor = height / H_REF
 	model = Node3D.new()
 	model.name = "Ninja"
@@ -323,7 +359,8 @@ func _make_joints() -> void:
 		_tails.append(t1)
 	if bool(_cfg.get("ponytail", false)):
 		_pony = Node3D.new()
-		_pony.position = Vector3(0, 0.47, 0.21)
+		# kunoichi : haut du crâne ; ronin : nouée sur la nuque, sous le chapeau
+		_pony.position = Vector3(0, 0.33, 0.25) if _ronin else Vector3(0, 0.47, 0.21)
 		_joints[J_HEAD].add_child(_pony)
 	knot = Node3D.new()
 	knot.position = Vector3(0, -0.03, 0.22)
@@ -350,15 +387,18 @@ func _dress() -> void:
 	_part(J_SHIN_R, "shin")
 	_part(J_FOOT_L, "foot_l")
 	_part(J_FOOT_R, "foot_r")
-	for i in _tails.size():
-		_part_on(_tails[i], "tail" if i % 2 == 0 else "tail_end")
+	if not _ronin:
+		# pans du hachimaki (le ronin n'en porte pas)
+		for i in _tails.size():
+			_part_on(_tails[i], "tail" if i % 2 == 0 else "tail_end")
 	if _pony != null:
 		_part_on(_pony, "pony")
 	blade = _part(J_HAND_R, "weapon_r")
 	if _weapon == "kusarigama":
 		_part(J_HAND_L, "weapon_l")
 	if _weapon == "katana":
-		hilt = _part(J_CHEST, "hilt")
+		# poignée au fourreau : dans le dos (ninja) ou à la hanche gauche (ronin)
+		hilt = _part(J_HIPS if _ronin else J_CHEST, "hilt")
 		hilt.visible = false  # ennemis : le sabre est en main ; le héros bascule poignée / lame lui-même
 
 
@@ -405,6 +445,7 @@ func set_palette(cfg: Dictionary) -> void:
 	var d := cfg.duplicate()
 	d["weapon"] = _weapon
 	d["ponytail"] = _pony != null
+	d["ronin"] = _ronin
 	_cfg = d
 	_pk = _pal_key(d)
 	for i in _part_mi.size():
@@ -785,7 +826,12 @@ func _update_tails(dt: float) -> void:
 			_tails[i].rotation = Vector3(lerpf(0.12, -0.2, _stream) + amp * sin(ph + 1.2), 0.0,
 				side * amp * 0.5 * sin(ph + 0.4))
 	if _pony != null:
-		_pony.rotation = Vector3(lerpf(-0.75, -1.3, _stream) + 0.1 * sin(_life * rate * 0.6), 0.0, 0.15 * sin(_life * 2.0))
+		if _ronin:
+			# queue nouée sur la nuque : pend, se soulève et flotte à la course
+			_pony.rotation = Vector3(lerpf(-0.35, -1.15, _stream) + amp * 0.35 * sin(_life * rate * 0.7), 0.0,
+				(0.08 + amp * 0.3) * sin(_life * rate * 0.5 + 0.6))
+		else:
+			_pony.rotation = Vector3(lerpf(-0.75, -1.3, _stream) + 0.1 * sin(_life * rate * 0.6), 0.0, 0.15 * sin(_life * 2.0))
 
 
 # ------------------------------------------------------------------ poses clés
@@ -867,6 +913,19 @@ func _key(k: int, b: Array[Vector3]) -> void:
 			_q(b, J_SHO_L, 0.3, 0, -0.65)
 			_q(b, J_ELB_L, 0.4, 0, 0)
 			_lunge(b, 0.65, -0.3)
+		K_SLASH_THRU:
+			# suivi : le corps continue de tourner, la lame file à gauche et un peu bas, la tête suit le coup
+			_q(b, SLOT_HIP, 0, -0.09, 0)
+			_q(b, J_HIPS, 0, 0.5, 0)
+			_q(b, J_SPINE, -0.2, 0.22, 0.06)
+			_q(b, J_CHEST, -0.08, 0.55, 0)
+			_q(b, J_HEAD, 0.28, -0.75, 0)
+			_q(b, J_SHO_R, -0.1, 2.45, 1.2)
+			_q(b, J_ELB_R, 0.15, 0, 0)
+			_q(b, J_HAND_R, -1.35, 0, 0)
+			_q(b, J_SHO_L, 0.15, 0, -0.8)
+			_q(b, J_ELB_L, 0.3, 0, 0)
+			_lunge(b, 0.75, -0.35)
 		K_SLASH_END:
 			_q(b, SLOT_HIP, 0, -0.07, 0)
 			_q(b, J_HIPS, 0, 0.25, 0)
@@ -1085,6 +1144,25 @@ func _key(k: int, b: Array[Vector3]) -> void:
 			_q(b, J_ELB_L, 1.4, 0, 0)
 			_q(b, J_SHO_R, 0.5, 0, -0.2)
 			_q(b, J_ELB_R, 1.4, 0, 0)
+	if _ronin and k == K_REST:
+		# repos du ronin : poids sur la jambe droite, main gauche posée sur la garde du sabre à la hanche,
+		# bras droit relâché, menton un peu levé sous le chapeau
+		_q(b, SLOT_HIP, 0, -0.012, 0)
+		_q(b, J_HIPS, 0, 0.12, 0)
+		_q(b, J_SPINE, -0.03, -0.06, 0.03)
+		_q(b, J_CHEST, 0.0, -0.08, 0)
+		_q(b, J_HEAD, 0.16, 0.1, -0.03)
+		_q(b, J_SHO_L, 0.62, 0.35, -0.18)
+		_q(b, J_ELB_L, 1.15, 0, 0)
+		_q(b, J_HAND_L, -0.3, 0, 0.2)
+		_q(b, J_SHO_R, 0.1, 0, 0.3)
+		_q(b, J_ELB_R, 0.25, 0, 0)
+		_q(b, J_THI_L, 0.12, 0, -0.14)
+		_q(b, J_SHIN_L, -0.2, 0, 0)
+		_q(b, J_FOOT_L, 0.08, 0, 0.14)
+		_q(b, J_THI_R, -0.04, 0, 0.1)
+		_q(b, J_SHIN_R, -0.02, 0, 0)
+		_q(b, J_FOOT_R, 0.06, 0, -0.1)
 
 
 ## Fente : jambe gauche devant (cuisse `front`), jambe droite tendue derrière (cuisse `back`).
@@ -1131,6 +1209,9 @@ static func _build(id: String, cfg: Dictionary, lite: bool) -> ArrayMesh:
 	var weapon := String(cfg.get("weapon", "katana"))
 	var sd := 8 if lite else 12
 	var rg := 4 if lite else 6
+	if bool(cfg.get("ronin", false)):
+		_build_ronin(id, a, d, cfg, lite)
+		return _finish(a, d)
 	match id:
 		"head":
 			_b_head(a, d, cfg, lite)
@@ -1217,12 +1298,242 @@ static func _build(id: String, cfg: Dictionary, lite: bool) -> ArrayMesh:
 			a.pleat = 0.18
 			a.lathe(_pv([0.0, -0.46, 0.03, -0.43, 0.06, -0.3, 0.07, -0.15, 0.06, -0.04, 0.045, 0.02, 0.0, 0.03]),
 				_c(cfg, "hair"), sd, Transform3D.IDENTITY, 1.0, 0.85)
+	return _finish(a, d)
+
+
+static func _finish(a: Builder, d: Builder) -> ArrayMesh:
 	if a.v.is_empty():
 		return null
 	var m := ArrayMesh.new()
 	a.add_to(m)
 	d.add_to(m)
 	return m
+
+
+# ------------------------------------------------------------------ Ronin de papier
+
+## Pièces du ronin (mêmes articulations et repères que le ninja). Kimono washi : plis, ourlets et col à
+## l'encre ; hakama : motif seigaiha en couleurs de sommets (Builder.scales) ; manches amples jusqu'au coude,
+## avant-bras nus ; fourreau à la hanche gauche (HIP_SAYA_*), poignée vers l'avant.
+static func _build_ronin(id: String, a: Builder, d: Builder, cfg: Dictionary, lite: bool) -> void:
+	var sd := 8 if lite else 12
+	var rg := 4 if lite else 6
+	var cloth := _c(cfg, "cloth")
+	var hakama := _c(cfg, "dark")
+	var wave := _c(cfg, "wave")
+	var hem := _c(cfg, "hem")
+	var skin := _c(cfg, "skin")
+	match id:
+		"head":
+			_b_head_ronin(a, d, cfg, lite)
+		"neck":
+			# cou nu, puis le col du kimono (bord d'encre) qui monte vers la nuque
+			a.style(0.8, 0.95)
+			a.lathe(_pv([0.1, -0.08, 0.095, 0.02, 0.085, 0.09, 0.0, 0.1]), skin, sd, Transform3D.IDENTITY, 1.0, 0.9)
+			a.style(0.7, 0.92)
+			a.lathe(_pv([0.19, -0.075, 0.185, -0.045, 0.165, 0.0, 0.13, 0.05, 0.0, 0.07]), cloth, sd + 2,
+				Transform3D(Basis.from_euler(Vector3(0.18, 0, 0)), Vector3(0, 0, 0.02)), 1.0, 0.82)
+		"chest":
+			_b_chest_ronin(a, cfg, lite)
+		"hips":
+			_b_hips_ronin(a, cfg, lite)
+		"upper":
+			# manche ample de kimono : s'évase jusqu'au coude, poche de la manche (tamoto) qui pend derrière le
+			# bras, ourlet d'encre tout autour, plis tombants
+			a.style(0.82, 1.0)
+			a.pleats = 3
+			a.pleat = 0.1
+			a.lathe(_pv([0.0, -0.285, 0.105, -0.278, 0.112, -0.23, 0.098, -0.15, 0.086, -0.08, 0.078, -0.02, 0.06, 0.03,
+				0.0, 0.06]), cloth, sd, Transform3D.IDENTITY, 1.0, 0.95)
+			a.style(0.74, 0.98)
+			a.pleats = 2
+			a.pleat = 0.12
+			a.lathe(_pv([0.0, -0.33, 0.06, -0.325, 0.085, -0.28, 0.09, -0.2, 0.07, -0.1, 0.0, -0.06]), cloth, sd,
+				Transform3D(Basis.from_euler(Vector3(-0.25, 0, 0)), Vector3(0, 0.0, 0.06)), 1.0, 0.8)
+			a.style(0.9, 1.0)
+			a.lathe(_pv([0.108, -0.284, 0.115, -0.268, 0.109, -0.252]), hem, sd, Transform3D.IDENTITY, 1.0, 0.95)
+			a.lathe(_pv([0.07, -0.335, 0.088, -0.31, 0.086, -0.29]), hem, sd,
+				Transform3D(Basis.from_euler(Vector3(-0.25, 0, 0)), Vector3(0, 0.0, 0.06)), 1.0, 0.8)
+		"lower":
+			# avant-bras nu (la manche s'arrête au coude)
+			a.style(0.82, 1.0)
+			a.lathe(_pv([0.0, -0.215, 0.036, -0.21, 0.04, -0.12, 0.045, -0.02, 0.04, 0.03, 0.0, 0.04]), skin, sd,
+				Transform3D.IDENTITY, 1.0, 1.0)
+		"hand":
+			a.style(0.85, 1.0)
+			a.ell(Vector3(0, -0.045, 0), Vector3(0.046, 0.052, 0.043), skin, Vector3.ZERO, sd, rg)
+		"thigh":
+			# jambe du hakama : large, vagues seigaiha
+			a.style(0.78, 0.98)
+			_scales(a, 5, wave, 0.7)
+			a.lathe(_dense(_pv([0.0, -0.32, 0.112, -0.312, 0.13, -0.26, 0.135, -0.18, 0.13, -0.1, 0.12, -0.03, 0.1, 0.025,
+				0.075, 0.048, 0.0, 0.06]), 18), hakama, sd, Transform3D.IDENTITY, 1.0, 0.95)
+		"shin":
+			# bas du hakama jusqu'à la cheville, ourlet d'encre
+			a.style(0.74, 0.95)
+			_scales(a, 5, wave, 0.7)
+			a.lathe(_dense(_pv([0.0, -0.285, 0.1, -0.278, 0.11, -0.23, 0.115, -0.17, 0.118, -0.11, 0.12, -0.05, 0.116, 0.0,
+				0.09, 0.03, 0.0, 0.045]), 18), hakama, sd, Transform3D.IDENTITY, 1.0, 1.0)
+			a.style(0.9, 1.0)
+			a.lathe(_pv([0.104, -0.286, 0.113, -0.27, 0.108, -0.255]), hem, sd, Transform3D.IDENTITY, 1.0, 1.0)
+		"foot_l", "foot_r":
+			# tabi blancs à l'orteil séparé, sur une semelle de zōri sombre
+			var inner := 1.0 if id == "foot_l" else -1.0
+			var tabi := _c(cfg, "tabi")
+			a.style(0.78, 1.0)
+			a.ell(Vector3(0, -0.04, -0.025), Vector3(0.056, 0.042, 0.095), tabi, Vector3.ZERO, sd, rg)
+			a.ell(Vector3(inner * 0.03, -0.05, -0.115), Vector3(0.023, 0.03, 0.045), tabi, Vector3.ZERO, sd, rg)
+			a.ell(Vector3(-inner * 0.016, -0.05, -0.108), Vector3(0.036, 0.03, 0.05), tabi, Vector3.ZERO, sd, rg)
+			a.style(0.9, 1.0)
+			a.ell(Vector3(0, -0.076, -0.045), Vector3(0.06, 0.011, 0.118), hem, Vector3.ZERO, sd, 3)
+		"hilt":
+			# poignée qui dépasse de l'embouchure, à la hanche gauche
+			var rot := Basis.from_euler(HIP_SAYA_ROT)
+			var xf := Transform3D(rot, HIP_SAYA_POS + rot * Vector3(0, 0.36, 0))
+			a.style(0.85, 1.0)
+			a.lathe(_pv([0.0, 0.0, 0.05, 0.003, 0.052, 0.012, 0.0, 0.016]), _c(cfg, "gold"), 10, xf, 1.0, 0.82)
+			_tsuka(a, xf, 0.02, 0.24, cfg, lite)
+		"weapon_r":
+			_b_weapon(a, d, cfg, lite, "katana")
+		"pony":
+			# queue de cheval nouée (cordon clair), mèches marquées, tombe sur la nuque
+			a.style(0.78, 1.0)
+			a.ell(Vector3(0, -0.025, 0), Vector3(0.034, 0.03, 0.034), _c(cfg, "under"), Vector3.ZERO, 8, 4)
+			a.style(0.7, 1.0)
+			a.pleats = 3
+			a.pleat = 0.2
+			a.lathe(_pv([0.0, -0.34, 0.022, -0.32, 0.046, -0.22, 0.05, -0.12, 0.04, -0.04, 0.028, 0.0, 0.0, 0.012]),
+				_c(cfg, "hair"), sd, Transform3D.IDENTITY, 1.0, 0.8)
+
+
+## Motif seigaiha sur les formes suivantes : `n` écailles par tour, éclaircies vers `col`.
+static func _scales(a: Builder, n: int, col: Color, amount: float) -> void:
+	a.pleats = n
+	a.pleat = 0.0
+	a.scales = amount
+	a.scale_col = col
+
+
+## Profil rééchantillonné en `n` anneaux à pas régulier (rangées d'écailles de même hauteur).
+static func _dense(prof: PackedVector2Array, n: int) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var m := prof.size()
+	if m < 2 or n < 2:
+		return prof
+	var y0 := prof[0].y
+	var y1 := prof[m - 1].y
+	for i in n:
+		var y := lerpf(y0, y1, float(i) / float(n - 1))
+		var r := prof[m - 1].x
+		for j in m - 1:
+			var p0 := prof[j]
+			var p1 := prof[j + 1]
+			var lo := minf(p0.y, p1.y)
+			var hi := maxf(p0.y, p1.y)
+			if y >= lo - 0.00001 and y <= hi + 0.00001:
+				var k := 0.0 if absf(p1.y - p0.y) < 0.00001 else clampf((y - p0.y) / (p1.y - p0.y), 0.0, 1.0)
+				r = lerpf(p0.x, p1.x, k)
+				break
+		if i == 0:
+			r = prof[0].x
+		out.append(Vector2(r, y))
+	return out
+
+
+## Tête du ronin : crâne et visage nus, chevelure sombre (tempes et nuque), chapeau de paille conique posé en
+## arrière (le visage reste dégagé vu d'en haut), traits d'encre sans contour : sourcils froncés, yeux fendus,
+## nez, bouche fine ; oreilles.
+static func _b_head_ronin(a: Builder, d: Builder, cfg: Dictionary, lite: bool) -> void:
+	var hs := 12 if lite else 18
+	var hr := 7 if lite else 10
+	var skin := _c(cfg, "skin")
+	var hair := _c(cfg, "hair")
+	var hat := _c(cfg, "hat")
+	var hatd := _c(cfg, "hatd")
+	var ink := _c(cfg, "eye")
+	a.style(0.8, 1.0)
+	a.ell(Vector3(0, 0.25, 0.01), Vector3(0.258, 0.265, 0.252), skin, Vector3.ZERO, hs, hr)
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		a.ell(Vector3(sx * 0.252, 0.225, 0.03), Vector3(0.022, 0.045, 0.03), skin, Vector3.ZERO, 8, 4)
+	# chevelure : calotte qui déborde sur les tempes et la nuque, front dégagé
+	a.style(0.7, 1.0)
+	a.ell(Vector3(0, 0.32, 0.07), Vector3(0.262, 0.225, 0.262), hair, Vector3(0.1, 0, 0), hs, hr)
+	# sandogasa : cône de paille à large bord, un peu en arrière ; dessus tressé (anneaux), dessous sombre
+	var hxf := Transform3D(Basis.from_euler(Vector3(0.42, 0, 0)), Vector3(0, 0.425, 0.075))
+	a.style(0.86, 1.0)
+	a.bands = PackedFloat32Array([0.78, 1.0, 0.9, 1.0, 0.9, 1.0, 0.92, 1.0])
+	a.lathe(_pv([0.385, 0.0, 0.39, 0.022, 0.345, 0.07, 0.28, 0.135, 0.205, 0.2, 0.13, 0.27, 0.055, 0.33, 0.0, 0.355]),
+		hat, hs, hxf, 1.0, 1.0)
+	a.style(0.6, 0.75)
+	a.lathe(_pv([0.0, 0.325, 0.13, 0.255, 0.28, 0.125, 0.385, 0.0]), hatd, hs, hxf, 1.0, 1.0)
+	if not lite:
+		# cordon du chapeau noué sous le menton
+		a.style(0.9, 1.0)
+		a.ell(Vector3(0, 0.005, -0.1), Vector3(0.2, 0.009, 0.012), _c(cfg, "hem"), Vector3.ZERO, 10, 3)
+	# traits d'encre (sans contour) : sourcils froncés, yeux fendus, nez, bouche
+	d.style(1.0, 1.0)
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		d.ell(Vector3(sx * 0.085, 0.312, -0.236), Vector3(0.056, 0.011, 0.012), ink, Vector3(0, -sx * 0.32, sx * 0.3), 8, 3)
+		d.ell(Vector3(sx * 0.082, 0.258, -0.248), Vector3(0.046, 0.013, 0.012), ink, Vector3(0, -sx * 0.32, sx * 0.05), 8, 3)
+	d.ell(Vector3(0.012, 0.212, -0.258), Vector3(0.007, 0.03, 0.01), skin.darkened(0.3), Vector3(0, 0, 0.1), 6, 3)
+	d.ell(Vector3(0.0, 0.162, -0.244), Vector3(0.036, 0.0065, 0.012), ink, Vector3.ZERO, 8, 3)
+
+
+## Buste du ronin : kimono washi croisé (plis, col et pans marqués à l'encre, juban blanc dans le V).
+static func _b_chest_ronin(a: Builder, cfg: Dictionary, lite: bool) -> void:
+	var sides := 10 if lite else 14
+	var sd := 8 if lite else 10
+	var rg := 4 if lite else 5
+	var cloth := _c(cfg, "cloth")
+	var hem := _c(cfg, "hem")
+	a.style(0.82, 1.0)
+	a.pleats = 4
+	a.pleat = 0.09
+	a.lathe(_pv([0.17, -0.19, 0.175, -0.12, 0.182, -0.02, 0.192, 0.08, 0.2, 0.15, 0.185, 0.2, 0.14, 0.235, 0.07, 0.25,
+		0.0, 0.255]), cloth, sides, Transform3D.IDENTITY, 1.0, 0.72)
+	# juban blanc dans le V ; pan droit (dessous) : son bord ne se voit que près du cou ; pan gauche (dessus) :
+	# son ourlet d'encre traverse toute la poitrine en diagonale jusqu'à la hanche droite, comme un vrai kimono
+	a.style(0.9, 1.0)
+	a.ell(Vector3(0, 0.13, -0.13), Vector3(0.07, 0.075, 0.026), _c(cfg, "under"), Vector3(0.25, 0, 0), sd, rg)
+	a.ell(Vector3(0.065, 0.13, -0.132), Vector3(0.011, 0.085, 0.014), hem, Vector3(0.1, 0.35, 0.45), 6, rg)
+	a.ell(Vector3(-0.03, 0.165, -0.13), Vector3(0.03, 0.085, 0.018), cloth, Vector3(0.1, 0, -0.5), sd, rg)
+	# ourlet du pan gauche : trois segments qui épousent le buste (du cou à gauche vers la hanche droite)
+	for seg in [Vector3(-0.012, 0.105, -0.138), Vector3(0.048, -0.005, -0.128), Vector3(0.102, -0.115, -0.108)]:
+		var c: Vector3 = seg
+		a.ell(c, Vector3(0.011, 0.07, 0.014), hem, Vector3(0.0, -0.3 * (c.x / 0.1), 0.48), 6, rg)
+
+
+## Bassin du ronin : haut du hakama aux vagues seigaiha, obi d'encre au cordon d'or, nœud ; fourreau laqué
+## glissé dans l'obi à gauche (embouchure devant, pointe derrière).
+static func _b_hips_ronin(a: Builder, cfg: Dictionary, lite: bool) -> void:
+	var sides := 10 if lite else 14
+	var sd := 8 if lite else 10
+	var rg := 4 if lite else 5
+	var accent := _c(cfg, "accent")
+	var gold := _c(cfg, "gold")
+	a.style(0.78, 0.98)
+	_scales(a, 6, _c(cfg, "wave"), 0.7)
+	a.lathe(_dense(_pv([0.15, -0.13, 0.178, -0.08, 0.19, 0.0, 0.186, 0.08, 0.176, 0.13]), 12), _c(cfg, "dark"), sides,
+		Transform3D.IDENTITY, 1.0, 0.8)
+	a.style(0.84, 1.0)
+	a.lathe(_pv([0.183, 0.075, 0.195, 0.1, 0.198, 0.15, 0.188, 0.185]), accent, sides, Transform3D.IDENTITY, 1.0, 0.78)
+	a.lathe(_pv([0.196, 0.118, 0.203, 0.126, 0.196, 0.134]), gold, sides, Transform3D.IDENTITY, 1.0, 0.79)
+	a.ell(Vector3(-0.07, 0.13, -0.154), Vector3(0.05, 0.036, 0.03), accent.darkened(0.12), Vector3.ZERO, sd, rg)
+	a.ell(Vector3(-0.088, 0.07, -0.152), Vector3(0.022, 0.06, 0.012), accent, Vector3(0.1, 0, 0.25), 6, 3)
+	a.ell(Vector3(-0.055, 0.065, -0.154), Vector3(0.022, 0.065, 0.012), accent, Vector3(0.1, 0, -0.2), 6, 3)
+	# saya laquée (reflet), embouchure et bout d'or, cordon
+	var rot := Basis.from_euler(HIP_SAYA_ROT)
+	var xf := Transform3D(rot, HIP_SAYA_POS)
+	a.style(0.7, 1.0)
+	a.side_dark = 0.25
+	a.lathe(_pv([0.0, -0.4, 0.026, -0.395, 0.03, -0.35, 0.032, 0.32, 0.03, 0.355, 0.0, 0.36]), _c(cfg, "saya"), sd, xf,
+		1.0, 0.62)
+	a.style(0.8, 1.0)
+	a.lathe(_pv([0.034, 0.3, 0.038, 0.315, 0.038, 0.335, 0.034, 0.35]), gold, sd, xf, 1.0, 0.66)
+	a.lathe(_pv([0.034, 0.2, 0.038, 0.21, 0.034, 0.22]), Toon.VERMILION.darkened(0.2), sd, xf, 1.0, 0.66)
+	a.ell(HIP_SAYA_POS + rot * Vector3(0, -0.38, 0), Vector3(0.034, 0.03, 0.024), gold, HIP_SAYA_ROT, 8, 4)
 
 
 ## Tête : cagoule (zukin), bosse du masque, fente des yeux, hachimaki et plaque, nœud ; yeux sans contour.
@@ -1404,8 +1715,12 @@ class Builder:
 	var side_dark := 0.0
 	var bend := 0.0
 	var bands := PackedFloat32Array()
+	# écailles seigaiha : `pleats` écailles par tour, éclaircies vers scale_col (0 : aucune) ; rangées de deux
+	# anneaux (base large, sommet étroit) décalées d'une demi-écaille une rangée sur deux
+	var scales := 0.0
+	var scale_col := Color.WHITE
 
-	## Style des formes suivantes (remet plis, reflet, courbure et bandes à zéro).
+	## Style des formes suivantes (remet plis, reflet, courbure, bandes et écailles à zéro).
 	func style(l: float, h: float) -> void:
 		lo = l
 		hi = h
@@ -1414,6 +1729,7 @@ class Builder:
 		side_dark = 0.0
 		bend = 0.0
 		bands = PackedFloat32Array()
+		scales = 0.0
 
 	## Révolution du profil (rayon, y), de bas en haut, autour de l'axe Y ; `sx`, `sz` : section ovale.
 	## Un rayon nul ferme la forme (pôle). Normales lisses tirées de la surface (couture invisible).
@@ -1456,13 +1772,26 @@ class Builder:
 						nrm = Vector3(p.x, 0, p.z)
 				var a := TAU * float(s) / float(sides)
 				var sh := shade
-				if pleats > 0:
+				var cc := col
+				if pleats > 0 and pleat > 0.0:
 					sh *= 1.0 - pleat * (0.5 + 0.5 * cos(a * float(pleats)))
+				if scales > 0.0 and pleats > 0:
+					# rangée = 3 anneaux : base large de l'arc, sommet étroit, fond uni ; la rangée suivante est
+					# décalée d'une demi-écaille (seigaiha)
+					var rr := i % 6
+					var w := maxf(0.0, cos(a * float(pleats) + (PI if rr >= 3 else 0.0)))
+					var k3 := rr % 3
+					var wk := 0.0
+					if k3 == 0:
+						wk = minf(1.0, w * 1.6)
+					elif k3 == 1:
+						wk = w * w * w * w
+					cc = col.lerp(scale_col, scales * wk)
 				if side_dark > 0.0:
 					sh *= 1.0 - side_dark * (0.5 + 0.5 * sin(a))
 				v.append(xf * p)
 				n.append((nb * nrm).normalized())
-				c.append(Color(col.r * sh, col.g * sh, col.b * sh, 1.0))
+				c.append(Color(cc.r * sh, cc.g * sh, cc.b * sh, 1.0))
 		# faces avant dans le sens horaire (convention de Godot)
 		for i in rings - 1:
 			for s in sides:
