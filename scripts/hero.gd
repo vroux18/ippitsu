@@ -1,9 +1,11 @@
 extends Node3D
 ## Le ronin : il fonce le long du trait.
-## Par défaut (USE_NINJA_RIG) : ninja modelé et animé en code (ninja_rig.gd) — cagoule à fente unique,
-## hachimaki, veste croisée, obi, tekko, hakama et kyahan, katana au fourreau dans le dos (tiré pendant l'action),
-## palette tirée de la tenue de la garde-robe. Sinon : ancien rōdeur KayKit habillé (yokai_parts.hero_parts).
-## Écharpe à deux pans qui flottent (couleur de l'écharpe de la garde-robe), simulée ici.
+## Par défaut (USE_NINJA_RIG) : Ronin de papier modelé et animé en code (ninja_rig.gd, cfg « ronin ») — chapeau
+## de paille, visage nu à l'encre, kimono washi, hakama bleu seigaiha, katana au fourreau à la hanche gauche
+## (tiré pendant l'action) ; la tenue de la garde-robe teinte le hakama. Sinon : ancien rōdeur KayKit habillé
+## (yokai_parts.hero_parts).
+## Longue écharpe vermillon à deux pans (couleur de l'écharpe de la garde-robe), simulée ici en verlet : elle
+## retombe au repos, s'étire et claque pendant la ruée. Réception en fin de trait : écrasement puis rebond.
 ## Lisibilité : liseré de lumière, anneau au sol dessiné par-dessus le décor (no_depth_test), qui respire au repos.
 
 const Toon = preload("res://scripts/toon.gd")
@@ -73,8 +75,14 @@ var _tails: MeshInstance3D
 var _tails_mesh: ImmediateMesh
 var _tail_p: Array = []  # deux PackedVector3Array : maillons des pans (monde)
 var _tail_o: Array = []  # positions à l'image précédente (verlet)
-var _tail_n := 7
-const TAIL_SEG := 0.12
+var _tail_n := 10
+const TAIL_SEG := 0.105  # longueur d'un maillon au repos (écharpe ≈ 0,95 m, elle retombe)
+const TAIL_SEG_DASH := 0.19  # en ruée l'écharpe s'étire le long du trait (≈ 1,7 m)
+var _tail_seg := TAIL_SEG
+var _tail_side := PackedVector3Array()  # travers de chaque maillon face à la caméra (réutilisé chaque image)
+var _tail_lift := PackedVector3Array()
+# arrêt en fin de trait : petit écrasement puis rebond (squash and stretch), étirement léger en ruée
+var _squash := 0.0
 # anneau au sol (lisibilité)
 var _ring: Node3D
 var ring_off := false  # accueil, carte des mondes (barque) : anneau au sol caché (posé par main)
@@ -165,7 +173,9 @@ func run_anim(speed: float, blend := 0.08) -> void:
 
 ## Pans de l'écharpe : deux rubans (encre + couleur) recalculés à chaque image, tournés vers la caméra.
 func _make_tails() -> void:
-	_tail_n = 5 if Toon.lite else 7
+	_tail_n = 8 if Toon.lite else 10
+	_tail_side.resize(_tail_n)
+	_tail_lift.resize(_tail_n)
 	_tails_mesh = ImmediateMesh.new()
 	_tails = MeshInstance3D.new()
 	_tails.top_level = true
@@ -243,11 +253,14 @@ func slash_pop() -> void:
 	if dead or _pop_t > 0.0 or protected():
 		return
 	var slice := "1H_Melee_Attack_Slice_Horizontal"
-	if ch._once and String(ch._current) != slice:
+	var chop := "1H_Melee_Attack_Chop"
+	var cur := String(ch._current)
+	if ch._once and cur != slice and cur != chop:
 		return
 	_pop_t = POP_GAP
 	_drawn_t = DRAWN_T
-	ch.play_once(slice, 2.6)
+	# taille horizontale et coup fendu en alternance : la chaîne de touches ne répète pas le même geste
+	ch.play_once(chop if cur == slice else slice, 2.6)
 
 
 ## Arrête net la ruée (bouclier, ricochet).
@@ -359,8 +372,9 @@ func _process(delta: float) -> void:
 				face(to)
 		if path_i >= path.size():
 			dashing = false
+			_squash = 1.0  # il se reçoit : écrasement puis rebond
 			if not ch._once and ch.idle != "":
-				ch.play(ch.idle, 1.0, 0.15)  # arrivé : il se pose
+				ch.play(ch.idle, 1.0, 0.22)  # arrivé : il se pose (fondu un peu plus long, pas de saut)
 			dash_finished.emit()
 		elif not ch._once:
 			# le coup de sabre fini, la ruée continue en courant (plus de glissade figée)
@@ -483,10 +497,19 @@ func _update_pose(delta: float) -> void:
 	if _hilt != null:
 		_hilt.visible = not drawn
 	var calm := not dashing and not dead and spinning <= 0.0 and _leap_t < 0.0
-	if calm:
+	if _squash > 0.0:
+		# réception en fin de trait : tassé d'un coup, un rebond étiré, puis d'aplomb (0,25 s)
+		_squash = maxf(_squash - delta * 4.0, 0.0)
+		var u := 1.0 - _squash
+		var f := (1.0 - u) * (1.0 - u) * cos(u * 7.0)
+		body.scale = Vector3(1.0 + 0.11 * f, 1.0 - 0.17 * f, 1.0 + 0.11 * f)
+	elif calm:
 		# respiration : le buste se soulève à peine
 		var b := sin(_life * 2.4)
 		body.scale = Vector3(1.0 - 0.006 * b, 1.0 + 0.014 * b, 1.0 - 0.006 * b)
+	elif dashing:
+		# ruée : légèrement étiré dans la course
+		body.scale = body.scale.lerp(Vector3(0.975, 1.05, 0.975), minf(1.0, delta * 12.0))
 	else:
 		body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 12.0))
 	if _ring != null:
@@ -506,6 +529,8 @@ func _update_tails(delta: float) -> void:
 	var anchor := _knot.global_position
 	var right := Vector3(-facing.z, 0, facing.x)
 	var back := -facing
+	# l'écharpe s'étire en ruée (maillons plus longs), reprend sa longueur et retombe à l'arrêt
+	_tail_seg = lerpf(_tail_seg, TAIL_SEG_DASH if dashing else TAIL_SEG, minf(1.0, dt * (9.0 if dashing else 3.0)))
 	for t in 2:
 		var p: PackedVector3Array = _tail_p[t]
 		var o: PackedVector3Array = _tail_o[t]
@@ -519,20 +544,25 @@ func _update_tails(delta: float) -> void:
 		p[0] = root
 		o[0] = root
 		var rate := 15.0 if dashing else 2.3
-		var amp := 7.0 if dashing else 1.2
+		var amp := 7.0 if dashing else 1.0
 		for i in range(1, _tail_n):
 			var cur := p[i]
-			var vel := (cur - o[i]) * 0.9
+			# inertie : un peu plus d'élan vers la pointe (elle traîne et claque), freinée près du nœud
+			var vel := (cur - o[i]) * (0.88 + 0.06 * float(i) / float(_tail_n))
 			var flap := right * sin(_life * rate + float(i) * 0.8 + float(t) * 1.7) * amp * (float(i) / float(_tail_n))
-			var acc := Vector3(0, -9.0, 0) + back * (2.0 if dashing else 0.6) + flap
+			var acc := Vector3(0, -9.0, 0) + back * (2.4 if dashing else 0.5) + flap
 			o[i] = cur
 			p[i] = cur + vel + acc * dt * dt
-		# longueur fixe : chaque maillon reste à TAIL_SEG du précédent, jamais sous le sol
+		# longueur fixe : chaque maillon reste à _tail_seg du précédent, jamais sous le sol, jamais devant la
+		# poitrine (à l'arrêt brusque, l'écharpe retombe dans le dos au lieu de traverser le corps)
 		for i in range(1, _tail_n):
 			var dv := p[i] - p[i - 1]
 			var l := dv.length()
-			var q := p[i - 1] + (dv / l * TAIL_SEG if l > 0.0001 else Vector3(0, -TAIL_SEG, 0))
+			var q := p[i - 1] + (dv / l * _tail_seg if l > 0.0001 else Vector3(0, -_tail_seg, 0))
 			q.y = maxf(q.y, 0.04)
+			var fwd := (q - anchor).dot(facing)
+			if fwd > 0.02:
+				q -= facing * (fwd - 0.02)
 			p[i] = q
 		_tail_p[t] = p
 		_tail_o[t] = o
@@ -550,16 +580,16 @@ func _draw_tails() -> void:
 		var n := p.size()
 		if n < 2:
 			continue
-		var sides := PackedVector3Array()
-		var lift := PackedVector3Array()
+		var sides := _tail_side
+		var lift := _tail_lift
 		for i in n:
 			var dv := p[mini(i + 1, n - 1)] - p[maxi(i - 1, 0)]
 			var view := eye - p[i]
 			var sd := dv.cross(view)
 			if sd.length_squared() < 0.000001:
 				sd = Vector3(-facing.z, 0, facing.x)
-			sides.append(sd.normalized())
-			lift.append(view.normalized() * 0.012)  # la couleur passe devant l'encre
+			sides[i] = sd.normalized()
+			lift[i] = view.normalized() * 0.012  # la couleur passe devant l'encre
 		for i in range(n - 1):
 			var w0 := _tail_w(i, n)
 			var w1 := _tail_w(i + 1, n)
@@ -580,14 +610,21 @@ func _draw_tails() -> void:
 func _tail_w(i: int, n: int) -> float:
 	if i >= n - 1:
 		return 0.012
-	return lerpf(0.075, 0.045, float(i) / float(n - 1))
+	return lerpf(0.082, 0.048, float(i) / float(n - 1))
 
 
+## Deux triangles (a, b, c) et (a, c, d) ; sans tableau temporaire (appelé à chaque image).
 func _quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, ca: Color, cc: Color) -> void:
-	for v in [[a, ca], [b, ca], [c, cc], [a, ca], [c, cc], [d, cc]]:
-		var pair: Array = v
-		_tails_mesh.surface_set_color(pair[1])
-		_tails_mesh.surface_add_vertex(pair[0])
+	_tails_mesh.surface_set_color(ca)
+	_tails_mesh.surface_add_vertex(a)
+	_tails_mesh.surface_add_vertex(b)
+	_tails_mesh.surface_set_color(cc)
+	_tails_mesh.surface_add_vertex(c)
+	_tails_mesh.surface_set_color(ca)
+	_tails_mesh.surface_add_vertex(a)
+	_tails_mesh.surface_set_color(cc)
+	_tails_mesh.surface_add_vertex(c)
+	_tails_mesh.surface_add_vertex(d)
 
 
 ## Atterrissage d'un bond : petite bouffée de poussière (anneau washi, giclée).
