@@ -1,5 +1,7 @@
 extends Node3D
-## Squelettes KayKit habillés en yōkai (yokai_parts.gd : masques, cornes, chapeaux, queues posés sur les os) :
+## Squelettes KayKit habillés en yōkai (yokai_parts.gd : masques, cornes, chapeaux, queues posés sur les os) ;
+## les yōkai d'encre (Yokai.is_ink : yokai_ink_wN.gd) sont des corps d'encre modelés en code (ink_rig.gd) : encre qui coule,
+## masque de nō, obi à seigaiha ; même logique de jeu, animations traduites en clips procéduraux.
 ##  oni   — Minion : fonce sur le héros, frappe une zone annoncée par un disque qui se remplit
 ##  kappa — Mage : garde ses distances et lance de grosses boules lentes
 ##  brute — Warrior : grand, lent et costaud (il faut l'enchaîner dans un combo)
@@ -37,8 +39,18 @@ extends Node3D
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
 const NinjaRig = preload("res://scripts/ninja_rig.gd")
+const InkRig = preload("res://scripts/ink_rig.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
 const Worlds = preload("res://scripts/worlds.gd")
+# textures recolorées des squelettes et du rōdeur (préchargées une fois : plus de load() au montage)
+const TEX_RED := preload("res://assets/kaykit/tex/skeleton_red.png")
+const TEX_INK := preload("res://assets/kaykit/tex/skeleton_ink.png")
+const TEX_GOLD := preload("res://assets/kaykit/tex/skeleton_gold.png")
+const TEX_PRUSSIAN := preload("res://assets/kaykit/tex/skeleton_prussian.png")
+const TEX_ROGUE_INK := preload("res://assets/kaykit/tex/rogue_ink.png")
+const TEX_ROGUE_INDIGO := preload("res://assets/kaykit/tex/rogue_indigo.png")
+const TEX_ROGUE_GLYCINE := preload("res://assets/kaykit/tex/rogue_glycine.png")
+const TEX_ROGUE_SAKURA := preload("res://assets/kaykit/tex/rogue_sakura.png")
 ## Vrai : le clan des ninjas (NINJA_KINDS) prend le ninja procédural (ninja_rig.gd) à leur palette ;
 ## faux : rōdeur KayKit habillé (yokai_parts).
 const NINJA_ENEMIES_RIG := true
@@ -178,7 +190,7 @@ const ELITE_C := Color("#FFB23E")
 const HEAL_C := Color("#7FE0A8")
 const INK_C := Color("#26222C")
 const ROGUE_GEAR := ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"]
-const KIND_H := {"oni": 1.6, "brute": 2.4, "kappa": 1.75, "tate": 1.9, "funa": 1.6, "umibozu": 1.75,
+const KIND_H := {"oni": 1.6, "brute": 2.4, "kappa": 1.75, "tate": 1.9, "funa": 1.6, "umibozu": 2.0,
 	"kitsunebi": 1.35, "kitsunebi_s": 0.95, "yukionna": 1.85, "kasha": 1.7, "kagebo": 1.75}
 const NO_ELITE := ["kitsunebi_s", "tanuki_d", "sumidama_s", "tsurara"]
 # lourds : un coup pendant leur annonce ne la casse pas (sauf mise à mort ou bouclier brisé)
@@ -283,6 +295,7 @@ var _h := 1.7  # hauteur du modèle
 var _rogue := false
 var _custom := false  # corps modelé (pas de squelette KayKit)
 var _rig := false  # ninja procédural (NinjaRig) au lieu du rōdeur KayKit
+var _ink := false  # yōkai d'encre (InkRig) : corps d'encre, masque de nō, gouttes (monde 1)
 var _scale_in := 0.0  # apparition par mise à l'échelle (durée)
 var _base_hp := 1.0
 var _summons: Array = []  # invocations (peuvent être libérées : jamais typées)
@@ -344,8 +357,11 @@ func _ready() -> void:
 	body = Node3D.new()
 	add_child(body)
 	_rig = NINJA_ENEMIES_RIG and kind in NINJA_KINDS
+	_ink = Yokai.is_ink(kind)
 	if _rig:
 		ch = NinjaRig.new()
+	elif _ink:
+		ch = InkRig.new()  # yōkai d'encre du monde 1 : corps modelé, masque de nō (ink_rig.gd)
 	else:
 		ch = Character.new()
 	body.add_child(ch)
@@ -358,8 +374,7 @@ func _ready() -> void:
 			speed = 2.3
 			radius = 0.45
 			_windup = 1.0
-			ch.setup(MINION, 1.6, [["Cloak", load("res://assets/kaykit/tex/skeleton_red.png")]])
-			_tint(Color("#E0705A"), 1.0)
+			ch.setup(kind, _h)  # masque rouge cornu, massue
 		"brute":
 			hp = 3.5
 			speed = 1.4
@@ -368,14 +383,13 @@ func _ready() -> void:
 			_windup = 1.2
 			_attack = "2H_Melee_Attack_Chop"
 			_walk = "Walking_A"
-			ch.setup(WARRIOR, 2.4, [["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")], ["Cloak", load("res://assets/kaykit/tex/skeleton_ink.png")]])
+			ch.setup(kind, _h)  # large, masque de fer à kuwagata d'or, kanabō
 		"kappa":
 			hp = 1.0
 			speed = 1.6
 			radius = 0.45
 			_walk = "Walking_B"
-			ch.setup(MAGE, 1.75, [["Hat", load("res://assets/kaykit/tex/skeleton_prussian.png")], ["Body", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
-			_tint(Color("#86B878"), 1.0)
+			ch.setup(kind, _h)  # masque vert à bec, coupelle d'eau, carapace, bâton levé
 			_timer = 1.4 + randf() * 1.5
 		"tate":
 			hp = 2.0
@@ -384,14 +398,14 @@ func _ready() -> void:
 			_zone_r = 1.0
 			_windup = 1.0
 			_walk = "Walking_A"
-			ch.setup(WARRIOR, 1.9, [["Cloak", load("res://assets/kaykit/tex/skeleton_ink.png")], ["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")]])
+			ch.setup(kind, _h)  # masque washi sous l'eboshi, grand bouclier rond fixé devant
 		"funa":
 			hp = 1.0
 			speed = 0.0
 			radius = 0.45
 			_zone_r = 1.2
 			_windup = 1.1
-			ch.setup(MINION, 1.6, [])
+			ch.setup(kind, _h)  # encre bleutée, masque pâle au triangle des morts, louche levée
 			_ghostify()
 		"umibozu":
 			# moine de mer : crâne lisse bleu nuit, yeux d'or, perle lumineuse à la main
@@ -400,8 +414,7 @@ func _ready() -> void:
 			radius = 0.5
 			_zone_r = 1.0
 			_walk = "Walking_A"
-			ch.setup(MINION, 1.75, [["", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
-			_tint(Color("#8FA6BA"), 1.0)
+			ch.setup(kind, _h)  # dôme lisse d'encre d'abysse, gros yeux d'or, kesa
 			ch.attach("handslot.r", _orb(0.12, Color("#9FE0FF")))
 		"kitsunebi", "kitsunebi_s":
 			# feu-follet renard : pâle et translucide, oreilles et queue, flamme bleue à la main
@@ -413,7 +426,7 @@ func _ready() -> void:
 			_windup = 0.75 if mini else 0.9
 			_walk = "Idle_Combat"
 			var h := 0.95 if mini else 1.35
-			ch.setup(MAGE, h, [["", load("res://assets/kaykit/tex/skeleton_gold.png")]], ["Skeleton_Mage_Hat"], FOX_FIRE)
+			ch.setup(MAGE, h, [["", TEX_GOLD]], ["Skeleton_Mage_Hat"], FOX_FIRE)
 			_tint(FOX_PALE, 0.85)
 			_glow_a = 0.45
 			_glow_c = FOX_FIRE
@@ -440,7 +453,7 @@ func _ready() -> void:
 			radius = 0.6
 			_walk = "Walking_A"
 			var hk := 1.7
-			ch.setup(WARRIOR, hk, [["Helmet", load("res://assets/kaykit/tex/skeleton_gold.png")], ["", load("res://assets/kaykit/tex/skeleton_red.png")]])
+			ch.setup(WARRIOR, hk, [["Helmet", TEX_GOLD], ["", TEX_RED]])
 			_glow_a = 0.2
 			_glow_c = KASHA_FIRE
 			for s in [-1.0, 1.0]:
@@ -463,13 +476,13 @@ func _ready() -> void:
 			speed = 2.0
 			radius = 0.45
 			_walk = "Walking_A"
-			ch.setup(ROGUE, 1.75, [["", load("res://assets/kaykit/tex/rogue_ink.png")]], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
+			ch.setup(ROGUE, 1.75, [["", TEX_ROGUE_INK]], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
 			_tint(Color(0.3, 0.29, 0.34), 0.85)
 			ch.attach("handslot.r", _blade(0.85, Toon.SUMI))
 			_timer = randf_range(2.0, 3.0)
 		_:
 			_setup_extra()
-	if not _custom and not _rig:
+	if not _custom and not _rig and not _ink:
 		_dress()
 	# rythme un peu plus posé : marche -10 %, annonces des coups +15 % ; les mondes avancés raccourcissent
 	# les annonces (worlds.gd « tele »), jamais sous WINDUP_MIN
@@ -511,9 +524,6 @@ func _ready() -> void:
 
 ## Bestiaire étendu : modèle, teinte, accessoires et réglages de chaque nouveau yōkai.
 func _setup_extra() -> void:
-	var red := load("res://assets/kaykit/tex/skeleton_red.png") as Texture2D
-	var ink := load("res://assets/kaykit/tex/skeleton_ink.png") as Texture2D
-	var gold := load("res://assets/kaykit/tex/skeleton_gold.png") as Texture2D
 	match kind:
 		"kappa_yumi":
 			# kappa archer : carapace sur le dos, coupelle sur le crâne, arbalète
@@ -522,9 +532,7 @@ func _setup_extra() -> void:
 			radius = 0.42
 			_walk = "Walking_B"
 			_h = 1.55
-			_rogue = true
-			ch.setup(ROGUE, _h, [], _gear_except(["1H_Crossbow"]), Toon.GOLD)
-			_tint(Color("#7DB37A"), 1.0)
+			ch.setup(kind, _h)  # kappa au hachimaki, grand arc au flanc
 			_timer = randf_range(1.6, 2.4)
 		"teppo":
 			# arquebusier : long canon de fer, mèche rouge
@@ -533,7 +541,7 @@ func _setup_extra() -> void:
 			radius = 0.5
 			_walk = "Walking_A"
 			_h = 1.85
-			ch.setup(WARRIOR, _h, [["Cloak", red], ["Helmet", ink]])
+			ch.setup(WARRIOR, _h, [["Cloak", TEX_RED], ["Helmet", TEX_INK]])
 			_timer = randf_range(1.8, 2.6)
 		"ika":
 			# calmar : manteau pointu sur la tête, tentacules à la taille
@@ -541,8 +549,7 @@ func _setup_extra() -> void:
 			speed = 1.3
 			radius = 0.45
 			_h = 1.35
-			ch.setup(MINION, _h, [["", load("res://assets/kaykit/tex/skeleton_prussian.png")]], [], Toon.GOLD)
-			_tint(Color("#D59AC8"), 1.0)
+			ch.setup(kind, _h)  # capuche de calmar, grands yeux noirs, tentacules
 			_timer = randf_range(1.5, 2.5)
 		"umi_nyobo":
 			# femme de la mer : pâle et verte, longue chevelure, perle de soin
@@ -551,8 +558,7 @@ func _setup_extra() -> void:
 			radius = 0.45
 			_walk = "Walking_B"
 			_h = 1.75
-			ch.setup(MAGE, _h, [], ["Skeleton_Mage_Hat"], HEAL_C)
-			_tint(Color("#A8DCCB"), 0.8)
+			ch.setup(kind, _h)  # ko-omote, chevelure d'algues, coquillage
 			_glow_a = 0.25
 			_glow_c = HEAL_C
 			ch.attach("handslot.r", _orb(0.13, HEAL_C))
@@ -563,7 +569,7 @@ func _setup_extra() -> void:
 			speed = 1.9
 			radius = 0.4
 			_h = 1.3
-			ch.setup(MINION, _h, [["", ink]], [], SHIELD_C)
+			ch.setup(MINION, _h, [["", TEX_INK]], [], SHIELD_C)
 			_tint(Color("#7C6F86"), 0.85)
 			_glow_a = 0.2
 			_glow_c = SHIELD_C
@@ -587,7 +593,7 @@ func _setup_extra() -> void:
 			radius = 0.55
 			_walk = "Walking_A"
 			_h = 1.45
-			ch.setup(WARRIOR, _h, [["", gold]])
+			ch.setup(WARRIOR, _h, [["", TEX_GOLD]])
 			_tint(Color("#A07850"), 1.0)
 			_belly = Toon.part(_deco, _sph(0.36), _pm(Color("#E8D2A8")), Vector3(0, 0.45 * _h, -0.12 * _h), Vector3(1, 1, 0.7))
 			if decoy:
@@ -600,7 +606,7 @@ func _setup_extra() -> void:
 			radius = 0.45
 			_walk = "Walking_B"
 			_h = 1.75
-			ch.setup(MAGE, _h, [["Body", red]], ["Skeleton_Mage_Hat"], FOX_FIRE)
+			ch.setup(MAGE, _h, [["Body", TEX_RED]], ["Skeleton_Mage_Hat"], FOX_FIRE)
 			_tint(Color("#F0E2CC"), 0.9)
 			_glow_a = 0.2
 			_glow_c = FOX_FIRE
@@ -650,7 +656,7 @@ func _setup_extra() -> void:
 			_attack = "2H_Melee_Attack_Chop"
 			_walk = "Walking_A"
 			_h = 2.5
-			ch.setup(WARRIOR, _h, [["Helmet", ink], ["Cloak", gold]])
+			ch.setup(WARRIOR, _h, [["Helmet", TEX_INK], ["Cloak", TEX_GOLD]])
 			_tint(Color("#7C98C8"), 1.0)
 			_shield_frac = 0.35
 		"tengu":
@@ -718,7 +724,7 @@ func _setup_extra() -> void:
 			radius = 0.48
 			_walk = "Walking_B"
 			_h = 1.8
-			ch.setup(MAGE, _h, [["Body", red]], ["Skeleton_Mage_Hat"], Toon.GOLD)
+			ch.setup(MAGE, _h, [["Body", TEX_RED]], ["Skeleton_Mage_Hat"], Toon.GOLD)
 			_tint(Color("#E8DCC8"), 1.0)
 			_timer = randf_range(1.6, 2.4)
 		"konoha":
@@ -773,7 +779,7 @@ func _setup_extra() -> void:
 			_zone_r = 0.85
 			_windup = 0.75
 			_h = 1.45
-			ch.setup(MINION, _h, [["", ink]], [], Color("#C9FF8A"))
+			ch.setup(MINION, _h, [["", TEX_INK]], [], Color("#C9FF8A"))
 			_tint(Color("#BFB8A6"), 0.9)
 			_glow_a = 0.15
 			_glow_c = Color("#9AE070")
@@ -790,7 +796,7 @@ func _setup_extra() -> void:
 			if _rig:
 				ch.setup(NinjaRig.enemy_config(kind), _h)
 			else:
-				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_indigo.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				ch.setup(ROGUE, _h, [["", TEX_ROGUE_INDIGO]], ROGUE_GEAR.duplicate(), Toon.GOLD)
 				_tint(Color("#9AA2C8"), 1.0)
 			_timer = randf_range(0.8, 1.4)
 		"shuriken":
@@ -804,7 +810,7 @@ func _setup_extra() -> void:
 			if _rig:
 				ch.setup(NinjaRig.enemy_config(kind), _h)
 			else:
-				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_ink.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				ch.setup(ROGUE, _h, [["", TEX_ROGUE_INK]], ROGUE_GEAR.duplicate(), Toon.GOLD)
 				_tint(Color("#A8B0C0"), 1.0)
 			_timer = randf_range(1.6, 2.4)
 		"kemuri":
@@ -818,7 +824,7 @@ func _setup_extra() -> void:
 			if _rig:
 				ch.setup(NinjaRig.enemy_config(kind), _h)
 			else:
-				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_glycine.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				ch.setup(ROGUE, _h, [["", TEX_ROGUE_GLYCINE]], ROGUE_GEAR.duplicate(), Toon.GOLD)
 				_tint(Color("#9A90B0"), 1.0)
 			_timer = randf_range(1.8, 2.6)
 		"kunoichi":
@@ -832,7 +838,7 @@ func _setup_extra() -> void:
 			if _rig:
 				ch.setup(NinjaRig.enemy_config(kind), _h)
 			else:
-				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_sakura.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				ch.setup(ROGUE, _h, [["", TEX_ROGUE_SAKURA]], ROGUE_GEAR.duplicate(), Toon.GOLD)
 				_tint(Color("#D88A8A"), 1.0)
 			_timer = randf_range(1.4, 2.2)
 		"gokusotsu":
@@ -842,7 +848,7 @@ func _setup_extra() -> void:
 			radius = 0.7
 			_walk = "Walking_A"
 			_h = 2.3
-			ch.setup(WARRIOR, _h, [["Helmet", ink], ["Cloak", ink]])
+			ch.setup(WARRIOR, _h, [["Helmet", TEX_INK], ["Cloak", TEX_INK]])
 			_tint(Color("#9A7A64"), 1.0)
 			_shield_frac = 0.25
 			_timer = randf_range(1.6, 2.4)
@@ -969,6 +975,8 @@ func _ghostify() -> void:
 
 ## Teinte (multipliée à la texture) de tous les matériaux du modèle ; `alpha` < 1 éclaircit et allume la lueur.
 func _tint(c: Color, alpha: float) -> void:
+	if _ink:
+		return  # corps d'encre : couleurs de sommets, aplat partagé ; la lueur suffit (set_glow)
 	for n in ch.model.find_children("*", "MeshInstance3D", true, false):
 		var mi := n as MeshInstance3D
 		if mi.mesh == null:
@@ -1235,10 +1243,13 @@ func promote(list: Array, announce := true) -> void:
 	_aura_r = radius * 1.4
 	_aura = Toon.part(self, _torus(), main.vfx.glow_mat(ELITE_C, 2.2), Vector3(0, 0.05, 0), Vector3(_aura_r, 0.06, _aura_r))
 	_aura.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	for s in [-1.0, 1.0]:
-		var sx := float(s)
-		var horn := Toon.part(_deco, _cyl(0.0, 0.05, 0.22, 6), _pm(ELITE_C), Vector3(sx * 0.1, _h * 1.0, -0.02))
-		horn.rotation.z = -sx * 0.35
+	if _ink:
+		ch.set_elite(true)  # masque cerné d'or, liserés et oreilles d'or (yokai_parts.ink_parts)
+	else:
+		for s in [-1.0, 1.0]:
+			var sx := float(s)
+			var horn := Toon.part(_deco, _cyl(0.0, 0.05, 0.22, 6), _pm(ELITE_C), Vector3(sx * 0.1, _h * 1.0, -0.02))
+			horn.rotation.z = -sx * 0.35
 	if kind in NINJA_KINDS:
 		# maître ninja : tailles enchaînées, éventail plus large, fumée plus brève, arc plus ample
 		_master = true

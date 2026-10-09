@@ -1238,6 +1238,226 @@ static func _w_lantern() -> ArrayMesh:
 	return m.mesh()
 
 
+# ------------------------------------------------------------------ yōkai d'encre (monde 1)
+## Direction « Masque d'encre » (design/encyclopedie/directions.html, B + C) : corps d'encre vivante qui coule
+## (pas de squelette apparent), masque de nō peint sur le devant, obi à motif d'estampe aux couleurs du monde
+## (monde 1 = mer : bleu de Prusse, écume, seigaiha). Pièces posées sur les articulations d'ink_rig.gd, unités
+## du modèle (H_REF = 1,75 m), face vers -Z. Chaque maillage a deux surfaces : 0 = toon à contour d'encre,
+## 1 = aplat lumineux (yeux, eau). Bâti une fois par genre (et par variante élite), partagé entre instances.
+## Élite : liseré et cerne de masque dorés, « oreilles » d'or aux épaules (l'échelle ×1.25 et l'aura viennent
+## d'enemy.gd).
+
+const INK := Color("#1E1A20")
+const INK_SEA := Color("#1A2430")  # encre bleutée du noyé
+const INK_DEEP := Color("#131824")  # encre d'abysse du moine de mer
+const INK_IKA := Color("#241C2C")  # encre violacée du calmar
+const SEA_CLOTH := Color("#1F3A5F")  # bleu de Prusse
+const SEA_WAVE := Color("#E9D8B4")  # écume des seigaiha
+const POND_CLOTH := Color("#2E5E55")  # étoffe des kappa
+const POND_WAVE := Color("#9DC1B4")
+const MASK_ONI := Color("#C8423A")
+const MASK_KAPPA := Color("#7FB38A")
+const MASK_YUMI := Color("#8FBF8A")
+const MASK_WASHI := Color("#EFE6D2")
+const MASK_DROWN := Color("#DCE8EC")
+const MASK_IKA := Color("#EAD3E4")
+const MASK_NYOBO := Color("#F6F0E6")
+const EYE_GOLD := Color("#FFD34A")
+const EYE_POND := Color("#B6FFE8")
+const EYE_SEA := Color("#9FE0FF")
+const DOME := Color("#22314A")
+const SQUID := Color("#C46FA8")
+const SQUID_D := Color("#B05A94")
+const SQUID_L := Color("#D59AC8")
+const WEED := Color("#1E3A33")
+const WEED_L := Color("#3F7A4E")
+const SHELL := Color("#F2C6C0")
+const WATER := Color("#BFE8F0")
+const MASK_Z := -0.36  # centre de la plaque du masque (repère de la tête)
+const FACE_Z := -0.455  # traits peints, juste devant la plaque
+## Constructeurs par monde (yokai_ink_wN.gd : `kinds()` et `build(kind, d, lite, elite)`) ; un fichier absent
+## n'est pas chargé (les mondes s'ajoutent sans conflit, chacun son fichier).
+const INK_WORLD_PATHS := ["res://scripts/yokai_ink_w1.gd", "res://scripts/yokai_ink_w2.gd", "res://scripts/yokai_ink_w3.gd",
+	"res://scripts/yokai_ink_w4.gd", "res://scripts/yokai_ink_w5.gd", "res://scripts/yokai_ink_w6.gd",
+	"res://scripts/yokai_ink_w7.gd", "res://scripts/yokai_ink_w8.gd"]
+
+static var _ink_worlds := {}  # genre -> script du monde (table bâtie au premier appel)
+static var _ink_sets := {}  # "genre|léger|élite" -> {pièce: ArrayMesh, "drips": PackedVector3Array, ...}
+
+
+## Script du monde qui modèle `kind` (null : pas un yōkai d'encre, squelette KayKit).
+static func ink_world_of(kind: String) -> GDScript:
+	if _ink_worlds.is_empty():
+		for path in INK_WORLD_PATHS:
+			if not ResourceLoader.exists(path):
+				continue
+			var scr: GDScript = load(path)
+			if scr == null:
+				continue
+			for k in scr.kinds():
+				_ink_worlds[String(k)] = scr
+		_ink_worlds["__loaded"] = null
+	return _ink_worlds.get(kind) as GDScript
+
+
+## Vrai si `kind` est un yōkai d'encre (InkRig dans enemy.gd).
+static func is_ink(kind: String) -> bool:
+	return ink_world_of(kind) != null
+
+
+## Armes modelées (unités du monde, +Y vers le bout) : "club_wood", "staff", "kanabo", "ladle", "nodachi",
+## "shield", "blade" (longueur `ln`), "rifle", "fan", "chain", "ninjato", "star", "bomb", "kama", "lantern".
+static func weapon(id: String, ln := 0.6) -> ArrayMesh:
+	match id:
+		"club_wood":
+			return _w_club_wood()
+		"staff":
+			return _w_staff()
+		"kanabo":
+			return _w_kanabo()
+		"ladle":
+			return _w_ladle()
+		"nodachi":
+			return _w_nodachi()
+		"shield":
+			return _w_shield()
+		"blade":
+			return _w_blade(ln, STEEL)
+		"rifle":
+			return _w_rifle()
+		"fan":
+			return _w_fan()
+		"chain":
+			return _w_chain()
+		"ninjato":
+			return _w_ninjato()
+		"star":
+			return _w_star()
+		"bomb":
+			return _w_bomb()
+		"kama":
+			return _w_kama()
+		"lantern":
+			return _w_lantern()
+	return null
+static var _ink_flat: StandardMaterial3D = null
+
+
+## Aplat lumineux des yeux et de l'eau (une seule instance pour tous les yōkai d'encre, jamais teintée).
+static func ink_flat_mat() -> StandardMaterial3D:
+	if _ink_flat == null:
+		_ink_flat = StandardMaterial3D.new()
+		_ink_flat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_ink_flat.vertex_color_use_as_albedo = true
+		_ink_flat.vertex_color_is_srgb = true
+	return _ink_flat
+
+
+## Pièces d'un yōkai d'encre : {"body", "head", "arm", "drip", "weapon_r" (option), "fixed" (option : bouclier,
+## arc, posé sur le corps), "drips": positions des gouttes (ou tentacules), "spread": inclinaison vers
+## l'extérieur des gouttes (rad)}. Bâties une fois par genre, variante légère et élite.
+static func ink_parts(kind: String, elite: bool) -> Dictionary:
+	var lite := Toon.lite
+	var key := "%s|%d|%d" % [kind, 1 if lite else 0, 1 if elite else 0]
+	if _ink_sets.has(key):
+		var cached: Dictionary = _ink_sets[key]
+		return cached
+	var d := {"drips": PackedVector3Array([Vector3(0.14, 0.36, -0.13), Vector3(-0.17, 0.35, 0.05), Vector3(0.05, 0.34, 0.17)]), "spread": 0.0}
+	var w := ink_world_of(kind)
+	if w != null:
+		w.build(kind, d, lite, elite)
+	if lite and d.get("spread", 0.0) == 0.0:
+		d["drips"] = PackedVector3Array([Vector3(0.14, 0.36, -0.13), Vector3(-0.15, 0.35, 0.1)])
+	_ink_sets[key] = d
+	return d
+
+
+# ------------------------------------------------------------------ API des constructeurs par monde
+# Usage (yokai_ink_wN.gd) : `var a := Yokai.Mesher.new(1.0)` (toon, contour) et `var f := Yokai.Mesher.new(1.0)`
+# (aplat lumineux), puis Yokai.ink_body(b, …) pour le corps, Yokai.mask_plate / mask_brows / mask_eyes pour le
+# masque, Yokai.ink_arm / ink_drip pour bras et gouttes, Yokai.two(a, f) pour fusionner les deux surfaces,
+# Yokai.weapon("…") pour une arme en main droite (`d["weapon_r"]`), `d["fixed"]` pour un objet posé sur le corps.
+
+## Maillage à deux surfaces : `a` (toon, contour) puis `f` (aplat) si elle n'est pas vide.
+static func two(a: Mesher, f: Mesher) -> ArrayMesh:
+	var m := a.mesh()
+	if m == null:
+		m = ArrayMesh.new()
+	var arr := f.arrays()
+	if not arr.is_empty():
+		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return m
+
+
+## Corps d'encre : dôme (tête et torse d'un bloc) qui s'effile vers le bas, deux bosses d'épaules, obi à
+## écailles d'écume (seigaiha) cerclé d'un liseré ; `w` : largeur (brute, moine). Élite : liserés d'or.
+static func ink_body(a: Mesher, w: float, ink: Color, cloth: Color, wave: Color, line: Color, lite: bool, elite: bool) -> void:
+	a.ball(Vector3(0, 1.17, 0), Vector3(0.42 * w, 0.36, 0.40 * w), ink, Vector3.ZERO, 10)
+	a.cyl(Vector3(0, 0.82, 0), Vector3(0.42 * w, 0.7, 0.40 * w), ink, Vector3(PI, 0, 0), 0.62, 10)
+	a.ball(Vector3(0, 0.47, 0), Vector3(0.26 * w, 0.17, 0.25 * w), ink, Vector3.ZERO, 8)
+	for s in [-1.0, 1.0]:
+		a.ball(Vector3(float(s) * 0.36 * w, 1.02, 0), Vector3(0.15, 0.11, 0.14), ink)
+	var trim := Toon.GOLD if elite else line
+	a.cyl(Vector3(0, 0.66, 0), Vector3(0.325 * w, 0.22, 0.31 * w), cloth, Vector3.ZERO, 1.14, 12)
+	a.cyl(Vector3(0, 0.775, 0), Vector3(0.375 * w, 0.032, 0.36 * w), trim, Vector3.ZERO, 1.0, 12)
+	if elite:
+		a.cyl(Vector3(0, 0.555, 0), Vector3(0.33 * w, 0.03, 0.315 * w), Toon.GOLD, Vector3.ZERO, 1.0, 12)
+		# « oreilles » d'or aux épaules
+		for s in [-1.0, 1.0]:
+			a.spike(Vector3(float(s) * 0.44 * w, 1.07, 0), 0.075, 0.24, Toon.GOLD, Vector3(0, 0, -float(s) * 1.25), 0.0, 4, 0.45)
+	# seigaiha : écailles d'écume en deux rangs décalés (un seul rang, moins serré, en mode léger)
+	var rows := 1 if lite else 2
+	var n := 6 if lite else 9
+	for row in rows:
+		var y := 0.735 - 0.085 * float(row)
+		var rr := 0.367 - 0.02 * float(row)
+		for i in n:
+			var ang := TAU * (float(i) + 0.5 * float(row)) / float(n)
+			a.ball(Vector3(sin(ang) * rr * w, y, cos(ang) * rr * w), Vector3(0.075, 0.042, 0.018), wave, Vector3(0, ang, 0), 6)
+
+
+## Bras d'encre (épaule en haut, pend vers -Y) et main en boule ; partagé gauche et droite.
+static func ink_arm(d: Dictionary, ink: Color, w := 1.0) -> void:
+	var a := Mesher.new(1.0)
+	a.cyl(Vector3(0, -0.2, 0), Vector3(0.085 * w, 0.4, 0.085 * w), ink, Vector3(PI, 0, 0), 0.7, 7)
+	a.ball(Vector3(0, -0.43, 0), Vector3(0.1 * w, 0.085, 0.1 * w), ink)
+	d["arm"] = a.mesh()
+
+
+## Goutte d'encre qui pend sous le corps (étirée en code : elle s'allonge et retombe).
+static func ink_drip(d: Dictionary, ink: Color) -> void:
+	var a := Mesher.new(1.0)
+	a.ball(Vector3.ZERO, Vector3(0.055, 0.07, 0.055), ink, Vector3.ZERO, 6)
+	a.spike(Vector3.ZERO, 0.05, 0.17, ink, Vector3(PI, 0, 0), 0.3, 5)
+	a.ball(Vector3(0, -0.18, 0), Vector3(0.035, 0.04, 0.035), ink, Vector3.ZERO, 6)
+	d["drip"] = a.mesh()
+
+
+## Plaque du masque de nō (repère de la tête, posée devant le dôme d'encre) ; élite : cerne d'or derrière.
+static func mask_plate(a: Mesher, col: Color, sx: float, sy: float, elite: bool) -> void:
+	a.ball(Vector3(0, 0.0, MASK_Z), Vector3(0.30 * sx, 0.36 * sy, 0.10), col, Vector3.ZERO, 10)
+	if elite:
+		a.ball(Vector3(0, 0.0, MASK_Z + 0.03), Vector3(0.335 * sx, 0.395 * sy, 0.07), Toon.GOLD, Vector3.ZERO, 10)
+
+
+## Sourcils peints ; `angry` : froncés (pointe extérieure levée), sinon fins et hauts.
+static func mask_brows(a: Mesher, col: Color, angry: bool, sx := 1.0) -> void:
+	for s in [-1.0, 1.0]:
+		var x := float(s)
+		if angry:
+			a.box(Vector3(x * 0.12 * sx, 0.15, FACE_Z), Vector3(0.17, 0.038, 0.02), col, Vector3(0, 0, x * 0.32))
+		else:
+			a.box(Vector3(x * 0.11 * sx, 0.19, FACE_Z), Vector3(0.12, 0.022, 0.02), col, Vector3(0, 0, -x * 0.25))
+
+
+## Yeux lumineux (aplat) : iris clair et pupille sombre.
+static func mask_eyes(f: Mesher, col: Color, r: float, sx := 1.0, y := 0.06) -> void:
+	for s in [-1.0, 1.0]:
+		var x := float(s) * 0.115 * sx
+		f.ball(Vector3(x, y, FACE_Z), Vector3(r, r * 0.75, 0.015), col, Vector3.ZERO, 8)
+		f.ball(Vector3(x, y, FACE_Z - 0.012), Vector3(r * 0.36, r * 0.42, 0.01), Toon.SUMI, Vector3.ZERO, 6)
+
+
 # ------------------------------------------------------------------ assembleur
 
 ## Accumule des primitives transformées et colorées, puis rend un seul ArrayMesh (couleurs de sommets).
@@ -1309,16 +1529,23 @@ class Mesher:
 			for k in vs.size():
 				_ix.append(base + k)
 
-	## Maillage final (null si vide).
-	func mesh() -> ArrayMesh:
+	## Tableaux de la surface (vides si rien n'a été ajouté) : pour fusionner plusieurs surfaces en un maillage.
+	func arrays() -> Array:
 		if _v.is_empty():
-			return null
+			return []
 		var arr := []
 		arr.resize(Mesh.ARRAY_MAX)
 		arr[Mesh.ARRAY_VERTEX] = _v
 		arr[Mesh.ARRAY_NORMAL] = _n
 		arr[Mesh.ARRAY_COLOR] = _c
 		arr[Mesh.ARRAY_INDEX] = _ix
+		return arr
+
+	## Maillage final (null si vide).
+	func mesh() -> ArrayMesh:
+		var arr := arrays()
+		if arr.is_empty():
+			return null
 		var m := ArrayMesh.new()
 		m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
 		return m
