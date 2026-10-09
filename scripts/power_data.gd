@@ -53,7 +53,7 @@ static func unlock_tier(id: String) -> int:
 const AFF_TIERS := [2, 4]
 const AFFINITY := {
 	"fire": ["dégâts de feu +25 %", "dégâts de feu +50 %, chaque coup enflamme"],
-	"water": ["+1 bulle d'écume par combat", "+1 cœur à chaque combat, vagues +50 %"],
+	"water": ["+1 bulle d'écume par combat", "+1 cœur un combat sur deux, vagues +50 %"],
 	"bolt": ["course +10 %, foudre +25 %", "foudre +50 %, éclairs tous les 5 coups"],
 	"wind": ["trait max +2 m", "trait max +4 m, course +15 %"],
 	"shadow": ["10 % de chances de frapper 2× plus fort", "25 % de chances de frapper 2,5× plus fort"],
@@ -61,7 +61,7 @@ const AFFINITY := {
 # les mêmes bonus en deux mots (cartes de rouleau)
 const AFF_SHORT := {
 	"fire": ["Feu +25 %", "Feu +50 %"],
-	"water": ["+1 bulle", "+1 cœur/combat"],
+	"water": ["+1 bulle", "+1 cœur/2 combats"],
 	"bolt": ["Foudre +25 %", "Foudre +50 %"],
 	"wind": ["Trait +2 m", "Trait +4 m"],
 	"shadow": ["Critique ×2", "Critique ×2,5"],
@@ -128,7 +128,7 @@ const POWERS := {
 	"water_dew": {"school": "water", "rarity": "common", "unlock": 0, "label": "Rosée", "short": "+1 cœur tous les {v} tués", "icon": "heart_drop", "trig": "kill",
 		"name": "Rosée", "sub": "Soin par les victoires", "when": "EN TUANT",
 		"text": "Tuer des ennemis te soigne : 1 cœur rendu à chaque série.",
-		"stat": "+1 cœur tous les {v} ennemis tués", "v": [12, 10, 8]},
+		"stat": "+1 cœur tous les {v} ennemis tués", "v": [16, 14, 12]},
 	"water_foam": {"school": "water", "rarity": "rare", "unlock": 1, "label": "Écume", "short": "Bulle : bloque {v} coup/combat", "icon": "shield", "trig": "hurt",
 		"name": "Écume", "sub": "Bulle protectrice", "when": "QUAND TU ES TOUCHÉ",
 		"text": "Une bulle d'écume encaisse des coups à ta place, puis éclate sur les ennemis.",

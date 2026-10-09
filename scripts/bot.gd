@@ -3,7 +3,8 @@ extends Node
 ##  campaign (défaut) : les 8 mondes d'affilée, sanctuaire compris, puis une partie où il doit mourir.
 ##    Les boss (gardiens compris) disent eux-mêmes quel trait les blesse (bot_stroke) : boucles,
 ##    perles et bulles dans l'ordre, chaînes et fils tranchés en travers, tornade traversée.
-##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement à 1 cœur). Bilan par monde.
+##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement au dernier coup encaissable :
+##    1 cœur, 2 dès que les coups lourds en ôtent 2). Bilan par monde (BOT STATS, BOT BILAN).
 ##  powers : chaque pouvoir, à chaque niveau, actif pendant une salle de combat entière (gardien et boss
 ##    compris) ; les six figures, des esquives, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
 ##  ui : parcours scripté des écrans (bot_ui.gd), sans combat du robot.
@@ -18,8 +19,8 @@ const BotShapes = preload("res://scripts/bot_shapes.gd")
 const BotUi = preload("res://scripts/bot_ui.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 const MODES := ["campaign", "powers", "ui", "stress"]
-const ROOM_TIMEOUT := {"campaign": 90.0, "powers": 120.0, "stress": 170.0}  # secondes de jeu avant de déclarer un combat bloqué (marche de l'étape comprise)
-const GAME_LIMIT := {"campaign": 8600.0, "powers": 14000.0, "stress": 3800.0, "ui": 1.0e9}  # secondes de jeu
+const ROOM_TIMEOUT := {"campaign": 150.0, "powers": 180.0, "stress": 260.0}  # secondes de jeu avant de déclarer un combat bloqué (marche de l'étape comprise)
+const GAME_LIMIT := {"campaign": 12000.0, "powers": 16000.0, "stress": 5200.0, "ui": 1.0e9}  # secondes de jeu
 const WALL_LIMIT := 1440.0  # secondes réelles (le CI coupe à 25 min)
 const STROKE_KINDS := ["plain", "loop", "zigzag", "straight", "return", "enso", "hook"]
 const POWER_GROUP := 6  # pouvoirs suivis par partie (mode powers)
@@ -49,8 +50,9 @@ var _still := {}  # id ennemi -> [dernière position, temps immobile]
 var _stuck_seen := {}
 var _done := false
 var _ui: Node
-# bilan par monde (campagne) : monde -> {rooms, time, hits, guards}
+# bilan par monde (campagne) : monde -> {rooms, time, hits, guards, heals, max_on}
 var _stats := {}
+var _world_t0 := 0.0  # temps de jeu au départ du monde en cours (durée du BOT BILAN)
 var _guarded := false  # dernier cœur déjà gardé dans cette salle
 # mode powers
 var _runs := 0
@@ -159,6 +161,8 @@ func _new_run() -> void:
 	_hoo_seen = false
 	_prev_foam = 0
 	_prev_utsu = 0
+	_last_hp = -1  # la nouvelle partie rend tous les cœurs : ce n'est pas un soin
+	_world_t0 = _total
 	if mode == "powers":
 		_runs += 1
 		_group = _next_group()
@@ -187,11 +191,21 @@ func step(dt: float) -> void:
 	if _last_hp >= 0 and h.hp < _last_hp:
 		_hits_taken += _last_hp - h.hp
 		_stat("hits", _last_hp - h.hp)
+	elif _last_hp >= 0 and h.hp > _last_hp:
+		_stat("heals", h.hp - _last_hp)
 	_last_hp = h.hp
 	if int(main.room) != _last_room:
 		_on_room_change()
-	# protégé seulement au dernier cœur (sauf dans la partie où il doit mourir, et tant que Hōō attend son coup mortel)
-	if not _death_test and h.hp <= 1 and _guard_allowed():
+		_last_hp = h.hp  # soin du robot à chaque salle : pas compté
+	if String(main.state) == "play":
+		var alive := 0
+		for e in main.enemies:
+			if is_instance_valid(e) and not e.dead:
+				alive += 1
+		_stat_max("max_on", alive)
+	# protégé seulement au dernier coup encaissable (sauf dans la partie où il doit mourir, et tant que Hōō
+	# attend son coup mortel) : 1 cœur, 2 quand les coups lourds en ôtent 2 (enemy.HEAVY_HIT_WORLD)
+	if not _death_test and h.hp <= _last_stand() and _guard_allowed():
 		if not _guarded:
 			_guarded = true
 			_stat("guards", 1)
@@ -208,6 +222,11 @@ func step(dt: float) -> void:
 			_over()
 		"play":
 			_play(dt)
+
+
+## Cœurs à partir desquels le robot se protège : un coup lourd peut en ôter 2 dès le monde 5.
+func _last_stand() -> int:
+	return 2 if int(main.current_world) >= 5 else 1
 
 
 func _guard_allowed() -> bool:
@@ -258,10 +277,22 @@ func _kill_count() -> int:
 func _stat(key: String, v) -> void:
 	if mode != "campaign" or _death_test:
 		return
-	if not _stats.has(world):
-		_stats[world] = {"rooms": 0, "time": 0.0, "hits": 0, "guards": 0}
-	var d: Dictionary = _stats[world]
+	var d := _world_stats()
 	d[key] = d[key] + v
+
+
+## Maximum par monde (campagne seulement, hors partie de la mort).
+func _stat_max(key: String, v: int) -> void:
+	if mode != "campaign" or _death_test:
+		return
+	var d := _world_stats()
+	d[key] = maxi(int(d[key]), v)
+
+
+func _world_stats() -> Dictionary:
+	if not _stats.has(world):
+		_stats[world] = {"rooms": 0, "time": 0.0, "hits": 0, "guards": 0, "heals": 0, "max_on": 0}
+	return _stats[world]
 
 
 func _pick() -> void:
@@ -336,6 +367,9 @@ func _over() -> void:
 		_print_stats()
 		finish()
 		return
+	if mode == "campaign":
+		var bd := _world_stats()
+		print("BOT BILAN monde %d : cœurs perdus %d, soins %d, durée %.0f s, ennemis max à l'écran %d" % [world, int(bd["hits"]), int(bd["heals"]), _total - _world_t0, int(bd["max_on"])])
 	world += 1
 	if world > Worlds.WORLDS.size():
 		# dernière partie : le héros doit mourir (mort, ralenti, résultats)

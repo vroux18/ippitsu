@@ -38,6 +38,7 @@ const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
 const NinjaRig = preload("res://scripts/ninja_rig.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
+const Worlds = preload("res://scripts/worlds.gd")
 ## Vrai : le clan des ninjas (NINJA_KINDS) prend le ninja procédural (ninja_rig.gd) à leur palette ;
 ## faux : rōdeur KayKit habillé (yokai_parts).
 const NINJA_ENEMIES_RIG := true
@@ -180,6 +181,12 @@ const ROGUE_GEAR := ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Th
 const KIND_H := {"oni": 1.6, "brute": 2.4, "kappa": 1.75, "tate": 1.9, "funa": 1.6, "umibozu": 1.75,
 	"kitsunebi": 1.35, "kitsunebi_s": 0.95, "yukionna": 1.85, "kasha": 1.7, "kagebo": 1.75}
 const NO_ELITE := ["kitsunebi_s", "tanuki_d", "sumidama_s", "tsurara"]
+# lourds : un coup pendant leur annonce ne la casse pas (sauf mise à mort ou bouclier brisé)
+const HEAVY_KINDS := ["tate", "kasha", "gokusotsu", "kani", "brute", "kanabo"]
+# coups lourds : 2 cœurs dès le monde HEAVY_HIT_WORLD (explosion d'élite comprise)
+const HEAVY_HIT_KINDS := ["brute", "kanabo", "gokusotsu"]
+const HEAVY_HIT_WORLD := 5
+const WINDUP_MIN := 0.65  # plancher des annonces (s), même dans les mondes avancés
 const ELITE_NAMES := {"blinde": "BLINDÉ", "rapide": "RAPIDE", "vampire": "VAMPIRE", "explosif": "EXPLOSIF",
 	"invocateur": "INVOCATEUR", "enrage": "ENRAGÉ", "maitre": "MAÎTRE NINJA"}
 const ELITE_POOL := ["blinde", "rapide", "vampire", "explosif", "invocateur", "enrage"]
@@ -464,9 +471,10 @@ func _ready() -> void:
 			_setup_extra()
 	if not _custom and not _rig:
 		_dress()
-	# rythme un peu plus posé : marche -10 %, annonces des coups +15 %
+	# rythme un peu plus posé : marche -10 %, annonces des coups +15 % ; les mondes avancés raccourcissent
+	# les annonces (worlds.gd « tele »), jamais sous WINDUP_MIN
 	speed *= 0.9
-	_windup *= 1.15
+	_windup = maxf(WINDUP_MIN, _windup * 1.15 * float(Worlds.world(_world()).get("tele", 1.0)))
 	_base_hp = hp
 	if kind == "kagebo" or _rogue or _custom:
 		_scale_in = SPAWN_TIME
@@ -1028,7 +1036,7 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 	_knock = dir.normalized() * _knock_force()
 	if kind == "funa" or kind == "tsurara" or _state == "charge" or _air:
 		_knock = Vector3.ZERO
-	if _state == "windup" and kind != "brute" and kind != "kanabo":
+	if _state == "windup" and (hp <= 0.0 or _flinches()):
 		_cancel_attack()
 	if hp <= 0.0:
 		_die()
@@ -1043,15 +1051,39 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 	body.scale = SQUASH
 	_squash = 0.25
 	_hit_freeze = HIT_FREEZE
-	if kind == "umibozu":
-		# touché sans être tranché net : il replonge aussitôt
-		_phase = "dive"
-		_ptimer = FUNA_DIVE
+	if kind == "umibozu" and _phase == "up":
+		# touché sans être tranché net : il replonge bientôt (pas aussitôt : sinon, PV élevés des derniers
+		# mondes, il plonge à chaque coup et le combat traîne)
+		_ptimer = minf(_ptimer, 0.8)
 	elif kind == "tanuki" and _doron_cd <= 0.0:
 		_doron_cd = 6.0
 		call_deferred("_doron")
 	_on_wounded()
 	return false
+
+
+## Un coup (non mortel) casse-t-il l'annonce ? Ni élite ni lourd ; dès le monde 3, seulement à partir de
+## la 2e touche du trait (combo >= 2). Le bouclier brisé la casse toujours (_shield_broken).
+func _flinches() -> bool:
+	if elite or kind in HEAVY_KINDS:
+		return false
+	if _world() >= 3:
+		var c = main.get("combo") if main != null else null
+		return c != null and int(c) >= 2
+	return true
+
+
+## Monde en cours (1 au dojo, ou sans main.gd) : difficulté des annonces, des coups lourds.
+func _world() -> int:
+	if main == null or str(main.get("state")) == "tuto":
+		return 1
+	var w = main.get("current_world")
+	return int(w) if w != null else 1
+
+
+## Cœurs ôtés par un coup de cet ennemi (lourds : 2 dès le monde HEAVY_HIT_WORLD).
+func _hit_n() -> int:
+	return 2 if kind in HEAVY_HIT_KINDS and _world() >= HEAVY_HIT_WORLD else 1
 
 
 func _knock_force() -> float:
@@ -1251,7 +1283,7 @@ func _minion_kind() -> String:
 ## Coup porté par l'ennemi (Vampire : se soigne s'il touche).
 func _strike(center: Vector3, r: float) -> void:
 	var before: int = hero.hp
-	main.enemy_strike(center, r)
+	main.enemy_strike(center, r, _hit_n())
 	if elite and not dead and "vampire" in affixes and int(hero.hp) < before:
 		var mh := float(get_meta("max_hp", hp))
 		hp = minf(mh, hp + mh * 0.25)
@@ -1503,7 +1535,7 @@ func _process(delta: float) -> void:
 				main.vfx.tele_update(_tele, 1.0 - _blast_t / BLAST_T, _blast_t)
 			if _blast_t <= 0.0:
 				_blast_t = 0.0
-				main.enemy_strike(_target, _zone_r)
+				main.enemy_strike(_target, _zone_r, 2 if _world() >= HEAVY_HIT_WORLD else 1)
 				main.vfx.fire_burst(_target, _zone_r)
 				if _zone:
 					_zone.queue_free()

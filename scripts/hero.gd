@@ -35,6 +35,9 @@ var hp := 5
 var dashing := false
 var dead := false
 var invuln := 0.0  # invincibilité après un coup reçu (temps de jeu)
+const DASH_GUARD_ALL := 1.0e9  # dash_guard : ruée intouchable en entier
+var dash_t := 0.0  # temps écoulé depuis le début de la ruée en cours (repart à chaque trait lancé)
+var dash_guard := DASH_GUARD_ALL  # part intouchable de chaque ruée (s), posée par main selon le monde
 var path := PackedVector3Array()
 var path_i := 0
 var facing := Vector3(0, 0, -1)
@@ -231,6 +234,7 @@ func start_dash(p: PackedVector3Array) -> void:
 	path = p
 	path_i = 1
 	dashing = true
+	dash_t = 0.0
 
 
 ## Touche pendant la ruée : le sabre repart d'un coup de taille (si le dernier geste date de plus de POP_GAP).
@@ -287,6 +291,11 @@ func stab(dir: Vector3) -> void:
 	ch.play_once("1H_Melee_Attack_Stab", 2.2)
 
 
+## Vrai tant que la ruée en cours protège encore (toute la ruée, ou ses dash_guard premières secondes).
+func dash_safe() -> bool:
+	return dashing and dash_t < dash_guard
+
+
 ## Vrai pendant une technique qui protège (toupie, garde, bond).
 func protected() -> bool:
 	return spinning > 0.0 or guard_t > 0.0 or _leap_t >= 0.0
@@ -309,9 +318,10 @@ func snap_facing() -> void:
 	body.rotation.y = atan2(-facing.x, -facing.z)
 
 
-func hurt() -> void:
-	hp -= 1
-	invuln = 1.2
+## Coup reçu : `n` cœurs perdus, puis `iframes` secondes d'invincibilité.
+func hurt(n := 1, iframes := 1.2) -> void:
+	hp -= n
+	invuln = iframes
 	_flash = 0.15
 	if hp <= 0:
 		dead = true
@@ -331,6 +341,7 @@ func cancel_moves() -> void:
 
 func _process(delta: float) -> void:
 	if dashing:
+		dash_t += delta
 		var move := DASH_SPEED * speed_mult * delta
 		while move > 0.0 and path_i < path.size():
 			var target := path[path_i]

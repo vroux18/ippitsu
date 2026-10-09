@@ -1543,9 +1543,9 @@ func on_dodge(from: Vector3, to: Vector3) -> void:
 	_whirl_burst(to, 1.5, d)
 
 
-## Coup reçu (après l'écume) : renvoie true pour l'annuler (Utsusemi, renaissance de Hōō).
-## main : `if powers.on_hurt(): return` juste avant `hero.hurt()` dans _hurt_hero.
-func on_hurt() -> bool:
+## Coup reçu (après l'écume) de `n` cœurs : renvoie true pour l'annuler (Utsusemi, renaissance de Hōō).
+## main : `if powers.on_hurt(n): return` juste avant `hero.hurt(n, …)` dans _hurt_hero.
+func on_hurt(n := 1) -> bool:
 	var h = main.hero
 	if _utsu_left > 0 and lvl("shadow_utsusemi") > 0:
 		_utsu_left -= 1
@@ -1562,7 +1562,7 @@ func on_hurt() -> bool:
 			_dmg(o, d, "shadow")
 		main.damage_bosses(p, 2.4, d)
 		return true
-	if lvl("fire_hoo") > 0 and not _hoo_used and int(h.hp) <= 1:
+	if lvl("fire_hoo") > 0 and not _hoo_used and int(h.hp) <= n:
 		_hoo_used = true
 		h.hp = mini(3, int(h.max_hp))
 		h.invuln = 2.5
@@ -1608,8 +1608,8 @@ func on_room_start(r: int) -> void:
 		if is_instance_valid(s["node"]):
 			s["node"].queue_free()
 	_sweeps.clear()
-	if _tier_of("water") >= 2 and r > 1:
-		main.heal(1)
+	if _tier_of("water") >= 2 and r > 1 and r % 2 == 0:
+		main.heal(1)  # palier de l'eau : un cœur une salle sur deux
 
 
 # ------------------------------------------------------------------ boucle de jeu

@@ -70,6 +70,9 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"enemies": {"oni": 4, "kappa": 2, "brute": 1, "tate": 1, "funa": 2, "umibozu": 2, "kappa_yumi": 2, "ika": 2, "umi_nyobo": 1},
 		"hp_mult": 1.0,
+		# difficulté (main._begin_room, attack_tokens, _spawn_list, spawn_bullet ; enemy._ready) : attaquants simultanés,
+		# facteur des annonces, budget de base et par salle, chance d'élite par vague, vitesse des boules (m/s)
+		"tokens": 2, "tele": 1.0, "b0": 4, "per": 1.0, "elite": 0.12, "bullet": 3.4,
 	},
 	{
 		"id": 2,
@@ -92,6 +95,7 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"enemies": {"oni": 3, "kappa": 2, "brute": 1, "tate": 1, "funa": 1, "kitsunebi": 2, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 1, "kappa_yumi": 1, "shinobi": 2, "shuriken": 1},
 		"hp_mult": 1.15,
+		"tokens": 2, "tele": 0.96, "b0": 5, "per": 1.3, "elite": 0.16, "bullet": 3.6,
 	},
 	{
 		"id": 3,
@@ -114,6 +118,7 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 3, "yukionna": 2, "yuki_warashi": 2, "onryo": 2, "tsurara": 1, "kamaitachi": 1, "umi_nyobo": 1},
 		"hp_mult": 1.3,
+		"tokens": 3, "tele": 0.92, "b0": 6, "per": 1.6, "elite": 0.2, "bullet": 3.8,
 	},
 	{
 		"id": 4,
@@ -136,6 +141,7 @@ const WORLDS: Array = [
 		"void_metal": false,
 		"enemies": {"oni": 2, "kappa": 1, "brute": 2, "tate": 1, "funa": 1, "kasha": 2, "hinotama": 2, "teppo": 2, "tengu": 2, "kanabo": 1, "moryo": 1},
 		"hp_mult": 1.45,
+		"tokens": 3, "tele": 0.88, "b0": 7, "per": 1.8, "elite": 0.25, "bullet": 4.0,
 	},
 	{
 		"id": 5,
@@ -158,6 +164,7 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 2, "funa": 1, "kagebo": 2, "sumidama": 2, "kasa": 2, "moryo": 1, "onryo": 1, "teppo": 1, "tengu": 1, "kitsune_tsukai": 1, "shinobi": 2, "shuriken": 2, "kemuri": 2, "kunoichi": 1},
 		"hp_mult": 1.6,
+		"tokens": 3, "tele": 0.85, "b0": 8, "per": 2.0, "elite": 0.3, "bullet": 4.2,
 	},
 	{
 		"id": 6,
@@ -180,6 +187,7 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 1, "tengu": 2, "kamaitachi": 1, "moryo": 1, "karasu": 3, "yamabushi": 2, "konoha": 2, "shinobi": 2, "shuriken": 1, "kemuri": 1, "kunoichi": 2},
 		"hp_mult": 1.7,
+		"tokens": 4, "tele": 0.82, "b0": 9, "per": 2.2, "elite": 0.34, "bullet": 4.4,
 	},
 	{
 		"id": 7,
@@ -202,6 +210,7 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 2, "umibozu": 1, "ika": 2, "umi_nyobo": 1, "kani": 3, "ningyo": 2, "fugu": 2},
 		"hp_mult": 1.8,
+		"tokens": 4, "tele": 0.8, "b0": 10, "per": 2.4, "elite": 0.38, "bullet": 4.6,
 	},
 	{
 		"id": 8,
@@ -224,6 +233,7 @@ const WORLDS: Array = [
 		"void_metal": false,
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "onryo": 2, "kagebo": 1, "kanabo": 1, "moryo": 1, "gaki": 3, "gokusotsu": 2, "shiryo": 2, "kemuri": 1},
 		"hp_mult": 1.9,
+		"tokens": 4, "tele": 0.78, "b0": 11, "per": 2.6, "elite": 0.42, "bullet": 4.8,
 	},
 ]
 

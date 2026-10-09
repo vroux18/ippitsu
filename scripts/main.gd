@@ -99,6 +99,11 @@ const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 15  # combats d'un monde
 const MINI_ROOM := 8  # combat du mini-boss (son arène)
+# courbe du budget d'ennemis dans un monde (index = salle) : montée, gardien (8), respiration (9), épreuve
+const ROOM_CURVE := [0.0, 0.75, 0.85, 1.0, 1.0, 1.05, 1.1, 1.2, 1.0, 0.9, 1.05, 1.15, 1.2, 1.3, 1.4, 1.0]  # index = salle (8 gardien, 9 respiration, 14 épreuve, 15 boss)
+const TRIAL_ROOM := 14  # épreuve : un élite garanti
+const WAVE_OVERLAP_T := 9.0  # vagues qui se chevauchent : la suivante arrive au plus tard après ce délai
+const REINF_DIST := 5.0  # renforts du boss : apparition à cette distance du héros au moins
 const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fins des étapes 2 et 5)
 # étapes du monde : combats (numéros de `room`) réunis sur une même longue carte ; [8] et [15] : arènes
 const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
@@ -193,8 +198,14 @@ const ZOOM_PUNCH := 0.6
 const COMBO_PITCH := [1.0, 1.122, 1.26, 1.498, 1.682, 2.0]  # son de coup : gamme pentatonique
 var wave_wait := 1.0
 var safety_left := 1  # pas de côté automatiques restants dans la salle
-const ATTACK_TOKENS := 2  # ennemis autorisés à préparer une attaque en même temps
+const ATTACK_TOKENS := 2  # attaquants simultanés par défaut (le monde en cours en donne plus : attack_tokens)
 var _attackers: Array = []
+# vagues : taille de la dernière vague lâchée, temps depuis, reste d'une vague retenue par le plafond à l'écran
+var _wave_size := 0
+var _wave_t := 0.0
+var _wave_cont := false  # la tête de _waves_left est la suite d'une vague déjà annoncée
+var _elite_due := 0  # élites garantis restant à poser dans la salle (épreuve)
+var _reinf_step := 0  # renforts du boss de fin déjà appelés (66 %, puis 33 % de ses PV)
 var game_over := false
 var _ticks := 0
 var _cam_base := Transform3D()
@@ -2197,58 +2208,58 @@ func _begin_room() -> void:
 		hazards.begin_room(room, hero.position, false, arena.bounds, true)
 	else:
 		hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
-	var w: Dictionary = Worlds.world(current_world)
-	var weights: Dictionary = w.enemies
-	# montée douce : le monde 1 garde des combats aérés, le monde 2 un peu plus, puis le rythme plein
-	var wi := clampi(current_world - 1, 0, 2)
-	var b0: int = [3, 4, 5][wi]
-	var per: float = [0.9, 1.5, 2.0][wi]
-	var budget: int = b0 + int(float(room) * per)
+	# difficulté du monde (worlds.gd : b0, per) et courbe dans le monde (ROOM_CURVE : respiration, épreuve)
+	var b0 := world_diff("b0", 4.0)
+	var per := world_diff("per", 1.0)
+	var curve := float(ROOM_CURVE[clampi(room, 0, ROOM_CURVE.size() - 1)])
+	var budget := int((b0 + per * float(room)) * curve)
 	if _gentle_room():
 		budget = maxi(3, int(budget * 0.55))  # premier tutoriel : moins d'ennemis
+	if hero.hp <= 1:
+		budget = maxi(2, int(budget * 0.85))  # combat commencé au dernier cœur : un peu moins d'ennemis
 	var list: Array = []
-	if room >= (6 if current_world == 1 else 3):
+	if room >= (4 if current_world == 1 else 3):
 		list.append("brute")
-		budget -= 3
-	# mondes 2 et suivants : on tire parmi les ennemis déjà arrivés (sinon trop d'oni en début de monde) ;
-	# monde 1 : un ennemi pas encore arrivé devient un oni (combats plus doux)
-	var pool: Dictionary = weights
-	if current_world > 1:
-		pool = {}
-		for wk in weights.keys():
-			if room >= kind_room(String(wk), current_world):
-				pool[wk] = weights[wk]
-		if pool.is_empty():
-			pool = {"oni": 1}
-	var guard := 0
-	while budget > 0 and guard < 100:
-		guard += 1
-		var k := _weighted_kind(pool)
-		var cost := int(KIND_COST.get(k, 1))
-		if room < kind_room(k, current_world) or cost > budget:
-			k = "oni"
-			cost = 1
-		list.append(k)
-		budget -= cost
+		budget -= int(KIND_COST.get("brute", 3))
+	if room >= 10:
+		# seconde moitié du monde : un deuxième lourd (kanabō s'il est déjà arrivé dans ce monde, sinon une brute)
+		var heavy := "brute"
+		var wk: Dictionary = Worlds.world(current_world).get("enemies", {})
+		if wk.has("kanabo") and room >= kind_room("kanabo", current_world):
+			heavy = "kanabo"
+		list.append(heavy)
+		budget -= int(KIND_COST.get(heavy, 3))
+	list.append_array(_draw_kinds(_room_pool(), budget))
 	list.shuffle()
+	_elite_due = 1 if room == TRIAL_ROOM else 0
+	_reinf_step = 0
 	if room == MINI_ROOM:
-		list = ["oni", "oni", "oni"]
+		# escorte du gardien : tirée dans le pool du monde, plus fournie dans les mondes avancés
+		list = _draw_kinds(_room_pool(), 4 + 2 * current_world)
+		list.shuffle()
 		_spawn_boss(String(MINI_BOSS.get(current_world, "okappa")))
 	elif room == ROOMS:
 		list = []
 		_spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
-	# découpe en vagues : 40 % / 35 % / 25 %
+	# découpe en vagues : 40 % / 35 % / 25 %, puis 4 vagues dès la salle 10 (30 / 25 / 25 / 20 %)
 	_waves_left = []
+	_wave_cont = false
+	_wave_t = 0.0
+	var cuts: Array = [0.3, 0.55, 0.8] if room >= 10 else [0.4, 0.75]
 	var n := list.size()
-	var a := int(ceil(n * 0.4))
-	var b := int(ceil(n * 0.75))
-	var first: Array = list.slice(0, a)
-	if b > a:
-		_waves_left.append(list.slice(a, b))
-	if n > b:
-		_waves_left.append(list.slice(b))
+	var prev := int(ceil(n * float(cuts[0])))
+	var first: Array = list.slice(0, prev)
+	for ci in range(1, cuts.size()):
+		var c := int(ceil(n * float(cuts[ci])))
+		if c > prev:
+			_waves_left.append(list.slice(prev, c))
+			prev = c
+	if n > prev:
+		_waves_left.append(list.slice(prev))
 	waves_total = 1 + _waves_left.size()
 	wave_index = 1
+	_wave_size = first.size()
+	first = _cap_wave(first, 0)
 	var boss_room := (room == MINI_ROOM or room == ROOMS) and is_instance_valid(_intro_boss)
 	if boss_room:
 		# salle de boss : carton titre et première vague à la fin de son entrée (_start_boss_intro)
@@ -2275,6 +2286,106 @@ func _weighted_kind(weights: Dictionary) -> String:
 		if r <= 0.0:
 			return String(k)
 	return "oni"
+
+
+## Ennemis que le combat peut tirer : mondes 2 et suivants, ceux déjà arrivés (sinon trop d'oni en début
+## de monde) ; monde 1, tous (un ennemi pas encore arrivé devient un oni au tirage : combats plus doux).
+func _room_pool() -> Dictionary:
+	var weights: Dictionary = Worlds.world(current_world).get("enemies", {"oni": 1})
+	if current_world <= 1:
+		return weights
+	var pool := {}
+	for wk in weights.keys():
+		if room >= kind_room(String(wk), current_world):
+			pool[wk] = weights[wk]
+	if pool.is_empty():
+		pool = {"oni": 1}
+	return pool
+
+
+## Tire des ennemis dans `pool` jusqu'à épuiser `budget` (coût KIND_COST) ; un ennemi pas encore arrivé
+## ou trop cher devient un oni.
+func _draw_kinds(pool: Dictionary, budget: int) -> Array:
+	var list: Array = []
+	var guard := 0
+	while budget > 0 and guard < 100:
+		guard += 1
+		var k := _weighted_kind(pool)
+		var cost := int(KIND_COST.get(k, 1))
+		if room < kind_room(k, current_world) or cost > budget:
+			k = "oni"
+			cost = 1
+		list.append(k)
+		budget -= cost
+	return list
+
+
+## Réglage de difficulté du monde en cours (worlds.gd : tokens, tele, b0, per, elite, bullet).
+func world_diff(key: String, fallback: float) -> float:
+	return float(Worlds.world(current_world).get(key, fallback))
+
+
+## Ennemis autorisés à préparer une attaque en même temps : selon le monde, +1 en fin de monde (max 5).
+func attack_tokens() -> int:
+	if state == "tuto":
+		return ATTACK_TOKENS
+	var t := int(world_diff("tokens", float(ATTACK_TOKENS)))
+	if room >= 11:
+		t += 1
+	return mini(t, 5)
+
+
+## Plafond d'ennemis vivants à l'écran (4 + monde / 2).
+func screen_cap() -> int:
+	return 4 + int(float(current_world) / 2.0)
+
+
+## Vagues qui se chevauchent (dès la salle 5 du monde 2) : la suivante n'attend plus le dernier ennemi.
+func _waves_overlap() -> bool:
+	return current_world >= 3 or (current_world == 2 and room >= 5)
+
+
+## Plafond à l'écran : garde de `wave` ce qui tient avec `alive` ennemis déjà là ; le reste repasse en tête
+## de _waves_left (suite de la même vague, sans nouvelle annonce).
+func _cap_wave(wave: Array, alive: int) -> Array:
+	var space := maxi(1, screen_cap() - alive)
+	if wave.size() <= space:
+		return wave
+	_waves_left.push_front(wave.slice(space))
+	_wave_cont = true
+	return wave.slice(0, space)
+
+
+## Vague suivante (ou suite de la vague retenue par le plafond) prête à entrer ?
+func _wave_ready(alive: int) -> bool:
+	if alive >= screen_cap():
+		return false
+	if _wave_cont or alive <= 1:
+		return true
+	if not _waves_overlap():
+		return false
+	return alive <= maxi(1, ceili(float(_wave_size) * 0.35)) or _wave_t >= WAVE_OVERLAP_T
+
+
+## Boss de fin : renforts (ennemis du monde, budget 3 + monde) à 66 % puis 33 % de ses PV.
+func _boss_reinforce() -> void:
+	if room != ROOMS or _reinf_step >= 2 or in_hub:
+		return
+	for bo in bosses:
+		if not is_instance_valid(bo) or bool(bo.dead) or is_mini_boss(String(bo.kind)):
+			continue
+		var mh := float(bo.max_hp)
+		if mh <= 0.0:
+			continue
+		var ratio := float(bo.hp) / mh
+		var at: float = 0.66 if _reinf_step == 0 else 0.33
+		if ratio <= at:
+			_reinf_step += 1
+			_spawn_list(_draw_kinds(_room_pool(), 3 + current_world), REINF_DIST)
+			hud.toast("RENFORTS")
+			sfx.play("strike", 0.8, -4.0)
+		return
+
 
 func _spawn_boss(k: String) -> Node3D:
 	var t0 := Time.get_ticks_usec()
@@ -2517,11 +2628,21 @@ func splash(pos: Vector3, color: Color, amount: int) -> void:
 	_splash(pos, color, amount)
 
 
-func _spawn_list(list: Array) -> void:
-	# élite : dès le 4e combat (hors gardiens), au plus un par vague, plus fréquent dans les mondes avancés
+## Pose les ennemis de `list` à `min_d` m au moins du héros (renforts : REINF_DIST).
+func _spawn_list(list: Array, min_d := 4.5) -> void:
+	# élite : dès le 4e combat (hors gardiens), chance du monde (worlds.gd « elite ») ; au plus un par vague,
+	# deux dès la salle 10 ; l'épreuve (TRIAL_ROOM) en garantit un
 	var elite_at := -1
+	var elite_n := 0
 	if room >= 4 and room != MINI_ROOM and room != ROOMS and not in_hub and not list.is_empty():
-		if randf() < Enemy.elite_chance(current_world):
+		var chance := world_diff("elite", Enemy.elite_chance(current_world))
+		var rolls := 2 if room >= 10 else 1
+		for roll in rolls:
+			if randf() < chance:
+				elite_n += 1
+		if _elite_due > 0:
+			elite_n = maxi(elite_n, 1)
+		if elite_n > 0:
 			elite_at = randi() % list.size()
 	var idx := -1
 	for k in list:
@@ -2531,7 +2652,7 @@ func _spawn_list(list: Array) -> void:
 		_discover(String(k))
 		var p := Vector3.ZERO
 		for attempt in 30:
-			p = arena.random_point(hero.position, 4.5)
+			p = arena.random_point(hero.position, min_d)
 			if not hazards.is_hole(p, -0.8):
 				break
 		e.position = p
@@ -2544,10 +2665,11 @@ func _spawn_list(list: Array) -> void:
 			e._tempo *= 0.75  # premier tutoriel : plus lents (marche, annonces)
 		# plus robustes : ×2, et +4 % par combat dans le monde
 		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + 0.04 * float(maxi(room - 1, 0)))
-		if elite_at >= 0 and idx >= elite_at:
+		if elite_n > 0 and idx >= elite_at:
 			if e.can_be_elite():
 				e.promote(Enemy.roll_affixes(current_world))
-				elite_at = -1
+				elite_n -= 1
+				_elite_due = maxi(0, _elite_due - 1)
 		e.set_meta("max_hp", e.hp)
 		enemies.append(e)
 
@@ -2984,7 +3106,7 @@ func _build_pockets() -> void:
 	# une petite énigme de trait par étape, presque toujours (à l'écart du chemin)
 	if not slots.is_empty() and randf() < 0.9:
 		kinds[int(slots.pop_back())] = "puzzle"
-	if not slots.is_empty() and randf() < 0.6:
+	if not slots.is_empty() and randf() < 0.4:
 		kinds[int(slots.pop_back())] = "spring"
 	if not slots.is_empty() and stage_i >= 1 and randf() < 0.65:
 		kinds[int(slots.pop_back())] = "elite"
@@ -3094,7 +3216,7 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 	return n
 
 
-## Le héros touche un recoin : coffre (or, expérience), source (2 cœurs), défi (un ennemi d'élite apparaît).
+## Le héros touche un recoin : coffre (or, expérience), source (1 cœur), défi (un ennemi d'élite apparaît).
 func _update_pockets() -> void:
 	for pk in _pockets:
 		if bool(pk["used"]):
@@ -3138,7 +3260,7 @@ func _update_pockets() -> void:
 			"spring":
 				if d < 1.1 and hero.hp < hero.max_hp:
 					pk["used"] = true
-					heal(2)
+					heal(1)
 					var w := n.get_node_or_null("Water") as MeshInstance3D
 					if w != null:
 						w.material_override = Toon.flat(Color("#4E6E78", 0.6))
@@ -3147,7 +3269,7 @@ func _update_pockets() -> void:
 						gl2.visible = false
 					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
 					sfx.play("shrine", 1.4, -4.0)
-					hud.toast("SOURCE  ·  SOIN +2")
+					hud.toast("SOURCE  ·  SOIN +1")
 			"elite":
 				if d < 3.0 and _enc < 0:
 					pk["used"] = true
@@ -4319,6 +4441,7 @@ func _launch(s: MeshInstance3D) -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = s
+	hero.dash_guard = _dash_guard(_launch_dodge)
 	if hero.dashing:
 		# on enchaîne : la ruée en cours se termine et la nouvelle prend le relais
 		var rest := PackedVector3Array()
@@ -4394,7 +4517,7 @@ func spawn_bullet(pos: Vector3, dir: Vector3) -> void:
 	Toon.part(n, bc[2], bc[3], Vector3(0, 0.12, -0.12))
 	var shadow := _disc(n, 0.26, bc[4])
 	shadow.position.y = -pos.y + 0.012
-	bullets.append({"node": n, "vel": dir * 3.4, "life": 7.0})
+	bullets.append({"node": n, "vel": dir * world_diff("bullet", 3.4), "life": 7.0})
 	sfx.play("shot", randf_range(0.9, 1.1), -6.0)
 
 
@@ -4404,7 +4527,7 @@ func take_token(e: Node) -> bool:
 			_attackers.remove_at(i)
 	if e in _attackers:
 		return true
-	if _attackers.size() >= ATTACK_TOKENS:
+	if _attackers.size() >= attack_tokens():
 		return false
 	_attackers.append(e)
 	return true
@@ -4460,7 +4583,8 @@ func is_danger(p: Vector3, eta: float) -> bool:
 	return false
 
 
-func enemy_strike(center: Vector3, r: float) -> void:
+## `n` : cœurs perdus si le héros est touché (coups lourds : 2 dès le monde 5, voir enemy._hit_n).
+func enemy_strike(center: Vector3, r: float, n := 1) -> void:
 	shake = maxf(shake, 0.08)
 	sfx.play("strike", randf_range(0.9, 1.1), -3.0)
 	_blot(center, Color(Toon.VERMILION, 0.35), r * 0.9, 0.6)
@@ -4468,7 +4592,7 @@ func enemy_strike(center: Vector3, r: float) -> void:
 	vfx.ring(Vector3(center.x, 0.08, center.z), Toon.SUMI, r)
 	var d := Vector2(hero.position.x - center.x, hero.position.z - center.z).length()
 	if d < r + Hero.RADIUS * 0.6:
-		_hurt_hero()
+		_hurt_hero(n)
 
 
 func chain_mult() -> float:
@@ -4496,8 +4620,10 @@ func _break_chain() -> void:
 	_chain_t = 0.0
 
 
-func _hurt_hero() -> void:
-	if hero.dashing or hero.invuln > 0.0 or hero.protected() or game_over:
+## Coup reçu par le héros (`n` cœurs). Ruée : intouchable en entier aux mondes 1-2, puis seulement au
+## début de chaque ruée (hero.dash_safe) ; temps d'invincibilité après un coup raccourci dans les mondes avancés.
+func _hurt_hero(n := 1) -> void:
+	if hero.dash_safe() or hero.invuln > 0.0 or hero.protected() or game_over:
 		return
 	if foam > 0:
 		# bouclier d'écume : le coup est bu par l'écume
@@ -4506,9 +4632,9 @@ func _hurt_hero() -> void:
 		clang(hero.position)
 		float_text(hero.position, "ÉCUME", Toon.FOAM)
 		return
-	if powers.on_hurt():
+	if powers.on_hurt(n):
 		return
-	hero.hurt()
+	hero.hurt(n, _hurt_iframes())
 	_scratched = true
 	_break_chain()
 	score.on_hurt()
@@ -4525,6 +4651,21 @@ func _hurt_hero() -> void:
 		sfx.play("kill", 0.5)
 		feel("death")
 		_cancel_stroke()
+
+
+## Invincibilité après un coup reçu : 1,2 s, puis 1 s dès le monde 3 et 0,85 s dès le monde 6.
+func _hurt_iframes() -> float:
+	if state == "tuto" or current_world < 3:
+		return 1.2
+	return 0.85 if current_world >= 6 else 1.0
+
+
+## Part intouchable de chaque ruée : toute la ruée aux mondes 1-2 (et au dojo), puis 0,35 s (0,25 s pour
+## le bond d'esquive, déjà très bref).
+func _dash_guard(dodge: bool) -> float:
+	if state == "tuto" or current_world < 3:
+		return Hero.DASH_GUARD_ALL
+	return 0.25 if dodge else 0.35
 
 
 func _check_slashes() -> void:
@@ -4646,7 +4787,7 @@ func _update_bullets(dt: float) -> void:
 			for o in nearest_enemies(hp, 0.8, 1, null):
 				damage_enemy(o, 1.5)
 				b.life = 0.0
-		elif d < 0.3 + Hero.RADIUS and not hero.dashing and hero.invuln <= 0.0:
+		elif d < 0.3 + Hero.RADIUS and not hero.dash_safe() and hero.invuln <= 0.0:
 			_hurt_hero()
 			b.life = 0.0
 		if b.life <= 0.0 or not arena.bounds.grow(1.0).has_point(Vector2(n.position.x, n.position.z)):
@@ -4975,7 +5116,8 @@ func _process(_delta: float) -> void:
 		powers.update(dt)
 		hazards.update(dt)
 		for bo in bosses:
-			if is_instance_valid(bo) and bo.touching_hero(hero.position):
+			# contact d'un boss : la ruée reste intouchable en entier (on le tranche en le traversant)
+			if is_instance_valid(bo) and not hero.dashing and bo.touching_hero(hero.position):
 				_hurt_hero()
 		var alive := 0
 		for e in enemies:
@@ -5001,12 +5143,20 @@ func _process(_delta: float) -> void:
 			_dash_stall = 0.0
 		_dash_prev = hero.position
 		_update_pockets()
-		if not _waves_left.is_empty() and alive <= 1:
-			# vague suivante
-			_spawn_list(_waves_left.pop_front())
-			wave_index += 1
-			sfx.play("strike", 0.8, -4.0)
-			hud.toast("VAGUE %d / %d" % [wave_index, waves_total])
+		_wave_t += dt
+		_boss_reinforce()
+		if not _waves_left.is_empty() and _wave_ready(alive):
+			# vague suivante (ou suite de la vague retenue par le plafond à l'écran)
+			var cont := _wave_cont
+			_wave_cont = false
+			var nxt: Array = _waves_left.pop_front()
+			if not cont:
+				_wave_size = nxt.size()
+				_wave_t = 0.0
+				wave_index += 1
+				sfx.play("strike", 0.8, -4.0)
+				hud.toast("VAGUE %d / %d" % [wave_index, waves_total])
+			_spawn_list(_cap_wave(nxt, alive))
 		elif in_hub:
 			# sanctuaire : le torii mène à la première étape
 			if arena.gate_reached(hero.position):
