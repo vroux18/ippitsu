@@ -452,8 +452,7 @@ func _ready() -> void:
 			speed = 1.7
 			radius = 0.6
 			_walk = "Walking_A"
-			var hk := 1.7
-			ch.setup(WARRIOR, hk, [["Helmet", TEX_GOLD], ["", TEX_RED]])
+			ch.setup(kind, _h)  # masque de chat couleur braise, oreilles et crinière de feu, queues de flamme
 			_glow_a = 0.2
 			_glow_c = KASHA_FIRE
 			for s in [-1.0, 1.0]:
@@ -476,9 +475,7 @@ func _ready() -> void:
 			speed = 2.0
 			radius = 0.45
 			_walk = "Walking_A"
-			ch.setup(ROGUE, 1.75, [["", TEX_ROGUE_INK]], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
-			_tint(Color(0.3, 0.29, 0.34), 0.85)
-			ch.attach("handslot.r", _blade(0.85, Toon.SUMI))
+			ch.setup(kind, _h)  # silhouette d'encre pure, masque vide au liseré vermillon, katana de sumi
 			_timer = randf_range(2.0, 3.0)
 		_:
 			_setup_extra()
@@ -541,7 +538,7 @@ func _setup_extra() -> void:
 			radius = 0.5
 			_walk = "Walking_A"
 			_h = 1.85
-			ch.setup(WARRIOR, _h, [["Cloak", TEX_RED], ["Helmet", TEX_INK]])
+			ch.setup(kind, _h)  # masque washi sous le jingasa de fer, arquebuse dressée
 			_timer = randf_range(1.8, 2.6)
 		"ika":
 			# calmar : manteau pointu sur la tête, tentacules à la taille
@@ -569,10 +566,10 @@ func _setup_extra() -> void:
 			speed = 1.9
 			radius = 0.4
 			_h = 1.3
-			ch.setup(MINION, _h, [["", TEX_INK]], [], SHIELD_C)
-			_tint(Color("#7C6F86"), 0.85)
+			ch.setup(kind, _h)  # visage caché par un ofuda, longues oreilles d'encre, orbe de bouclier à la main
 			_glow_a = 0.2
 			_glow_c = SHIELD_C
+			ch.attach("handslot.r", _orb(0.11, SHIELD_C))
 			_timer = randf_range(1.5, 2.5)
 		"kamaitachi":
 			# belette faucheuse : petite, fauve, deux lames, longue queue
@@ -638,11 +635,7 @@ func _setup_extra() -> void:
 			speed = 2.0
 			radius = 0.42
 			_h = 0.9
-			_custom = true
-			Toon.part(body, _sph(0.32), main.vfx.glow_mat(Color("#FF7A2A"), 2.6), Vector3(0, 0.45, 0))
-			Toon.part(body, _sph(0.2), main.vfx.glow_mat(Color("#FFD36A"), 2.4), Vector3(0, 0.47, -0.1))
-			for s in [-1.0, 1.0]:
-				Toon.part(body, _sph(0.05), _pm(Toon.SUMI, false), Vector3(float(s) * 0.1, 0.52, -0.29))
+			ch.setup(kind, _h)  # noyau d'encre de braise, couronne de flammes ambre, gros yeux d'or
 			main.vfx.burner(body, 0.25, 5, Vector3(0, 0.55, 0))
 			body.position.y = 1.3
 			_timer = randf_range(1.5, 2.2)
@@ -656,8 +649,7 @@ func _setup_extra() -> void:
 			_attack = "2H_Melee_Attack_Chop"
 			_walk = "Walking_A"
 			_h = 2.5
-			ch.setup(WARRIOR, _h, [["Helmet", TEX_INK], ["Cloak", TEX_GOLD]])
-			_tint(Color("#7C98C8"), 1.0)
+			ch.setup(kind, _h)  # masque bleu à crinière blanche, plastron de fer devant, kanabō
 			_shield_frac = 0.35
 		"tengu":
 			# karasu-tengu : noir, bec d'or, petit bonnet rouge, ailes
@@ -667,8 +659,7 @@ func _setup_extra() -> void:
 			_walk = "Walking_A"
 			_h = 1.65
 			_rogue = true
-			ch.setup(ROGUE, _h, [], ROGUE_GEAR.duplicate(), Toon.GOLD)
-			_tint(Color("#4A4A58"), 1.0)
+			ch.setup(kind, _h)  # masque de plumes à bec d'or, tokin, ailes d'encre déployées
 			_timer = randf_range(1.5, 2.5)
 		"onryo":
 			# onryō : spectre pâle, cheveux noirs sur le visage, bandeau blanc
@@ -690,16 +681,14 @@ func _setup_extra() -> void:
 			speed = 2.6 if small else 1.4
 			radius = 0.35 if small else 0.55
 			_h = 0.9 * s
-			_custom = true
-			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
+			ch.setup(kind, _h)  # goutte d'encre à gros yeux washi, gouttelettes tout autour
 		"kasa":
 			# kasa-obake : parapluie rouge à un œil, une jambe, langue pendante
 			hp = 1.1
 			speed = 0.0
 			radius = 0.5
 			_h = 1.5
-			_custom = true
-			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
+			ch.setup(kind, _h)  # canopée de papier à baleines, un œil, langue rouge, une jambe en geta
 			_timer = 0.8
 		"karasu":
 			# karasu-tengu : corbeau noir au bec d'or, tokin rouge, grandes ailes ; plonge en piqué
