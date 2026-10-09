@@ -657,6 +657,15 @@ const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins
 ## Préchauffage : on affiche une fois, cachés sous le sol, un exemplaire de chaque ennemi et de chaque
 ## effet. Godot prépare ainsi leurs shaders pendant l'accueil au lieu de figer l'image en pleine partie.
 ## Étalé sur plusieurs images (quelques ennemis par image) : l'accueil reste fluide.
+## Préchauffage : les particules en repère monde ignorent l'échelle 0,002 de la miniature et se dessinaient en
+## grand devant la caméra (losange noir du brûleur du kasha) : on les passe en repère local, tout rétrécit.
+func _warm_shrink(n: Node) -> void:
+	if n is GPUParticles3D or n is CPUParticles3D:
+		n.set("local_coords", true)
+	for c in n.get_children():
+		_warm_shrink(c)
+
+
 func _warmup() -> void:
 	var t_all := Time.get_ticks_usec()
 	var t_cpu := 0
@@ -676,6 +685,7 @@ func _warmup() -> void:
 		e.position = Vector3(x, 0, 0)
 		w.add_child(e)
 		e.process_mode = Node.PROCESS_MODE_DISABLED
+		_warm_shrink(e)
 		_warm_bones(e, w, Vector3(x, 0.4, 0))
 		x += 0.35
 		var spent := Time.get_ticks_usec() - t0
@@ -736,7 +746,9 @@ func _warmup() -> void:
 	vfx.impact(fxp, Vector3.FORWARD, true)
 	vfx.kill_burst(fxp, Vector3.FORWARD, true)
 	vfx.warm(fxp)  # effets riches des pouvoirs (pinceau, additifs, crête de vague)
-	get_tree().create_timer(1.2).timeout.connect(w.queue_free)
+	_warm_shrink(w)
+	# libéré quoi qu'il arrive (même arbre en pause ou temps ralenti : sinon la miniature restait des secondes)
+	get_tree().create_timer(1.2, true, false, true).timeout.connect(w.queue_free)
 	var spent_end := Time.get_ticks_usec() - t0
 	t_cpu += spent_end
 	t_max = maxi(t_max, spent_end)
