@@ -32,11 +32,9 @@ const TEXTS_PAD := {
 # leçon des figures (planche en arrêt sur image) : une figure reconnue donne d'elle-même +15 % de dégâts
 # à sa ruée et +1 chaîne si elle touche (powers.figure_launch, main._on_dash_finished) ; son rouleau
 # (PowerData.FIG_UNLOCK) débloque sa technique
+# (une seule ligne : les six figures et leur technique se lisent sur la planche)
 const LESSON := [
-	"Trace une forme : ta ruée devient plus forte",
-	"Figure reconnue : +15 % de dégâts, +1 chaîne si elle touche",
-	"Son rouleau débloque sa technique : boucle = toupie, zigzag = éclair...",
-	"L'encre se colore quand la figure est reconnue",
+	"Trace une forme : la ruée frappe plus fort",
 ]
 # technique de chaque figure (celle de son rouleau), en petit sous la figure
 const TECH := {"loop": "toupie", "zigzag": "éclair", "straight": "iaï", "return": "garde", "enso": "ensō", "hook": "estoc"}
@@ -52,6 +50,7 @@ const FIG_TEXT := {
 # durée de vie (s réelles, arrêt sur image non compté) ; 0 : jusqu'au geste
 const LIFE := {"stroke": 0.0, "cut": 7.0, "dodge": 5.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0}
 const ORDER := ["stroke", "dodge", "cut", "figures", "ult", "figure", "ink", "run"]
+var _lesson_bottom := -1.0  # bas de la planche des figures à cette image (< 0 : pas de planche)
 const GAP := 0.8  # silence entre deux bulles
 const SLOW := 0.3  # temps ralenti tant que le premier trait n'est pas tracé
 const FREEZE_HINT := 0.8  # arrêt sur image : « TOUCHE POUR CONTINUER » après ce délai (s réelles)
@@ -347,6 +346,7 @@ func _screen(p: Vector3) -> Vector2:
 
 
 func _draw() -> void:
+	_lesson_bottom = -1.0
 	if main == null or not active() or not _in_play() or size.x < 10.0:
 		return
 	var u := size.x / 400.0
@@ -447,6 +447,8 @@ func _draw_hint(u: float, insets: Vector2) -> void:
 	var pr := _pad()
 	if pr.size.x >= 10.0:
 		y = minf(y, pr.position.y - 72.0 * u)  # au-dessus du pad (et de PASSER)
+	if _lesson_bottom > 0.0:
+		y = _lesson_bottom + 24.0 * u  # leçon des figures : juste sous la planche, jamais dessus
 	var r := Rect2(Vector2(size.x * 0.5 - tw * 0.5 - 16.0 * u, y - 15.0 * u), Vector2(tw + 32.0 * u, 30.0 * u))
 	UiKit.box(_sb, Color(Toon.ui_paper, 0.92 * k), int(15.0 * u), Color(Toon.ui_ink, 0.5 * k), int(maxf(1.0, 1.2 * u)))
 	draw_style_box(_sb, r)
@@ -481,6 +483,7 @@ func _draw_lesson(u: float, a: float) -> void:
 	var y0 := clampf(size.y * 0.44 - h * 0.5, top_min, maxf(top_min, size.y - h - 130.0 * u))
 	var k := UiKit.ease_out(a)
 	var r := Rect2(Vector2((size.x - w) * 0.5, y0 + (1.0 - k) * 10.0 * u), Vector2(w, h))
+	_lesson_bottom = r.end.y
 	var ink := Color(Toon.ui_ink, 0.9 * a)
 	UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(16.0 * u), ink, int(maxf(1.0, 1.6 * u)))
 	_sb.shadow_color = Color(0, 0, 0, 0.3 * a)
