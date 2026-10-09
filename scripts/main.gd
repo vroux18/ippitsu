@@ -55,7 +55,8 @@ const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3,
 	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "tanuki_d": 0, "kitsune_tsukai": 3,
 	"yuki_warashi": 1, "tsurara": 2, "onryo": 3, "hinotama": 2, "teppo": 2, "tengu": 3, "kanabo": 5,
 	"sumidama": 2, "sumidama_s": 1, "kasa": 2, "moryo": 3,
-	"karasu": 2, "yamabushi": 3, "konoha": 2, "kani": 3, "ningyo": 2, "fugu": 2, "gaki": 1, "gokusotsu": 4, "shiryo": 2}
+	"karasu": 2, "yamabushi": 3, "konoha": 2, "kani": 3, "ningyo": 2, "fugu": 2, "gaki": 1, "gokusotsu": 4, "shiryo": 2,
+	"shinobi": 2, "shuriken": 2, "kemuri": 3, "kunoichi": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")  # hôte du dojo
 const Coach = preload("res://scripts/coach.gd")  # tutoriel en jeu : bulles du premier monde
 const Intro = preload("res://scripts/intro.gd")
@@ -77,6 +78,8 @@ const CURSES := {
 	"oni_eye": {"name": "Œil d'oni", "text": "Ennemis +50 % de vie  ·  2 rouleaux en plus", "icon": "c_eye"},
 	"heavy": {"name": "Pas lourd", "text": "Plus de pas de côté  ·  +2 vies max, soin", "icon": "c_heavy"},
 	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin", "icon": "c_haste"},
+	# mode difficile choisi : la déferlante ne vient plus que par ce pacte
+	"tide": {"name": "Déferlante", "text": "Des vagues balaient les combats  ·  2 rouleaux en plus", "icon": "tide"},
 }
 const PASS_GOLD := 15  # « Passer » au sanctuaire : un cœur soigné, ou cet or si la vie est pleine
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
@@ -108,7 +111,8 @@ const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
 	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 3,
 	"yuki_warashi": 1, "tsurara": 2, "onryo": 3, "hinotama": 2, "teppo": 2, "tengu": 3, "kanabo": 4,
 	"sumidama": 3, "kasa": 2, "moryo": 3,
-	"karasu": 2, "yamabushi": 3, "konoha": 2, "kani": 3, "ningyo": 2, "fugu": 2, "gaki": 1, "gokusotsu": 4, "shiryo": 2}
+	"karasu": 2, "yamabushi": 3, "konoha": 2, "kani": 3, "ningyo": 2, "fugu": 2, "gaki": 1, "gokusotsu": 4, "shiryo": 2,
+	"shinobi": 2, "shuriken": 2, "kemuri": 3, "kunoichi": 3}
 # première salle où chaque ennemi peut venir (ennemis signature : un par monde, vers la salle 3-4)
 const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4,
 	"umibozu": 3, "kitsunebi": 3, "yukionna": 4, "kasha": 4, "kagebo": 4,
@@ -116,7 +120,8 @@ const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4,
 	"kappa_yumi": 2, "ika": 3, "umi_nyobo": 5, "kamaitachi": 2, "tanuki": 3, "kitsune_tsukai": 5,
 	"yuki_warashi": 2, "tsurara": 6, "onryo": 4, "hinotama": 2, "teppo": 3, "tengu": 4, "kanabo": 6,
 	"sumidama": 2, "kasa": 3, "moryo": 5,
-	"karasu": 2, "yamabushi": 4, "konoha": 3, "kani": 3, "ningyo": 2, "fugu": 3, "gaki": 2, "gokusotsu": 5, "shiryo": 3}
+	"karasu": 2, "yamabushi": 4, "konoha": 3, "kani": 3, "ningyo": 2, "fugu": 3, "gaki": 2, "gokusotsu": 5, "shiryo": 3,
+	"shinobi": 2, "shuriken": 3, "kemuri": 4, "kunoichi": 4}
 const UNLOCK_ALL := false  # vrai : tous les mondes ouverts (prototype) ; sinon un monde vaincu ouvre le suivant
 const SAVE_PATH := "user://ippitsu.cfg"
 
@@ -196,6 +201,8 @@ var _wardrobe_k := 0.0
 var _env: Environment
 var _light_mode := false  # rendu allégé (téléphone)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
+const SPLASH_POOL_MAX := 10  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup)
+var _splash_pool := {}  # "drop" + couleur -> Array de CPUParticles3D éteints et cachés
 var _sun: DirectionalLight3D
 var arena: Node3D
 var current_world := 1
@@ -548,7 +555,8 @@ func _boss_script(k: String) -> GDScript:
 const WARM_KINDS := ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsunebi", "kitsunebi_s", "yukionna", "kasha", "kagebo",
 	"kappa_yumi", "ika", "umi_nyobo", "kamaitachi", "tanuki", "kitsune_tsukai", "yuki_warashi", "tsurara", "onryo",
 	"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo",
-	"karasu", "yamabushi", "konoha", "kani", "ningyo", "fugu", "gaki", "gokusotsu", "shiryo"]
+	"karasu", "yamabushi", "konoha", "kani", "ningyo", "fugu", "gaki", "gokusotsu", "shiryo",
+	"shinobi", "shuriken", "kemuri", "kunoichi"]
 const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins un ennemi
 
 
@@ -608,6 +616,26 @@ func _warmup() -> void:
 	var l2 := l.duplicate() as Label3D
 	l2.font_size = 110
 	w.add_child(l2)
+	# énigmes des recoins (encre au pinceau shaders/puzzle_ink.gdshader, pierres, papiers, esprit),
+	# coffre, source et stèle de défi, butin au sol : leurs matières ne servent nulle part ailleurs
+	var pz_at := [Vector3(-3.0, 0, 2.0), Vector3(0.0, 0, 2.0), Vector3(3.0, 0, 2.0)]
+	var pz_nodes: Array = []
+	for at in pz_at:
+		var pzn := Node3D.new()
+		w.add_child(pzn)
+		pzn.position = at
+		pz_nodes.append(pzn)
+	PuzzleArt.build_stele(pz_nodes[0], {}, _glyph_pts("loop", PuzzleArt.GLYPH_O, PuzzleArt.GLYPH_K), "loop", String(SHAPE_KANJI["loop"]))
+	PuzzleArt.build_lanterns(pz_nodes[1], {}, [Vector3(1.5, 0, 0), Vector3(0, 0, 1.5), Vector3(-1.5, 0, 0)], Vector3.ZERO)
+	PuzzleArt.build_spirit(pz_nodes[2], {})
+	var px := -3.0
+	for pkind in ["chest", "spring", "elite"]:
+		var pn := _pocket_node(String(pkind), Vector3.ZERO)
+		remove_child(pn)
+		w.add_child(pn)
+		pn.position = Vector3(px, 0, 4.0)
+		px += 2.0
+	pickups.warm(w, Vector3(-3.0, 0, 5.5))
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(fxp, Vector3.FORWARD)
@@ -3291,7 +3319,7 @@ func _take_curse(id: String) -> void:
 	sfx.play("pact", 0.8, -2.0)
 	feel("heavy")
 	match id:
-		"dry", "oni_eye":
+		"dry", "oni_eye", "tide":
 			_extra_picks += 2
 		"heavy":
 			hero.max_hp += 2
@@ -3868,7 +3896,7 @@ func _update_run(real: float, dt: float) -> void:
 		hero.position = nxt
 		_prev_hero = nxt  # courir ne tranche pas (_check_slashes)
 		hero.face(dir)
-		hero.ch.play("Running_A", 1.15)
+		hero.run_anim(1.15)
 		return
 	if not touching or stroke == null or not _explore or state != "play":
 		return
@@ -4327,9 +4355,19 @@ func _update_bullets(dt: float) -> void:
 # ------------------------------------------------------------------ effets
 
 func _splash(pos: Vector3, color: Color, amount: int) -> void:
-	var p := CPUParticles3D.new()
 	# gouttes : un maillage par couleur, partagé (pas de nouvelle ressource à chaque coup)
 	var key := "drop" + color.to_html()
+	# émetteur d'une gerbe finie de la même couleur, repris de la réserve (réglages tous reposés ci-dessous)
+	var p: CPUParticles3D = null
+	var pool: Array = _splash_pool.get(key, [])
+	while p == null and not pool.is_empty():
+		var pv = pool.pop_back()
+		if is_instance_valid(pv):
+			p = pv
+	var fresh := p == null
+	if fresh:
+		p = CPUParticles3D.new()
+		p.set_meta("pool", key)
 	if not _fx_cache.has(key):
 		var m := Toon.sphere(0.07)
 		m.radial_segments = 8
@@ -4352,9 +4390,30 @@ func _splash(pos: Vector3, color: Color, amount: int) -> void:
 	p.scale_amount_min = 0.5
 	p.scale_amount_max = 1.5
 	p.position = pos + Vector3(0, 0.6, 0)
-	add_child(p)
-	p.emitting = true
+	if fresh:
+		add_child(p)
+		p.emitting = true
+	else:
+		p.visible = true
+		p.restart()
 	effects.append({"node": p, "t": 0.0, "life": 1.0, "kind": "none"})
+
+
+## Gerbe finie : cachée et rangée par couleur (au plus SPLASH_POOL_MAX), sinon libérée.
+func _recycle_splash(node: Node3D) -> bool:
+	if not node.has_meta("pool") or not (node is CPUParticles3D):
+		return false
+	var key := String(node.get_meta("pool"))
+	if not _splash_pool.has(key):
+		_splash_pool[key] = []
+	var pool: Array = _splash_pool[key]
+	if pool.size() >= SPLASH_POOL_MAX:
+		return false
+	var p := node as CPUParticles3D
+	p.emitting = false
+	p.visible = false
+	pool.append(p)
+	return true
 
 
 func _blot(pos: Vector3, color: Color, r: float, life: float) -> void:
@@ -4444,7 +4503,8 @@ func _update_effects(dt: float, real: float) -> void:
 				node.modulate.a = clampf((1.0 - k) * 3.0, 0.0, 1.0)
 				node.outline_modulate.a = node.modulate.a
 		if k >= 1.0:
-			node.queue_free()
+			if fx.kind != "none" or not _recycle_splash(node):
+				node.queue_free()
 			effects.remove_at(i)
 
 

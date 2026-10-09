@@ -26,6 +26,11 @@ extends Node3D
 ##  ningyo      — (7) sirène : jet d'eau en ligne annoncée                   fugu — (7) poisson-globe : gonfle, frappe autour de lui, épines
 ##  gaki        — (8) affamé : rapide, se soigne à chaque coup porté         gokusotsu — (8) geôlier : chaîne en couloir, armure de départ
 ##  shiryo      — (8) feu d'âme : cercle de feu froid sous le héros
+## Clan des ninjas (忍, mondes 2, 5, 6) — rōdeurs KayKit en cagoule, hachimaki ; maître ninja = élite (MAÎTRE) :
+##  shinobi     — 忍 : court au héros, cligne sur son flanc (fumée) et taille aussitôt (disque devant lui)
+##  shuriken    — 手裏剣 : garde ses distances, éventail de 3 lignes de visée (5 pour le maître), étoiles lancées
+##  kemuri      — 煙 : bombe de fumée, presque invisible, ressurgit dans le dos du héros (contour rouge, disque)
+##  kunoichi    — くノ一 : kusarigama, balayage de la chaîne dans un arc au sol annoncé devant elle
 ## Boucliers (barre bleue) : tant qu'il en reste, un coup n'entame que 25 % des PV ; figures et pouvoirs les usent ×2 ;
 ## brisé : titube 0.8 s. Élites (main._spawn_list) : ×1.25, ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes.
 
@@ -156,7 +161,7 @@ const KIND_H := {"oni": 1.6, "brute": 2.4, "kappa": 1.75, "tate": 1.9, "funa": 1
 	"kitsunebi": 1.35, "kitsunebi_s": 0.95, "yukionna": 1.85, "kasha": 1.7, "kagebo": 1.75}
 const NO_ELITE := ["kitsunebi_s", "tanuki_d", "sumidama_s", "tsurara"]
 const ELITE_NAMES := {"blinde": "BLINDÉ", "rapide": "RAPIDE", "vampire": "VAMPIRE", "explosif": "EXPLOSIF",
-	"invocateur": "INVOCATEUR", "enrage": "ENRAGÉ"}
+	"invocateur": "INVOCATEUR", "enrage": "ENRAGÉ", "maitre": "MAÎTRE NINJA"}
 const ELITE_POOL := ["blinde", "rapide", "vampire", "explosif", "invocateur", "enrage"]
 const BLAST_R := 1.9
 const BLAST_T := 1.1
@@ -208,6 +213,27 @@ const CHAIN_W := 1.0
 const WISP_T := 1.2
 const WISP_R := 1.1
 const YOMI_C := Color("#B9A8E8")
+# clan des ninjas (忍) : noms et kanji (手裏剣 shuriken, 煙 fumée, くノ一 kunoichi)
+const NINJA_KINDS := ["shinobi", "shuriken", "kemuri", "kunoichi"]
+const NINJA_KANJI := {"shinobi": "忍", "shuriken": "手裏剣", "kemuri": "煙", "kunoichi": "くノ一"}
+const NINJA_NAMES := {"shinobi": "un shinobi", "shuriken": "un lanceur de shuriken", "kemuri": "un ninja des fumées", "kunoichi": "une kunoichi"}
+const SMOKE_C := Color("#8E84A0")
+const SHINOBI_RANGE := 5.0
+const SHINOBI_R := 1.0
+const SHINOBI_GAP := 1.5  # distance au héros après le clignement (sur son flanc, jamais dans son dos)
+const SHINOBI_REST := 1.1
+const SHURI_W := 0.5
+const SHURI_LEN := 9.0
+const SHURI_T := 1.1
+const SHURI_SPREAD := 0.3  # écart entre deux lignes (rad)
+const SHURI_FLY := 0.22  # vol des étoiles : elles touchent pile à la fin de l'annonce
+const KEMURI_GONE := 0.9
+const KEMURI_T := 0.95
+const KEMURI_R := 1.15
+const CLOUD_LIFE := 2.4
+const KUSARI_T := 1.0
+const KUSARI_LEN := 3.8
+const KUSARI_HALF := 0.85  # demi-angle de l'arc (rad)
 
 static var _res := {}  # maillages et matériaux partagés par tous les ennemis
 
@@ -253,6 +279,12 @@ var _drift_t := 0.0
 var _corner_t := 0.0
 var _spark_t := -9.0
 var _wings: Array = []  # pivots des ailes (karasu) : battement
+var _fan: Array = []  # shuriken : lignes de visée (PackedVector3Array [départ, fin])
+var _stars: Array = []  # shuriken en vol : [nœud (peut être libéré : jamais typé), départ, fin]
+var _cloud: Node3D  # kemuri : nuage de fumée laissé sur place
+var _cloud_t := 0.0
+var _master := false  # maître ninja (élite d'un ninja)
+var _combo := 0  # maître shinobi : deux tailles d'affilée
 
 
 func setup(k: String, h: Node3D, m: Node) -> void:
@@ -712,6 +744,52 @@ func _setup_extra() -> void:
 			_tint(Color("#BFB8A6"), 0.9)
 			_glow_a = 0.15
 			_glow_c = Color("#9AE070")
+		"shinobi":
+			# shinobi : garde indigo, cagoule, hachimaki rouge, ninjatō au dos et en main
+			hp = 1.2
+			speed = 2.9
+			radius = 0.42
+			_zone_r = SHINOBI_R
+			_windup = 0.7
+			_walk = "Walking_A"
+			_h = 1.7
+			_rogue = true
+			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_indigo.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+			_tint(Color("#9AA2C8"), 1.0)
+			_timer = randf_range(0.8, 1.4)
+		"shuriken":
+			# lanceur de shuriken : garde d'encre grise, bandoulière d'étoiles, une étoile en main
+			hp = 1.0
+			speed = 1.8
+			radius = 0.42
+			_walk = "Walking_A"
+			_h = 1.6
+			_rogue = true
+			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_ink.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+			_tint(Color("#A8B0C0"), 1.0)
+			_timer = randf_range(1.6, 2.4)
+		"kemuri":
+			# ninja des fumées : garde glycine sombre, bombes à la ceinture
+			hp = 1.3
+			speed = 1.9
+			radius = 0.42
+			_walk = "Walking_B"
+			_h = 1.65
+			_rogue = true
+			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_glycine.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+			_tint(Color("#9A90B0"), 1.0)
+			_timer = randf_range(1.8, 2.6)
+		"kunoichi":
+			# kunoichi : garde sakura sombre, queue de cheval, kusarigama
+			hp = 1.5
+			speed = 2.2
+			radius = 0.44
+			_walk = "Walking_B"
+			_h = 1.65
+			_rogue = true
+			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_sakura.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+			_tint(Color("#D88A8A"), 1.0)
+			_timer = randf_range(1.4, 2.2)
 		"gokusotsu":
 			# gokusotsu : geôlier des enfers à tête de bœuf (gozu), chaîne de fer ; armure de départ
 			hp = 3.0
@@ -881,6 +959,8 @@ func is_harmless() -> bool:
 		return true  # en l'air : hors d'atteinte
 	if kind == "onryo" and (_state == "fade" or _state == "gone"):
 		return true  # évanoui
+	if kind == "kemuri" and _state == "gone":
+		return true  # dans la fumée
 	return _spawn > 0.0 or dead
 
 
@@ -1085,6 +1165,10 @@ func promote(list: Array, announce := true) -> void:
 		var sx := float(s)
 		var horn := Toon.part(_deco, _cyl(0.0, 0.05, 0.22, 6), _pm(ELITE_C), Vector3(sx * 0.1, _h * 1.0, -0.02))
 		horn.rotation.z = -sx * 0.35
+	if kind in NINJA_KINDS:
+		# maître ninja : tailles enchaînées, éventail plus large, fumée plus brève, arc plus ample
+		_master = true
+		affixes.append("maitre")
 	_ensure_bubble()
 	if announce:
 		var words := PackedStringArray(["ÉLITE"])
@@ -1117,6 +1201,8 @@ func _minion_kind() -> String:
 		return "kitsunebi_s"
 	if kind == "sumidama":
 		return "sumidama_s"
+	if kind in NINJA_KINDS:
+		return "shinobi"  # le maître appelle son clan
 	return "oni"
 
 
@@ -1192,6 +1278,14 @@ func danger_zone() -> Array:
 		var gq := _probe()
 		var gt := clampf(Vector3(gq.x - _target.x, 0, gq.z - _target.z).dot(_strike_dir), 0.3, GUST_LEN)
 		return [_target + _strike_dir * gt, gt * tan(GUST_HALF), _timer]
+	if _state == "windup" and not _fan.is_empty():
+		# éventail de shuriken : la ligne la plus proche
+		return [_fan_closest(_probe()), SHURI_W * 0.5, _timer]
+	if _state == "windup" and kind == "kunoichi" and _zone != null:
+		# chaîne : point de l'axe de l'arc le plus proche, demi-largeur de l'arc à cet endroit
+		var kq := _probe()
+		var kt := clampf(Vector3(kq.x - _target.x, 0, kq.z - _target.z).dot(_strike_dir), 0.3, KUSARI_LEN)
+		return [_target + _strike_dir * kt, kt * tan(_kusari_half()), _timer]
 	if _state == "windup" and _zone != null:
 		if _lane.size() >= 2:
 			return [_lane_closest(_probe()), _lane_w * 0.5, _timer]
@@ -1249,8 +1343,13 @@ func _die() -> void:
 	_thaw()
 	_clear_ice()
 	_clear_traps()
+	_clear_cloud()
 	_fire_t = 0.0
 	_air = false
+	if kind == "kemuri":
+		# tombé dans la fumée : on le voit tomber
+		body.visible = true
+		_shadow.visible = true
 	shield = 0.0
 	ch.hold()
 	ch.play_once("Death_A" if kind == "kagebo" or _rogue else "Death_C_Skeletons", 2.4, 0.05)
@@ -1308,6 +1407,8 @@ func _cancel_attack() -> void:
 	_teles = []
 	_lane = PackedVector3Array()
 	_proj = null
+	_fan = []
+	_clear_stars()
 
 
 func _exit_tree() -> void:
@@ -1383,6 +1484,8 @@ func _process(delta: float) -> void:
 		_update_ice(delta)
 	if _trap_t > 0.0:
 		_update_traps(delta)
+	if _cloud_t > 0.0:
+		_update_cloud(delta)
 	if kind == "kagebo":
 		_record()
 	if _custom:
@@ -1450,6 +1553,14 @@ func _process(delta: float) -> void:
 						_jailer(delta, dir, dist)
 					"shiryo":
 						_wisp(delta, dir, dist)
+					"shinobi":
+						_shinobi(delta, dir, dist)
+					"shuriken":
+						_shuriken_ai(delta, dir, dist)
+					"kemuri":
+						_kemuri(delta, dir, dist)
+					"kunoichi":
+						_kunoichi(delta, dir, dist)
 
 	position += _knock * delta
 	_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 9.0))
@@ -3165,6 +3276,399 @@ func _wisp(delta: float, dir: Vector3, dist: float) -> void:
 			if _timer <= 0.0:
 				_state = "move"
 				_timer = randf_range(2.4, 3.2)
+
+
+# ------------------------------------------------------------------ clan des ninjas (忍)
+
+## Bouffée de fumée d'un clignement de ninja.
+func _ninja_puff(p: Vector3) -> void:
+	main.vfx.smoke(Vector3(p.x, 0, p.z), 0.35, 5)
+	main.vfx.ring(Vector3(p.x, 0.08, p.z), SMOKE_C, 0.6)
+
+
+## Zone d'attaque portée par l'ennemi : compense l'échelle de l'élite (annonce = vraie zone de frappe).
+func _fit_zone() -> void:
+	if _zone == null:
+		return
+	var s := maxf(scale.x, 0.01)
+	_zone.scale = Vector3.ONE / s
+	_zone.position = _strike_dir * (_zone_r * 0.9) / s
+
+
+## Shinobi : il fonce sur le héros, puis cligne sur son flanc (fumée aux deux bouts) et taille aussitôt.
+func _shinobi(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			if dist > 1.6:
+				_walk_to_hero(delta, speed)
+				ch.play(_walk, 1.5)
+			else:
+				_face(dir, delta, 10.0)
+				ch.play(ch.idle)
+			_timer -= delta
+			if _timer <= 0.0 and dist < SHINOBI_RANGE:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				if not _blink_strike(dir):
+					main.free_token(self)
+					_timer = 0.6
+		"windup":
+			var k := 1.0 - _timer / _windup
+			_face(_strike_dir, delta, 14.0)
+			_fit_zone()
+			main.vfx.tele_update(_tele, k, _timer)
+			ch.set_glow(0.9 * k, Toon.VERMILION)
+			_timer -= delta
+			if _timer <= 0.0:
+				var center := position + _strike_dir * (_zone_r * 0.9)
+				center.y = 0.0
+				_strike(center, _zone_r)
+				main.vfx.wind_slash(center, _strike_dir, 0.9)
+				_cancel_attack()
+				_combo += 1
+				# la fenêtre pour le trancher (le maître enchaîne une seconde taille)
+				_timer = 0.45 if _master and _combo < 2 else SHINOBI_REST
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				if _master and _combo < 2 and dist < SHINOBI_RANGE and main.take_token(self):
+					if _blink_strike(dir):
+						return
+					main.free_token(self)
+				_combo = 0
+				_state = "move"
+				_timer = randf_range(1.4, 2.2)
+
+
+## Clignement sur le flanc du héros (ou en biais devant lui), puis annonce de la taille. Faux si aucun point sûr.
+func _blink_strike(dir: Vector3) -> bool:
+	var hp0 := Vector3(hero.position.x, 0, hero.position.z)
+	var side := Vector3(-dir.z, 0, dir.x) * (1.0 if randf() < 0.5 else -1.0)
+	var picks := [side, -side, (side - dir).normalized(), (-side - dir).normalized()]
+	var dest := Vector3.INF
+	for v in picks:
+		var vv: Vector3 = v
+		var p: Vector3 = main.arena.clamp_walk(hp0 + vv * SHINOBI_GAP, radius)
+		var hole: bool = main.hazards.is_hole(p, 0.1)
+		if hole or Vector2(p.x - hp0.x, p.z - hp0.z).length() < 1.0:
+			continue
+		dest = p
+		break
+	if dest == Vector3.INF:
+		return false
+	_ninja_puff(position)
+	position = Vector3(dest.x, position.y, dest.z)
+	_ninja_puff(position)
+	var to := hp0 - Vector3(position.x, 0, position.z)
+	_strike_dir = to.normalized() if to.length_squared() > 0.0001 else dir
+	body.rotation.y = atan2(-_strike_dir.x, -_strike_dir.z)
+	_knock = Vector3.ZERO
+	_zone_r = SHINOBI_R
+	_make_zone()
+	_fit_zone()
+	_state = "windup"
+	_timer = _windup
+	ch.play_once("1H_Melee_Attack_Slice_Horizontal", ch.length("1H_Melee_Attack_Slice_Horizontal") * 0.5 / _windup)
+	return true
+
+
+## Lanceur de shuriken : à distance, il annonce un éventail de lignes de visée ; les étoiles volent à la fin.
+func _shuriken_ai(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 4.5, 7.5)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 10.5:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				var n := 5 if _master else 3
+				var lanes: Array = []
+				var a0 := Vector3(position.x, 0, position.z)
+				for i in n:
+					var d := dir.rotated(Vector3.UP, SHURI_SPREAD * (float(i) - float(n - 1) * 0.5))
+					var s := a0 + d * 0.5
+					var e := _cut_walkable(s, s + d * SHURI_LEN)
+					if s.distance_to(e) >= 1.5:
+						lanes.append(PackedVector3Array([s, e]))
+				if lanes.is_empty():
+					main.free_token(self)
+					_timer = 0.6
+					return
+				_strike_dir = dir
+				_make_fan(lanes, SHURI_W)
+				_state = "windup"
+				_timer = SHURI_T
+				ch.play_once("Throw", ch.length("Throw") * 0.5 / SHURI_T)
+		"windup":
+			_face(_strike_dir, delta, 10.0)
+			var k := 1.0 - _timer / SHURI_T
+			_update_lane(k)
+			ch.set_glow(0.8 * k, Toon.VERMILION)
+			if _stars.is_empty() and _timer <= SHURI_FLY:
+				_throw_stars()
+			_update_stars(delta)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_fan_closest(hero.position), SHURI_W * 0.5)
+				for l in _fan:
+					var pts: PackedVector3Array = l
+					main.vfx.sparks(pts[1] + Vector3(0, 0.4, 0), Vector3.UP, 3, Toon.WASHI)
+				_cancel_attack()
+				_timer = 1.0  # il recharge : la fenêtre pour le rejoindre
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.4, 3.2)
+
+
+## Annonce en éventail : une ligne fine par shuriken (même rendu que les couloirs).
+func _make_fan(lanes: Array, w: float) -> void:
+	_fan = lanes
+	_lane_w = w
+	_zone = Node3D.new()
+	_zone.top_level = true
+	add_child(_zone)
+	_tele = null
+	_teles = []
+	for l in lanes:
+		var pts: PackedVector3Array = l
+		var a := pts[0]
+		var d := pts[1] - a
+		d.y = 0.0
+		var ln := maxf(d.length(), 0.1)
+		var seg := Node3D.new()
+		_zone.add_child(seg)
+		seg.position = Vector3(a.x, 0, a.z)
+		seg.rotation.y = atan2(-d.x, -d.z)
+		var tl: Node3D = main.vfx.tele_rect(seg, w * 0.5, ln * 0.5, Vector2(0, 1))
+		tl.position.z = -ln * 0.5
+		_teles.append(tl)
+
+
+func _fan_closest(p: Vector3) -> Vector3:
+	var best := Vector3(position.x, 0, position.z)
+	var bd := INF
+	for l in _fan:
+		var pts: PackedVector3Array = l
+		var q := _seg_closest(p, pts[0], pts[1])
+		var dd := Vector2(q.x - p.x, q.z - p.z).length()
+		if dd < bd:
+			bd = dd
+			best = q
+	return best
+
+
+## Les étoiles partent : elles filent le long des lignes et arrivent pile à la fin de l'annonce.
+func _throw_stars() -> void:
+	_clear_stars()
+	for l in _fan:
+		var pts: PackedVector3Array = l
+		var mi := MeshInstance3D.new()
+		mi.mesh = Yokai.shuriken_mesh()
+		mi.material_override = Yokai.mat()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.top_level = true
+		add_child(mi)
+		mi.global_position = pts[0] + Vector3(0, 0.9, 0)
+		_stars.append([mi, pts[0], pts[1]])
+	main.sfx.play("shot", 1.5, -8.0)
+
+
+func _update_stars(delta: float) -> void:
+	var k := clampf(1.0 - _timer / SHURI_FLY, 0.0, 1.0)
+	for st in _stars:
+		var it: Array = st
+		if not is_instance_valid(it[0]):
+			continue
+		var n: Node3D = it[0]
+		var a: Vector3 = it[1]
+		var b: Vector3 = it[2]
+		n.global_position = a.lerp(b, k) + Vector3(0, 0.9, 0)
+		n.rotation.y += delta * 30.0
+
+
+func _clear_stars() -> void:
+	for st in _stars:
+		var it: Array = st
+		if is_instance_valid(it[0]):
+			it[0].queue_free()
+	_stars = []
+
+
+## Kemuri : bombe de fumée, il s'y fond (presque invisible), puis ressurgit dans le dos du héros, contour rouge.
+func _kemuri(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			_face(dir, delta, 6.0)
+			_drift(delta, dir, dist, 3.0, 6.0)
+			_timer -= delta
+			if _timer <= 0.0 and dist < 10.0:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_state = "bomb"
+				_timer = 0.35
+				ch.play_once("Throw", ch.length("Throw") * 0.5 / 0.35)
+				ch.set_glow(0.6, SMOKE_C)
+		"bomb":
+			_timer -= delta
+			if _timer <= 0.0:
+				_base_glow()
+				_smoke_cloud(Vector3(position.x, 0, position.z))
+				body.visible = false
+				_shadow.visible = false
+				_state = "gone"
+				_timer = KEMURI_GONE * (0.7 if _master else 1.0)
+		"gone":
+			_knock = Vector3.ZERO
+			_timer -= delta
+			# presque invisible : on l'entrevoit par éclats
+			body.visible = fmod(_t, 0.3) < 0.04
+			if _timer <= 0.0:
+				var f: Vector3 = hero.facing
+				f.y = 0.0
+				if f.length_squared() < 0.01:
+					f = Vector3(0, 0, -1)
+				f = f.normalized()
+				var hp0 := Vector3(hero.position.x, 0, hero.position.z)
+				var p: Vector3 = main.arena.clamp_walk(hp0 - f * 1.5, radius)
+				var hole: bool = main.hazards.is_hole(p, 0.1)
+				if hole:
+					p = main.arena.clamp_walk(hp0 + Vector3(f.z, 0, -f.x) * 1.5, radius)
+				position = Vector3(p.x, position.y, p.z)
+				body.visible = true
+				_shadow.visible = true
+				_face_hero_now()
+				_ninja_puff(position)
+				_target = hp0.lerp(Vector3(p.x, 0, p.z), 0.35)
+				_zone_r = KEMURI_R
+				_make_zone(true)
+				_zone.global_position = _target
+				_state = "windup"
+				_timer = KEMURI_T
+				ch.play_once("1H_Melee_Attack_Stab", ch.length("1H_Melee_Attack_Stab") * 0.5 / KEMURI_T)
+		"windup":
+			var k := 1.0 - _timer / KEMURI_T
+			main.vfx.tele_update(_tele, k, _timer)
+			# contour rouge : il s'allume de plus en plus
+			ch.set_glow(0.5 + 1.3 * k, Toon.VERMILION)
+			_timer -= delta
+			if _timer <= 0.0:
+				_strike(_target, _zone_r)
+				main.vfx.smoke(_target, 0.4, 4)
+				_cancel_attack()
+				_timer = 1.4
+		"recover":
+			body.visible = true
+			_shadow.visible = true
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.6, 3.4)
+
+
+## Nuage de fumée laissé au sol (visuel) : il gonfle puis se dissipe.
+func _smoke_cloud(c: Vector3) -> void:
+	_clear_cloud()
+	_cloud = Node3D.new()
+	_cloud.top_level = true
+	add_child(_cloud)
+	_cloud.global_position = c
+	var m := _fm(Color(SMOKE_C, 0.55))
+	var n := 3 if Toon.lite else 5
+	for i in n:
+		var a := TAU * float(i) / float(n)
+		var r := 0.0 if i == 0 else 0.55
+		var mi := Toon.part(_cloud, _sph(0.5), m, Vector3(cos(a) * r, 0.45 + 0.15 * float(i % 2), sin(a) * r), Vector3.ONE * (1.2 if i == 0 else 0.85))
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_cloud_t = CLOUD_LIFE
+	main.vfx.smoke(c, 0.8, 10)
+	main.vfx.ring(Vector3(c.x, 0.08, c.z), SMOKE_C, 1.2)
+	main.sfx.play("shot", 0.6, -6.0)
+
+
+func _update_cloud(delta: float) -> void:
+	_cloud_t -= delta
+	if _cloud == null or _cloud_t <= 0.0:
+		_clear_cloud()
+		return
+	var k := clampf(_cloud_t / CLOUD_LIFE, 0.0, 1.0)
+	_cloud.scale = Vector3.ONE * (1.0 + 0.35 * (1.0 - k)) * clampf(_cloud_t / 0.5, 0.05, 1.0)
+
+
+func _clear_cloud() -> void:
+	_cloud_t = 0.0
+	if _cloud != null:
+		_cloud.queue_free()
+		_cloud = null
+
+
+func _kusari_half() -> float:
+	return KUSARI_HALF * (1.5 if _master else 1.0)
+
+
+## Kunoichi : elle approche, annonce un arc au sol devant elle, puis la chaîne de la kusarigama le balaie.
+func _kunoichi(delta: float, dir: Vector3, dist: float) -> void:
+	match _state:
+		"move":
+			if dist > 2.6:
+				_walk_to_hero(delta, speed)
+			else:
+				_face(dir, delta, 6.0)
+				ch.play(ch.idle)
+			_timer -= delta
+			if _timer <= 0.0 and dist < KUSARI_LEN + 0.3:
+				if not main.take_token(self):
+					_timer = 0.4
+					return
+				_strike_dir = dir
+				_target = Vector3(position.x, 0, position.z)
+				_zone = Node3D.new()
+				_zone.top_level = true
+				add_child(_zone)
+				_zone.global_position = _target
+				_zone.rotation.y = atan2(dir.x, dir.z)
+				_tele = main.vfx.tele_fan(_zone, _kusari_half(), KUSARI_LEN)
+				_state = "windup"
+				_timer = KUSARI_T
+				ch.play_once("Spellcast_Shoot", ch.length("Spellcast_Shoot") * 0.55 / KUSARI_T)
+			elif _timer <= 0.0:
+				_timer = 0.5
+		"windup":
+			_face(_strike_dir, delta, 8.0)
+			var k := 1.0 - _timer / KUSARI_T
+			main.vfx.tele_update(_tele, k, _timer)
+			ch.set_glow(0.9 * k, Toon.VERMILION)
+			_timer -= delta
+			if _timer <= 0.0:
+				if _in_cone(hero.position, _kusari_half(), KUSARI_LEN):
+					_strike(Vector3(hero.position.x, 0, hero.position.z), 0.4)
+				var sweep := _strike_dir.rotated(Vector3.UP, 1.2)
+				main.vfx.wind_slash(_target + _strike_dir * 1.6, sweep, 1.2)
+				main.vfx.wind_slash(_target + _strike_dir * 3.0, sweep, 1.0)
+				ch.play_once("2H_Melee_Attack_Spinning", 2.2)
+				_cancel_attack()
+				_timer = 1.3
+		"recover":
+			_timer -= delta
+			if _timer <= 0.0:
+				_state = "move"
+				_timer = randf_range(2.0, 2.8)
+
+
+## Vrai si p est dans l'arc (sommet _target, axe _strike_dir, demi-angle `half`, portée `ln`).
+func _in_cone(p: Vector3, half: float, ln: float) -> bool:
+	var v := Vector3(p.x - _target.x, 0, p.z - _target.z)
+	var l := v.length()
+	if l < 0.3:
+		return true
+	if l > ln:
+		return false
+	return v.dot(_strike_dir) / l > cos(half)
 
 
 # ------------------------------------------------------------------ funa

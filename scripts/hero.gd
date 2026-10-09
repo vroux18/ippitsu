@@ -1,8 +1,12 @@
 extends Node3D
 ## Le ronin (KayKit Rogue encapuchonné) : il fonce le long du trait.
+## Tenue de shinobi (yokai_parts.hero_parts) : cagoule et yeux, écharpe à deux pans qui flottent (couleur de
+## l'écharpe de la garde-robe), obi noué, tekko, kyahan, sabre au fourreau dans le dos (tiré pendant l'action).
+## Lisibilité : liseré de lumière, anneau au sol dessiné par-dessus le décor (no_depth_test), qui respire au repos.
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 const MODEL = preload("res://assets/kaykit/Rogue_Hooded.glb")
 const CAPE_TEX = preload("res://assets/kaykit/tex/rogue_cape.png")
 
@@ -40,6 +44,25 @@ var _trail_mesh: ImmediateMesh
 var _trail_col := Color.WHITE
 var _trail_pts: Array = []  # [point, âge, naissance]
 var _trail_clock := 0.0
+# tenue de shinobi
+const SCARF_DEF := Color("#D7372B")  # écharpe d'origine : vermillon
+const DRAWN_T := 1.6  # le sabre reste en main un instant après l'action
+const LEAN := 0.24  # penché de course
+var _blade_hand: Node3D
+var _hilt: MeshInstance3D  # poignée qui dépasse du fourreau (cachée quand le sabre est tiré)
+var _drawn_t := 0.0
+var _life := 0.0
+var _scarf_col := SCARF_DEF
+var _scarf_mat: StandardMaterial3D  # col de l'écharpe (sommets blancs teintés)
+var _knot: Node3D  # nœud de l'écharpe dans la nuque : point d'attache des pans
+var _tails: MeshInstance3D
+var _tails_mesh: ImmediateMesh
+var _tail_p: Array = []  # deux PackedVector3Array : maillons des pans (monde)
+var _tail_o: Array = []  # positions à l'image précédente (verlet)
+var _tail_n := 7
+const TAIL_SEG := 0.12
+# anneau au sol (lisibilité)
+var _ring: Node3D
 
 
 func _ready() -> void:
@@ -52,7 +75,15 @@ func _ready() -> void:
 		["Cape", CAPE_TEX],
 		["Rogue", load("res://assets/kaykit/tex/rogue_ink.png")],
 	], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
-	ch.attach("handslot.r", _katana())
+	# l'écharpe à deux pans remplace la cape KayKit (même couleur de garde-robe)
+	ch.hide_meshes(["Cape"])
+	_blade_hand = _katana()
+	ch.attach("handslot.r", _blade_hand)
+	_dress()
+	# liseré clair et franc : la silhouette se détache des sols sombres (indigo des mondes 1, 7, 8)
+	ch.paint(null, 0.65, 0.12)
+	_make_tails()
+	_make_ring()
 
 
 func _katana() -> Node3D:
@@ -67,6 +98,89 @@ func _katana() -> Node3D:
 	return k
 
 
+## Tenue de shinobi posée sur les os (maillages partagés, un par os, matériau commun des pièces).
+func _dress() -> void:
+	var d := Yokai.hero_parts(ch.scale_factor)
+	var shadow := not Toon.lite
+	_scarf_mat = Toon.mat(_scarf_col, true, 0.026)
+	_scarf_mat.vertex_color_use_as_albedo = true
+	_scarf_mat.vertex_color_is_srgb = true
+	for bone in d:
+		var b := String(bone)
+		var mesh := d[bone] as Mesh
+		if b == "hilt":
+			_hilt = ch.attach_mesh("chest", mesh, Yokai.mat(), shadow)
+		elif b == "scarf":
+			ch.attach_mesh("chest", mesh, _scarf_mat, shadow)
+		else:
+			ch.attach_mesh(b, mesh, Yokai.mat(), shadow)
+	_knot = Node3D.new()
+	_knot.position = Vector3(0, 0.22, -0.36) * ch.scale_factor
+	ch.attach("chest", _knot)
+
+
+## Course (ruée, trajets) : l'animation de course si le modèle l'a gardée, sinon la marche accélérée.
+func run_anim(speed: float, blend := 0.08) -> void:
+	if ch.anim != null and ch.anim.has_animation("Running_A"):
+		ch.play("Running_A", speed, blend)
+	else:
+		ch.play("Walking_A", speed * 1.1, blend)
+
+
+## Pans de l'écharpe : deux rubans (encre + couleur) recalculés à chaque image, tournés vers la caméra.
+func _make_tails() -> void:
+	_tail_n = 5 if Toon.lite else 7
+	_tails_mesh = ImmediateMesh.new()
+	_tails = MeshInstance3D.new()
+	_tails.top_level = true
+	_tails.mesh = _tails_mesh
+	_tails.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_tails.material_override = m
+	add_child(_tails)
+	_tail_p = [PackedVector3Array(), PackedVector3Array()]
+	_tail_o = [PackedVector3Array(), PackedVector3Array()]
+
+
+## Anneau au sol : liseré d'encre et anneau washi, repère vermillon devant ; dessiné par-dessus le décor.
+func _make_ring() -> void:
+	_ring = Node3D.new()
+	_ring.position = Vector3(0, 0.03, 0)
+	add_child(_ring)
+	var outer := TorusMesh.new()
+	outer.inner_radius = 0.5
+	outer.outer_radius = 0.66
+	outer.rings = 32
+	outer.ring_segments = 3
+	var inner := TorusMesh.new()
+	inner.inner_radius = 0.545
+	inner.outer_radius = 0.6
+	inner.rings = 32
+	inner.ring_segments = 3
+	var o := Toon.part(_ring, outer, _ring_mat(Color(Toon.SUMI, 0.5), 10), Vector3.ZERO, Vector3(1, 0.05, 1))
+	o.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var i := Toon.part(_ring, inner, _ring_mat(Color(Toon.WASHI, 0.85), 11), Vector3(0, 0.002, 0), Vector3(1, 0.05, 1))
+	i.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# repère de direction : petite pointe vermillon au bord avant (l'anneau suit le regard)
+	var tip := Toon.part(_ring, Toon.cyl(0.0, 0.09, 0.01, 3), _ring_mat(Color(Toon.VERMILION, 0.95), 12), Vector3(0, 0.004, -0.68))
+	tip.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+func _ring_mat(c: Color, prio: int) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = c
+	m.no_depth_test = true
+	m.render_priority = prio
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	return m
+
+
 func start_dash(p: PackedVector3Array) -> void:
 	if p.size() < 2 or dead:
 		return
@@ -78,7 +192,8 @@ func start_dash(p: PackedVector3Array) -> void:
 		if plen < 3.0:
 			ch.play_once("1H_Melee_Attack_Slice_Horizontal", 2.6)
 		else:
-			ch.play("Running_A", 2.6, 0.08)
+			run_anim(2.6)
+	_drawn_t = DRAWN_T
 	path = p
 	path_i = 1
 	dashing = true
@@ -95,12 +210,14 @@ func stop_dash() -> void:
 ## Toupie (boucle) : le héros tourne sur lui-même, sabre tendu.
 func spin(d: float) -> void:
 	spinning = d
+	_drawn_t = DRAWN_T
 	ch.play_once("2H_Melee_Attack_Spinning", 1.8)
 
 
 ## Garde (retour) : posture de parade, intouchable un instant.
 func guard(d: float) -> void:
 	guard_t = d
+	_drawn_t = DRAWN_T
 	ch.play_once("Block", 1.2)
 
 
@@ -110,6 +227,7 @@ func leap(to: Vector3, d: float) -> void:
 	_leap_to = Vector3(to.x, 0, to.z)
 	_leap_t = 0.0
 	_leap_dur = d
+	_drawn_t = DRAWN_T
 	face(_leap_to - position)
 	ch.play_once("Jump_Full_Short", 1.6)
 
@@ -118,6 +236,7 @@ func leap(to: Vector3, d: float) -> void:
 func stab(dir: Vector3) -> void:
 	face(dir)
 	snap_facing()
+	_drawn_t = DRAWN_T
 	ch.play_once("1H_Melee_Attack_Stab", 2.2)
 
 
@@ -187,7 +306,7 @@ func _process(delta: float) -> void:
 			dash_finished.emit()
 		elif not ch._once:
 			# le coup de sabre fini, la ruée continue en courant (plus de glissade figée)
-			ch.play("Running_A", 2.6, 0.08)
+			run_anim(2.6)
 
 	# techniques
 	if spinning > 0.0:
@@ -204,6 +323,7 @@ func _process(delta: float) -> void:
 		if k >= 1.0:
 			_leap_t = -1.0
 			body.position.y = 0.0
+			_dust()
 			landed.emit()
 
 	if invuln > 0.0 and not dead:
@@ -221,14 +341,21 @@ func _process(delta: float) -> void:
 	if spinning <= 0.0:
 		body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(1.0, delta * (40.0 if dashing else 14.0)))
 	_lean = lerpf(_lean, 1.0 if dashing else 0.0, minf(1.0, delta * 25.0))
-	body.rotation.x = -0.18 * _lean  # léger penché de course, pas de vol plané
+	body.rotation.x = -LEAN * _lean  # léger penché de course, pas de vol plané
 	if _trail != null:
 		_update_trail(delta)
+	_life = fmod(_life + delta, 1000.0)
+	_update_pose(delta)
+	_update_tails(delta)
 
 
 ## Apparence choisie à l'Atelier (meta.apply_run_start) : couleur de l'écharpe (cape), sillage de lame.
 ## Rappelée à chaud par la garde-robe : sans écharpe portée, la cape retrouve sa texture d'origine.
 func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
+	# l'écharpe à deux pans prend la couleur de l'écharpe portée (vermillon d'origine)
+	_scarf_col = cape if cape_on else SCARF_DEF
+	if _scarf_mat != null:
+		_scarf_mat.albedo_color = _scarf_col
 	if ch != null and ch.model != null:
 		for n in ch.model.find_children("*", "MeshInstance3D", true, false):
 			var mi := n as MeshInstance3D
@@ -274,6 +401,135 @@ func set_outfit(tex: Texture2D) -> void:
 			var m := mi.get_surface_override_material(i) as StandardMaterial3D
 			if m != null:
 				m.albedo_texture = tex
+
+
+## Posture : sabre tiré pendant l'action (sinon au fourreau), respiration au repos, anneau au sol qui pulse.
+func _update_pose(delta: float) -> void:
+	if _drawn_t > 0.0:
+		_drawn_t -= delta
+	var drawn := dashing or _drawn_t > 0.0 or ch._once or dead
+	if _blade_hand != null:
+		_blade_hand.visible = drawn
+	if _hilt != null:
+		_hilt.visible = not drawn
+	var calm := not dashing and not dead and spinning <= 0.0 and _leap_t < 0.0
+	if calm:
+		# respiration : le buste se soulève à peine
+		var b := sin(_life * 2.4)
+		body.scale = Vector3(1.0 - 0.006 * b, 1.0 + 0.014 * b, 1.0 - 0.006 * b)
+	else:
+		body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 12.0))
+	if _ring != null:
+		_ring.visible = not dead
+		_ring.rotation.y = body.rotation.y
+		var s := 1.0 + 0.05 * sin(_life * 3.0) if calm else 0.9
+		_ring.scale = _ring.scale.lerp(Vector3(s, 1.0, s), minf(1.0, delta * 10.0))
+
+
+## Pans de l'écharpe (verlet) : accrochés au nœud de la nuque, ils pendent et ondulent au repos,
+## filent derrière le héros et claquent au vent pendant la ruée.
+func _update_tails(delta: float) -> void:
+	if _tails == null or _knot == null or not _knot.is_inside_tree():
+		return
+	_tails.visible = body.visible
+	var dt := clampf(delta, 0.001, 0.05)
+	var anchor := _knot.global_position
+	var right := Vector3(-facing.z, 0, facing.x)
+	var back := -facing
+	for t in 2:
+		var p: PackedVector3Array = _tail_p[t]
+		var o: PackedVector3Array = _tail_o[t]
+		var root := anchor + right * (0.05 if t == 0 else -0.05)
+		if p.size() != _tail_n or p[0].distance_to(root) > 2.0:
+			# première image ou téléportation : les pans repartent pendus sous le nœud
+			p = PackedVector3Array()
+			for i in _tail_n:
+				p.append(root + Vector3(0, -TAIL_SEG * float(i), 0) + back * 0.03 * float(i))
+			o = p.duplicate()
+		p[0] = root
+		o[0] = root
+		var rate := 15.0 if dashing else 2.3
+		var amp := 7.0 if dashing else 1.2
+		for i in range(1, _tail_n):
+			var cur := p[i]
+			var vel := (cur - o[i]) * 0.9
+			var flap := right * sin(_life * rate + float(i) * 0.8 + float(t) * 1.7) * amp * (float(i) / float(_tail_n))
+			var acc := Vector3(0, -9.0, 0) + back * (2.0 if dashing else 0.6) + flap
+			o[i] = cur
+			p[i] = cur + vel + acc * dt * dt
+		# longueur fixe : chaque maillon reste à TAIL_SEG du précédent, jamais sous le sol
+		for i in range(1, _tail_n):
+			var dv := p[i] - p[i - 1]
+			var l := dv.length()
+			var q := p[i - 1] + (dv / l * TAIL_SEG if l > 0.0001 else Vector3(0, -TAIL_SEG, 0))
+			q.y = maxf(q.y, 0.04)
+			p[i] = q
+		_tail_p[t] = p
+		_tail_o[t] = o
+	_draw_tails()
+
+
+func _draw_tails() -> void:
+	_tails_mesh.clear_surfaces()
+	var cam := get_viewport().get_camera_3d()
+	var eye := cam.global_position if cam != null else global_position + Vector3(0, 10, 6)
+	var ink := Color(Toon.SUMI, 1.0)
+	_tails_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for t in 2:
+		var p: PackedVector3Array = _tail_p[t]
+		var n := p.size()
+		if n < 2:
+			continue
+		var sides := PackedVector3Array()
+		var lift := PackedVector3Array()
+		for i in n:
+			var dv := p[mini(i + 1, n - 1)] - p[maxi(i - 1, 0)]
+			var view := eye - p[i]
+			var sd := dv.cross(view)
+			if sd.length_squared() < 0.000001:
+				sd = Vector3(-facing.z, 0, facing.x)
+			sides.append(sd.normalized())
+			lift.append(view.normalized() * 0.012)  # la couleur passe devant l'encre
+		for i in range(n - 1):
+			var w0 := _tail_w(i, n)
+			var w1 := _tail_w(i + 1, n)
+			var a := p[i]
+			var b := p[i + 1]
+			# contour d'encre (pleine largeur), puis l'étoffe colorée, plus sombre vers la pointe (plis)
+			_quad(a - sides[i] * w0, a + sides[i] * w0, b + sides[i + 1] * w1, b - sides[i + 1] * w1, ink, ink)
+			var k0 := float(i) / float(n - 1)
+			var k1 := float(i + 1) / float(n - 1)
+			var c0 := _scarf_col.darkened(0.08 + 0.28 * k0 + (0.1 if i % 2 == 1 else 0.0))
+			var c1 := _scarf_col.darkened(0.08 + 0.28 * k1 + (0.1 if i % 2 == 0 else 0.0))
+			_quad(a - sides[i] * w0 * 0.62 + lift[i], a + sides[i] * w0 * 0.62 + lift[i],
+				b + sides[i + 1] * w1 * 0.62 + lift[i + 1], b - sides[i + 1] * w1 * 0.62 + lift[i + 1], c0, c1)
+	_tails_mesh.surface_end()
+
+
+## Demi-largeur d'un pan au maillon i : large au nœud, effilé, pointe fine.
+func _tail_w(i: int, n: int) -> float:
+	if i >= n - 1:
+		return 0.012
+	return lerpf(0.075, 0.045, float(i) / float(n - 1))
+
+
+func _quad(a: Vector3, b: Vector3, c: Vector3, d: Vector3, ca: Color, cc: Color) -> void:
+	for v in [[a, ca], [b, ca], [c, cc], [a, ca], [c, cc], [d, cc]]:
+		var pair: Array = v
+		_tails_mesh.surface_set_color(pair[1])
+		_tails_mesh.surface_add_vertex(pair[0])
+
+
+## Atterrissage d'un bond : petite bouffée de poussière (anneau washi, giclée).
+func _dust() -> void:
+	var m := get_parent()
+	if m == null:
+		return
+	var fx = m.get("vfx")
+	if fx != null and is_instance_valid(fx) and fx.has_method("ring"):
+		fx.ring(Vector3(position.x, 0.08, position.z), Toon.WASHI, 0.8)
+	if m.has_method("splash"):
+		m.call("splash", position + Vector3(0, 0.15, 0), Toon.WASHI, 5)
 
 
 ## Ruban vertical à hauteur de lame, qui s'efface en TRAIL_LIFE secondes.

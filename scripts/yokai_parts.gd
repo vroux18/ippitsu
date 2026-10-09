@@ -53,7 +53,7 @@ static func hidden(kind: String) -> Array:
 			return ["Leg"]
 		"umibozu":
 			return ["Jaw", "Cloak"]
-		"tengu", "kappa_yumi", "konoha":
+		"tengu", "kappa_yumi", "konoha", "shinobi", "shuriken", "kemuri", "kunoichi":
 			return ["Cape"]
 	return []
 
@@ -131,6 +131,8 @@ static func parts(kind: String, u: float) -> Dictionary:
 			_kani(d, lite)
 		"fugu":
 			_fugu(d, lite)
+		"shinobi", "shuriken", "kemuri", "kunoichi":
+			_ninja(d, u, lite, kind)
 	# un os sans pièce (mode léger) n'a pas d'entrée
 	for k in d.keys():
 		if d[k] == null:
@@ -802,6 +804,183 @@ static func _gaki(d: Dictionary, u: float, lite: bool) -> void:
 		d["hips"] = p.mesh()
 
 
+# ------------------------------------------------------------------ clan des ninjas (忍) et ronin (rōdeur KayKit)
+# Repères du rōdeur (unités du modèle) : head — face sous la capuche vers z ≈ 0.42 (y 0.1 à 0.55), bord de
+# la capuche z ≈ 0.57, dos z ≈ -0.45, sommet y ≈ 1.0 ; chest — haut du torse y ≈ 0.25 (±0.28), dos z ≈ -0.3,
+# taille y ≈ -0.4 ; spine — ceinture y ≈ 0 (±0.4, z ±0.37) ; lowerarm / lowerleg — l'axe Y suit le membre.
+
+const NINJA_CLOTH := Color("#262A3C")
+const NINJA_EYE := Color("#FFC83A")
+
+## Cagoule (zukin) : plaque d'étoffe sur la face, fente de peau, deux yeux et des sourcils froncés.
+static func _mask(h: Mesher, cloth: Color, eye: Color, lite: bool) -> void:
+	h.ball(Vector3(0, 0.27, 0.2), Vector3(0.4, 0.31, 0.27), cloth)
+	h.box(Vector3(0, 0.36, 0.455), Vector3(0.36, 0.1, 0.03), Toon.SKIN)
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		h.ball(Vector3(sx * 0.1, 0.36, 0.47), Vector3(0.062, 0.036, 0.02), Toon.WASHI)
+		h.ball(Vector3(sx * 0.095, 0.36, 0.486), Vector3(0.027, 0.031, 0.012), eye)
+		h.box(Vector3(sx * 0.11, 0.432, 0.472), Vector3(0.14, 0.03, 0.025), Toon.SUMI, Vector3(0, 0, sx * 0.3))
+	if not lite:
+		# plis de l'étoffe sous les yeux
+		h.box(Vector3(0, 0.2, 0.463), Vector3(0.26, 0.018, 0.02), Color(cloth.darkened(0.35)), Vector3(-0.25, 0, 0))
+		h.box(Vector3(0, 0.12, 0.436), Vector3(0.2, 0.018, 0.02), Color(cloth.darkened(0.35)), Vector3(-0.5, 0, 0))
+
+
+## Hachimaki : bandeau autour de la capuche, plaque de fer frontale, nœud et deux pans dans le dos.
+static func _hachimaki(h: Mesher, band: Color, lite: bool) -> void:
+	h.cyl(Vector3(0, 0.72, 0.06), Vector3(0.575, 0.09, 0.535), band, Vector3.ZERO, 1.0, 12)
+	h.ball(Vector3(0, 0.72, -0.48), Vector3(0.08, 0.07, 0.06), band)
+	if lite:
+		return
+	h.box(Vector3(0, 0.72, 0.6), Vector3(0.24, 0.1, 0.03), STEEL)
+	h.box(Vector3(0, 0.72, 0.618), Vector3(0.1, 0.02, 0.01), Toon.SUMI)
+	for s in [-1.0, 1.0]:
+		h.stick(Vector3(float(s) * 0.05, 0.71, -0.5), Vector3(0.08, 0.42, 0.02), band, Vector3(-2.5, 0, float(s) * 0.3))
+
+
+## Saya (fourreau laqué) en travers du dos, la poignée au-dessus de l'épaule droite (repère chest).
+const SAYA_ROT := Vector3(-0.25, 0, 0.6)
+const SAYA_BASE := Vector3(0.24, -0.42, -0.37)
+
+static func _saya(m: Mesher, ln: float) -> void:
+	var b := Basis.from_euler(SAYA_ROT)
+	m.stick(SAYA_BASE, Vector3(0.075, ln, 0.05), LACQUER, SAYA_ROT)
+	m.stick(SAYA_BASE + b * Vector3(0, -0.04, 0), Vector3(0.082, 0.07, 0.058), Toon.GOLD, SAYA_ROT)
+	m.stick(SAYA_BASE + b * Vector3(0, ln - 0.07, 0), Vector3(0.086, 0.07, 0.062), Toon.GOLD, SAYA_ROT)
+
+
+## Tsuka : garde d'or, poignée d'encre tressée de soie claire, pommeau doré (sortie du fourreau `ln`).
+static func _tsuka(m: Mesher, ln: float, lite: bool) -> void:
+	var b := Basis.from_euler(SAYA_ROT)
+	var at := SAYA_BASE + b * Vector3(0, ln, 0)
+	m.cyl(at + b * Vector3(0, 0.012, 0), Vector3(0.115, 0.025, 0.095), Toon.GOLD, SAYA_ROT, 1.0, 8)
+	m.stick(at + b * Vector3(0, 0.025, 0), Vector3(0.06, 0.3, 0.05), Toon.SUMI, SAYA_ROT)
+	m.stick(at + b * Vector3(0, 0.32, 0), Vector3(0.068, 0.04, 0.058), Toon.GOLD, SAYA_ROT)
+	if lite:
+		return
+	for i in 4:
+		m.box(at + b * Vector3(0, 0.07 + 0.065 * float(i), 0), Vector3(0.066, 0.022, 0.056), Color("#E8DCC0"), SAYA_ROT + Vector3(0, 0.0, 0.35 if i % 2 == 0 else -0.35))
+
+
+## Shuriken à quatre branches, à plat (plan XZ), unités du monde.
+static func _star(m: Mesher, pos: Vector3, r: float) -> void:
+	m.cyl(pos, Vector3(r * 0.32, r * 0.18, r * 0.32), IRON, Vector3.ZERO, 1.0, 8)
+	for i in 4:
+		m.spike(pos, r * 0.36, r, STEEL, Vector3(PI / 2.0, TAU * float(i) / 4.0, 0), 0.0, 4, 0.3)
+
+
+static var _shuriken: ArrayMesh = null
+
+## Maillage partagé du shuriken lancé (vole à plat en tournant).
+static func shuriken_mesh() -> ArrayMesh:
+	if _shuriken == null:
+		var m := Mesher.new(1.0)
+		_star(m, Vector3.ZERO, 0.2)
+		_shuriken = m.mesh()
+	return _shuriken
+
+
+## Ninjas : shinobi (indigo, ninjatō au dos), shuriken (bandoulière d'étoiles), kemuri (bombes de fumée),
+## kunoichi (queue de cheval, kusarigama).
+static func _ninja(d: Dictionary, u: float, lite: bool, kind: String) -> void:
+	var band: Color = {"shinobi": LACE, "shuriken": Color("#5E6A80"), "kemuri": Color("#6A4E8E"), "kunoichi": Color("#C2456A")}.get(kind, LACE)
+	var h := Mesher.new(u)
+	_mask(h, NINJA_CLOTH if kind != "kunoichi" else Color("#3A2230"), NINJA_EYE if kind != "kemuri" else Color("#D9B8FF"), lite)
+	_hachimaki(h, band, lite)
+	if kind == "kunoichi":
+		# longue queue de cheval qui sort de la capuche
+		h.ball(Vector3(0, 0.86, -0.52), Vector3(0.1, 0.09, 0.08), HAIR)
+		h.spike(Vector3(0, 0.84, -0.56), 0.1, 0.62, HAIR, Vector3(-2.75, 0, 0), 0.2, 6)
+	d["head"] = h.mesh()
+	var c := Mesher.new(u)
+	match kind:
+		"shinobi":
+			_saya(c, 0.95)
+			_tsuka(c, 0.95, lite)
+			d["handslot.r"] = _w_ninjato()
+		"shuriken":
+			# bandoulière d'étoiles en travers du torse
+			c.box(Vector3(0, -0.12, 0.33), Vector3(0.09, 0.82, 0.03), WOOD_D, Vector3(0, 0, 0.65))
+			for i in (2 if lite else 3):
+				var t := (float(i) - 1.0) * 0.2
+				c.ball(Vector3(-t * 0.6, -0.12 + t * 0.8, 0.36), Vector3(0.06, 0.06, 0.02), STEEL)
+			d["handslot.r"] = _w_star()
+		"kemuri":
+			c.cyl(Vector3(0, 0.24, -0.01), Vector3(0.33, 0.12, 0.29), Color("#3A3448"), Vector3.ZERO, 0.85, 10)
+			var p := Mesher.new(u)
+			p.cyl(Vector3(0, 0.2, 0), Vector3(0.41, 0.12, 0.37), Color("#3A3448"), Vector3.ZERO, 1.0, 10)
+			for i in (2 if lite else 3):
+				var a := (float(i) - 1.0) * 0.55
+				p.ball(Vector3(sin(a) * 0.4, 0.14, cos(a) * 0.37), Vector3(0.09, 0.09, 0.09), Toon.SUMI)
+				if not lite:
+					p.spike(Vector3(sin(a) * 0.42, 0.22, cos(a) * 0.39), 0.02, 0.07, Toon.VERMILION)
+			d["hips"] = p.mesh()
+			d["handslot.r"] = _w_bomb()
+		"kunoichi":
+			c.cyl(Vector3(0, -0.4, 0), Vector3(0.41, 0.12, 0.38), Color("#C2456A"), Vector3.ZERO, 1.0, 10)
+			d["handslot.r"] = _w_kama()
+			d["handslot.l"] = _w_chain()
+	d["chest"] = c.mesh()
+
+
+## Le ronin (héros) : cagoule et yeux, saya au dos (poignée à part : cachée quand le sabre est tiré),
+## obi noué, tekko (protège-bras), kyahan (jambières). « scarf » : col de l'écharpe (couleur de la garde-robe :
+## sommets blancs, matériau propre au héros). Repère du rōdeur ; mis en cache (un seul héros, même taille).
+static func hero_parts(u: float) -> Dictionary:
+	var lite := Toon.lite
+	var key := "hero|%d" % (1 if lite else 0)
+	if _sets.has(key):
+		var cached: Dictionary = _sets[key]
+		return cached
+	var d := {}
+	var h := Mesher.new(u)
+	_mask(h, Color("#23263A"), Toon.SUMI, lite)
+	# liseré vermillon au bord du masque
+	h.box(Vector3(0, 0.305, 0.47), Vector3(0.38, 0.022, 0.02), Toon.VERMILION)
+	d["head"] = h.mesh()
+	var c := Mesher.new(u)
+	_saya(c, 0.95)
+	d["chest"] = c.mesh()
+	var t := Mesher.new(u)
+	_tsuka(t, 0.95, lite)
+	d["hilt"] = t.mesh()
+	var sc := Mesher.new(u)
+	sc.cyl(Vector3(0, 0.24, -0.01), Vector3(0.335, 0.13, 0.295), Color.WHITE, Vector3.ZERO, 0.85, 10)
+	sc.ball(Vector3(0.0, 0.22, -0.31), Vector3(0.1, 0.085, 0.07), Color.WHITE)
+	if not lite:
+		sc.cyl(Vector3(0, 0.3, -0.01), Vector3(0.29, 0.03, 0.26), Color(0.78, 0.78, 0.8), Vector3.ZERO, 1.0, 10)
+	d["scarf"] = sc.mesh()
+	# obi : ceinture sumi, cordon d'or, nœud vermillon et deux pans
+	var o := Mesher.new(u)
+	o.cyl(Vector3(0, 0.0, 0), Vector3(0.41, 0.15, 0.38), Color("#2A2530"), Vector3.ZERO, 1.0, 10)
+	o.cyl(Vector3(0, 0.0, 0), Vector3(0.418, 0.028, 0.388), Toon.GOLD, Vector3.ZERO, 1.0, 10)
+	o.ball(Vector3(0.15, 0.0, 0.39), Vector3(0.075, 0.065, 0.045), Toon.VERMILION)
+	for s in [-1.0, 1.0]:
+		o.stick(Vector3(0.15 + float(s) * 0.03, -0.03, 0.4), Vector3(0.06, 0.19, 0.02), Toon.VERMILION, Vector3(PI, 0, float(s) * 0.25))
+	d["spine"] = o.mesh()
+	for side in ["l", "r"]:
+		# tekko : manchette d'étoffe indigo, plaque de fer, bague d'or au poignet
+		var a := Mesher.new(u)
+		a.cyl(Vector3(0, 0.15, 0), Vector3(0.18, 0.2, 0.18), Color("#2B3352"), Vector3.ZERO, 1.08, 8)
+		a.cyl(Vector3(0, 0.25, 0), Vector3(0.198, 0.03, 0.198), Toon.GOLD, Vector3.ZERO, 1.0, 8)
+		if not lite:
+			a.cyl(Vector3(0, 0.15, 0), Vector3(0.186, 0.12, 0.186), IRON, Vector3.ZERO, 1.05, 8)
+		d["lowerarm." + side] = a.mesh()
+		# kyahan : jambière (l'axe du tibia descend), bandes croisées
+		var g := Mesher.new(u)
+		g.cyl(Vector3(0, 0.07, 0), Vector3(0.135, 0.17, 0.135), Color("#E8DCC0"), Vector3.ZERO, 0.85, 8)
+		if not lite:
+			for i in 3:
+				g.cyl(Vector3(0, 0.0 + 0.055 * float(i), 0), Vector3(0.14 - 0.007 * float(i), 0.018, 0.14 - 0.007 * float(i)), Color("#2B3352"), Vector3(0.18 if i % 2 == 0 else -0.18, 0, 0), 1.0, 8)
+		d["lowerleg." + side] = g.mesh()
+	for k in d.keys():
+		if d[k] == null:
+			d.erase(k)
+	_sets[key] = d
+	return d
+
+
 # ------------------------------------------------------------------ corps modelés (repère du corps, face -Z)
 
 ## Tsurara : tertre de neige, stalagmites et petits glaçons fusionnés.
@@ -1005,6 +1184,40 @@ static func _w_shield() -> ArrayMesh:
 	m.cyl(Vector3(0, 0.05, 0.08), Vector3(0.4, 0.07, 0.4), Toon.WOOD, r, 1.0, 16)
 	m.ball(Vector3(0, 0.05, 0.12), Vector3(0.11, 0.06, 0.11), Toon.GOLD, r)
 	m.ball(Vector3(0, 0.05, 0.04), Vector3(0.11, 0.06, 0.11), Toon.GOLD, r)
+	return m.mesh()
+
+
+## Ninjatō : lame droite, garde carrée noire, poignée tressée.
+static func _w_ninjato() -> ArrayMesh:
+	var m := Mesher.new(1.0)
+	m.box(Vector3(0, -0.02, 0), Vector3(0.045, 0.24, 0.045), Toon.SUMI)
+	m.box(Vector3(0, 0.11, 0), Vector3(0.12, 0.02, 0.12), LACQUER)
+	m.box(Vector3(0, 0.47, 0), Vector3(0.03, 0.7, 0.07), STEEL)
+	m.spike(Vector3(0, 0.82, 0), 0.04, 0.08, STEEL, Vector3.ZERO, 0.0, 4, 0.4)
+	return m.mesh()
+
+
+## Shuriken tenu entre les doigts.
+static func _w_star() -> ArrayMesh:
+	var m := Mesher.new(1.0)
+	_star(m, Vector3(0, 0.08, 0), 0.15)
+	return m.mesh()
+
+
+## Bombe de fumée (boule d'encre, mèche vermillon).
+static func _w_bomb() -> ArrayMesh:
+	var m := Mesher.new(1.0)
+	m.ball(Vector3(0, 0.1, 0), Vector3.ONE * 0.1, Toon.SUMI)
+	m.spike(Vector3(0, 0.19, 0), 0.025, 0.08, Toon.VERMILION)
+	return m.mesh()
+
+
+## Kama de la kusarigama : manche de bois, lame courbe en faucille.
+static func _w_kama() -> ArrayMesh:
+	var m := Mesher.new(1.0)
+	m.cyl(Vector3(0, 0.15, 0), Vector3(0.025, 0.45, 0.025), WOOD_D, Vector3.ZERO, 1.0, 6)
+	m.stick(Vector3(0, 0.36, 0), Vector3(0.03, 0.26, 0.07), STEEL, Vector3(0, 0, -1.35))
+	m.stick(Vector3(0.25, 0.42, 0), Vector3(0.028, 0.12, 0.06), STEEL, Vector3(0, 0, -2.3))
 	return m.mesh()
 
 

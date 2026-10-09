@@ -25,6 +25,8 @@ const NO_TARGET := -2
 const BACK_TARGET := -1
 
 const PAD_KEYS := ["pad_size", "pad_show"]
+const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sous l'en-tête
+const ROW_STEP := 92.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
 var values := {"sound": "on", "vibration": "on", "control": "screen", "pad_size": "m", "pad_show": "start"}
@@ -44,9 +46,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	_ui.base_font = UiKit.UI_FONT
-	_ui.spacing_glyph = 1
+	_ui.spacing_glyph = UiKit.CAPS_SPACING
 	_title.base_font = UiKit.TITLE_FONT
-	_title.spacing_glyph = 6
+	_title.spacing_glyph = UiKit.TITLE_SPACING
 
 
 func open() -> void:
@@ -112,53 +114,48 @@ func _draw() -> void:
 	if w < 10.0:
 		return
 	# la carte grandit avec le nombre de lignes ; sur écran trop bas, tout rétrécit pour tenir
-	var card_h := 184.0 + (ROWS.size() - 1) * 92.0
+	var card_h := ROW_TOP + float(ROWS.size()) * ROW_STEP - 18.0
 	var u := minf(w / 400.0, h / (card_h + 40.0))
 	var a := clampf(_t / 0.25, 0.0, 1.0)
+	var ka := UiKit.ease_out(a)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
-	var card := Rect2(Vector2(w * 0.06, h * 0.5 - card_h * 0.5 * u), Vector2(w * 0.88, card_h * u))
-	UiKit.box(_sb, Color(Toon.ui_paper, a), int(18 * u))
-	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
-	_sb.shadow_size = int(20 * u)
-	draw_style_box(_sb, card)
-	UiKit.text(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + 52 * u), int(28 * u), Color(Toon.ui_ink, a))
-	draw_line(Vector2(card.get_center().x - 30 * u, card.position.y + 66 * u), Vector2(card.get_center().x + 30 * u, card.position.y + 66 * u), Color(Toon.VERMILION, a), 2 * u)
-	# retour : ensō et flèche en haut à gauche de la carte
-	var bc := card.position + Vector2(34, 40) * u
-	_back = Rect2(bc - Vector2(26, 26) * u, Vector2(52, 52) * u)
-	draw_arc(bc, 16 * u, -PI * 0.35, PI * 1.45, 28, Color(Toon.ui_ink, a), 3.5 * u, true)
-	var head := bc + Vector2(-7, 0) * u
-	draw_line(bc + Vector2(8, 0) * u, head, Color(Toon.VERMILION, a), 3 * u, true)
-	draw_line(head, head + Vector2(5, -5) * u, Color(Toon.VERMILION, a), 3 * u, true)
-	draw_line(head, head + Vector2(5, 5) * u, Color(Toon.VERMILION, a), 3 * u, true)
-	# lignes d'options
+	# feuille de washi (comme la pause), qui monte un peu à l'ouverture ; vagues seigaiha dans l'en-tête
+	var card := Rect2(Vector2(w * 0.06, h * 0.5 - card_h * 0.5 * u + 14.0 * u * (1.0 - ka)), Vector2(w * 0.88, card_h * u))
+	var ink: Color = Toon.ui_ink
+	UiKit.sheet(self, card, Toon.ui_paper, ink, a, u, 8.0, 64.0)
+	# en-tête : retour à gauche, titre souligné de vermillon et son sceau
+	var bc := card.position + Vector2(UiKit.HEAD_X, UiKit.HEAD_Y) * u
+	_back = UiKit.back_rect(bc, u)
+	UiKit.back_button(self, bc, u, a, 1.0 if _pressed == BACK_TARGET else 0.0)
+	var tmax: float = card.size.x - 2.0 * (UiKit.HEAD_X + 26.0) * u
+	UiKit.screen_title(self, _title, "OPTIONS", Vector2(card.get_center().x, card.position.y + UiKit.HEAD_BASE * u), u, ink, a, "設", tmax, UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0)))
+	# lignes d'options : libellé (puce shuriken), choix en pilules
 	_hits.clear()
-	var y := card.position.y + 104 * u
+	var lfs: int = int(UiKit.FS_CAPTION * u)
+	var ofs: int = int(UiKit.FS_LABEL * u)
+	var x0 := card.position.x + UiKit.SP_L * u
+	var inner_w := card.size.x - 2.0 * UiKit.SP_L * u
+	var gap := 6.0 * u
+	var y := card.position.y + ROW_TOP * u
 	for row in ROWS:
 		var key := String(row.key)
 		var dim: bool = key in PAD_KEYS and String(values.get("control", "screen")) != "pad"
-		draw_string(_ui, Vector2(card.position.x + 22 * u, y), String(row.label), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.ui_ink, (0.3 if dim else 0.6) * a))
+		var la: float = (UiKit.A_DIM if dim else UiKit.A_SUB) * a
+		UiKit.shuriken(self, Vector2(x0 + 4.0 * u, y - lfs * 0.36), 4.0 * u, Color(Toon.VERMILION, (0.35 if dim else 0.85) * a), 0.25)
+		draw_string(_ui, Vector2(x0 + 14.0 * u, y), UiKit.plain(String(row.label)), HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(ink, la))
 		var opts: Array = row.opts
-		var x0 := card.position.x + 18 * u
-		var bw := (card.size.x - 36 * u - (opts.size() - 1) * 6 * u) / opts.size()
+		var bw := (inner_w - float(opts.size() - 1) * gap) / float(opts.size())
 		for i in opts.size():
 			var o: Array = opts[i]
-			var r := Rect2(Vector2(x0 + i * (bw + 6 * u), y + 10 * u), Vector2(bw, 42 * u))
+			var r := Rect2(Vector2(x0 + float(i) * (bw + gap), y + 9.0 * u), Vector2(bw, UiKit.OPT_H * u))
 			var on := String(values.get(key, "")) == String(o[0])
-			if on:
-				UiKit.box(_sb, Color(Toon.ui_ink, a * (0.4 if dim else 1.0)), int(10 * u))
-			else:
-				UiKit.box(_sb, Color(0, 0, 0, 0), int(10 * u), Color(Toon.ui_ink, 0.35 * a), int(1.5 * u))
-			draw_style_box(_sb, r)
-			if on and not dim:
-				draw_rect(Rect2(r.position + Vector2(8 * u, r.size.y * 0.3), Vector2(3 * u, r.size.y * 0.4)), Color(Toon.VERMILION, a))
-			var fs := int(12 * u)
-			UiKit.text(self, _ui, String(o[1]), Vector2(r.get_center().x, r.get_center().y + fs * 0.36), fs,
-				Color(Toon.ui_wash if on else Toon.ui_ink, a * (0.5 if dim else 1.0)))
+			var dr := r
+			if not dim and _pressed == _hits.size():
+				dr = r.grow(-1.5 * u)  # la case sous le doigt s'enfonce
+			UiKit.chip(self, _sb, dr, UiKit.plain(String(o[1])), _ui, ofs, on, ink, Toon.ui_paper, a, dim)
 			if not dim:
 				_hits.append([r, key, String(o[0])])
 		if key == "control" and restart_pending():
 			# choix pris en compte au prochain lancement : petite note sous les boutons
-			var nfs := int(10 * u)
-			UiKit.text(self, _ui, UiKit.plain(RESTART_NOTE), Vector2(card.get_center().x, y + 68 * u), nfs, Color(Toon.VERMILION, 0.9 * a))
-		y += 92 * u
+			UiKit.text(self, _ui, UiKit.plain(RESTART_NOTE), Vector2(card.get_center().x, y + (9.0 + UiKit.OPT_H + 14.0) * u), lfs, Color(Toon.VERMILION, 0.9 * a))
+		y += ROW_STEP * u

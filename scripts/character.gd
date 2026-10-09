@@ -182,6 +182,19 @@ func set_flash(a: float) -> void:
 		m.emission_energy_multiplier = a
 
 
+## Rendu « peint à la main » (héros) : grain de lavis multiplié sur l'atlas (`detail`, null = aucun),
+## liseré de lumière plus franc (`rim`, `rim_tint` : 0 = blanc) pour détacher la silhouette du sol.
+func paint(detail: Texture2D, rim: float, rim_tint: float) -> void:
+	for m in _mats:
+		m.rim = rim
+		m.rim_tint = rim_tint
+		if detail != null:
+			m.detail_enabled = true
+			m.detail_albedo = detail
+			m.detail_blend_mode = BaseMaterial3D.BLEND_MODE_MUL
+			m.detail_uv_layout = BaseMaterial3D.DETAIL_UV_1
+
+
 func set_glow(a: float, color := Toon.VERMILION) -> void:
 	for m in _mats:
 		m.emission = color

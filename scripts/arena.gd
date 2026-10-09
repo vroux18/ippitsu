@@ -141,6 +141,22 @@ var _steps: Array = []  # marches peintes entre terrasses : Vector3(x0, x1, z)
 var _gaps: Array = []  # trouées des ponts cassés (Rect2) : planches à la dérive
 var _stage_n := 0  # rang de l'étape dans le monde (formes plus morcelées ensuite)
 var _adj: Array = []  # voisinage des plateformes de `_act` (chemin des ennemis), calculé à la demande
+# grille de chemin des ennemis (next_waypoint) : cases praticables avec une marge, distances vers le héros ;
+# grille refaite à chaque changement de cadre (_set_bounds), distances quand le héros change de case
+const NAV_C := 0.4  # taille visée d'une case (m)
+const NAV_M := 0.45  # marge : un ennemi courant tient sur la case sans déborder sur le vide
+const NAV_LOOK := 10  # cases suivies le long du chemin avant de chercher le point visible le plus loin
+const NAV_REFRESH := 0.2  # délai mini entre deux calculs de distances (s de jeu)
+var _nav_n := 0  # nombre de cases (0 : grille à refaire)
+var _nav_nx := 0
+var _nav_nz := 0
+var _nav_org := Vector2.ZERO
+var _nav_cw := NAV_C
+var _nav_cz := NAV_C
+var _nav_ok := PackedByteArray()  # 1 : un disque de rayon NAV_M tient sur la terre ferme au centre de la case
+var _nav_dist := PackedInt32Array()  # pas jusqu'au héros (-1 : hors d'atteinte)
+var _nav_goal := -1  # case du héros des distances (-1 : à calculer)
+var _nav_at := -100.0  # moment (_t) du dernier calcul de distances
 var _used := {}  # forme -> nombre d'utilisations pendant la partie
 var _last := ""  # dernière forme hors boss
 var start := Vector3(0, 0, 6.1)
@@ -301,6 +317,8 @@ func _set_bounds(b: Rect2) -> void:
 	bounds = b
 	_act = []
 	_adj = []
+	_nav_n = 0
+	_nav_goal = -1
 	for r in rects:
 		var rr: Rect2 = r
 		var ri := rr.intersection(b)
@@ -1286,7 +1304,9 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> v
 	# on lui passe la plateforme du torii et un cadre qui couvre toute l'arène
 	var high: Rect2 = ends[3]
 	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
-	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed)
+	# rendu allégé : une seule lumière ponctuelle comme un tronçon d'étape (en compatibilité, chaque lumière
+	# refait une passe sur chaque objet qu'elle touche, sol de l'arène compris)
+	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 1 if Toon.lite else Worlds.MAX_LIGHTS)
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
 	_pits = Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed)
 	_build_gate(w)
@@ -3060,6 +3080,15 @@ func walkable(p: Vector3, margin := 0.0) -> bool:
 		return _in_union(p.x, p.z) or _in_union(p.x + m, p.z) or _in_union(p.x - m, p.z) \
 			or _in_union(p.x, p.z + m) or _in_union(p.x, p.z - m) or _in_union(p.x + e, p.z + e) \
 			or _in_union(p.x - e, p.z + e) or _in_union(p.x + e, p.z - e) or _in_union(p.x - e, p.z - e)
+	if margin > 0.0 and p.x - margin >= bounds.position.x and p.x + margin <= bounds.end.x \
+			and p.z - margin >= bounds.position.y and p.z + margin <= bounds.end.y:
+		# raccourci (même réponse) : le carré qui contient le disque tient dans une seule plateforme,
+		# donc les 9 points testés plus bas aussi ; un seul parcours des plateformes au lieu de neuf
+		for r in _act:
+			var rr: Rect2 = r
+			if p.x - margin >= rr.position.x and p.x + margin <= rr.end.x \
+					and p.z - margin >= rr.position.y and p.z + margin <= rr.end.y:
+				return true
 	if not _in_union(p.x, p.z):
 		return false
 	if margin == 0.0:
@@ -3146,6 +3175,11 @@ func random_point(avoid: Vector3, min_dist: float, margin := 0.8) -> Vector3:
 func steer(from: Vector3, to: Vector3) -> Vector3:
 	if _act.size() <= 1 or _line_walkable(from, to, 0.3):
 		return to
+	# grille avec marge : contourne les coins rentrants (le milieu d'une jonction peut être trop près du vide
+	# pour le corps de l'ennemi, qui restait collé au coin) ; repli sur les plateformes si la grille ne sait pas
+	var wp := next_waypoint(from, to)
+	if wp != Vector3.INF:
+		return wp
 	var a := _rect_of(from)
 	var b := _rect_of(to)
 	if a == b:
@@ -3189,6 +3223,235 @@ func steer(from: Vector3, to: Vector3) -> Vector3:
 	if k >= path.size() - 1:
 		return to
 	return _portal(int(path[k]), int(path[k + 1]))
+
+
+## Prochain point de passage d'un ennemi en `from` vers `to` : le point le plus avancé, visible en ligne droite
+## (marge NAV_M), du plus court chemin sur la grille. `to` s'il est déjà tout près ; Vector3.INF si la grille
+## ne relie pas les deux (héros au-dessus du vide, ennemi hors de la terre ferme…).
+func next_waypoint(from: Vector3, to: Vector3) -> Vector3:
+	if _nav_n == 0:
+		_nav_build()
+	if _nav_n == 0:
+		return Vector3.INF
+	var g := _nav_cell(to)
+	if _nav_goal < 0 or (g != _nav_goal and _t - _nav_at >= NAV_REFRESH):
+		_nav_flood(to)
+	if _nav_goal < 0:
+		return Vector3.INF
+	var s := _nav_start(from)
+	if s < 0:
+		return Vector3.INF
+	if _nav_dist[s] == 0:
+		return to
+	# descente des distances, quelques cases
+	var path := PackedInt32Array()
+	var cur := s
+	var nx := _nav_nx
+	for step in NAV_LOOK:
+		var dc := _nav_dist[cur]
+		if dc <= 0:
+			break
+		var i := cur % nx
+		var nxt := -1
+		if i > 0 and _nav_dist[cur - 1] == dc - 1:
+			nxt = cur - 1
+		elif i < nx - 1 and _nav_dist[cur + 1] == dc - 1:
+			nxt = cur + 1
+		elif cur >= nx and _nav_dist[cur - nx] == dc - 1:
+			nxt = cur - nx
+		elif cur + nx < _nav_n and _nav_dist[cur + nx] == dc - 1:
+			nxt = cur + nx
+		if nxt < 0:
+			break
+		path.append(nxt)
+		cur = nxt
+	if path.is_empty():
+		return Vector3.INF
+	# le point le plus loin qu'on voit (trois essais au plus) ; sinon la case suivante
+	var last := path.size() - 1
+	var tries: Array = [last, floori(float(last) * 0.66), floori(float(last) * 0.33)]
+	var tried := {}
+	for k in tries:
+		var ki: int = k
+		if ki <= 0 or tried.has(ki):
+			continue
+		tried[ki] = true
+		var c := _nav_center(path[ki])
+		if _line_walkable(from, c, NAV_M):
+			return c
+	return _nav_center(path[0])
+
+
+## Grille du cadre courant : une case est praticable si le disque de rayon NAV_M en son centre tient sur
+## la terre ferme (même test que walkable(p, NAV_M), par lignes d'intervalles : pas de parcours des plateformes
+## pour chaque point).
+func _nav_build() -> void:
+	var b := bounds
+	_nav_nx = maxi(1, roundi(b.size.x / NAV_C))
+	_nav_nz = maxi(1, roundi(b.size.y / NAV_C))
+	_nav_n = 0
+	if b.size.x <= 0.0 or b.size.y <= 0.0:
+		return
+	_nav_org = b.position
+	_nav_cw = b.size.x / float(_nav_nx)
+	_nav_cz = b.size.y / float(_nav_nz)
+	var n := _nav_nx * _nav_nz
+	_nav_ok = PackedByteArray()
+	_nav_ok.resize(n)
+	_nav_ok.fill(0)
+	_nav_dist = PackedInt32Array()
+	_nav_dist.resize(n)
+	_nav_dist.fill(-1)
+	_nav_goal = -1
+	var m := NAV_M
+	var d := m * 0.7071
+	for j in _nav_nz:
+		var z := _nav_org.y + (float(j) + 0.5) * _nav_cz
+		var r0 := _row_runs(z)
+		if r0.is_empty():
+			continue
+		var rp := _row_runs(z + m)
+		var rn := _row_runs(z - m)
+		var dp := _row_runs(z + d)
+		var dn := _row_runs(z - d)
+		if rp.is_empty() or rn.is_empty() or dp.is_empty() or dn.is_empty():
+			continue
+		for i in _nav_nx:
+			var x := _nav_org.x + (float(i) + 0.5) * _nav_cw
+			if _in_runs(r0, x) and _in_runs(r0, x + m) and _in_runs(r0, x - m) and _in_runs(rp, x) \
+					and _in_runs(rn, x) and _in_runs(dp, x + d) and _in_runs(dp, x - d) \
+					and _in_runs(dn, x + d) and _in_runs(dn, x - d):
+				_nav_ok[j * _nav_nx + i] = 1
+	_nav_n = n
+
+
+## Intervalles en x (fusionnés, triés : x0, x1, x0, x1…) de la terre ferme du cadre courant à la profondeur z
+## (bords compris, comme _in_union).
+func _row_runs(z: float) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	if z < bounds.position.y or z > bounds.end.y:
+		return out
+	var iv: Array = []
+	for r in _act:
+		var rr: Rect2 = r
+		if z >= rr.position.y and z <= rr.end.y:
+			var x0 := maxf(rr.position.x, bounds.position.x)
+			var x1 := minf(rr.end.x, bounds.end.x)
+			if x1 >= x0:
+				iv.append(Vector2(x0, x1))
+	iv.sort_custom(func(p, q): return p.x < q.x)
+	for v in iv:
+		var vv: Vector2 = v
+		var k := out.size()
+		if k > 0 and vv.x <= out[k - 1]:
+			out[k - 1] = maxf(out[k - 1], vv.y)
+		else:
+			out.append(vv.x)
+			out.append(vv.y)
+	return out
+
+
+static func _in_runs(runs: PackedFloat64Array, x: float) -> bool:
+	var k := 0
+	while k + 1 < runs.size():
+		if x < runs[k]:
+			return false
+		if x <= runs[k + 1]:
+			return true
+		k += 2
+	return false
+
+
+## Case de la grille qui contient `p` (ramené dans la grille).
+func _nav_cell(p: Vector3) -> int:
+	var i := clampi(floori((p.x - _nav_org.x) / _nav_cw), 0, _nav_nx - 1)
+	var j := clampi(floori((p.z - _nav_org.y) / _nav_cz), 0, _nav_nz - 1)
+	return j * _nav_nx + i
+
+
+func _nav_center(c: int) -> Vector3:
+	var i := c % _nav_nx
+	var j := floori(float(c) / float(_nav_nx))
+	return Vector3(_nav_org.x + (float(i) + 0.5) * _nav_cw, 0, _nav_org.y + (float(j) + 0.5) * _nav_cz)
+
+
+## Distances (en cases, 4 voisins) depuis la case de `to` ; si le héros frôle le vide, depuis les cases
+## praticables les plus proches de lui (deux ou trois cases au plus).
+func _nav_flood(to: Vector3) -> void:
+	_nav_dist.fill(-1)
+	_nav_at = _t
+	var g := _nav_cell(to)
+	var q := PackedInt32Array()
+	if _nav_ok[g] == 1:
+		_nav_dist[g] = 0
+		q.append(g)
+	else:
+		var gi := g % _nav_nx
+		var gj := floori(float(g) / float(_nav_nx))
+		for r in range(1, 4):
+			for dj in range(-r, r + 1):
+				for di in range(-r, r + 1):
+					var ii := gi + di
+					var jj := gj + dj
+					if ii < 0 or jj < 0 or ii >= _nav_nx or jj >= _nav_nz:
+						continue
+					var c := jj * _nav_nx + ii
+					if _nav_ok[c] == 1 and _nav_dist[c] < 0:
+						_nav_dist[c] = 0
+						q.append(c)
+			if not q.is_empty():
+				break
+	if q.is_empty():
+		_nav_goal = -1
+		return
+	_nav_goal = g
+	var nx := _nav_nx
+	var n := _nav_n
+	var head := 0
+	while head < q.size():
+		var cur := q[head]
+		head += 1
+		var dn := _nav_dist[cur] + 1
+		var i := cur % nx
+		if i > 0 and _nav_ok[cur - 1] == 1 and _nav_dist[cur - 1] < 0:
+			_nav_dist[cur - 1] = dn
+			q.append(cur - 1)
+		if i < nx - 1 and _nav_ok[cur + 1] == 1 and _nav_dist[cur + 1] < 0:
+			_nav_dist[cur + 1] = dn
+			q.append(cur + 1)
+		if cur >= nx and _nav_ok[cur - nx] == 1 and _nav_dist[cur - nx] < 0:
+			_nav_dist[cur - nx] = dn
+			q.append(cur - nx)
+		if cur + nx < n and _nav_ok[cur + nx] == 1 and _nav_dist[cur + nx] < 0:
+			_nav_dist[cur + nx] = dn
+			q.append(cur + nx)
+
+
+## Case de départ d'un ennemi : la sienne si elle mène au héros, sinon la plus proche qui y mène
+## (deux cases autour au plus : pas de saut par-dessus le vide).
+func _nav_start(from: Vector3) -> int:
+	var c := _nav_cell(from)
+	if _nav_dist[c] >= 0:
+		return c
+	var ci := c % _nav_nx
+	var cj := floori(float(c) / float(_nav_nx))
+	var best := -1
+	var best_d := INF
+	for dj in range(-2, 3):
+		for di in range(-2, 3):
+			var ii := ci + di
+			var jj := cj + dj
+			if ii < 0 or jj < 0 or ii >= _nav_nx or jj >= _nav_nz:
+				continue
+			var k := jj * _nav_nx + ii
+			if _nav_dist[k] < 0:
+				continue
+			var p := _nav_center(k)
+			var dd := Vector2(p.x - from.x, p.z - from.z).length_squared()
+			if dd < best_d:
+				best_d = dd
+				best = k
+	return best
 
 
 func _line_walkable(p: Vector3, q: Vector3, margin: float) -> bool:

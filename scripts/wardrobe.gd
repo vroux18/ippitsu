@@ -40,6 +40,7 @@ var _ui := FontVariation.new()
 var _sb := StyleBoxFlat.new()
 var _back: Control
 var _buy: Control
+var _safe := Vector2.ZERO  # marges de sécurité de l'écran (haut, bas), en pixels
 
 
 func _ready() -> void:
@@ -47,14 +48,15 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	_title.base_font = UiKit.TITLE_FONT
-	_title.spacing_glyph = 4
+	_title.spacing_glyph = UiKit.TITLE_SPACING
 	_ui.base_font = UiKit.UI_FONT
-	_ui.spacing_glyph = 2
+	_ui.spacing_glyph = UiKit.CAPS_SPACING
+	# retour à l'accueil : bouton rond à la maison, au même endroit que ceux de l'Atelier et de la carte
 	_back = InkButton.new()
 	_back.text = "RETOUR"
-	_back.style = "ghost"
+	_back.style = "round"
+	_back.icon = "home"
 	_back.font = _ui
-	_back.lead_icon = "home"
 	add_child(_back)
 	_back.pressed.connect(close)
 	_buy = InkButton.new()
@@ -225,7 +227,7 @@ func _on_buy() -> void:
 # ------------------------------------------------------------------ dessin
 
 func _panel(h: float, u: float) -> Rect2:
-	var top := maxf(h * 0.5, h - 360.0 * u)
+	var top := maxf(h * 0.5, h - _safe.y - 360.0 * u)
 	return Rect2(Vector2(0, top), Vector2(size.x, h - top))
 
 
@@ -233,15 +235,17 @@ func _process(_delta: float) -> void:
 	if not visible or meta == null:
 		return
 	size = get_viewport_rect().size
+	_safe = UiKit.safe_insets(size)
 	var dt := UiKit.real_delta()
 	_t += dt
 	_msg_t = maxf(0.0, _msg_t - dt)
 	_bump = maxf(0.0, _bump - dt * 2.5)
 	var u := size.x / 400.0
 	var a := UiKit.ease_out(clampf(_t / 0.35, 0.0, 1.0))
-	_back.size = Vector2(112, 40) * u
-	_back.position = Vector2(14 * u, 20 * u - 16 * u * (1.0 - a))
-	_back.font_size = int(13 * u)
+	# en-tête commun : bouton rond (ICON_BTN) centré sur (HEAD_X, HEAD_Y), sous l'encoche
+	var ib: float = UiKit.ICON_BTN * u
+	_back.size = Vector2(ib, ib)
+	_back.position = Vector2(UiKit.HEAD_X * u - ib / 2.0, _safe.x + UiKit.HEAD_Y * u - ib / 2.0 - 16 * u * (1.0 - a))
 	_back.modulate.a = a
 	# ACHETER : seulement pour un élément à acheter
 	var c := cat_id()
@@ -252,11 +256,11 @@ func _process(_delta: float) -> void:
 	if can:
 		var pr := _panel(size.y, u)
 		var bw := size.x * 0.56
-		_buy.size = Vector2(bw, 46 * u)
-		_buy.position = Vector2((size.x - bw) / 2.0, pr.end.y - 62 * u + 30 * u * (1.0 - a))
+		_buy.size = Vector2(bw, UiKit.BTN_H * u)
+		_buy.position = Vector2((size.x - bw) / 2.0, pr.end.y - _safe.y - (UiKit.BTN_H + UiKit.SP_M) * u + 30 * u * (1.0 - a))
 		_buy.text = "ACHETER  ·  %d" % cost
 		_buy.style = "primary" if int(meta.sumi) >= cost else "ghost"
-		_buy.font_size = int(15 * u)
+		_buy.font_size = int(UiKit.FS_HEADING * u)
 		_buy.modulate.a = a
 	queue_redraw()
 
@@ -270,48 +274,54 @@ func _draw() -> void:
 	var u := w / 400.0
 	var a := UiKit.ease_out(clampf(_t / 0.35, 0.0, 1.0))
 	# voile du haut (titre lisible), le héros reste visible au milieu
+	var vh := _safe.x + 100.0 * u
 	var top := PackedColorArray([Color(_wash, 0.9 * a), Color(_wash, 0.9 * a), Color(_wash, 0.0), Color(_wash, 0.0)])
-	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, 120 * u), Vector2(0, 120 * u)]), top)
-	UiKit.text(self, _title, "GARDE-ROBE", Vector2(w / 2.0, 92 * u), int(26 * u), Color(_ink, a))
-	# compteur d'encre (en haut à droite)
-	var ip := Vector2(w - 86 * u, 40 * u)
+	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, vh), Vector2(0, vh)]), top)
+	# en-tête commun : retour à gauche (InkButton rond), titre souligné de vermillon et sceau 衣 (le vêtement)
+	var hy := _safe.x
+	var tmax: float = w - 2.0 * 96.0 * u
+	UiKit.screen_title(self, _title, "GARDE-ROBE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a, "衣", tmax, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
+	# compteur d'encre (en haut à droite, sur la ligne de l'en-tête)
+	var ifs: int = int(UiKit.FS_NUMBER * 0.9 * u)
+	var itxt := str(int(meta.sumi))
+	var iw := _ui.get_string_size(itxt, HORIZONTAL_ALIGNMENT_LEFT, -1, ifs).x
+	var ip := Vector2(w - UiKit.SP_M * u - iw - 16 * u, hy + UiKit.HEAD_Y * u)
 	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, a), int(2 * u), Color(Toon.GOLD, a), int(maxf(1.0, 1.5 * u))), Rect2(ip + Vector2(0, -12) * u, Vector2(9, 24) * u))
-	draw_string(_ui, ip + Vector2(16, 6) * u, str(int(meta.sumi)), HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), Color(_ink, a))
-	# panneau de papier
+	draw_string(_ui, ip + Vector2(16, 6) * u, itxt, HORIZONTAL_ALIGNMENT_LEFT, -1, ifs, Color(_ink, a))
+	# panneau de papier : coins hauts arrondis, ombre vers le haut, asanoha (motif de kimono) très pâle, fibres
 	var pr := _panel(h, u)
 	pr.position.y += 40 * u * (1.0 - a)
-	UiKit.box(_sb, Color(_paper, 0.97 * a), int(22 * u))
+	UiKit.box(_sb, Color(_paper, 0.97 * a), int(UiKit.R_L * 1.2 * u))
 	_sb.corner_radius_bottom_left = 0
 	_sb.corner_radius_bottom_right = 0
-	_sb.shadow_color = Color(0, 0, 0, 0.25 * a)
-	_sb.shadow_size = int(18 * u)
-	_sb.shadow_offset = Vector2(0, -4 * u)
+	_sb.shadow_color = Color(0, 0, 0, UiKit.SHADOW_A * a)
+	_sb.shadow_size = int(UiKit.SHADOW_SIZE * 1.6 * u)
+	_sb.shadow_offset = Vector2(0, -UiKit.SHADOW_Y * u)
 	draw_style_box(_sb, Rect2(pr.position, pr.size + Vector2(0, 30 * u)))
 	_sb.shadow_size = 0
 	_sb.shadow_offset = Vector2.ZERO
-	draw_line(Vector2(w / 2.0 - 22 * u, pr.position.y + 9 * u), Vector2(w / 2.0 + 22 * u, pr.position.y + 9 * u), Color(_ink, 0.2 * a), 3 * u, true)
-	# onglets
 	var tx := 12.0 * u
 	var tw := (w - 24.0 * u) / float(CATS.size())
 	var ty := pr.position.y + 22 * u
+	# sous les onglets : asanoha (motif de kimono) très pâle, fibres du papier
+	var pat_y: float = ty + (UiKit.CHIP_H + 6.0) * u
+	var pat := Rect2(Vector2(UiKit.SP_M * u, pat_y), Vector2(w - 2.0 * UiKit.SP_M * u, maxf(10.0, pr.end.y - pat_y)))
+	UiKit.asanoha(self, pat, Color(_ink, 0.045 * a), 26.0 * u)
+	UiKit.fibres(self, pr, _ink, a, u, 4.0, 12)
+	draw_line(Vector2(w / 2.0 - 22 * u, pr.position.y + 9 * u), Vector2(w / 2.0 + 22 * u, pr.position.y + 9 * u), Color(_ink, 0.2 * a), 3 * u, true)
+	# onglets : puces en pilule (même dessin que les choix des options)
+	var tfs: int = int(UiKit.FS_CAPTION * u)
 	for i in CATS.size():
-		var r := Rect2(Vector2(tx + tw * i + 2 * u, ty), Vector2(tw - 4 * u, 32 * u))
+		var r := Rect2(Vector2(tx + tw * i + 2 * u, ty), Vector2(tw - 4 * u, UiKit.CHIP_H * u))
 		var on := i == cat
-		if on:
-			draw_style_box(UiKit.box(_sb, Color(_ink, a), int(16 * u)), r)
-		else:
-			draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(16 * u), Color(_ink, 0.25 * a), int(maxf(1.0, 1.2 * u))), r)
-		var lab := String(CAT_LABELS[i])
-		var fs := int(10.5 * u)
-		var lw := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		if lw > r.size.x - 6 * u and lw > 0.0:
-			fs = maxi(1, int(float(fs) * (r.size.x - 6 * u) / lw))
-		UiKit.text(self, _ui, lab, r.get_center() + Vector2(0, 4 * u), fs, Color(_paper if on else _ink, a * (1.0 if on else 0.7)))
-		_hits.append([r, "tab:%d" % i])
+		var tkey := "tab:%d" % i
+		var dr: Rect2 = r.grow(-1.0 * u) if _pressed == tkey else r
+		UiKit.chip(self, _sb, dr, UiKit.plain(String(CAT_LABELS[i])), _ui, tfs, on, _ink, _paper, a)
+		_hits.append([r, tkey])
 	# éléments de la catégorie
 	var c := cat_id()
 	var ids: Array = meta.cosmetic_ids(c)
-	var gy := ty + 46 * u
+	var gy := ty + (UiKit.CHIP_H + 14.0) * u
 	var cw := (w - 24.0 * u) / float(COLS)
 	var rh := 78.0 * u
 	var shown := shown_id()
@@ -340,17 +350,19 @@ func _draw() -> void:
 		if not owned and cost >= 0:
 			lab = "%d ENCRE" % cost
 			lc = Color(GOLD_INK if _paper.v > 0.5 else Toon.GOLD, ka)
-		var fs2 := int(9 * u)
+		var fs2 := int(UiKit.FS_CAPTION * u)
 		var lw2 := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
-		if lw2 > cw - 4 * u and lw2 > 0.0:
-			fs2 = maxi(1, int(float(fs2) * (cw - 4 * u) / lw2))
-		UiKit.text(self, _ui, lab, cc + Vector2(0, 40 * u), fs2, lc)
+		if lw2 > cw - 6 * u and lw2 > 0.0:
+			fs2 = maxi(1, int(float(fs2) * (cw - 6 * u) / lw2))
+		UiKit.text(self, _ui, lab, cc + Vector2(0, 41 * u), fs2, lc)
 		_hits.append([Rect2(cc - Vector2(cw * 0.5, 30 * u), Vector2(cw, rh - 2 * u)), key])
-	# détail de l'élément affiché
+	# détail de l'élément affiché, sous un filet au pinceau (shuriken au milieu)
 	var rows := int(ceil(float(ids.size()) / float(COLS)))
-	var dy := gy + rh * maxi(rows, 2) + 8 * u
+	var ry := gy + rh * maxi(rows, 2)
+	UiKit.brush_rule(self, w * 0.2, w * 0.8, ry, u, Color(_ink, 0.25), a)
+	var dy := ry + 16 * u
 	var nm := UiKit.plain(String(meta.cosmetic_name(c, shown)))
-	UiKit.text(self, _title, nm, Vector2(w / 2.0, dy + 6 * u), int(18 * u), Color(_ink, a))
+	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(w / 2.0, dy + 8 * u), int(UiKit.FS_HEADING * u), Color(_ink, a))
 	var sub := ""
 	var sc := Color(_ink, 0.6 * a)
 	if _msg_t > 0.0:
@@ -362,9 +374,10 @@ func _draw() -> void:
 		sub = "TOUCHE POUR PORTER"
 	else:
 		sub = UiKit.plain(String(meta.cosmetic_how(c, shown)))
-	var lines := UiKit.wrap(_ui, sub, int(10.5 * u), w - 60 * u, ["·", ":", "»"])
+	var bfs: int = int(UiKit.FS_BODY * u)
+	var lines := UiKit.wrap(_ui, sub, bfs, w - 60 * u, ["·", ":", "»"])
 	for li in mini(lines.size(), 2):
-		UiKit.text(self, _ui, lines[li], Vector2(w / 2.0, dy + 26 * u + 15 * u * li), int(10.5 * u), sc)
+		UiKit.text(self, _ui, lines[li], Vector2(w / 2.0, dy + 27 * u + 15 * u * li), bfs, sc)
 	# échantillon pour le sillage et l'encre (invisibles sur le héros immobile)
 	if c == "trail" or c == "ink":
 		var sp := Vector2(w - 58 * u, dy)

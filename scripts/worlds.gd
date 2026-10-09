@@ -42,6 +42,10 @@ const HULL := Color("#4A3A2E")
 const CREW := Color("#27324A")
 const ICE := Color("#BFD6E3")
 const INK_SEA := Color("#1B2232")
+# architecture (toits de tuiles, plâtre des kura et des donjons), communes à tous les mondes
+const KAWARA := Color("#3A3F4E")  # tuile gris indigo
+const KAWARA_DARK := Color("#262A36")  # faîtage, bandeaux
+const SHIKKUI := Color("#EDE7DA")  # plâtre blanc
 
 ## Index 0 = monde 1. Lecture seule (dictionnaires constants) : dupliquer avant de modifier.
 const WORLDS: Array = [
@@ -86,7 +90,7 @@ const WORLDS: Array = [
 		"under": Color("#3E4A3A"),
 		"void": Color("#1E3330"),
 		"void_metal": true,
-		"enemies": {"oni": 3, "kappa": 2, "brute": 1, "tate": 1, "funa": 1, "kitsunebi": 2, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 1, "kappa_yumi": 1},
+		"enemies": {"oni": 3, "kappa": 2, "brute": 1, "tate": 1, "funa": 1, "kitsunebi": 2, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 1, "kappa_yumi": 1, "shinobi": 2, "shuriken": 1},
 		"hp_mult": 1.15,
 	},
 	{
@@ -152,7 +156,7 @@ const WORLDS: Array = [
 		"under": Color("#3A3530"),
 		"void": Color("#0E1A2E"),
 		"void_metal": true,
-		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 2, "funa": 1, "kagebo": 2, "sumidama": 2, "kasa": 2, "moryo": 1, "onryo": 1, "teppo": 1, "tengu": 1, "kitsune_tsukai": 1},
+		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 2, "funa": 1, "kagebo": 2, "sumidama": 2, "kasa": 2, "moryo": 1, "onryo": 1, "teppo": 1, "tengu": 1, "kitsune_tsukai": 1, "shinobi": 2, "shuriken": 2, "kemuri": 2, "kunoichi": 1},
 		"hp_mult": 1.6,
 	},
 	{
@@ -174,7 +178,7 @@ const WORLDS: Array = [
 		"under": Color("#33402F"),
 		"void": Color("#1C2C22"),
 		"void_metal": true,
-		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 1, "tengu": 2, "kamaitachi": 1, "moryo": 1, "karasu": 3, "yamabushi": 2, "konoha": 2},
+		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 1, "tengu": 2, "kamaitachi": 1, "moryo": 1, "karasu": 3, "yamabushi": 2, "konoha": 2, "shinobi": 2, "shuriken": 1, "kemuri": 1, "kunoichi": 2},
 		"hp_mult": 1.7,
 	},
 	{
@@ -218,7 +222,7 @@ const WORLDS: Array = [
 		"under": Color("#242028"),
 		"void": Color("#140F1C"),
 		"void_metal": false,
-		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "onryo": 2, "kagebo": 1, "kanabo": 1, "moryo": 1, "gaki": 3, "gokusotsu": 2, "shiryo": 2},
+		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "onryo": 2, "kagebo": 1, "kanabo": 1, "moryo": 1, "gaki": 3, "gokusotsu": 2, "shiryo": 2, "kemuri": 1},
 		"hp_mult": 1.9,
 	},
 ]
@@ -234,17 +238,20 @@ static func world(id: int) -> Dictionary:
 
 
 ## Matière du sol du monde (shaders/ground.gdshader) : 2e teinte des tuiles, mousse, usure,
-## couleur d'incrustation rare (accent unique du monde, alpha 0 = aucune).
+## couleur d'incrustation rare (accent unique du monde, alpha 0 = aucune). Le rouge est gardé pour le
+## jeu (ennemis, attaques annoncées) : les sols restent dans les gris, indigos et ocres de l'estampe.
 static func floor_look(id: int) -> Dictionary:
 	match clampi(id, 1, WORLDS.size()):
 		1:
-			return {"alt": Color("#6F6A63"), "alt_k": 0.55, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#8E3A2E"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
+			return {"alt": Color("#6F6A63"), "alt_k": 0.55, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#34486A"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
 		2:
 			return {"alt": Color("#5D6B60"), "alt_k": 0.5, "moss": Color("#3F5440"), "moss_k": 0.45, "wear": 0.2, "accent": Color(0, 0, 0, 0), "leaves": [Color("#7E8F55"), Color("#9AA36A")]}
 		3:
 			return {"alt": Color("#B8C2CE"), "alt_k": 0.4, "moss": Color("#9AA6B4"), "moss_k": 0.0, "wear": 0.0, "accent": Color(0, 0, 0, 0)}
 		4:
 			return {"alt": Color("#3A3230"), "alt_k": 0.6, "moss": Color("#5A3A2C"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0)}
+		5:
+			return {"alt": Color("#A39A88"), "alt_k": 0.4, "moss": Color("#8E8674"), "moss_k": 0.0, "wear": 0.2, "accent": Color(0, 0, 0, 0)}
 		6:
 			return {"alt": Color("#556048"), "alt_k": 0.6, "moss": Color("#3D5236"), "moss_k": 0.6, "wear": 0.15, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8A6A3A"), Color("#6B7240")]}
 		7:
@@ -255,25 +262,26 @@ static func floor_look(id: int) -> Dictionary:
 			return {"alt": Color("#9C9384"), "alt_k": 0.5, "moss": Color("#7E786A"), "moss_k": 0.0, "wear": 0.25, "accent": Color(0, 0, 0, 0)}
 
 
-## Eau (ou lave, encre) du vide : fond profond / clair, écume, intensité des rubans, vitesse, rubans par mètre, écume du bord.
+## Eau (ou lave, encre) du vide : fond profond / clair, écume, intensité des rubans, vitesse, rubans par mètre,
+## écume du bord, force du motif seigaiha au large (0 : aucun ; jamais au pied des plateformes).
 static func water_style(id: int) -> Dictionary:
 	match clampi(id, 1, WORLDS.size()):
 		1:
-			return {"deep": Color("#142A48"), "shallow": Color("#24466E"), "foam": Color("#E2E8EA"), "k": 0.42, "flow": 1.0, "band": 0.8, "shore": 0.55}
+			return {"deep": Color("#142A48"), "shallow": Color("#24466E"), "foam": Color("#E2E8EA"), "k": 0.42, "flow": 1.0, "band": 0.8, "shore": 0.55, "sei": 0.32}
 		2:
-			return {"deep": Color("#13221F"), "shallow": Color("#24403B"), "foam": Color("#9FB8A8"), "k": 0.25, "flow": 0.5, "band": 0.6, "shore": 0.3}
+			return {"deep": Color("#13221F"), "shallow": Color("#24403B"), "foam": Color("#9FB8A8"), "k": 0.25, "flow": 0.5, "band": 0.6, "shore": 0.3, "sei": 0.16}
 		3:
-			return {"deep": Color("#26364A"), "shallow": Color("#3E536A"), "foam": Color("#DCE6EE"), "k": 0.35, "flow": 0.6, "band": 0.7, "shore": 0.5}
+			return {"deep": Color("#26364A"), "shallow": Color("#3E536A"), "foam": Color("#DCE6EE"), "k": 0.35, "flow": 0.6, "band": 0.7, "shore": 0.5, "sei": 0.2}
 		4:
-			return {"deep": Color("#1A1212"), "shallow": Color("#2E201E"), "foam": Color("#7A3018"), "k": 0.3, "flow": 0.35, "band": 0.5, "shore": 0.35}
+			return {"deep": Color("#1A1212"), "shallow": Color("#2E201E"), "foam": Color("#7A3018"), "k": 0.3, "flow": 0.35, "band": 0.5, "shore": 0.35, "sei": 0.0}
 		6:
-			return {"deep": Color("#121E17"), "shallow": Color("#26392D"), "foam": Color("#A9B89C"), "k": 0.22, "flow": 0.45, "band": 0.6, "shore": 0.3}
+			return {"deep": Color("#121E17"), "shallow": Color("#26392D"), "foam": Color("#A9B89C"), "k": 0.22, "flow": 0.45, "band": 0.6, "shore": 0.3, "sei": 0.14}
 		7:
-			return {"deep": Color("#082A33"), "shallow": Color("#145060"), "foam": Color("#9EE0DA"), "k": 0.3, "flow": 0.6, "band": 0.7, "shore": 0.4}
+			return {"deep": Color("#082A33"), "shallow": Color("#145060"), "foam": Color("#9EE0DA"), "k": 0.3, "flow": 0.6, "band": 0.7, "shore": 0.4, "sei": 0.26}
 		8:
-			return {"deep": Color("#0D0A13"), "shallow": Color("#211A2C"), "foam": Color("#8E7FB0"), "k": 0.22, "flow": 0.3, "band": 0.5, "shore": 0.3}
+			return {"deep": Color("#0D0A13"), "shallow": Color("#211A2C"), "foam": Color("#8E7FB0"), "k": 0.22, "flow": 0.3, "band": 0.5, "shore": 0.3, "sei": 0.0}
 		_:
-			return {"deep": Color("#0A1322"), "shallow": Color("#16243A"), "foam": Color("#CFC6B2"), "k": 0.3, "flow": 0.7, "band": 0.9, "shore": 0.45}
+			return {"deep": Color("#0A1322"), "shallow": Color("#16243A"), "foam": Color("#CFC6B2"), "k": 0.3, "flow": 0.7, "band": 0.9, "shore": 0.45, "sei": 0.24}
 
 
 ## Matériau du vide d'un monde (un par monde affiché : son cadre d'écume change d'une salle à l'autre).
@@ -288,6 +296,7 @@ static func water_material(id: int) -> ShaderMaterial:
 	m.set_shader_parameter("flow", float(s["flow"]))
 	m.set_shader_parameter("band", float(s["band"]))
 	m.set_shader_parameter("shore_k", float(s["shore"]))
+	m.set_shader_parameter("sei_k", float(s.get("sei", 0.0)))
 	m.set_shader_parameter("fine", not Toon.lite)
 	return m
 
@@ -515,28 +524,6 @@ static func _flush_mm(mm: Dictionary, parent: Node3D) -> void:
 		parent.add_child(mi)
 
 
-## Pièce isolée du lointain : aplat sans ombre.
-static func _far(parent: Node3D, mesh: Mesh, color: Color, pos: Vector3, scl := Vector3.ONE, rot := Vector3.ZERO) -> MeshInstance3D:
-	var mi := Toon.part(parent, mesh, _flat(color), pos, scl)
-	mi.rotation = rot
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	return mi
-
-
-## Montagne lointaine (cône) posée en `base`, avec calotte (neige, sommet sombre) qui épouse la pente.
-static func _peak(parent: Node3D, base: Vector3, top_r: float, base_r: float, h: float, col: Color, cap: Color, cap_frac: float, sides: int) -> void:
-	_far(parent, Toon.cyl(top_r, base_r, h, sides), col, base + Vector3(0, h * 0.5, 0))
-	if cap_frac > 0.0:
-		var hc := h * cap_frac
-		var br := (top_r + (base_r - top_r) * cap_frac) * 1.04
-		_far(parent, Toon.cyl(top_r * 1.04, br, hc, sides), cap, base + Vector3(0, h - hc * 0.5 + 0.02, 0))
-
-
-## Rayon d'un cône (top_r en haut, base_r en bas, hauteur h) à la profondeur `depth` sous le sommet.
-static func _cone_r(top_r: float, base_r: float, h: float, depth: float) -> float:
-	return top_r + (base_r - top_r) * clampf(depth / h, 0.0, 1.0)
-
-
 ## Hauteur de la surface d'une berge en dôme (centre cx, cz ; rayon r ; aplatie à 0.15 r).
 static func _dome_y(cx: float, cz: float, r: float, x: float, z: float) -> float:
 	var d := Vector2(x - cx, z - cz).length() / r
@@ -736,21 +723,23 @@ static func _sil_pagoda(st: SurfaceTool, base: Vector3, s: float, tiers: int, co
 	var y := base.y
 	var w := s
 	var z := base.z
+	var none := Color(0, 0, 0, 0)
 	for k in tiers:
 		var bh := 0.5 * s
 		_vrect(st, Vector3(base.x - w * 0.32, y, z), Vector3(base.x + w * 0.32, y + bh, z), col, col)
 		if win.a > 0.0:
 			_vrect(st, Vector3(base.x - w * 0.08, y + bh * 0.25, z + 0.15), Vector3(base.x + w * 0.08, y + bh * 0.75, z + 0.15), win, win)
 		y += bh
-		var rw := w * 0.82
-		_vquad(st, Vector3(base.x - rw, y - 0.05 * s, z + 0.25), Vector3(base.x + rw, y - 0.05 * s, z + 0.25),
-			Vector3(base.x + w * 0.36, y + 0.2 * s, z + 0.25), Vector3(base.x - w * 0.36, y + 0.2 * s, z + 0.25), roof_c, roof_c, roof_c, roof_c)
-		for sx: float in [-1.0, 1.0]:
-			_vtri(st, Vector3(base.x + sx * rw, y - 0.05 * s, z + 0.25), Vector3(base.x + sx * (rw + 0.12 * s), y + 0.1 * s, z + 0.25),
-				Vector3(base.x + sx * (rw - 0.2 * s), y + 0.03 * s, z + 0.25), roof_c, roof_c, roof_c)
+		# toit incurvé aux coins relevés (sori)
+		_sil_roof(st, base.x, y - 0.04 * s, z + 0.25, w * 0.84, 0.24 * s, 0.13 * s, 0.07 * s, roof_c, none, 0.16, none)
 		y += 0.2 * s
 		w *= 0.86
-	_vstroke(st, Vector3(base.x, y, z), Vector3(base.x, y + 1.0 * s, z), 0.07 * s, roof_c)
+	# sōrin : mât, neuf anneaux (kurin), flamme (suien) et perle
+	_vstroke(st, Vector3(base.x, y, z), Vector3(base.x, y + 1.1 * s, z), 0.06 * s, roof_c)
+	for k in 9:
+		var ry := y + 0.12 * s + k * 0.085 * s
+		_vrect(st, Vector3(base.x - 0.1 * s, ry, z + 0.05), Vector3(base.x + 0.1 * s, ry + 0.035 * s, z + 0.05), roof_c, roof_c)
+	_vdisc(st, Vector3(base.x, y + 1.18 * s, z + 0.05), 0.07 * s, roof_c, roof_c, 8)
 
 
 ## Bateau à voile carrée (bezaisen) en silhouette ; `facing` = ±1 (côté de la proue).
@@ -765,20 +754,15 @@ static func _sil_boat(st: SurfaceTool, p: Vector3, s: float, hull: Color, sail: 
 		_vstroke(st, p + Vector3(x, 0.78 * s, 0.3), p + Vector3(x, 2.47 * s, 0.3), 0.035 * s, sail.darkened(0.25))
 
 
-## Maison de pêcheur en silhouette (mur, toit en trapèze).
-static func _sil_house(st: SurfaceTool, p: Vector3, s: float, wall: Color, roof: Color) -> void:
-	_vrect(st, p + Vector3(-0.6 * s, 0, 0), p + Vector3(0.6 * s, 0.55 * s, 0), wall, wall)
-	_vquad(st, p + Vector3(-0.8 * s, 0.5 * s, 0.1), p + Vector3(0.8 * s, 0.5 * s, 0.1), p + Vector3(0.45 * s, 0.95 * s, 0.1), p + Vector3(-0.45 * s, 0.95 * s, 0.1), roof, roof, roof, roof)
-
-
 ## Temple en silhouette : grand toit en croupe aux coins relevés, ligne de neige si `snow.a > 0`.
 static func _sil_temple(st: SurfaceTool, p: Vector3, s: float, wall: Color, roof: Color, snow: Color) -> void:
 	_vrect(st, p + Vector3(-1.2 * s, 0, 0), p + Vector3(1.2 * s, 0.8 * s, 0), wall, wall)
-	_vquad(st, p + Vector3(-1.9 * s, 0.75 * s, 0.2), p + Vector3(1.9 * s, 0.75 * s, 0.2), p + Vector3(0.9 * s, 1.55 * s, 0.2), p + Vector3(-0.9 * s, 1.55 * s, 0.2), roof, roof, roof, roof)
-	for sx: float in [-1.0, 1.0]:
-		_vtri(st, p + Vector3(sx * 1.9 * s, 0.75 * s, 0.2), p + Vector3(sx * 2.1 * s, 0.95 * s, 0.2), p + Vector3(sx * 1.6 * s, 0.85 * s, 0.2), roof, roof, roof)
-	if snow.a > 0.0:
-		_vquad(st, p + Vector3(-0.95 * s, 1.48 * s, 0.3), p + Vector3(0.95 * s, 1.48 * s, 0.3), p + Vector3(0.85 * s, 1.62 * s, 0.3), p + Vector3(-0.85 * s, 1.62 * s, 0.3), snow, snow, snow, snow)
+	# piliers sombres de la façade
+	for k in 5:
+		var x := p.x + (float(k) - 2.0) * 0.55 * s
+		_vrect(st, Vector3(x - 0.05 * s, p.y, p.z + 0.1), Vector3(x + 0.05 * s, p.y + 0.78 * s, p.z + 0.1), roof, roof)
+	# grand toit en croupe (irimoya) : pans incurvés, égout relevé, tuiles de faîte
+	_sil_roof(st, p.x, p.y + 0.74 * s, p.z + 0.2, 2.05 * s, 0.82 * s, 0.24 * s, 0.1 * s, roof, snow, 0.42, roof)
 
 
 ## Lisière de conifères (triangles), chapeaux de neige si `cap.a > 0`.
@@ -872,6 +856,279 @@ static func _sketch_man(st: SurfaceTool, p: Vector3, s: float, col: Color, pose:
 	_vstroke(st, sh, sh + Vector3(0.38 * s * pose, -0.22 * s, 0), 0.05 * s, col)
 	_vstroke(st, sh, sh + Vector3(-0.3 * s * pose, -0.3 * s, 0), 0.05 * s, col)
 
+
+# --- estampe : formes partagées par les huit lointains (une seule logique de palette :
+# indigo / bleu de Prusse, vermillon, ocre, crème du washi, encre sumi), toutes dans le maillage « Estampe »
+
+## Disque face à +Z (soleil, lune, perle, halo) : `c_in` au centre, `c_out` au bord.
+static func _vdisc(st: SurfaceTool, c: Vector3, r: float, c_in: Color, c_out: Color, seg := 28) -> void:
+	for k in seg:
+		var a0 := TAU * k / seg
+		var a1 := TAU * (k + 1) / seg
+		_vtri(st, c, c + Vector3(cos(a0), sin(a0), 0) * r, c + Vector3(cos(a1), sin(a1), 0) * r, c_in, c_out, c_out)
+
+
+## Ellipse face à +Z (nuage en écaille, coussin d'aiguilles, rocher lointain), dégradée du haut vers le bas.
+static func _vellipse(st: SurfaceTool, c: Vector3, rx: float, ry: float, top_c: Color, low_c: Color, seg := 14) -> void:
+	var cm := low_c.lerp(top_c, 0.5)
+	for k in seg:
+		var a0 := TAU * k / seg
+		var a1 := TAU * (k + 1) / seg
+		var p0 := c + Vector3(cos(a0) * rx, sin(a0) * ry, 0)
+		var p1 := c + Vector3(cos(a1) * rx, sin(a1) * ry, 0)
+		_vtri(st, c, p0, p1, cm, low_c.lerp(top_c, (sin(a0) + 1.0) * 0.5), low_c.lerp(top_c, (sin(a1) + 1.0) * 0.5))
+
+
+## Couleur d'un ciel en bokashi à deux dégradés (y0 → y1 → y2), pour fondre en aplat opaque
+## ce qui était un voile transparent (halo, Voie lactée, nuages) : plus de tri alpha ni de draw call.
+static func _sky_at(y: float, sky: Array) -> Color:
+	var y0: float = sky[0]
+	var y1: float = sky[2]
+	var y2: float = sky[4]
+	var c0: Color = sky[1]
+	var c1: Color = sky[3]
+	var c2: Color = sky[5]
+	if y < y1:
+		return c0.lerp(c1, clampf((y - y0) / maxf(y1 - y0, 0.001), 0.0, 1.0))
+	return c1.lerp(c2, clampf((y - y1) / maxf(y2 - y1, 0.001), 0.0, 1.0))
+
+
+## Voile incliné (rayon de lumière, Voie lactée) peint en aplat : couleur du ciel derrière, mêlée
+## de `tint` à `a`, sommet par sommet. Centre `c`, largeur `w`, hauteur `h`, angle `ang` (autour de Z).
+static func _veil_band(st: SurfaceTool, c: Vector3, w: float, h: float, ang: float, tint: Color, a: float, sky: Array, nseg := 8) -> void:
+	var ax := Vector3(cos(ang), sin(ang), 0)
+	var ay := Vector3(-sin(ang), cos(ang), 0)
+	for i in nseg:
+		var ua := lerpf(-0.5, 0.5, float(i) / nseg) * w
+		var ub := lerpf(-0.5, 0.5, float(i + 1) / nseg) * w
+		var pts: Array[Vector3] = [c + ax * ua - ay * h * 0.5, c + ax * ub - ay * h * 0.5, c + ax * ub + ay * h * 0.5, c + ax * ua + ay * h * 0.5]
+		var cols: Array[Color] = []
+		for q in pts:
+			cols.append(_sky_at(q.y, sky).lerp(tint, a))
+		_vquad(st, pts[0], pts[1], pts[2], pts[3], cols[0], cols[1], cols[2], cols[3])
+
+
+## Hauteur du profil d'un mont à la distance `ax` de l'axe : plateau sommital, flancs concaves.
+static func _mount_y(ax: float, hw: float, tw: float, h: float, p: float) -> float:
+	if ax <= tw:
+		return h
+	return h * pow(maxf(1.0 - (ax - tw) / maxf(hw - tw, 0.001), 0.0), p)
+
+
+## Mont en aplat face à +Z (Fuji, pics) : demi-base `hw`, flancs concaves (exposant `p` > 1), sommet
+## tronqué (`top_w` × hw), bokashi de `low_c` (pied) à `top_c` (cime) ; calotte `cap` (neige, cendre)
+## sur `cap_frac` de la hauteur, bord inférieur en dents de coulées (alpha 0 : sans calotte).
+static func _sil_mount(st: SurfaceTool, base: Vector3, hw: float, h: float, p: float, top_w: float, top_c: Color, low_c: Color, cap: Color, cap_frac: float, n := 24) -> void:
+	var tw := hw * top_w
+	for i in n:
+		var xa := lerpf(-hw, hw, float(i) / n)
+		var xb := lerpf(-hw, hw, float(i + 1) / n)
+		var ya := _mount_y(absf(xa), hw, tw, h, p)
+		var yb := _mount_y(absf(xb), hw, tw, h, p)
+		_vquad(st, Vector3(base.x + xa, base.y, base.z), Vector3(base.x + xb, base.y, base.z), Vector3(base.x + xb, base.y + yb, base.z),
+			Vector3(base.x + xa, base.y + ya, base.z), low_c, low_c, low_c.lerp(top_c, yb / h), low_c.lerp(top_c, ya / h))
+	if cap.a <= 0.0 or cap_frac <= 0.0:
+		return
+	var ys := h * (1.0 - cap_frac)
+	var jd := h * cap_frac * 0.55
+	var xc := tw + (hw - tw) * (1.0 - pow(clampf((ys - jd) / h, 0.0, 1.0), 1.0 / p))
+	var m := 18
+	var z := base.z + 0.3
+	var cap_lo := cap.darkened(0.08)
+	for i in m:
+		var xa := lerpf(-xc, xc, float(i) / m)
+		var xb := lerpf(-xc, xc, float(i + 1) / m)
+		var ta := _mount_y(absf(xa), hw, tw, h, p)
+		var tb := _mount_y(absf(xb), hw, tw, h, p)
+		var ba := minf(_cap_edge(i, ys, jd), ta)
+		var bb := minf(_cap_edge(i + 1, ys, jd), tb)
+		if ta - ba < 0.01 and tb - bb < 0.01:
+			continue
+		_vquad(st, Vector3(base.x + xa, base.y + ba, z), Vector3(base.x + xb, base.y + bb, z), Vector3(base.x + xb, base.y + tb, z),
+			Vector3(base.x + xa, base.y + ta, z), cap_lo, cap_lo, cap, cap)
+
+
+## Bord inférieur de la calotte : une dent sur deux descend (coulées de neige du Fuji).
+static func _cap_edge(i: int, ys: float, jd: float) -> float:
+	if i % 2 == 1:
+		return ys - jd * (0.55 + 0.45 * sin(float(i) * 2.3))
+	return ys + jd * 0.12
+
+
+## Dessus d'un toit en aplat à l'abscisse relative t ∈ [-1, 1] : faîtage plat sur |t| < rr, pans concaves.
+static func _roof_top(t: float, rr: float, rise: float, lift: float) -> float:
+	var a := absf(t)
+	if a <= rr:
+		return rise
+	var u := (a - rr) / maxf(1.0 - rr, 0.001)
+	return rise * pow(1.0 - u, 1.8) + lift * pow(u, 6.0)
+
+
+## Toit incurvé en aplat (face à +Z) posé sur un mur dont le haut est en (cx, y) : demi-largeur `hw`,
+## faîtage de demi-longueur `rr` × hw, hauteur `rise`, égout relevé aux coins (`lift`), épaisseur `th` ;
+## liseré de neige si `snow.a > 0`, ornements de faîte (onigawara, shachihoko) si `orn.a > 0`.
+static func _sil_roof(st: SurfaceTool, cx: float, y: float, z: float, hw: float, rise: float, lift: float, th: float, col: Color, snow: Color, rr: float, orn: Color) -> void:
+	var n := 16
+	var cd := col.darkened(0.18)
+	for i in n:
+		var ta := lerpf(-1.0, 1.0, float(i) / n)
+		var tb := lerpf(-1.0, 1.0, float(i + 1) / n)
+		var ya := _roof_top(ta, rr, rise, lift)
+		var yb := _roof_top(tb, rr, rise, lift)
+		var ua := maxf(absf(ta) - rr, 0.0) / maxf(1.0 - rr, 0.001)
+		var ub := maxf(absf(tb) - rr, 0.0) / maxf(1.0 - rr, 0.001)
+		var la := minf(-th + lift * pow(ua, 6.0), ya - th * 0.6)
+		var lb := minf(-th + lift * pow(ub, 6.0), yb - th * 0.6)
+		_vquad(st, Vector3(cx + ta * hw, y + la, z), Vector3(cx + tb * hw, y + lb, z), Vector3(cx + tb * hw, y + yb, z), Vector3(cx + ta * hw, y + ya, z), cd, cd, col, col)
+		if snow.a > 0.0:
+			_vquad(st, Vector3(cx + ta * hw, y + ya - th * 0.7, z + 0.08), Vector3(cx + tb * hw, y + yb - th * 0.7, z + 0.08),
+				Vector3(cx + tb * hw, y + yb + th * 0.3, z + 0.08), Vector3(cx + ta * hw, y + ya + th * 0.3, z + 0.08), snow, snow, snow, snow)
+	if orn.a <= 0.0 or rr <= 0.02:
+		return
+	# ornements aux bouts du faîtage : queue de poisson relevée vers l'extérieur
+	for sx: float in [-1.0, 1.0]:
+		var ex := cx + sx * rr * hw
+		var ey := y + rise
+		_vtri(st, Vector3(ex - sx * th * 0.8, ey, z + 0.1), Vector3(ex + sx * th * 0.6, ey, z + 0.1), Vector3(ex + sx * th * 0.9, ey + th * 2.4, z + 0.1), orn, orn, orn)
+		_vtri(st, Vector3(ex - sx * th * 0.8, ey, z + 0.1), Vector3(ex + sx * th * 0.9, ey + th * 2.4, z + 0.1), Vector3(ex - sx * th * 0.2, ey + th * 1.6, z + 0.1), orn, orn, orn)
+
+
+## Donjon (tenshukaku) en aplat, pied en `b` : base de pierre ishigaki aux flancs incurvés, quatre
+## étages blancs à fenêtres, toits incurvés aux coins relevés, pignon chidori-hafu, shachihoko au faîte.
+static func _sil_castle(st: SurfaceTool, b: Vector3, s: float, wall: Color, roof: Color, stone: Color, win: Color, gold: Color, snow: Color) -> void:
+	var z := b.z
+	var bw := 3.6 * s
+	var tw := 2.6 * s
+	var bh := 1.3 * s
+	var n := 8
+	for i in n:
+		var ya := bh * float(i) / n
+		var yb := bh * float(i + 1) / n
+		var wa := tw + (bw - tw) * pow(1.0 - float(i) / n, 2.0)
+		var wb := tw + (bw - tw) * pow(1.0 - float(i + 1) / n, 2.0)
+		var ca := stone.darkened(0.22).lerp(stone, float(i) / n)
+		var cb := stone.darkened(0.22).lerp(stone, float(i + 1) / n)
+		_vquad(st, Vector3(b.x - wa * 0.5, b.y + ya, z), Vector3(b.x + wa * 0.5, b.y + ya, z), Vector3(b.x + wb * 0.5, b.y + yb, z),
+			Vector3(b.x - wb * 0.5, b.y + yb, z), ca, ca, cb, cb)
+	var widths := PackedFloat32Array([2.3, 1.85, 1.4, 1.0])
+	var heights := PackedFloat32Array([0.8, 0.7, 0.62, 0.58])
+	var none := Color(0, 0, 0, 0)
+	var y := b.y + bh
+	for k in 4:
+		var w := widths[k] * s
+		var h := heights[k] * s
+		_vrect(st, Vector3(b.x - w * 0.5, y, z + 0.1), Vector3(b.x + w * 0.5, y + h, z + 0.1), wall.darkened(0.1), wall)
+		var nw := 5 - k
+		for j in nw:
+			var wx := b.x + (float(j) - (nw - 1) * 0.5) * (w / (float(nw) + 0.6))
+			_vrect(st, Vector3(wx - 0.08 * s, y + h * 0.38, z + 0.2), Vector3(wx + 0.08 * s, y + h * 0.64, z + 0.2), win, win)
+		y += h
+		var top := k == 3
+		var rise: float = 0.46 * s if top else 0.3 * s
+		var rr: float = 0.42 if top else 0.62
+		_sil_roof(st, b.x, y, z + 0.3, w * 0.5 + 0.36 * s, rise, 0.15 * s, 0.08 * s, roof, snow, rr, gold if top else none)
+		if k == 1:
+			# chidori-hafu : pignon triangulaire au milieu du pan
+			_vtri(st, Vector3(b.x - 0.46 * s, y + 0.02 * s, z + 0.4), Vector3(b.x + 0.46 * s, y + 0.02 * s, z + 0.4), Vector3(b.x, y + 0.48 * s, z + 0.4), roof, roof, roof)
+			_vtri(st, Vector3(b.x - 0.3 * s, y + 0.06 * s, z + 0.45), Vector3(b.x + 0.3 * s, y + 0.06 * s, z + 0.45), Vector3(b.x, y + 0.36 * s, z + 0.45), wall, wall, wall)
+		y += 0.08 * s
+
+
+## Rangée de toits de ville (machiya, kura) en aplat de x0 à x1, faîtes où courent les ninjas ;
+## un ninja bondit au-dessus d'un des toits si `ninja.a > 0`.
+static func _sil_roofline(st: SurfaceTool, rng: RandomNumberGenerator, x0: float, x1: float, z: float, y0: float, s: float, wall: Color, roof: Color, snow: Color, ninja: Color) -> void:
+	var x := x0
+	var k := 0
+	var jumper := rng.randi_range(1, 3)
+	var none := Color(0, 0, 0, 0)
+	while x < x1:
+		var w := rng.randf_range(2.2, 3.6) * s
+		var h := rng.randf_range(0.8, 1.5) * s
+		var cx := x + w * 0.5
+		var zz := z + (0.3 if k % 2 == 0 else 0.0)
+		_vrect(st, Vector3(x, y0, zz), Vector3(x + w, y0 + h, zz), wall.darkened(0.12), wall)
+		var rise := rng.randf_range(0.35, 0.55) * s
+		_sil_roof(st, cx, y0 + h, zz + 0.12, w * 0.56, rise, 0.12 * s, 0.08 * s, roof, snow, rng.randf_range(0.3, 0.55), roof)
+		if ninja.a > 0.0 and k == jumper:
+			_sil_ninja(st, Vector3(cx + w * 0.45, y0 + h + rise + 0.75 * s, zz + 0.6), s * 0.6, ninja, 1.0 if rng.randf() < 0.5 else -1.0)
+		x += w * rng.randf_range(0.82, 1.0)
+		k += 1
+
+
+## Ninja en silhouette qui bondit d'un toit à l'autre (`f` = ±1 : sens du saut) : buste penché, tête,
+## bandeau qui flotte, sabre dans le dos, jambe avant repliée.
+static func _sil_ninja(st: SurfaceTool, p: Vector3, s: float, col: Color, f: float) -> void:
+	var sh := p + Vector3(0.28 * s * f, 0.42 * s, 0)
+	_vstroke(st, p, sh, 0.2 * s, col)
+	var hc := sh + Vector3(0.1 * s * f, 0.17 * s, 0)
+	_vdisc(st, hc, 0.11 * s, col, col, 8)
+	_vstroke(st, hc + Vector3(-0.08 * s * f, 0.02 * s, 0), hc + Vector3(-0.44 * s * f, 0.12 * s, 0), 0.035 * s, col)
+	_vstroke(st, hc + Vector3(-0.08 * s * f, 0.0, 0), hc + Vector3(-0.38 * s * f, -0.05 * s, 0), 0.03 * s, col)
+	_vstroke(st, p + Vector3(-0.16 * s * f, -0.06 * s, 0), sh + Vector3(-0.06 * s * f, 0.34 * s, 0), 0.04 * s, col)
+	_vstroke(st, sh, sh + Vector3(0.38 * s * f, -0.05 * s, 0), 0.06 * s, col)
+	_vstroke(st, sh, sh + Vector3(-0.3 * s * f, -0.22 * s, 0), 0.06 * s, col)
+	var knee := p + Vector3(0.3 * s * f, -0.12 * s, 0)
+	_vstroke(st, p, knee, 0.09 * s, col)
+	_vstroke(st, knee, knee + Vector3(-0.05 * s * f, -0.28 * s, 0), 0.07 * s, col)
+	_vstroke(st, p, p + Vector3(-0.42 * s * f, -0.22 * s, 0), 0.08 * s, col)
+
+
+## Torii en aplat face à +Z, pieds en `p` (hauteur ≈ 3.5 s) : piliers, nuki, gakuzuka, kasagi relevé.
+static func _sil_torii(st: SurfaceTool, p: Vector3, s: float, col: Color) -> void:
+	for sx: float in [-1.0, 1.0]:
+		_vstroke(st, p + Vector3(sx * 1.1 * s, 0, 0), p + Vector3(sx * 1.0 * s, 3.05 * s, 0), 0.22 * s, col)
+	_vrect(st, p + Vector3(-1.45 * s, 2.32 * s, 0.05), p + Vector3(1.45 * s, 2.48 * s, 0.05), col, col)
+	_vrect(st, p + Vector3(-0.08 * s, 2.48 * s, 0.05), p + Vector3(0.08 * s, 2.95 * s, 0.05), col, col)
+	var n := 8
+	for i in n:
+		var ta := lerpf(-1.0, 1.0, float(i) / n)
+		var tb := lerpf(-1.0, 1.0, float(i + 1) / n)
+		var ya := 2.95 * s + 0.32 * s * pow(absf(ta), 2.5)
+		var yb := 2.95 * s + 0.32 * s * pow(absf(tb), 2.5)
+		_vquad(st, p + Vector3(ta * 1.8 * s, ya, 0.1), p + Vector3(tb * 1.8 * s, yb, 0.1), p + Vector3(tb * 1.8 * s, yb + 0.26 * s, 0.1),
+			p + Vector3(ta * 1.8 * s, ya + 0.26 * s, 0.1), col, col, col, col)
+
+
+## Lanterne de pierre (tōrō) en aplat, pied en `p` (hauteur ≈ 1.6 s) : fenêtre de la chambre à feu en `light`.
+static func _sil_toro(st: SurfaceTool, p: Vector3, s: float, col: Color, light: Color) -> void:
+	_vrect(st, p + Vector3(-0.34 * s, 0, 0), p + Vector3(0.34 * s, 0.14 * s, 0), col, col)
+	_vrect(st, p + Vector3(-0.1 * s, 0.14 * s, 0), p + Vector3(0.1 * s, 0.74 * s, 0), col, col)
+	_vrect(st, p + Vector3(-0.3 * s, 0.74 * s, 0), p + Vector3(0.3 * s, 0.86 * s, 0), col, col)
+	_vrect(st, p + Vector3(-0.22 * s, 0.86 * s, 0), p + Vector3(0.22 * s, 1.2 * s, 0), col, col)
+	_vrect(st, p + Vector3(-0.13 * s, 0.92 * s, 0.05), p + Vector3(0.13 * s, 1.14 * s, 0.05), light, light)
+	_vquad(st, p + Vector3(-0.48 * s, 1.2 * s, 0), p + Vector3(0.48 * s, 1.2 * s, 0), p + Vector3(0.12 * s, 1.44 * s, 0), p + Vector3(-0.12 * s, 1.44 * s, 0), col, col, col, col)
+	for sx: float in [-1.0, 1.0]:
+		_vtri(st, p + Vector3(sx * 0.48 * s, 1.2 * s, 0), p + Vector3(sx * 0.56 * s, 1.3 * s, 0), p + Vector3(sx * 0.36 * s, 1.24 * s, 0), col, col, col)
+	_vdisc(st, p + Vector3(0, 1.52 * s, 0), 0.08 * s, col, col, 8)
+
+
+## Pin de Hokusai en aplat : tronc penché en S (`lean` : sens), branches horizontales et plateaux
+## d'aiguilles plats en couches (reflet `leaf_hi` dessus).
+static func _sil_pine(st: SurfaceTool, rng: RandomNumberGenerator, p: Vector3, s: float, lean: float, trunk: Color, leaf: Color, leaf_hi: Color) -> void:
+	var pts: Array[Vector3] = [p]
+	var q := p
+	for k in 4:
+		q += Vector3(lean * s * (0.35 + 0.3 * sin(float(k) * 1.9)), 1.1 * s, 0)
+		pts.append(q)
+	for k in 4:
+		_vstroke(st, pts[k], pts[k + 1], s * (0.32 - k * 0.06), trunk)
+	for k in range(1, 5):
+		var c: Vector3 = pts[k]
+		var dir: float = -1.0 if k % 2 == 0 else 1.0
+		var tip := c + Vector3(dir * s * rng.randf_range(0.9, 1.6), rng.randf_range(-0.1, 0.3) * s, 0.1)
+		_vstroke(st, c, tip, s * 0.08, trunk)
+		var rx := s * rng.randf_range(1.0, 1.5) * (1.15 - k * 0.1)
+		_vellipse(st, tip + Vector3(0, 0.12 * s, 0.2), rx, rx * 0.28, leaf, leaf.darkened(0.18), 12)
+		_vellipse(st, tip + Vector3(0, 0.2 * s, 0.3), rx * 0.7, rx * 0.15, leaf_hi, leaf, 10)
+
+
+## Kasumi : bande de brume en gradins (une longue barre, deux plus courtes décalées), comme les
+## nuées stylisées qui découpent les plans des estampes.
+static func _kasumi(st: SurfaceTool, c: Vector3, w: float, h: float, top_c: Color, low_c: Color) -> void:
+	_band(st, c, w, h, top_c, low_c)
+	_band(st, c + Vector3(-w * 0.22, h * 0.55, -0.25), w * 0.5, h * 0.7, top_c, low_c)
+	_band(st, c + Vector3(w * 0.25, -h * 0.5, 0.25), w * 0.42, h * 0.65, top_c, low_c)
+
 # ------------------------------------------------------------------ lointain
 
 ## Le lointain du monde : vu surtout depuis la caméra d'accueil (basse, vers -Z)
@@ -899,39 +1156,40 @@ static func build_backdrop(world_id: int, parent: Node3D) -> void:
 			_backdrop_ink(root)
 
 
-## Monde 1 : port de Kanagawa. Ciel d'aube du premier jour, chaînes bleues en couches, village,
-## brume en bandes, voiles et oiseaux de mer ; Fuji, soleil vermillon, Grande Vague, îlots ;
-## plus près : torii dans l'eau, ponton du port, lanterne de port, pieux d'amarrage, barques.
+## Monde 1 : port de Kanagawa. Ciel d'aube du premier jour, soleil vermillon, chaînes bleues en couches,
+## Fuji de Prusse coupé de kasumi, cap au pin de Hokusai, villages (un ninja court sur les faîtes), voiles
+## et oiseaux de mer ; Grande Vague, îlots ; plus près : torii dans l'eau, entrepôts kura sur pilotis
+## frappés du mon du clan, ponton du port, lanterne de port, pieux d'amarrage, barques.
 static func _backdrop_wave(root: Node3D) -> void:
 	var rng := _rng(11)
+	var lite: bool = Toon.lite
 	var st := _vc_begin()
 	_vrect(st, Vector3(-340, -2, -250), Vector3(340, 30, -250), Color("#EDB48F"), Toon.WASHI)
 	_vrect(st, Vector3(-340, 30, -250), Vector3(340, 140, -250), Toon.WASHI, Color("#DCD6C6"))
+	# soleil vermillon du premier jour, derrière les chaînes
+	_vdisc(st, Vector3(26, 26, -236), 11.0, Toon.VERMILION, Toon.VERMILION.darkened(0.06), 32)
 	_ridge(st, rng, -280.0, 280.0, -215.0, -1.0, 11.0, Color("#8597B0"), Color("#E6D8C2"), 34)
 	_ridge(st, rng, -260.0, 260.0, -192.0, -1.0, 7.0, Color("#5F7593"), Color("#DCD3C1"), 34)
+	# Fuji de Prusse aux flancs concaves, neige aux coulées dentelées ; deux bandes de kasumi le coupent
+	_sil_mount(st, Vector3(-18, -1.0, -170), 46.0, 27.0, 1.7, 0.05, Color("#3F5878"), Color("#9AA8BC"), Toon.WASHI, 0.27)
+	_kasumi(st, Vector3(-30, 6.0, -150), 140.0, 1.6, Color("#F7F0E2"), Toon.WASHI)
+	_kasumi(st, Vector3(30, 10.5, -160), 90.0, 1.1, Color("#F7F0E2"), Toon.WASHI)
 	_ridge(st, rng, -220.0, 220.0, -128.0, -1.0, 3.2, Color("#3F5878"), Color("#C9C6B8"), 30)
-	for i in 18:
-		var x := rng.randf_range(-110.0, 110.0)
-		if absf(x + 18.0) < 14.0:
-			continue
-		_sil_house(st, Vector3(x, -0.6, -126.5), rng.randf_range(2.0, 3.2), Color("#4A5E78"), Color("#2E3B52"))
-	for k in 7:
-		_band(st, Vector3(rng.randf_range(-90.0, 90.0), 3.0 + k * 3.2 + rng.randf_range(-1.0, 1.0), -112.0 - k * 6.0),
+	# cap au pin de Hokusai, villages de pêcheurs (faîtes où court un ninja)
+	_ridge(st, rng, -86.0, -46.0, -124.0, -1.0, 2.6, Color("#33496A"), Color("#C9C6B8"), 10)
+	_sil_pine(st, rng, Vector3(-64, 1.2, -123.5), 2.0, 0.7, Color("#22283A"), Color("#2F4A3C"), Color("#4E6E5B"))
+	_sil_roofline(st, rng, -110.0, -36.0, -126.5, -0.6, 1.8, Color("#4A5E78"), Color("#2E3B52"), Color(0, 0, 0, 0), Color("#1B2232"))
+	_sil_roofline(st, rng, -2.0, 110.0, -126.5, -0.6, 1.8, Color("#4A5E78"), Color("#2E3B52"), Color(0, 0, 0, 0), Color("#1B2232"))
+	for k in (4 if lite else 7):
+		_kasumi(st, Vector3(rng.randf_range(-90.0, 90.0), 3.0 + k * 3.2 + rng.randf_range(-1.0, 1.0), -112.0 - k * 6.0),
 			rng.randf_range(40.0, 95.0), rng.randf_range(1.6, 3.2), Color("#F7F0E2"), Color("#E9DCC6"))
-	for k in 7:
+	for k in (4 if lite else 7):
 		var z := rng.randf_range(-115.0, -45.0)
 		var face: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sil_boat(st, Vector3(rng.randf_range(-60.0, 60.0), VOID_Y, z), rng.randf_range(0.9, 1.5) * (1.0 - z / 260.0), Color("#2E3B52"), Color("#F4EEDF"), face)
 	_flock(st, rng, Vector3(10, 17, -75), 9, Vector3(14, 4, 6), 1.1, Color("#2B3448"))
 	_flock(st, rng, Vector3(-30, 24, -120), 6, Vector3(10, 3, 4), 1.6, Color("#3A4660"))
 	_vc_end(st, root)
-	# Fuji bleu et sa neige, soleil vermillon du premier jour, brume
-	_far(root, Toon.cyl(2.0, 46.0, 26.0, 48), Color("#5D7392"), Vector3(-18, 12.4, -170))
-	_far(root, Toon.cyl(2.05, 12.5, 7.0, 48), Toon.FOAM, Vector3(-18, 21.9, -169.6))
-	_far(root, Toon.sphere(11.0), Toon.VERMILION, Vector3(26, 26, -230))
-	var mist := Color(Toon.WASHI, 0.85)
-	_far(root, _box(Vector3(140, 1.6, 0.1)), mist, Vector3(-30, 6.0, -150))
-	_far(root, _box(Vector3(90, 1.1, 0.1)), mist, Vector3(30, 10.5, -160))
 	# rides d'écume au large
 	var foam := {}
 	var fm := _toon(Toon.FOAM, false)
@@ -945,12 +1203,19 @@ static func _backdrop_wave(root: Node3D) -> void:
 	w1.rotation.y = 0.6
 	var w2: Node3D = Decor.great_wave(root, Vector3(32, VOID_Y, -75), 3.5, 2)
 	w2.rotation.y = -0.5
-	Decor.island(root, Vector3(14, VOID_Y, -30), 1.4, 1)
-	Decor.island(root, Vector3(-34, VOID_Y, -70), 2.4, 2)
-	Decor.island(root, Vector3(45, VOID_Y, -110), 3.0, 3)
+	# îlots fusionnés dans un même lot (6 draw calls pour les trois)
+	var isl := {}
+	Decor.island_into(isl, _at(Vector3(14, VOID_Y, -30), Vector3.ZERO, Vector3.ONE * 1.4), 1)
+	Decor.island_into(isl, _at(Vector3(-34, VOID_Y, -70), Vector3.ZERO, Vector3.ONE * 2.4), 2)
+	Decor.island_into(isl, _at(Vector3(45, VOID_Y, -110), Vector3.ZERO, Vector3.ONE * 3.0), 3)
+	_flush(isl, root, false)
 	# le port, plus près
 	var b := {}
 	var bn := {}
+	# entrepôts kura sur pilotis, frappés du mon du clan, toits de tuiles où courent les ninjas
+	for k in 3:
+		var kx := _at(Vector3(-21.0 - k * 0.5, VOID_Y, -31.0 - k * 4.4), Vector3(0, PI * 0.5 + rng.randf_range(-0.06, 0.06), 0))
+		_kura_into(b, bn, kx, rng.randf_range(3.0, 3.6), 2.8, rng.randf_range(2.2, 2.8), k % 4)
 	Decor.torii_into(b, _at(Vector3(-14.0, VOID_Y, -27.0), Vector3(0, 0.3, 0), Vector3.ONE * 0.95), -0.7)
 	var px := _at(Vector3(13.0, 0.0, -19.0), Vector3(0, -0.12, 0))
 	Decor.pier_into(b, px, 1.7, 7.5, -0.05, VOID_Y - 0.4)
@@ -969,65 +1234,71 @@ static func _backdrop_wave(root: Node3D) -> void:
 	_flush(bn, root, false)
 
 
-## Monde 2 : nuit de Tanabata, ciel en bokashi nocturne, chaînes sombres, pagode aux fenêtres
-## éclairées, nuages en bandes devant la lune, procession des feux de renards ; rideau de bambous,
-## allée de torii, cascade de Kirifuri, pont arqué vermillon.
+## Monde 2 : nuit de Tanabata, ciel en bokashi nocturne, Voie lactée, chaînes sombres, pagode aux fenêtres
+## éclairées, nuages en bandes devant la lune, feux de renards sous une allée de torii qui gravit la colline,
+## cascade de Kirifuri ; rideau de bambous, allée de torii, pont arqué vermillon.
 static func _backdrop_tanabata(root: Node3D) -> void:
 	var rng := _rng(22)
+	var lite: bool = Toon.lite
+	var sky: Array = [-2.0, Color("#2E3B4E"), 40.0, Color("#1F2A3A"), 150.0, Color("#121A26")]
 	var st := _vc_begin()
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 40, -252), Color("#2E3B4E"), Color("#1F2A3A"))
 	_vrect(st, Vector3(-340, 40, -252), Vector3(340, 150, -252), Color("#1F2A3A"), Color("#121A26"))
+	# Voie lactée et halo de la lune peints dans le ciel (aplats mêlés au bokashi : plus de voiles transparents)
+	_veil_band(st, Vector3(20, 62, -248), 340.0, 16.0, -0.32, Color(0.9, 0.9, 1.0), 0.07, sky)
+	_veil_band(st, Vector3(20, 62, -247), 340.0, 6.0, -0.32, Color(0.95, 0.95, 1.0), 0.1, sky)
+	var halo := _sky_at(30.0, sky)
+	_vdisc(st, Vector3(-24, 30, -244), 11.0, halo.lerp(Color("#F4ECD2"), 0.16), halo, 32)
+	for i in (40 if lite else 70):
+		var p := Vector3(rng.randf_range(-170.0, 170.0), rng.randf_range(18.0, 110.0), rng.randf_range(-246.0, -240.0))
+		var r := rng.randf_range(0.18, 0.42)
+		_vquad(st, p + Vector3(0, -r, 0), p + Vector3(r, 0, 0), p + Vector3(0, r, 0), p + Vector3(-r, 0, 0),
+			Color("#F6F0DC"), Color("#F6F0DC"), Color("#F6F0DC"), Color("#F6F0DC"))
 	_ridge(st, rng, -280.0, 280.0, -205.0, -1.0, 24.0, Color("#2C384C"), Color("#2C3848"), 30)
 	_ridge(st, rng, -260.0, 260.0, -178.0, -1.0, 13.0, Color("#1C2531"), Color("#283444"), 30)
 	_ridge(st, rng, 8.0, 64.0, -106.0, -1.0, 5.0, Color("#18202A"), Color("#202B38"), 12)
 	_sil_pagoda(st, Vector3(36, 2.6, -105.5), 2.6, 5, Color("#141A22"), Color("#0F141B"), Color("#F2C46A"))
 	_band(st, Vector3(-18, 26.5, -146), 36.0, 1.5, Color("#5A6880"), Color("#3B475C"))
 	_band(st, Vector3(-32, 33.0, -146), 24.0, 1.1, Color("#5A6880"), Color("#3B475C"))
-	_band(st, Vector3(30, 40.0, -170), 60.0, 2.0, Color("#3E4A60"), Color("#2C3848"))
+	_kasumi(st, Vector3(30, 40.0, -170), 60.0, 2.0, Color("#3E4A60"), Color("#2C3848"))
+	# lune pleine de la nuit des étoiles
+	_vdisc(st, Vector3(-24, 30, -150), 6.0, Color("#F4ECD2"), Color("#EAE0C2"), 32)
+	# montagnes sombres
+	for i in 6:
+		var h := rng.randf_range(18.0, 34.0)
+		_sil_mount(st, Vector3(-90.0 + i * 36.0 + rng.randf_range(-8.0, 8.0), -1.0, rng.randf_range(-130.0, -115.0)),
+			h * 1.3, h, 1.15, 0.03, Color("#26313F"), Color("#26313F"), Color(0, 0, 0, 0), 0.0, 14)
+	# allée de torii (Fushimi Inari) qui monte la colline, chaque porche tenant un feu de renard
+	for k in 7:
+		var t := float(k) / 6.0
+		var tp := Vector3(lerpf(-44.0, -8.0, t), 1.4 + 5.0 * t + sin(t * 9.0) * 1.2, -96.5)
+		_sil_torii(st, tp, 0.55, Color("#6E2420"))
 	for i in 22:
 		var t := float(i) / 21.0
 		var c := Vector3(lerpf(-46.0, -6.0, t), 2.0 + 5.0 * t + sin(t * 9.0) * 1.2, -96.0)
 		_vrect(st, c - Vector3(0.28, 0.4, 0), c + Vector3(0.28, 0.4, 0), Color("#F6D58A"), Color("#FBE9B8"))
-	_vc_end(st, root)
-	# lune et son halo (disque tourné vers la caméra)
-	_far(root, Toon.sphere(6.0), Color("#F4ECD2"), Vector3(-24, 30, -150))
-	_far(root, Toon.cyl(11.0, 11.0, 0.1, 32), Color(0.96, 0.93, 0.82, 0.12), Vector3(-24, 30, -158), Vector3.ONE, Vector3(PI * 0.5, 0, 0))
-	# Voie lactée en bande, étoiles
-	_far(root, _box(Vector3(340, 16, 0.1)), Color(0.9, 0.9, 1.0, 0.07), Vector3(20, 62, -240), Vector3.ONE, Vector3(0, 0, -0.32))
-	_far(root, _box(Vector3(340, 6, 0.1)), Color(0.95, 0.95, 1.0, 0.1), Vector3(20, 62, -239), Vector3.ONE, Vector3(0, 0, -0.32))
-	var stars := {}
-	var sm := _flat(Color("#F6F0DC"))
-	for i in 70:
-		var p := Vector3(rng.randf_range(-170.0, 170.0), rng.randf_range(18.0, 110.0), rng.randf_range(-235.0, -215.0))
-		var r := rng.randf_range(0.25, 0.6)
-		_add(stars, sm, Toon.box(Vector3(r, r, r)), _at(p, Vector3(0, 0, PI * 0.25)))
-	_flush(stars, root)
-	# montagnes sombres
-	for i in 6:
-		var h := rng.randf_range(18.0, 34.0)
-		_peak(root, Vector3(-90.0 + i * 36.0 + rng.randf_range(-8.0, 8.0), -1.0, rng.randf_range(-130.0, -115.0)),
-			1.5, h * 1.3, h, Color("#26313F"), Color("#26313F"), 0.0, 7)
-	# cascade de Kirifuri : falaise, filets d'eau digités, brume au pied
-	var fall := Node3D.new()
-	fall.name = "Kirifuri"
-	fall.position = Vector3(26, VOID_Y, -82)
-	root.add_child(fall)
-	var fb := {}
-	var cliff := _flat(Color("#2F3B45"))
-	var cliff_hi := _flat(Color("#3A4752"))
-	var water := _flat(Color("#DCE7EF"))
-	_add(fb, cliff, Toon.box(Vector3(16, 30, 6)), _at(Vector3(0, 15, -3)))
-	_add(fb, cliff_hi, Toon.box(Vector3(13, 4, 8)), _at(Vector3(-0.5, 29, 0), Vector3(0, 0, 0.08)))
+	# cascade de Kirifuri : falaise, filets d'eau digités, brume au pied (face avant seule : aplats)
+	var fo := Vector3(26, VOID_Y, -82)
+	var cliff := Color("#2F3B45")
+	_vrect(st, fo + Vector3(-8, 0, 0), fo + Vector3(8, 30, 0), cliff, cliff)
+	var hi := Color("#3A4752")
+	var cb := Basis(Vector3(0, 0, 1), 0.08)
+	var cc := fo + Vector3(-0.5, 29, 4.0)
+	_vquad(st, cc + cb * Vector3(-6.5, -2, 0), cc + cb * Vector3(6.5, -2, 0), cc + cb * Vector3(6.5, 2, 0), cc + cb * Vector3(-6.5, 2, 0), hi, hi, hi, hi)
+	var water := Color("#DCE7EF")
 	for k in 6:
 		var x := -4.0 + k * 1.6 + rng.randf_range(-0.3, 0.3)
 		var w := rng.randf_range(0.5, 1.2)
-		_add(fb, water, Toon.box(Vector3(w, 26, 0.2)), _at(Vector3(x, 14, 0.6)))
+		_vrect(st, fo + Vector3(x - w * 0.5, 1.0, 0.7), fo + Vector3(x + w * 0.5, 27.0, 0.7), water, water)
 		for sx: float in [-1.0, 1.0]:
-			_add(fb, water, Toon.box(Vector3(w * 0.35, 6, 0.2)), _at(Vector3(x + sx * w * 0.5, 3.5, 0.7), Vector3(0, 0, sx * 0.18)))
-	var mist := _flat(Color(0.92, 0.95, 1.0, 0.5))
+			var sb := Basis(Vector3(0, 0, 1), sx * 0.18)
+			var sc := fo + Vector3(x + sx * w * 0.5, 3.5, 0.8)
+			var hw2 := w * 0.175
+			_vquad(st, sc + sb * Vector3(-hw2, -3, 0), sc + sb * Vector3(hw2, -3, 0), sc + sb * Vector3(hw2, 3, 0), sc + sb * Vector3(-hw2, 3, 0), water, water, water, water)
+	var mist := cliff.lerp(Color(0.92, 0.95, 1.0), 0.5)
 	for k in 4:
-		_add(fb, mist, Toon.sphere(1.0), _at(Vector3(-4.0 + k * 2.8, 0.6, 1.5), Vector3.ZERO, Vector3(4.0, 2.5, 4.0)))
-	_flush(fb, fall)
+		_vellipse(st, fo + Vector3(-4.0 + k * 2.8, 0.6, 1.5 + k * 0.05), 4.0, 2.5, mist, mist.darkened(0.06), 12)
+	_vc_end(st, root)
 	# rideau lointain de tiges (aplats) et leurs feuillages sombres
 	var far := {}
 	var g1 := _flat(Color("#2C4434"))
@@ -1065,7 +1336,8 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 
 
 ## Monde 3 : temple sous la neige. Ciel bokashi lavande en haut, chaînes blanches en couches,
-## lisière de conifères enneigés, toits de temples, pont de la Sumida sous la neige, corbeaux ;
+## lisière de conifères enneigés, toits de temples, ville d'Edo aux toits blancs et son donjon,
+## pont de la Sumida sous la neige, corbeaux ;
 ## berges, pagode, cimetière, pins, beffroi, torii enneigé, lanternes flottantes.
 static func _backdrop_contes(root: Node3D) -> void:
 	var rng := _rng(33)
@@ -1074,18 +1346,23 @@ static func _backdrop_contes(root: Node3D) -> void:
 	_vrect(st, Vector3(-340, 24, -252), Vector3(340, 150, -252), Color("#D3D9E2"), Color("#6F7896"))
 	_ridge(st, rng, -280.0, 280.0, -222.0, -1.0, 30.0, Color("#F2F5F8"), Color("#A9AFC2"), 34)
 	_ridge(st, rng, -260.0, 260.0, -196.0, -1.0, 17.0, Color("#E9EDF2"), Color("#9AA1B6"), 30)
-	_sil_trees(st, rng, -160.0, 160.0, -158.0, -1.0, 70, 6.0, Color("#3E4656"), SNOW)
+	_sil_trees(st, rng, -160.0, 160.0, -158.0, -1.0, (40 if Toon.lite else 70), 6.0, Color("#3E4656"), SNOW)
 	for k in 3:
 		_sil_temple(st, Vector3(-70.0 + k * 62.0 + rng.randf_range(-8.0, 8.0), 0.5, -156.0), rng.randf_range(4.0, 6.0), Color("#4A4652"), Color("#2E2C33"), SNOW)
 	_sil_bridge(st, Vector3(-26.0, VOID_Y, -74.0), 48.0, 3.4, 0.8, Color("#3A3A48"), SNOW, 6)
-	_flock(st, rng, Vector3(-8, 16, -62), 7, Vector3(10, 3, 5), 1.0, Color("#2B2A30"))
-	_flock(st, rng, Vector3(26, 22, -95), 5, Vector3(8, 3, 4), 1.4, Color("#3A3942"))
-	_vc_end(st, root)
 	# montagnes blanches lointaines (pied lavande, calotte de neige)
 	for i in 7:
 		var h := rng.randf_range(22.0, 40.0)
-		_peak(root, Vector3(-100.0 + i * 33.0 + rng.randf_range(-6.0, 6.0), -1.0, rng.randf_range(-170.0, -120.0)),
-			1.0, h * 1.4, h, Color("#A9AFC2"), Color("#EEF2F6"), 0.55, 9)
+		_sil_mount(st, Vector3(-100.0 + i * 33.0 + rng.randf_range(-6.0, 6.0), -1.0, rng.randf_range(-170.0, -120.0)),
+			h * 1.4, h, 1.2, 0.02, Color("#B9BFD0"), Color("#A9AFC2"), Color("#EEF2F6"), 0.55, 14)
+	# ville d'Edo sous la neige le long de la berge (toits blancs, un ninja d'un faîte à l'autre) et donjon
+	_sil_roofline(st, rng, -120.0, -40.0, -112.0, -0.6, 1.7, Color("#5A5868"), Color("#34323C"), SNOW, Color("#1E1C24"))
+	_sil_roofline(st, rng, 6.0, 120.0, -112.0, -0.6, 1.7, Color("#5A5868"), Color("#34323C"), SNOW, Color("#1E1C24"))
+	_sil_castle(st, Vector3(52, -0.6, -116), 3.2, Color("#ECEEF2"), Color("#34323C"), Color("#7E7B86"), Color("#2A2830"), Color("#B9B3A6"), SNOW)
+	_kasumi(st, Vector3(-20, 5.0, -104), 120.0, 1.6, Color("#F2F5F8"), Color("#DDE2EA"))
+	_flock(st, rng, Vector3(-8, 16, -62), 7, Vector3(10, 3, 5), 1.0, Color("#2B2A30"))
+	_flock(st, rng, Vector3(26, 22, -95), 5, Vector3(8, 3, 4), 1.4, Color("#3A3942"))
+	_vc_end(st, root)
 	# berges enneigées : (x, z, rayon)
 	var banks: Array[Vector3] = [Vector3(-11, -20, 7), Vector3(10, -19, 6), Vector3(0, -33, 10),
 		Vector3(-12.5, -4, 3.5), Vector3(12.5, 1, 3.5)]
@@ -1169,32 +1446,25 @@ static func _backdrop_fuji_rouge(root: Node3D) -> void:
 	for k in 4:
 		_band(st, Vector3(fx + 6.0 + k * 7.0, 31.0 + k * 3.0, fz + 8.0), 14.0 + k * 6.0, 1.4, Color("#9A8C86"), Color("#7C6E6A"))
 	_flock(st, rng, Vector3(-6, 22, -120), 5, Vector3(10, 4, 4), 1.4, Color("#1E1A1C"))
-	_vc_end(st, root)
-	_peak(root, Vector3(fx, -1.0, fz), 3.0, 52.0, 30.0, Color("#A3462E"), Color("#5E2A22"), 0.2, 40)
-	# coulées de neige au sommet (face caméra)
-	var streaks := {}
-	var white := _flat(Color("#F1EEE6"))
+	# Gaifū kaisei : Fuji rouge aux flancs concaves, cime sombre, coulées de neige qui s'évasent
+	_sil_mount(st, Vector3(fx, -1.0, fz), 52.0, 30.0, 1.45, 0.06, Color("#B5502F"), Color("#6E3324"), Color("#4A221E"), 0.2, 28)
+	var white := Color("#F1EEE6")
 	for k in 9:
-		var ang := rng.randf_range(-0.9, 0.9)
-		var d0 := 0.4
+		var xa := rng.randf_range(-0.9, 0.9) * 3.0
 		var d1 := rng.randf_range(3.0, 7.5)
-		var r0 := _cone_r(3.0, 52.0, 30.0, d0) * 1.07
-		var r1 := _cone_r(3.0, 52.0, 30.0, d1) * 1.07
-		var a := Vector3(fx + sin(ang) * r0, 29.0 - d0, fz + cos(ang) * r0)
-		var c := Vector3(fx + sin(ang) * r1, 29.0 - d1, fz + cos(ang) * r1)
-		_limb(streaks, white, a, c, 0.35, 0.6, 4)
-	_flush(streaks, root)
+		var top := Vector3(fx + xa, 29.0 - 0.3, fz + 0.6)
+		var foot := Vector3(fx + xa * (1.0 + d1 * 0.3) + rng.randf_range(-0.6, 0.6), 29.0 - d1, fz + 0.6)
+		_vtri(st, top + Vector3(-0.4, 0, 0), top + Vector3(0.4, 0, 0), foot, white, white, white.darkened(0.06))
 	# forêt sombre au pied
-	_far(root, Toon.sphere(1.0), Color("#2B3F3C"), Vector3(fx, -2.0, -140.0), Vector3(70.0, 7.0, 24.5))
+	_vellipse(st, Vector3(fx, -2.0, -140.0), 70.0, 7.0, Color("#2B3F3C"), Color("#22332F"), 24)
 	# nuages en écailles (alto-cumulus de l'estampe)
-	var clouds := {}
-	var cm := _flat(Color("#EDE6D8"))
-	for row in 5:
+	var rows: int = 3 if Toon.lite else 5
+	for row in rows:
 		for col in 18:
 			var x := -150.0 + col * 17.0 + (8.5 if row % 2 == 1 else 0.0) + rng.randf_range(-2.0, 2.0)
 			var r := 4.5 - row * 0.35
-			_add(clouds, cm, _ball(1.0, 1.0, 8, 4), _at(Vector3(x, 34.0 + row * 5.0, -195.0 - row * 3.0), Vector3.ZERO, Vector3(r, r * 0.5, r * 0.3)))
-	_flush(clouds, root)
+			_vellipse(st, Vector3(x, 34.0 + row * 5.0, -195.0 - row * 3.0), r, r * 0.5, Color("#EDE6D8"), Color("#DCD2C0"), 10)
+	_vc_end(st, root)
 	# coulées de lave noire veinées d'or, du fond vers l'arène et le long des côtés
 	var lava := {}
 	var veins := {}
@@ -1236,36 +1506,46 @@ static func _backdrop_fuji_rouge(root: Node3D) -> void:
 
 
 ## Monde 5 : mer d'encre. Ciel de papier rose d'aube sous une bande de Prusse, chaînes d'encre
-## en couches, ensō dans le ciel, pont de Mannen qui encadre le petit Fuji, banc de sable
+## en couches, ensō dans le ciel, pont de Mannen qui encadre le petit Fuji, donjon d'encre et toits
+## de la ville du château (un ninja sur les faîtes), donjon en volume près de l'arène, banc de sable
 ## et croquis du Manga, grues, voiles ; grandes vagues noires, barques, pinceaux, papiers, barrique.
 static func _backdrop_ink(root: Node3D) -> void:
 	var rng := _rng(55)
+	var lite: bool = Toon.lite
+	var sky: Array = [-2.0, Color("#EDC2B4"), 26.0, Color("#EAD2C8"), 150.0, Color("#8FA3B8")]
 	var st := _vc_begin()
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 26, -252), Color("#EDC2B4"), Color("#EAD2C8"))
 	_vrect(st, Vector3(-340, 26, -252), Vector3(340, 150, -252), Color("#EAD2C8"), Color("#8FA3B8"))
+	# soleil pâle et bandes de nuages rose d'aube / washi (aplats fondus dans le ciel)
+	_vdisc(st, Vector3(28, 18, -236), 9.0, Color("#F3D3B5"), Color("#EFCBAE"), 28)
+	for k in 6:
+		var cy := 9.0 + k * 6.5
+		var cz := -200.0 - k * 5.0
+		var tint: Color = Color("#E4B7B0") if k % 2 == 0 else Toon.WASHI
+		var a: float = 0.7 if k % 2 == 0 else 0.8
+		var col := _sky_at(cy, sky).lerp(tint, a)
+		_kasumi(st, Vector3(rng.randf_range(-60.0, 60.0), cy, cz), rng.randf_range(80.0, 160.0), rng.randf_range(1.2, 3.0), col.lightened(0.04), col)
 	_ridge(st, rng, -280.0, 280.0, -210.0, -1.0, 13.0, Color("#5B6070"), Color("#E4C3B8"), 34)
 	_ridge(st, rng, -260.0, 260.0, -184.0, -1.0, 6.5, Color("#2B3448"), Color("#DDBFB4"), 34)
 	_enso(st, Vector3(36, 36, -196), 11.0, 1.9, Toon.SUMI)
+	# petit Fuji d'encre au creux du pont de Mannen
+	_sil_mount(st, Vector3(-4, -0.6, -140), 16.0, 9.0, 1.6, 0.06, Color("#2B3448"), Color("#5B6070"), Toon.WASHI, 0.3, 18)
 	_sil_bridge(st, Vector3(-4.0, VOID_Y, -100.0), 66.0, 9.2, 1.3, Color("#2E2A28"), Color(0, 0, 0, 0), 6)
+	# donjon d'encre sur la rive et toits de la ville du château (un ninja sur les faîtes)
+	_sil_castle(st, Vector3(-48, -0.6, -118), 2.4, Toon.WASHI, Toon.SUMI, Color("#5B5550"), Color("#2A2830"), Toon.GOLD, Color(0, 0, 0, 0))
+	_sil_roofline(st, rng, -74.0, -40.0, -116.0, -0.6, 1.5, Color("#6E6A72"), Color("#2A2830"), Color(0, 0, 0, 0), Toon.SUMI)
+	_sil_roofline(st, rng, 34.0, 96.0, -116.0, -0.6, 1.5, Color("#6E6A72"), Color("#2A2830"), Color(0, 0, 0, 0), Toon.SUMI)
 	_ridge(st, rng, -70.0, 70.0, -62.0, VOID_Y - 0.3, 1.0, Color("#D9CCB1"), Color("#C9BBA0"), 14)
-	for k in 8:
+	for k in (5 if lite else 8):
 		var x := rng.randf_range(-40.0, 40.0)
 		var pose: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sketch_man(st, Vector3(x, VOID_Y + 0.45, -61.6), rng.randf_range(0.9, 1.2), Color("#2A2830"), pose)
 	_flock(st, rng, Vector3(20, 20, -82), 8, Vector3(12, 4, 6), 1.3, Color("#F6F2EA"))
-	for k in 5:
+	for k in (3 if lite else 5):
 		var z := rng.randf_range(-95.0, -40.0)
 		var face: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sil_boat(st, Vector3(rng.randf_range(-55.0, 55.0), VOID_Y, z), rng.randf_range(0.9, 1.4) * (1.0 - z / 260.0), Color("#1B1A1E"), Color("#F1E8D6"), face)
 	_vc_end(st, root)
-	# soleil pâle et bandes de nuages rose aube / washi
-	_far(root, Toon.sphere(9.0), Color("#F3D3B5"), Vector3(28, 18, -230))
-	for k in 6:
-		var col: Color = Color(Color("#E4B7B0"), 0.7) if k % 2 == 0 else Color(Toon.WASHI, 0.8)
-		_far(root, _box(Vector3(rng.randf_range(80.0, 160.0), rng.randf_range(1.2, 3.0), 0.1)), col,
-			Vector3(rng.randf_range(-60.0, 60.0), 9.0 + k * 6.5, -200.0 - k * 5.0))
-	# petit Fuji d'encre au creux de la vague
-	_peak(root, Vector3(-4, -0.6, -140), 1.2, 16.0, 9.0, Color("#2B3448"), Toon.WASHI, 0.3, 32)
 	# grandes vagues noires
 	var w1: Node3D = Decor.great_wave(root, Vector3(-22, VOID_Y, -46), 2.8, 5)
 	w1.rotation.y = 0.55
@@ -1282,6 +1562,7 @@ static func _backdrop_ink(root: Node3D) -> void:
 	_brush_into(b, _at(Vector3(-11, VOID_Y, -15), Vector3(0, 0, 0.18), Vector3.ONE * 2.0))
 	_brush_into(b, _at(Vector3(11.5, VOID_Y, -17), Vector3(0.1, 0, -0.15), Vector3.ONE * 2.3))
 	_barrel_giant_into(b, bn, _at(Vector3(15.5, VOID_Y, -25.0), Vector3(0, -0.25, 0), Vector3.ONE * 1.4))
+	_castle_into(b, bn, _at(Vector3(20.5, VOID_Y, -45.0), Vector3(0, -0.35, 0)))
 	_flush(b, root, true)
 	# feuilles de papier déchiré qui flottent sur l'encre et dans l'air
 	var pa := _toon(Color("#F1E8D6"), false)
@@ -1691,7 +1972,7 @@ const SET_PIECES := {
 	3: [["frozen_pond", 2.2, 1.5], ["frozen_pond", 1.6, 1.2], ["jizo_row", 1.6, 0.8]],  # mares gelées, jizō
 	4: [["lava_crack", 2.4, 0.9], ["lava_crack", 1.6, 0.9], ["basalt", 1.1, 1.1]],  # failles de lave, orgues
 	5: [["screen", 1.9, 0.8], ["seal", 1.0, 1.0], ["scrolls", 1.4, 0.9]],  # paravents, sceau, rouleaux
-	6: [["roots", 1.5, 1.4], ["sacred_rock", 1.3, 1.1]],  # souches de cèdre, rocher sacré
+	6: [["roots", 1.5, 1.4], ["sacred_rock", 1.3, 1.1], ["posts", 1.6, 0.9]],  # souches de cèdre, rocher sacré, poteaux d'entraînement
 	7: [["coral", 1.2, 1.1], ["clams", 1.7, 1.0]],  # coraux, lit de bénitiers
 	8: [["graves", 1.8, 0.8], ["lantern_row", 2.2, 0.8]],  # tombes et sotoba, rangée de lanternes
 }
@@ -1747,6 +2028,8 @@ static func _set_pieces(_wid: int, ctx: Dictionary, pieces: Array, rng: RandomNu
 				_sp_roots(bs, bn, xf, ln, wd, rng)
 			"sacred_rock":
 				_sp_sacred_rock(bs, bn, xf, ln, wd, rng)
+			"posts":
+				_sp_posts(bs, bn, xf, ln, wd, rng)
 			"coral":
 				_sp_coral(bs, bn, xf, ln, wd, rng)
 			"clams":
@@ -1761,7 +2044,11 @@ static func _set_pieces(_wid: int, ctx: Dictionary, pieces: Array, rng: RandomNu
 
 ## Socle de la pièce : pavé bas cerné d'encre qui couvre toute l'empreinte.
 static func _sp_base(bs: Dictionary, xf: Transform3D, ln: float, wd: float, col: Color, h: float) -> void:
-	_add(bs, _toon(col, true, 0.02), _box(Vector3(ln - 0.06, h, wd - 0.06)), xf * _at(Vector3(0, h * 0.5, 0)))
+	# deux gradins : le liseré d'encre souligne un chanfrein au lieu d'un pavé brut
+	var m := _toon(col, true, 0.02)
+	var hl := h * 0.6
+	_add(bs, m, _box(Vector3(ln - 0.06, hl, wd - 0.06)), xf * _at(Vector3(0, hl * 0.5, 0)))
+	_add(bs, m, _box(Vector3(ln - 0.16, h - hl, wd - 0.16)), xf * _at(Vector3(0, hl + (h - hl) * 0.5, 0)))
 
 
 ## Butte basse (mousse, sable, neige) à la taille de l'empreinte, sommet à `h`.
@@ -1978,6 +2265,19 @@ static func _sp_sacred_rock(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln:
 		_add(bn, paper, _box(Vector3(0.06, 0.16, 0.012)), xf * _at(q, Vector3(0, -a + PI * 0.5, 0)))
 
 
+## Monde 6 : aire d'entraînement des tengu (Ushiwakamaru à Kurama) : dalle de pierre, trois poteaux de
+## makiwara criblés de kunai, shuriken tombés au sol. Bas : rien qui masque les ennemis.
+static func _sp_posts(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_base(bs, xf, ln, wd, STONE_DARK, 0.08)
+	for k in 3:
+		var lx := lerpf(-ln * 0.5 + 0.28, ln * 0.5 - 0.28, float(k) / 2.0)
+		var lz: float = (0.12 if k == 1 else -0.08) * wd
+		var px := xf * _at(Vector3(lx, 0.08, lz), Vector3(0, rng.randf_range(-0.4, 0.4), 0), Vector3.ONE * (0.72 + 0.08 * float(k % 2)))
+		_kunai_post_into(bs, bn, px, rng)
+	for k in 2:
+		_shuriken_into(bn, xf * _at(Vector3(rng.randf_range(-0.35, 0.35) * ln, 0.086, rng.randf_range(0.2, 0.4) * wd), Vector3(0, rng.randf() * TAU, 0)))
+
+
 ## Monde 7 : coraux sur une butte de sable, coquillages.
 static func _sp_coral(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
 	_sp_mound(bs, xf, ln, wd, Color("#CDBB95"), 0.1)
@@ -2032,17 +2332,21 @@ static func _prop_run(wid: int, ctx: Dictionary, run: Array, rng: RandomNumberGe
 	var roll := rng.randf()
 	var kind := "fence"
 	if wid == 1:
-		if roll < 0.45:
+		if roll < 0.4:
 			kind = "rope"
-		elif roll < 0.75:
+		elif roll < 0.65:
 			kind = "nobori"
+		elif roll < 0.82:
+			kind = "maku"
 		else:
 			kind = "shime"
 	elif wid == 2:
-		if roll < 0.55:
+		if roll < 0.45:
 			kind = "fence"
-		elif roll < 0.8:
+		elif roll < 0.65:
 			kind = "shime"
+		elif roll < 0.82:
+			kind = "maku"
 		else:
 			kind = "nobori"
 	elif wid == 3:
@@ -2053,17 +2357,21 @@ static func _prop_run(wid: int, ctx: Dictionary, run: Array, rng: RandomNumberGe
 		else:
 			kind = "jizo"
 	elif wid == 4:
-		if roll < 0.5:
+		if roll < 0.4:
 			kind = "chain"
-		elif roll < 0.75:
+		elif roll < 0.6:
 			kind = "shime"
+		elif roll < 0.82:
+			kind = "maku"
 		else:
 			kind = "nobori"
 	elif wid == 6:
-		if roll < 0.45:
+		if roll < 0.35:
 			kind = "shime"
-		elif roll < 0.75:
+		elif roll < 0.58:
 			kind = "fence"
+		elif roll < 0.8:
+			kind = "maku"
 		else:
 			kind = "nobori"
 	elif wid == 7:
@@ -2074,17 +2382,21 @@ static func _prop_run(wid: int, ctx: Dictionary, run: Array, rng: RandomNumberGe
 		else:
 			kind = "shime"
 	elif wid == 8:
-		if roll < 0.45:
+		if roll < 0.4:
 			kind = "chain"
-		elif roll < 0.75:
+		elif roll < 0.65:
 			kind = "shime"
+		elif roll < 0.8:
+			kind = "maku"
 		else:
 			kind = "fence"
 	else:
-		if roll < 0.4:
+		if roll < 0.3:
 			kind = "shime"
-		elif roll < 0.7:
+		elif roll < 0.5:
 			kind = "fence"
+		elif roll < 0.75:
+			kind = "shoji"
 		else:
 			kind = "nobori"
 	if kind == "fence":
@@ -2097,6 +2409,10 @@ static func _prop_run(wid: int, ctx: Dictionary, run: Array, rng: RandomNumberGe
 		_shime_run(ctx, a, c)
 	elif kind == "chain":
 		_chain_rail(ctx, a, c)
+	elif kind == "maku":
+		_maku_run(ctx, a, c, n2, wid)
+	elif kind == "shoji":
+		_shoji_run(ctx, a, c)
 	else:
 		_jizo_ledge(ctx, a, c, n2)
 	var steps := maxi(int(a2.distance_to(b2) / 0.7), 1)
@@ -2133,7 +2449,7 @@ static func _nobori_line(ctx: Dictionary, a: Vector3, c: Vector3, n2: Vector2, w
 	var rot: float = PI if n2.x < -0.5 else 0.0
 	for i in n:
 		var q := a.lerp(c, float(i) / (n - 1))
-		Decor.nobori_into(bs, bn, _at(q, Vector3(0, rot, 0)), cloth, ink, VOID_Y - 0.3)
+		Decor.nobori_into(bs, bn, _at(q, Vector3(0, rot, 0)), cloth, ink, VOID_Y - 0.3, _mon_kind(wid))
 
 
 ## Shimenawa tendue entre deux poteaux de bois sombre.
@@ -2163,6 +2479,87 @@ static func _chain_rail(ctx: Dictionary, a: Vector3, c: Vector3) -> void:
 		if i > 0:
 			_links(bs, iron, prev, top, 0.2)
 		prev = top
+
+
+## Mon du clan d'un monde (Decor.mon_into), sur ses bannières, rideaux et entrepôts.
+static func _mon_kind(wid: int) -> int:
+	match wid:
+		1, 5, 7:
+			return 0  # trois tomoe
+		3:
+			return 1  # deux barres
+		2, 8:
+			return 2  # losange
+		_:
+			return 3  # étoile de shuriken (forges du Fuji, tengu de Kurama)
+
+
+## Jinmaku : rideau de camp tendu entre des perches, rayé d'encre, mon du clan répété face à l'arène.
+static func _maku_run(ctx: Dictionary, a: Vector3, c: Vector3, n2: Vector2, wid: int) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var cols := _nobori_colors(wid)
+	var cloth: Color = cols[0]
+	var ink: Color = cols[1]
+	var pole := Decor._toon("pole", Decor.POLE, true, 0.02)
+	var cm := Decor._toon("nobori_" + cloth.to_html(false), cloth, true, 0.012)
+	var im := Decor._toon("nobori_ink_" + ink.to_html(false), ink, false)
+	var d := c - a
+	var l := d.length()
+	var n := maxi(int(ceil(l / 1.3)), 1)
+	var hh := 1.05 - (VOID_Y - 0.3)
+	for i in n + 1:
+		var q := a.lerp(c, float(i) / n)
+		_add(bs, pole, _cyl(0.03, 0.04, hh, 6), _at(Vector3(q.x, VOID_Y - 0.3 + hh * 0.5, q.z)))
+		_add(bs, pole, _ball(0.045, 0.09, 6, 3), _at(Vector3(q.x, 1.08, q.z)))
+	var mid := (a + c) * 0.5
+	var yaw := atan2(d.x, d.z)
+	_add(bs, cm, _box(Vector3(0.012, 0.5, l)), _at(Vector3(mid.x, 0.72, mid.z), Vector3(0, yaw, 0)))
+	for y: float in [0.52, 0.9]:
+		_add(bn, im, _box(Vector3(0.016, 0.06, l + 0.004)), _at(Vector3(mid.x, y, mid.z), Vector3(0, yaw, 0)))
+	var inward := atan2(-n2.x, -n2.y)
+	var fwd := Vector3(-n2.x, 0, -n2.y) * 0.009
+	for i in n:
+		var q := a.lerp(c, (float(i) + 0.5) / n)
+		Decor.mon_into(bn, im, _at(Vector3(q.x, 0.71, q.z) + fwd, Vector3(0, inward, 0)), 0.15, _mon_kind(wid))
+
+
+## Rangée de shōji : panneaux de washi à croisillons (kumiko) sur une planche d'engawa, le long du bord.
+static func _shoji_run(ctx: Dictionary, a: Vector3, c: Vector3) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var paper := _toon(Toon.WASHI, true, 0.015)
+	var frame := _toon(Color("#2A1F1A"), false)
+	var deck := _toon(Color("#5B4630"), true, 0.02)
+	var post := _toon(Decor.PILE, true, 0.02)
+	var d := c - a
+	var l := d.length()
+	if l < 0.4:
+		return
+	var yaw := atan2(d.x, d.z)
+	var bas := Basis.from_euler(Vector3(0, yaw, 0))
+	var along := d / l
+	var mid := (a + c) * 0.5
+	_add(bs, deck, _box(Vector3(0.36, 0.06, l + 0.2)), _at(Vector3(mid.x, -0.03, mid.z), Vector3(0, yaw, 0)))
+	var hh := -0.06 - (VOID_Y - 0.3)
+	for q: Vector3 in [a, c]:
+		_add(bs, post, _cyl(0.05, 0.06, hh, 6), _at(Vector3(q.x, VOID_Y - 0.3 + hh * 0.5, q.z)))
+	var n := maxi(int(round(l / 0.62)), 1)
+	var pw := l / n
+	for i in n:
+		var cp := a + along * pw * (float(i) + 0.5)
+		var px := Transform3D(bas, Vector3(cp.x, 0.0, cp.z))
+		_add(bs, paper, _box(Vector3(0.02, 0.84, pw - 0.04)), px * _at(Vector3(0, 0.46, 0)))
+		_add(bn, frame, _box(Vector3(0.036, 0.04, pw)), px * _at(Vector3(0, 0.9, 0)))
+		_add(bn, frame, _box(Vector3(0.036, 0.08, pw)), px * _at(Vector3(0, 0.06, 0)))
+		for sz: float in [-1.0, 1.0]:
+			_add(bn, frame, _box(Vector3(0.036, 0.86, 0.035)), px * _at(Vector3(0, 0.47, sz * (pw * 0.5 - 0.018))))
+		if Toon.lite:
+			continue
+		for sz: float in [-1.0, 1.0]:
+			_add(bn, frame, _box(Vector3(0.03, 0.78, 0.012)), px * _at(Vector3(0, 0.47, sz * pw / 6.0)))
+		for y: float in [0.3, 0.5, 0.7]:
+			_add(bn, frame, _box(Vector3(0.03, 0.012, pw - 0.04)), px * _at(Vector3(0, y, 0)))
 
 
 ## Rebord de pierre enneigé et rangée de jizō tournés vers l'arène.
@@ -2200,6 +2597,11 @@ static func _prop_edge(wid: int, ctx: Dictionary, e: Vector4, rng: RandomNumberG
 	var cols := _nobori_colors(wid)
 	var cloth: Color = cols[0]
 	var ink: Color = cols[1]
+	# rare : poteau d'entraînement des ninjas criblé de kunai (pas sous la mer de Ryūgū)
+	if wid != 7 and rng.randf() < 0.07:
+		_pillar(ctx, p, 0.22, Decor.PILE)
+		_kunai_post_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.85), rng)
+		return
 	var roll := rng.randf()
 	match wid:
 		1:
@@ -3027,11 +3429,17 @@ static func _snow_pine_into(b: Dictionary, xf: Transform3D) -> void:
 		y += h * 0.55
 
 
-## Lanterne flottante d'Obon : socle de bois et cube de papier lumineux.
+## Lanterne flottante d'Obon : socle de bois, cube de papier lumineux dans un cadre (montants d'angle,
+## traverse médiane : quatre fenêtres de papier par face), couvercle.
 static func _toro_into(b: Dictionary, xf: Transform3D) -> void:
 	var wood := _toon(Color("#3B2E25"), false)
 	_add(b, wood, _box(Vector3(0.36, 0.06, 0.36)), xf * _at(Vector3(0, 0.03, 0)))
 	_add(b, _glow(Color("#FBE3B0"), 0.9), _box(Vector3(0.26, 0.3, 0.26)), xf * _at(Vector3(0, 0.21, 0)))
+	for k in 4:
+		var cx: float = 0.13 if k % 2 == 0 else -0.13
+		var cz: float = 0.13 if k < 2 else -0.13
+		_add(b, wood, _box(Vector3(0.035, 0.3, 0.035)), xf * _at(Vector3(cx, 0.21, cz)))
+	_add(b, wood, _box(Vector3(0.275, 0.025, 0.275)), xf * _at(Vector3(0, 0.21, 0)))
 	_add(b, wood, _box(Vector3(0.3, 0.03, 0.3)), xf * _at(Vector3(0, 0.375, 0)))
 
 
@@ -3054,10 +3462,10 @@ static func _pagoda_into(b: Dictionary, xf: Transform3D) -> void:
 			var cz: float = (w * 0.5 - 0.05) * (1.0 if c < 2 else -1.0)
 			_add(b, wood, _box(Vector3(0.13, h, 0.13)), xf * _at(Vector3(cx, y + h * 0.5, cz)))
 		y += h
-		var rb := (w * 0.5 + 0.6) * sqrt(2.0)
-		var rt := w * 0.3 * sqrt(2.0)
-		_add(b, roof, _cyl(rt, rb, 0.44, 4), xf * _at(Vector3(0, y + 0.22, 0), Vector3(0, PI * 0.25, 0)))
-		_add(b, snow, _cyl(rt * 0.95, rb * 0.9, 0.42, 4), xf * _at(Vector3(0, y + 0.29, 0), Vector3(0, PI * 0.25, 0)))
+		# toit incurvé (hōgyō) aux coins relevés, neige posée dessus (même profil, un peu plus petit)
+		var rw := w + 1.2
+		_add(b, roof, Decor.roof_mesh(rw, rw, 0.5, 0.0, 0.4, 0.07), xf * _at(Vector3(0, y, 0)))
+		_add(b, snow, Decor.roof_mesh(rw * 0.9, rw * 0.9, 0.47, 0.0, 0.4, 0.04), xf * _at(Vector3(0, y + 0.07, 0)))
 		y += 0.3
 	_add(b, spire, _cyl(0.05, 0.07, 1.6, 6), xf * _at(Vector3(0, y + 0.95, 0)))
 	for k in 5:
@@ -3330,8 +3738,78 @@ static func _port_lantern_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -
 	for sz: float in [-1.0, 1.0]:
 		_add(b, wood, _box(Vector3(0.5, 0.04, 0.03)), xf * _at(Vector3(0, 2.46, sz * 0.225)))
 		_add(b, wood, _box(Vector3(0.03, 0.04, 0.5)), xf * _at(Vector3(sz * 0.225, 2.46, 0)))
-	_add(b, roof, _cyl(0.05, 0.56, 0.32, 4), xf * _at(Vector3(0, 2.86, 0), Vector3(0, PI * 0.25, 0)))
-	_add(b, roof, _ball(0.07, 0.14, 6, 3), xf * _at(Vector3(0, 3.06, 0)))
+	Decor.roof_into(b, b, roof, roof, xf * _at(Vector3(0, 2.71, 0)), 0.86, 0.86, 0.32, 0.0, 0.45)
+
+
+## Entrepôt kura sur pilotis (face à +Z local, empreinte w × d, murs de hauteur h) : soubassement namako
+## (losanges de plâtre sur ardoise), mur de plâtre, fenêtre, mon du clan, toit de tuiles incurvé.
+static func _kura_into(b: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float, mon: int) -> void:
+	var pile := _toon(Decor.PILE, true, 0.02)
+	var deck := Decor._toon("pier_plank", Decor.PLANK, true, 0.02)
+	var plaster := _toon(SHIKKUI, true, 0.025)
+	var trim := _toon(SHIKKUI, false)
+	var tile := _toon(KAWARA, true, 0.025)
+	var ridge := _toon(KAWARA_DARK, false)
+	var ink := _toon(Toon.SUMI, false)
+	for i in 3:
+		for sz: float in [-1.0, 1.0]:
+			_add(b, pile, _cyl(0.08, 0.09, 1.0, 6), xf * _at(Vector3((float(i) - 1.0) * (w * 0.5 - 0.2), 0.1, sz * (d * 0.5 - 0.2))))
+	var y0 := 0.69
+	_add(b, deck, _box(Vector3(w + 0.3, 0.14, d + 0.3)), xf * _at(Vector3(0, 0.62, 0)))
+	var lo := h * 0.38
+	_add(b, tile, _box(Vector3(w, lo, d)), xf * _at(Vector3(0, y0 + lo * 0.5, 0)))
+	_add(b, plaster, _box(Vector3(w - 0.02, h - lo, d - 0.02)), xf * _at(Vector3(0, y0 + lo + (h - lo) * 0.5, 0)))
+	_add(bn, ridge, _box(Vector3(w + 0.06, 0.08, d + 0.06)), xf * _at(Vector3(0, y0 + lo, 0)))
+	if not Toon.lite:
+		var nd := maxi(int(w / 0.42), 2)
+		for k in nd:
+			var x := (float(k) - (nd - 1) * 0.5) * (w / float(nd))
+			_add(bn, trim, _box(Vector3(0.17, 0.17, 0.02)), xf * _at(Vector3(x, y0 + lo * 0.5, d * 0.5 + 0.006), Vector3(0, 0, PI * 0.25)))
+		_add(bn, trim, _box(Vector3(0.62, 0.54, 0.05)), xf * _at(Vector3(w * 0.22, y0 + h * 0.72, d * 0.5 + 0.015)))
+	_add(bn, ink, _box(Vector3(0.46, 0.38, 0.06)), xf * _at(Vector3(w * 0.22, y0 + h * 0.72, d * 0.5 + 0.025)))
+	Decor.mon_into(bn, ink, xf * _at(Vector3(-w * 0.18, y0 + h * 0.74, d * 0.5 + 0.012)), 0.32, mon)
+	Decor.roof_into(b, bn, tile, ridge, xf * _at(Vector3(0, y0 + h, 0)), w + 0.6, d + 0.7, h * 0.36, 0.62, 0.3)
+
+
+## Donjon (tenshukaku) en volume, face à +Z local : socle ishigaki aux flancs évasés, trois étages de plâtre
+## à fenêtres d'encre, toits de tuiles incurvés aux coins relevés, pignon chidori, shachihoko d'or.
+static func _castle_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
+	var stone := _toon(Color("#6E6A62"), true, 0.03)
+	var plaster := _toon(SHIKKUI, true, 0.025)
+	var tile := _toon(KAWARA, true, 0.025)
+	var ridge := _toon(KAWARA_DARK, false)
+	var ink := _toon(Toon.SUMI, false)
+	var gold := _toon(Toon.GOLD, true, 0.02)
+	# ishigaki : gradins de pierre qui s'évasent vers le pied (pente concave des murs de château)
+	for k in 4:
+		var t := float(k) / 3.0
+		var wk := lerpf(5.6, 4.4, pow(t, 0.7))
+		_add(b, stone, _box(Vector3(wk, 0.62, wk * 0.9)), xf * _at(Vector3(0, -0.2 + 0.6 * k, 0)))
+	var widths := PackedFloat32Array([3.8, 3.0, 2.2])
+	var heights := PackedFloat32Array([1.25, 1.1, 1.0])
+	var y := 1.9
+	for k in 3:
+		var w := widths[k]
+		var h := heights[k]
+		_add(b, plaster, _box(Vector3(w, h, w * 0.86)), xf * _at(Vector3(0, y + h * 0.5, 0)))
+		var nw := 4 - k
+		if not Toon.lite:
+			for j in nw:
+				var wx := (float(j) - (nw - 1) * 0.5) * (w / (float(nw) + 0.4))
+				_add(bn, ink, _box(Vector3(0.22, 0.32, 0.05)), xf * _at(Vector3(wx, y + h * 0.55, w * 0.43 + 0.01)))
+		y += h
+		var top := k == 2
+		var rh: float = 0.95 if top else 0.6
+		var rl: float = 0.4 if top else 0.6
+		Decor.roof_into(b, bn, tile, ridge, xf * _at(Vector3(0, y, 0)), w + 1.0, w * 0.86 + 1.0, rh, rl, 0.38)
+		if k == 1:
+			# chidori-hafu : pignon triangulaire sur le pan avant
+			_add(b, tile, _cyl(0.62, 0.62, 0.55, 3), xf * _at(Vector3(0, y + 0.22, w * 0.43 + 0.1), Vector3(-PI * 0.5, 0, 0), Vector3(1.0, 1.0, 0.6)))
+		if top:
+			var r := rl * (w + 1.0) * 0.5
+			for sx: float in [-1.0, 1.0]:
+				_limb(bn, gold, Vector3(sx * r, y + rh + 0.05, 0), Vector3(sx * (r + 0.12), y + rh + 0.42, 0), 0.07, 0.02, 4, xf)
+		y += 0.18
 
 
 ## Forge (tatara) : socle de basalte, four d'argile à gueule rougeoyante, cheminée, auvent,
@@ -3346,15 +3824,14 @@ static func _forge_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 	_add(b, clay, _box(Vector3(1.0, 0.9, 0.7)), xf * _at(Vector3(-0.35, 0.55, -0.25)))
 	_add(bn, fire, _box(Vector3(0.36, 0.26, 0.04)), xf * _at(Vector3(-0.35, 0.42, 0.11)))
 	_add(bn, core, _box(Vector3(0.2, 0.14, 0.05)), xf * _at(Vector3(-0.35, 0.4, 0.115)))
-	_add(b, clay, _cyl(0.16, 0.22, 1.0, 8), xf * _at(Vector3(-0.55, 1.45, -0.35)))
-	_add(bn, fire, _cyl(0.12, 0.12, 0.03, 8), xf * _at(Vector3(-0.55, 1.96, -0.35)))
+	_add(b, clay, _cyl(0.16, 0.22, 1.5, 8), xf * _at(Vector3(-0.55, 1.7, -0.35)))
+	_add(bn, fire, _cyl(0.12, 0.12, 0.03, 8), xf * _at(Vector3(-0.55, 2.46, -0.35)))
 	for k in 4:
 		var px: float = 1.05 if k % 2 == 0 else -1.05
 		var pz: float = 0.8 if k < 2 else -0.8
 		_add(b, wood, _box(Vector3(0.08, 1.8, 0.08)), xf * _at(Vector3(px, 1.0, pz)))
-	for sz: float in [-1.0, 1.0]:
-		_add(b, roof, _box(Vector3(2.5, 0.05, 1.1)), xf * _at(Vector3(0, 2.05, sz * 0.45), Vector3(sz * 0.35, 0, 0)))
-	_add(b, roof, _box(Vector3(2.6, 0.08, 0.1)), xf * _at(Vector3(0, 2.25, 0)))
+	# auvent de tuiles incurvé aux coins relevés
+	Decor.roof_into(b, b, roof, roof, xf * _at(Vector3(0, 1.9, 0)), 2.7, 2.1, 0.42, 0.7, 0.35)
 	_add(b, wood, _box(Vector3(0.5, 0.35, 0.3)), xf * _at(Vector3(0.55, 0.28, -0.2)))
 	_add(b, wood, _cyl(0.025, 0.025, 0.5, 5), xf * _at(Vector3(0.55, 0.3, 0.1), Vector3(PI * 0.5, 0, 0)))
 	_anvil_into(b, bn, xf * _at(Vector3(0.6, 0.1, 0.45), Vector3(0, 0.4, 0), Vector3.ONE * 0.7))
@@ -3474,6 +3951,47 @@ static func _kagami_into(b: Dictionary, xf: Transform3D) -> void:
 	_add(b, mochi, _ball(0.13, 0.12, 10, 4), xf * _at(Vector3(0, 0.39, 0)))
 	_add(b, orange, _ball(0.075, 0.13, 8, 4), xf * _at(Vector3(0, 0.5, 0)))
 	_add(b, _toon(Decor.PINE_A, false), _box(Vector3(0.12, 0.012, 0.05)), xf * _at(Vector3(0.04, 0.565, 0), Vector3(0, 0.5, 0.3)))
+
+
+## Kunai de fer noirci : lame en feuille, poignée entourée de corde, anneau ; pointe vers +Z local.
+## Matériaux déjà présents dans presque toutes les salles (encre, corde) : pas de draw call en plus.
+static func _kunai_into(b: Dictionary, xf: Transform3D) -> void:
+	var iron := _toon(Toon.SUMI, false)
+	var wrap := Decor._toon("komo_rope", Decor.ROPE_DARK, false)
+	_add(b, iron, _cyl(0.0, 0.04, 0.18, 4), xf * _at(Vector3(0, 0, 0.09), Vector3(PI * 0.5, 0, 0), Vector3(1, 1, 0.3)))
+	_add(b, wrap, _cyl(0.012, 0.014, 0.11, 5), xf * _at(Vector3(0, 0, -0.055), Vector3(PI * 0.5, 0, 0)))
+	_add(b, iron, Decor.torus(0.016, 0.03, 8, 3), xf * _at(Vector3(0, 0, -0.135), Vector3(0, 0, PI * 0.5)))
+
+
+## Poteau d'entraînement (face à +Z local) : pieu de bois, paille de makiwara liée, kunai plantés,
+## ofuda de papier épinglé par un kunai.
+static func _kunai_post_into(b: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
+	var wood := Decor._toon("pole", Decor.POLE, true, 0.02)
+	var straw := Decor._toon("straw", Decor.STRAW, true, 0.02)
+	var rope := Decor._toon("komo_rope", Decor.ROPE_DARK, false)
+	var paper := Decor._toon("shide", Decor.SHIDE, true, 0.008)
+	var ink := _toon(Toon.SUMI, false)
+	_add(b, wood, _cyl(0.075, 0.085, 0.95, 7), xf * _at(Vector3(0, 0.475, 0)))
+	_add(b, wood, _cyl(0.09, 0.075, 0.05, 7), xf * _at(Vector3(0, 0.97, 0)))
+	_add(b, straw, _cyl(0.1, 0.1, 0.22, 8), xf * _at(Vector3(0, 0.62, 0)))
+	for y: float in [0.53, 0.71]:
+		_add(bn, rope, _cyl(0.104, 0.104, 0.025, 8), xf * _at(Vector3(0, y, 0)))
+	_add(bn, paper, _box(Vector3(0.08, 0.2, 0.006)), xf * _at(Vector3(0, 0.84, 0.086)))
+	_add(bn, ink, _box(Vector3(0.012, 0.13, 0.008)), xf * _at(Vector3(0, 0.83, 0.088)))
+	_kunai_into(bn, xf * _at(Vector3(0, 0.9, 0.2), Vector3(0.15, PI, 0)))
+	for k in 2:
+		var a := rng.randf_range(0.6, 1.2) * (1.0 if k == 0 else -1.0)
+		var dv := Vector3(sin(a), 0, cos(a))
+		_kunai_into(bn, xf * _at(Vector3(dv.x * 0.22, 0.58 + k * 0.09, dv.z * 0.22), Vector3(rng.randf_range(-0.2, 0.2), a + PI, 0)))
+
+
+## Shuriken à quatre branches de fer noirci, posé à plat.
+static func _shuriken_into(b: Dictionary, xf: Transform3D) -> void:
+	var steel := _toon(Toon.SUMI, false)
+	for k in 4:
+		var a := PI * 0.5 * k
+		_add(b, steel, _cyl(0.0, 0.035, 0.11, 4), xf * Transform3D(Basis(Vector3.UP, a) * Basis(Vector3.RIGHT, PI * 0.5) * Basis.from_scale(Vector3(1, 1, 0.25)), Vector3(sin(a), 0, cos(a)) * 0.055))
+	_add(b, steel, _cyl(0.035, 0.035, 0.012, 8), xf)
 
 
 # ------------------------------------------------------------------ particules d'ambiance
@@ -4451,7 +4969,7 @@ const YOMI_GLOW := Color("#B9A8E8")
 # --- lointain
 
 ## Monde 6 : mont Kurama. Ciel de brume verte, chaînes boisées en couches, temple vermillon et pagode
-## sur la crête, escalier de pierre, corbeaux ; cèdres géants (sugi) sur des îlots de mousse, grand
+## sur la crête, escalier de pierre sous une allée de torii, corbeaux ; cèdres géants (sugi) sur des îlots de mousse, grand
 ## masque de tengu sur la falaise, torii vermillon et lanternes du chemin des racines.
 static func _backdrop_kurama(root: Node3D) -> void:
 	var rng := _rng(66)
@@ -4472,19 +4990,25 @@ static func _backdrop_kurama(root: Node3D) -> void:
 		var c := Vector3(lerpf(-12.0, -20.0, t), lerpf(-0.5, 6.4, t), -127.5)
 		var hw := 1.6 - 0.6 * t
 		_vrect(st, c - Vector3(hw, 0.14, 0), c + Vector3(hw, 0.14, 0), Color("#8F8C80"), Color("#A7A496"))
-	for k in 6:
-		_band(st, Vector3(rng.randf_range(-90.0, 90.0), 4.0 + k * 3.4 + rng.randf_range(-1.0, 1.0), -116.0 - k * 7.0),
+	# allée de torii vermillon qui gravit l'escalier, lanternes de pierre à son pied
+	for k in 5:
+		var t := float(k) / 4.0
+		_sil_torii(st, Vector3(lerpf(-12.6, -19.4, t), lerpf(-0.45, 6.2, t), -127.2), 0.62 - 0.12 * t, Color("#9A3324"))
+	for sx: float in [-1.0, 1.0]:
+		_sil_toro(st, Vector3(-12.0 + sx * 2.6, -0.5, -127.0), 0.9, Color("#8F8C80"), Color("#F2D58A"))
+	for k in (4 if Toon.lite else 6):
+		_kasumi(st, Vector3(rng.randf_range(-90.0, 90.0), 4.0 + k * 3.4 + rng.randf_range(-1.0, 1.0), -116.0 - k * 7.0),
 			rng.randf_range(40.0, 90.0), rng.randf_range(1.6, 3.0), Color("#E6EADB"), Color("#C9D2BF"))
 	_flock(st, rng, Vector3(12, 18, -80), 9, Vector3(14, 4, 6), 1.1, Color("#141416"))
 	_flock(st, rng, Vector3(-26, 24, -110), 6, Vector3(10, 3, 4), 1.5, Color("#1E1E22"))
-	_vc_end(st, root)
 	for i in 6:
 		var h := rng.randf_range(20.0, 34.0)
-		_peak(root, Vector3(-100.0 + i * 40.0 + rng.randf_range(-8.0, 8.0), -1.0, rng.randf_range(-165.0, -142.0)),
-			1.2, h * 1.1, h, Color("#4E6656"), Color("#3A5244"), 0.3, 9)
-	var mist := Color(Color("#E6EADB"), 0.6)
-	_far(root, _box(Vector3(160, 2.0, 0.1)), mist, Vector3(0, 3.0, -70))
-	_far(root, _box(Vector3(120, 1.4, 0.1)), mist, Vector3(10, 7.5, -95))
+		_sil_mount(st, Vector3(-100.0 + i * 40.0 + rng.randf_range(-8.0, 8.0), -1.0, rng.randf_range(-165.0, -142.0)),
+			h * 1.1, h, 1.1, 0.03, Color("#3A5244"), Color("#4E6656"), Color("#3A5244"), 0.3, 14)
+	# deux grandes bandes de brume (kasumi) devant la forêt
+	_kasumi(st, Vector3(0, 3.0, -70), 160.0, 2.0, Color("#EEF0E4"), Color("#DCE2D2"))
+	_kasumi(st, Vector3(10, 7.5, -95), 120.0, 1.4, Color("#EEF0E4"), Color("#DCE2D2"))
+	_vc_end(st, root)
 	# cèdres géants sur leurs îlots de mousse
 	var b := {}
 	var bn := {}
@@ -4534,14 +5058,19 @@ static func _backdrop_ryugu(root: Node3D) -> void:
 	for k in 3:
 		var face: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sil_turtle(st, Vector3(rng.randf_range(-50.0, 50.0), rng.randf_range(12.0, 30.0), -100.0 - k * 12.0), rng.randf_range(2.0, 3.2), Color("#1A3E44"), face)
+	# perle de lumière au-dessus du palais, son halo peint dans le ciel
+	var sky: Array = [-2.0, Color("#2A6268"), 30.0, Color("#4E9496"), 150.0, Color("#A9D6CF")]
+	var halo := _sky_at(42.0, sky)
+	_vdisc(st, Vector3(0, 42, -240), 13.0, halo.lerp(Color(0.95, 1.0, 0.95), 0.2), halo, 32)
+	_vdisc(st, Vector3(0, 42, -205), 7.0, Color("#F4F1EA"), Color("#E4ECE4"), 32)
 	_vc_end(st, root)
-	# rayons de lumière obliques qui tombent de la surface
-	for k in 7:
-		_far(root, _box(Vector3(rng.randf_range(4.0, 9.0), 120, 0.1)), Color(0.9, 1.0, 0.95, 0.06),
-			Vector3(-80.0 + k * 26.0 + rng.randf_range(-6.0, 6.0), 40.0, -150.0 - k * 4.0), Vector3.ONE, Vector3(0, 0, 0.28))
-	# perle de lumière au-dessus du palais
-	_far(root, Toon.sphere(7.0), Color("#F4F1EA"), Vector3(0, 42, -205))
-	_far(root, Toon.cyl(13.0, 13.0, 0.1, 32), Color(0.95, 1.0, 0.95, 0.12), Vector3(0, 42, -212), Vector3.ONE, Vector3(PI * 0.5, 0, 0))
+	# rayons de lumière obliques qui tombent de la surface (transparents : un seul lot, un draw call)
+	var rays := {}
+	var rm := _flat(Color(0.9, 1.0, 0.95, 0.06))
+	for k in (4 if Toon.lite else 7):
+		_add(rays, rm, _box(Vector3(rng.randf_range(4.0, 9.0), 120, 0.1)),
+			_at(Vector3(-80.0 + k * 26.0 + rng.randf_range(-6.0, 6.0), 40.0, -150.0 - k * 4.0), Vector3(0, 0, 0.28)))
+	_flush(rays, root)
 	# récifs proches : coraux, bénitiers, varech
 	var b := {}
 	var bn := {}
@@ -4585,15 +5114,12 @@ static func _backdrop_yomi(root: Node3D) -> void:
 	_sil_dead_trees(st, rng, -180.0, 180.0, -186.0, 4.0, 40, 7.0, Color("#1A1720"))
 	_ridge(st, rng, -220.0, 220.0, -130.0, -1.0, 5.0, Color("#16131A"), Color("#2E2A34"), 30)
 	_sil_dead_trees(st, rng, -140.0, 140.0, -127.0, 1.5, 50, 5.0, Color("#0E0C12"))
-	# torii noirs sur la pente
+	# torii noirs sur la pente, une lanterne pâle au pied de chacun
 	for k in 4:
 		var x := -60.0 + k * 38.0 + rng.randf_range(-6.0, 6.0)
 		var y := 2.0 + rng.randf_range(0.0, 2.0)
-		_vstroke(st, Vector3(x - 2.0, y, -126.0), Vector3(x - 2.0, y + 5.0, -126.0), 0.45, Color("#0A080C"))
-		_vstroke(st, Vector3(x + 2.0, y, -126.0), Vector3(x + 2.0, y + 5.0, -126.0), 0.45, Color("#0A080C"))
-		_vquad(st, Vector3(x - 3.4, y + 5.0, -125.9), Vector3(x + 3.4, y + 5.0, -125.9), Vector3(x + 3.8, y + 5.7, -125.9), Vector3(x - 3.8, y + 5.7, -125.9),
-			Color("#0A080C"), Color("#0A080C"), Color("#0A080C"), Color("#0A080C"))
-		_vstroke(st, Vector3(x - 2.8, y + 4.2, -125.9), Vector3(x + 2.8, y + 4.2, -125.9), 0.3, Color("#0A080C"))
+		_sil_torii(st, Vector3(x, y, -126.0), 1.75, Color("#0A080C"))
+		_sil_toro(st, Vector3(x + 3.2, y, -125.8), 1.1, Color("#0A080C"), Color("#C9B8E8"))
 	# procession de lanternes pâles qui descend vers le fleuve
 	for i in 26:
 		var t := float(i) / 25.0
@@ -4603,11 +5129,13 @@ static func _backdrop_yomi(root: Node3D) -> void:
 		_band(st, Vector3(rng.randf_range(-90.0, 90.0), 3.0 + k * 3.0 + rng.randf_range(-1.0, 1.0), -112.0 - k * 7.0),
 			rng.randf_range(40.0, 90.0), rng.randf_range(1.4, 2.6), Color("#5E5468"), Color("#3E3846"))
 	_flock(st, rng, Vector3(18, 20, -86), 6, Vector3(10, 3, 4), 1.2, Color("#0A080C"))
+	# lune pâle voilée (halo peint dans le ciel) et le grand rocher qui ferme le passage (Chibiki-iwa)
+	var sky: Array = [-2.0, Color("#5A4A66"), 24.0, Color("#3A3442"), 150.0, Color("#120E18")]
+	var halo := _sky_at(36.0, sky)
+	_vdisc(st, Vector3(30, 36, -244), 14.0, halo.lerp(Color(0.8, 0.7, 1.0), 0.18), halo, 32)
+	_vdisc(st, Vector3(30, 36, -210), 8.0, Color("#D9D0E6"), Color("#CBC0DC"), 32)
+	_vellipse(st, Vector3(-34, 4.0, -150), 14.0, 11.0, Color("#2A2630"), Color("#221E28"), 18)
 	_vc_end(st, root)
-	# lune pâle voilée et le grand rocher qui ferme le passage (Chibiki-iwa)
-	_far(root, Toon.sphere(8.0), Color("#D9D0E6"), Vector3(30, 36, -210))
-	_far(root, Toon.cyl(14.0, 14.0, 0.1, 32), Color(0.8, 0.7, 1.0, 0.1), Vector3(30, 36, -216), Vector3.ONE, Vector3(PI * 0.5, 0, 0))
-	_far(root, Toon.sphere(1.0), Color("#2A2630"), Vector3(-34, 4.0, -150), Vector3(14.0, 11.0, 9.0))
 	# buttes de cendre, pins morts, stèles, torii brisé
 	var b := {}
 	var bn := {}

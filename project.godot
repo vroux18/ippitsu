@@ -52,4 +52,7 @@ lights_and_shadows/directional_shadow/size.web=1024
 lights_and_shadows/directional_shadow/size.mobile=1024
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality.web=0
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality.mobile=0
+; aucune lumière ponctuelle n'a d'ombre (seul le soleil en porte) : pas d'atlas d'ombres ponctuelles en mémoire
+lights_and_shadows/positional_shadow/atlas_size=0
+lights_and_shadows/positional_shadow/atlas_size.mobile=0
 environment/defaults/default_clear_color=Color(0.937, 0.902, 0.824, 1)

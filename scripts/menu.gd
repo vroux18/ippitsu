@@ -16,7 +16,8 @@ const FIG_H := 80.0
 const BTN_H := 132.0  # bas de l'écran réservé aux boutons
 const PER_ROW := 10
 # auteur du coup fatal (type d'ennemi), pour « VAINCU PAR … »
-const KILLER_NAMES := {"oni": "un oni", "brute": "une brute", "kappa": "un kappa", "tate": "un porte-bouclier",
+const KILLER_NAMES := {"shinobi": "un shinobi", "shuriken": "un lanceur de shuriken", "kemuri": "un ninja des fumées",
+	"kunoichi": "une kunoichi", "oni": "un oni", "brute": "une brute", "kappa": "un kappa", "tate": "un porte-bouclier",
 	"funa": "un funayūrei", "umibozu": "un umibōzu", "kitsunebi": "un kitsunebi", "kitsunebi_s": "un feu follet",
 	"yukionna": "une yuki-onna", "kasha": "un kasha", "kagebo": "ton double d'encre",
 	"kappa_yumi": "un kappa archer", "ika": "un calmar d'encre", "umi_nyobo": "une umi-nyōbō", "kamaitachi": "un kamaitachi",
@@ -118,7 +119,7 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_title.base_font = UiKit.TITLE_FONT
-	_title.spacing_glyph = 6
+	_title.spacing_glyph = UiKit.TITLE_SPACING
 	_title_wide.base_font = UiKit.TITLE_FONT
 	_title_wide.spacing_glyph = 12
 	_ui.base_font = UiKit.UI_FONT
@@ -317,7 +318,7 @@ func _process(_delta: float) -> void:
 ## Accueil : icônes nues en haut à droite, le pinceau JOUER, puis ATELIER · DOJO · GARDE-ROBE.
 func _layout_home(w: float, h: float, u: float) -> void:
 	var ty := _top_y(u)
-	var ib := 46.0 * u
+	var ib: float = UiKit.ICON_BTN * u
 	_sound.size = Vector2(ib, ib)
 	_sound.position = Vector2(w - 14.0 * u - ib, ty)
 	_gear.size = Vector2(ib, ib)
@@ -327,7 +328,7 @@ func _layout_home(w: float, h: float, u: float) -> void:
 	# l'encre arrive : le trait se pose de gauche à droite, puis les entrées montent une à une
 	var appear := UiKit.ease_out(clampf((_t - 0.5) / 0.7, 0.0, 1.0))
 	var bw := minf(w * 0.8, 330.0 * u)
-	var bh := 78.0 * u
+	var bh: float = UiKit.BTN_HERO_H * u
 	var py := _play_y(h, u)
 	_play.size = Vector2(bw, bh)
 	_play.position = Vector2((w - bw) / 2.0, py + 10.0 * u * (1.0 - appear))
@@ -356,7 +357,7 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 		var nx := (w - nbw) / 2.0
 		_next.text = next_label
 		_next.kanji = unlock_world_kanji
-		_next.size = Vector2(nbw, 64 * u)
+		_next.size = Vector2(nbw, UiKit.BTN_MAIN_H * u)
 		_next.position = Vector2(nx, by)
 		_next.reveal = ink_in
 		_next.font_size = _fit_font(_next, int(18 * u), nbw * 0.6)
@@ -365,7 +366,7 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 		var row: Array = [_replay, _over_atelier, _home]
 		for i in row.size():
 			var rb: Control = row[i]
-			rb.size = Vector2(tw3, 46 * u)
+			rb.size = Vector2(tw3, UiKit.BTN_H * u)
 			rb.position = Vector2(nx + tw3 * i, by + 72 * u)
 			rb.modulate.a = over_in
 			rb.font_size = _fit_font(rb, int(14 * u), tw3 - 12 * u)
@@ -373,7 +374,7 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 		var obw := minf(w * 0.76, 320.0 * u)
 		_replay.style = "brush"
 		_replay.modulate.a = 1.0
-		_replay.size = Vector2(obw, 64 * u)
+		_replay.size = Vector2(obw, UiKit.BTN_MAIN_H * u)
 		_replay.position = Vector2((w - obw) / 2.0, by)
 		_replay.reveal = ink_in
 		_replay.font_size = _fit_font(_replay, int(23 * u), obw * 0.62)
@@ -381,7 +382,7 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 		var row2: Array = [_over_atelier, _home]
 		for i in row2.size():
 			var rb2: Control = row2[i]
-			rb2.size = Vector2(hw, 46 * u)
+			rb2.size = Vector2(hw, UiKit.BTN_H * u)
 			rb2.position = Vector2(w / 2.0 - hw + hw * i, by + 72 * u)
 			rb2.modulate.a = over_in
 			rb2.font_size = _fit_font(rb2, int(15 * u), hw - 12 * u)
@@ -398,17 +399,19 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 ## RECOMMENCER et QUITTER côte à côte (second toucher pour confirmer).
 func _layout_pause(u: float) -> void:
 	var pc := _pause_card()
-	var ib := 44.0 * u
+	# réglages et son : boutons ronds de l'en-tête commun, centrés à (HEAD_X, HEAD_Y) des coins de la carte
+	var ib: float = UiKit.ICON_BTN * u
+	var hc := Vector2(UiKit.HEAD_X, UiKit.HEAD_Y) * u
 	_gear.size = Vector2(ib, ib)
-	_gear.position = pc.position + Vector2(12.0 * u, 12.0 * u)
+	_gear.position = pc.position + hc - Vector2(ib, ib) / 2.0
 	_sound.size = Vector2(ib, ib)
-	_sound.position = Vector2(pc.end.x - 12.0 * u - ib, pc.position.y + 12.0 * u)
+	_sound.position = Vector2(pc.end.x - hc.x - ib / 2.0, pc.position.y + hc.y - ib / 2.0)
 	var pr := _powers_rect(pc, u)
 	_powers_btn.position = pr.position
 	_powers_btn.size = pr.size
 	var rw := pc.size.x - 64.0 * u
-	_resume.size = Vector2(rw, 70.0 * u)
-	_resume.position = Vector2(pc.get_center().x - rw / 2.0, pc.position.y + 306.0 * u)
+	_resume.size = Vector2(rw, UiKit.BTN_MAIN_H * u)
+	_resume.position = Vector2(pc.get_center().x - rw / 2.0, pc.position.y + 309.0 * u)
 	_resume.reveal = clampf((_t - 0.1) / 0.45, 0.0, 1.0)
 	_resume.font_size = _fit_font(_resume, int(21 * u), rw * 0.6)
 	_restart.text = "CONFIRMER" if _confirm == "restart" else "RECOMMENCER"
@@ -416,9 +419,9 @@ func _layout_pause(u: float) -> void:
 	_quit.text = "CONFIRMER" if _confirm == "quit" else "QUITTER"
 	_quit.accent = _confirm == "quit"
 	var hw := (pc.size.x - 40.0 * u) / 2.0
-	_restart.size = Vector2(hw, 46.0 * u)
+	_restart.size = Vector2(hw, UiKit.BTN_H * u)
 	_restart.position = Vector2(pc.position.x + 20.0 * u, pc.position.y + 408.0 * u)
-	_quit.size = Vector2(hw, 46.0 * u)
+	_quit.size = Vector2(hw, UiKit.BTN_H * u)
 	_quit.position = Vector2(pc.position.x + 20.0 * u + hw, pc.position.y + 408.0 * u)
 	_restart.font_size = _fit_font(_restart, int(14 * u), hw - 14.0 * u)
 	_quit.font_size = _fit_font(_quit, int(14 * u), hw - 14.0 * u)
@@ -460,6 +463,9 @@ func _draw_home() -> void:
 	_veil(vy + 80.0 * u, h, th_wash, 0.7, 0.93)
 
 	var a := UiKit.ease_out(clampf(_t / 0.6, 0.0, 1.0))
+	# la mer de Hokusai en filigrane sous le pinceau et les entrées : vagues seigaiha très pâles
+	var sea := Rect2(Vector2(0.0, vy + 80.0 * u), Vector2(w, maxf(0.0, h - vy - 80.0 * u)))
+	UiKit.seigaiha(self, sea, Color(th_ink, 0.05 * a), 20.0 * u)
 
 	# sceau vermillon 一筆, frappé comme une signature
 	var sk := clampf((_t - 0.15) / 0.25, 0.0, 1.0)
@@ -484,17 +490,23 @@ func _draw_home() -> void:
 		var br := Rect2(Vector2(w / 2.0 - bw / 2.0, title_y + 13.0 * u), Vector2(bw, 9.0 * u))
 		draw_colored_polygon(UiKit.swash_points(br, k, 5.0), Color(Toon.VERMILION, 0.95))
 
-	# accroche
-	UiKit.text(self, _ui, "UN SEUL TRAIT", Vector2(w / 2.0 + 2.0, title_y + 46.0 * u), int(11 * u), Color(th_ink, 0.6 * a))
+	# accroche, entre deux shuriken
+	var gy := title_y + 46.0 * u
+	var gfs: int = int(UiKit.FS_BODY * u)
+	var gw := UiKit.text(self, _ui, "UN SEUL TRAIT", Vector2(w / 2.0 + 2.0, gy), gfs, Color(th_ink, 0.6 * a))
+	for sgn in [-1.0, 1.0]:
+		var sx: float = w / 2.0 + float(sgn) * (gw / 2.0 + 12.0 * u)
+		UiKit.shuriken(self, Vector2(sx, gy - gfs * 0.36), 4.0 * u, Color(Toon.VERMILION, 0.75 * a), 0.3 + _t * 0.4 * float(sgn))
 
 	# record : une ligne discrète entre deux filets
 	if best > 0:
 		var ra := UiKit.ease_out(clampf((_t - 1.1) / 0.5, 0.0, 1.0))
 		var ry := _play_y(h, u) + 210.0 * u
-		var rtw := UiKit.text(self, _ui, "RECORD  ·  ÉTAPE %d / %d" % [best, rooms_total], Vector2(w / 2.0, ry), int(10 * u), Color(th_ink, 0.5 * ra))
+		var rtw := UiKit.text(self, _ui, "RECORD  ·  ÉTAPE %d / %d" % [best, rooms_total], Vector2(w / 2.0, ry), int(UiKit.FS_CAPTION * u), Color(th_ink, 0.5 * ra))
 		var lx := rtw / 2.0 + 10.0 * u
-		draw_line(Vector2(w / 2.0 - lx - 22.0 * u, ry - 4.0 * u), Vector2(w / 2.0 - lx, ry - 4.0 * u), Color(th_ink, 0.2 * ra), maxf(1.0, u))
-		draw_line(Vector2(w / 2.0 + lx, ry - 4.0 * u), Vector2(w / 2.0 + lx + 22.0 * u, ry - 4.0 * u), Color(th_ink, 0.2 * ra), maxf(1.0, u))
+		# filets au pinceau, épais près du texte et effilés vers l'extérieur
+		UiKit.brush_line(self, Vector2(w / 2.0 - lx, ry - 4.0 * u), Vector2(w / 2.0 - lx - 26.0 * u, ry - 4.0 * u), 2.0 * u, Color(th_ink, 0.25 * ra))
+		UiKit.brush_line(self, Vector2(w / 2.0 + lx, ry - 4.0 * u), Vector2(w / 2.0 + lx + 26.0 * u, ry - 4.0 * u), 2.0 * u, Color(th_ink, 0.25 * ra))
 
 	# compteur d'encre (par-dessus le voile du haut)
 	_draw_ink_counter(Vector2(20.0 * u, ty0 + 23.0 * u), u)
@@ -525,8 +537,8 @@ func _draw_results() -> void:
 	var lay := _results_layout(u)
 	var v: float = lay["v"]
 	var card := Rect2(Vector2(14 * u, float(lay["top"]) + 24 * u * (1.0 - a)), Vector2(w - 28 * u, float(lay["height"])))
-	# feuille de washi aux bords barbés, trait de la couleur du monde en tête
-	UiKit.washi_sheet(self, card, th_paper, th_ink, a, u, 3.0)
+	# feuille de washi commune aux bords barbés (vagues seigaiha pâles derrière l'ensō), trait de la couleur du monde en tête
+	UiKit.sheet(self, card, th_paper, th_ink, a, u, 3.0, maxf(0.0, HEAD_H * v / u - 22.0))
 	var band := Rect2(card.position + Vector2(card.size.x * 0.2, 9.0 * u), Vector2(card.size.x * 0.6, 7.0 * u))
 	var bk := UiKit.ease_out(clampf(_t / 0.6, 0.0, 1.0))
 	if bk > 0.05:
@@ -581,12 +593,9 @@ func _unlock_rows() -> int:
 	return n
 
 
-## Titre de section : petit mot puis filet jusqu'au bord.
-func _section(label: String, x0: float, x1: float, y: float, u: float, a: float) -> void:
-	var fs := int(10 * u)
-	draw_string(_ui, Vector2(x0, y), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, 0.55 * a))
-	var tw := _ui.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	draw_line(Vector2(x0 + tw + 6 * u, y - fs * 0.35), Vector2(x1, y - fs * 0.35), Color(th_ink, 0.15 * a), 1.5 * u)
+## Titre de section commun (UiKit.section) : sceau à kanji, petit mot, trait de pinceau fini d'un shuriken.
+func _section(label: String, x0: float, x1: float, y: float, u: float, a: float, kanji := "") -> void:
+	UiKit.section(self, _ui, label, x0, x1, y, u, th_ink, a, kanji)
 
 
 ## Ensō (plein en victoire, à la mesure des salles franchies sinon), titre et sous-titres.
@@ -705,7 +714,7 @@ func _draw_stats(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 func _draw_build(x0: float, x1: float, y: float, u: float, v: float, a: float) -> void:
 	var cx := (x0 + x1) / 2.0
 	var hk := UiKit.ease_out(clampf((_t - 0.6) / 0.3, 0.0, 1.0))
-	_section("TON BUILD", x0, x1, y + 13 * v, u, a * hk)
+	_section("TON BUILD", x0, x1, y + 13 * v, u, a * hk, "巻")
 	var n := _build_list.size()
 	if n == 0:
 		UiKit.text(self, _ui, "AUCUN ROULEAU", Vector2(cx, y + 42 * v), int(11 * u), Color(th_ink, 0.4 * a * hk))
@@ -794,7 +803,7 @@ func _aff_label(s: String) -> String:
 ## Les six figures et combien de fois chacune a été tracée (la préférée cerclée de vermillon).
 func _draw_figures(x0: float, x1: float, y: float, u: float, v: float, a: float) -> void:
 	var hk := UiKit.ease_out(clampf((_t - 0.95) / 0.3, 0.0, 1.0))
-	_section("FIGURES", x0, x1, y + 13 * v, u, a * hk)
+	_section("FIGURES", x0, x1, y + 13 * v, u, a * hk, "形")
 	var fav := ""
 	var fav_n := 0
 	for f in UiKit.FIGURES:
@@ -823,7 +832,7 @@ func _draw_gains(x0: float, x1: float, y: float, u: float, v: float, a: float) -
 	var label := "GAINS"
 	if new_prints.size() > 3:
 		label = "GAINS  ·  %d VUES" % new_prints.size()
-	_section(label, x0, x1, y + 13 * v, u, a * hk)
+	_section(label, x0, x1, y + 13 * v, u, a * hk, "金")
 	var ry := y + 44 * v
 	var nfs := int(20 * u)
 	var wfs := int(11 * u)
@@ -890,7 +899,7 @@ func _draw_unlocks(x0: float, x1: float, y: float, u: float, v: float, a: float)
 	var hk := UiKit.ease_out(clampf((_t - t0) / 0.3, 0.0, 1.0))
 	if hk <= 0.0:
 		return
-	_section("DÉBLOQUÉ", x0, x1, y + 13 * v, u, a * hk)
+	_section("DÉBLOQUÉ", x0, x1, y + 13 * v, u, a * hk, "開")
 	var i := 0
 	if unlock_world > 0:
 		var pk := UiKit.ease_out(clampf((_t - t0 - 0.15) / 0.35, 0.0, 1.0))
@@ -953,7 +962,7 @@ func _pause_card() -> Rect2:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
-	var cw := minf(w * 0.88, 360.0 * u)
+	var cw := minf(w * 0.9, 360.0 * u)  # même largeur que les options et MES POUVOIRS
 	var ch := 470.0 * u
 	var lo := _safe.x + 12.0 * u
 	var cy := clampf(h * 0.5 - ch / 2.0, lo, maxf(lo, h - _safe.y - 12.0 * u - ch))
@@ -974,23 +983,24 @@ func _draw_pause() -> void:
 	var card := _pause_card()
 	var dy := 16.0 * u * (1.0 - a)
 	card.position.y += dy
-	UiKit.washi_sheet(self, card, th_paper, th_ink, a, u, 6.0)
+	# feuille de washi commune (options, mes pouvoirs) : vagues seigaiha pâles derrière le sceau et le titre
+	UiKit.sheet(self, card, th_paper, th_ink, a, u, 6.0, 126.0)
 	# trait de la couleur du monde en tête de feuille
 	var band := Rect2(card.position + Vector2(70.0 * u, 16.0 * u), Vector2(card.size.x - 140.0 * u, 7.0 * u))
 	var bk := UiKit.ease_out(clampf(_t / 0.5, 0.0, 1.0))
 	if bk > 0.05:
 		draw_colored_polygon(UiKit.swash_points(band, bk, 4.0), Color(world_color, 0.85 * a))
-	# sceau du monde et titre
+	# sceau du monde, puis le titre souligné de vermillon (même titre que les autres écrans)
 	var seal := Rect2(Vector2(card.get_center().x - 23.0 * u, card.position.y + 36.0 * u), Vector2(46, 46) * u)
 	UiKit.hanko(self, seal, world_kanji, world_color, Toon.WASHI, a, u, 4.0)
-	UiKit.text(self, _title, "PAUSE", Vector2(card.get_center().x + 3.0, card.position.y + 122.0 * u), int(28 * u), Color(th_ink, a))
+	UiKit.screen_title(self, _title, "PAUSE", Vector2(card.get_center().x, card.position.y + 116.0 * u), u, th_ink, a, "", 0.0, UiKit.ease_out(clampf((_t - 0.1) / 0.35, 0.0, 1.0)))
 	# la partie en cours
 	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["SCORE", Score.fmt(stat_score)],
 		["TEMPS", "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]]]
 	for i in cols.size():
 		var cx := card.position.x + card.size.x * (0.14 + 0.24 * i)
-		UiKit.text(self, _ui, String(cols[i][0]), Vector2(cx, card.position.y + 154 * u), int(10 * u), Color(th_ink, 0.5 * a))
-		UiKit.text(self, UiKit.TITLE_FONT, String(cols[i][1]), Vector2(cx, card.position.y + 180 * u), int(19 * u), Color(th_ink, a))
+		UiKit.text(self, _ui, String(cols[i][0]), Vector2(cx, card.position.y + 154 * u), int(UiKit.FS_CAPTION * u), Color(th_ink, UiKit.A_CAPTION * a))
+		UiKit.text(self, UiKit.TITLE_FONT, String(cols[i][1]), Vector2(cx, card.position.y + 180 * u), int(UiKit.FS_NUMBER * u), Color(th_ink, a))
 		if i > 0:
 			var lx := card.position.x + card.size.x * (0.02 + 0.24 * i)
 			draw_line(Vector2(lx, card.position.y + 144 * u), Vector2(lx, card.position.y + 184 * u), Color(th_ink, 0.12 * a), 1.5 * u)
@@ -1020,10 +1030,10 @@ func _draw_pause() -> void:
 	var lab := "MES POUVOIRS  ·  %d" % ids.size()
 	var lfs := int(11 * u)
 	var ltw := UiKit.text(self, _ui, lab, Vector2(pr.get_center().x - 6.0 * u, pr.position.y + 70.0 * u), lfs, Color(th_ink, 0.8 * a))
-	# chevron : la rangée s'ouvre
-	var chx := pr.get_center().x - 6.0 * u + ltw / 2.0 + 8.0 * u
+	# kunai pointé vers la droite : la rangée s'ouvre
+	var chx := pr.get_center().x - 6.0 * u + ltw / 2.0 + 16.0 * u
 	var chy := pr.position.y + 70.0 * u - lfs * 0.36
-	draw_polyline(PackedVector2Array([Vector2(chx, chy - 4.0 * u), Vector2(chx + 4.0 * u, chy), Vector2(chx, chy + 4.0 * u)]), Color(Toon.VERMILION, a), maxf(1.0, 1.6 * u), true)
+	UiKit.kunai(self, Vector2(chx, chy), Vector2.RIGHT, 18.0 * u, Color(Toon.VERMILION, a))
 	# confirmation attendue (RECOMMENCER, QUITTER)
 	if _confirm != "":
 		var what := "RECOMMENCER" if _confirm == "restart" else "QUITTER"

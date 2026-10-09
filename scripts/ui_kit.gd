@@ -9,6 +9,81 @@ const Toon = preload("res://scripts/toon.gd")
 # les six figures, dans l'ordre d'affichage
 const FIGURES := ["straight", "return", "zigzag", "loop", "enso", "hook"]
 
+# ================================================================== système de design
+# Mesures en unités u (largeur de l'écran / 400) : on multiplie par u au dessin. Accueil, pause,
+# résultats, options, mes pouvoirs, atelier et garde-robe puisent ici (composants plus bas :
+# screen_title, back_button, section, chip, sheet, seigaiha, asanoha, mon, shuriken, kunai).
+
+# --- échelle typographique (taille × u) ; TITLE_FONT : titres, noms, chiffres ; UI_FONT : le reste
+const FS_DISPLAY := 34.0  # mot-événement (VICTOIRE), un seul par écran
+const FS_TITLE := 24.0  # titre d'écran (OPTIONS, MES POUVOIRS, ATELIER, GARDE-ROBE, PAUSE)
+const FS_HEADING := 15.0  # nom d'une carte, d'un élément, titre d'une bulle
+const FS_NUMBER := 19.0  # chiffre mis en avant (étape, score, compteur)
+const FS_LABEL := 12.0  # libellé de bouton, de segment, d'onglet
+const FS_BODY := 11.0  # texte courant, effets, descriptions
+const FS_CAPTION := 10.0  # petites capitales de section, légendes (encre à 55 %)
+const FS_MICRO := 8.5  # rubans, badges, prix dans une tuile : plancher lisible au téléphone
+const TITLE_SPACING := 4  # espacement des lettres (px) du titre d'écran
+const CAPS_SPACING := 1  # espacement des petites capitales (UI_FONT)
+
+# --- espacements (× u)
+const SP_XS := 4.0
+const SP_S := 8.0
+const SP_M := 14.0  # marge d'écran, marge intérieure d'une carte
+const SP_L := 22.0
+const SP_XL := 36.0
+
+# --- rayons des coins (× u) ; pilules (puces, segments, prix) : la moitié de la hauteur
+const R_S := 8.0  # encarts dans une carte, petites pastilles carrées
+const R_M := 14.0  # tuiles de grille, barre d'information
+const R_L := 18.0  # feuilles et panneaux
+
+# --- épaisseurs de trait (× u, jamais sous 1 px)
+const BW_HAIR := 1.0  # filet, contour d'une puce éteinte
+const BW := 1.5  # cadre d'une tuile ordinaire
+const BW_STRONG := 2.5  # cadre choisi, rareté, sceau
+
+# --- ombre portée : une seule, douce et vers le bas
+const SHADOW_A := 0.3  # opacité (× alpha de l'écran)
+const SHADOW_Y := 4.0  # décalage vertical (× u)
+const SHADOW_SIZE := 10.0  # flou (× u)
+
+# --- boutons (hauteur × u) et icônes
+const BTN_HERO_H := 78.0  # pinceau JOUER de l'accueil
+const BTN_MAIN_H := 64.0  # pinceau principal (REJOUER, REPRENDRE, MONDE SUIVANT)
+const BTN_H := 46.0  # bouton secondaire (texte, fantôme, ACHETER)
+const BTN_SMALL_H := 28.0  # prix dans une tuile (la tuile entière est la cible)
+const ICON_BTN := 46.0  # bouton rond à icône : retour, réglages, son (diamètre)
+const ICON_MIN := 28.0  # plus petite cible tactile
+const ICON_GLYPH := 0.5  # pictogramme d'un bouton rond : moitié de son rayon
+const HEAD_X := 37.0  # centre du bouton retour depuis le bord gauche (de l'écran ou de la carte)
+const HEAD_Y := 39.0  # centre vertical de l'en-tête (sous l'encoche, ou depuis le haut de la carte), comme la carte des mondes
+const HEAD_BASE := 49.0  # ligne de base du titre d'écran, même repère que HEAD_Y
+# retour : maison (écran plein qui ramène à l'accueil : carte, atelier, garde-robe) ;
+# flèche (fenêtre qui se referme sur l'écran d'avant : options, mes pouvoirs)
+
+# --- puces, segments, pilules
+const SEG_H := 40.0  # onglets principaux (commande segmentée)
+const CHIP_H := 30.0  # filtres, onglets secondaires
+const OPT_H := 44.0  # choix d'une option (segment en pilule)
+
+# --- palette : règles d'usage
+# sumi (Toon.ui_ink) : texte, boutons principaux, segment actif ;
+# washi (Toon.ui_paper, Toon.ui_wash) : feuilles, cartes, fonds clairs ;
+# vermillon (Toon.VERMILION) : l'accent unique (souligné de titre, choix en cours, confirmation, sceaux) ;
+# or : récompenses et monnaies (GOLD_INK sur papier clair, GOLD_HI sur fond sombre : voir gold()) ;
+# indigo (INDIGO) : information, aide, rareté « rare ».
+const GOLD_INK := Color("#9A6B12")
+const GOLD_HI := Color("#E2A93B")
+const INDIGO := Color("#2F5D8A")
+# opacités de l'encre : texte 1, secondaire, légende, désactivé, filet, lavis, motif de fond
+const A_SUB := 0.6
+const A_CAPTION := 0.5
+const A_DIM := 0.3
+const A_RULE := 0.15
+const A_WASH := 0.05
+const A_PATTERN := 0.06
+
 static var _last_ms := 0
 static var _frame := -1
 static var _delta := 0.0
@@ -1233,6 +1308,364 @@ static func safe_insets(view: Vector2) -> Vector2:
 	var top := clampf(float(safe.position.y) * k, 0.0, view.y * 0.1)
 	var bot := clampf(float(win.y - safe.end.y) * k, 0.0, view.y * 0.1)
 	return Vector2(top, bot)
+
+
+# ------------------------------------------------------------------ système de design : composants
+# Dessins communs aux écrans (voir les mesures en tête de fichier). Tout est en pixels de l'écran :
+# l'appelant passe u. Les motifs (seigaiha, asanoha) sont calculés une fois par taille, puis
+# redessinés d'un seul appel (draw_multiline).
+
+static var _pat := {}  # motifs en cache : clé -> segments (coordonnées locales du cadre)
+
+
+## Or lisible sur le papier du thème (foncé sur papier clair, vif sur papier sombre).
+static func gold() -> Color:
+	return GOLD_HI if Toon.ui_dark else GOLD_INK
+
+
+## Tous les caractères de `chars` existent dans la police réduite des titres.
+static func has_glyphs(chars: String) -> bool:
+	for i in chars.length():
+		if not TITLE_FONT.has_char(chars.unicode_at(i)):
+			return false
+	return true
+
+
+## Sceau à kanji (hanko) ; si un caractère manque à la police réduite, un mon à losanges le remplace.
+static func seal(ci: CanvasItem, r: Rect2, chars: String, col: Color, paper: Color, a: float, u: float, sd := 0.0) -> void:
+	if has_glyphs(chars):
+		hanko(ci, r, chars, col, paper, a, u, sd)
+		return
+	hanko(ci, r, "", col, paper, a, u, sd)
+	mon(ci, r.get_center(), minf(r.size.x, r.size.y) * 0.3, "hishi", Color(paper, 0.9 * a), false)
+
+
+## Titre d'écran : capitales (font : variation espacée de TITLE_FONT) centrées sur c.x, ligne de base c.y,
+## soulignées d'un coup de pinceau vermillon ; kanji : petit sceau à droite (le groupe reste centré).
+## Rétrécit pour tenir dans maxw (0 : sans limite) ; k (0..1) pose le trait. Renvoie la largeur du titre.
+static func screen_title(ci: CanvasItem, font: Font, txt: String, c: Vector2, u: float, ink: Color, a: float,
+		kanji := "", maxw := 0.0, k := 1.0) -> float:
+	var px := maxi(1, int(FS_TITLE * u))
+	var sp := 0.0
+	if font is FontVariation:
+		sp = float((font as FontVariation).spacing_glyph)
+	var sw := 0.0
+	if kanji != "":
+		sw = 28.0 * u
+	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x - sp
+	if maxw > 0.0 and tw + sw > maxw and tw > 0.0:
+		px = maxi(1, int(float(px) * maxf(0.2, maxw - sw) / tw))
+		tw = font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x - sp
+	var x0 := c.x - (tw + sw) / 2.0
+	ci.draw_string(font, Vector2(x0, c.y), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(ink, ink.a * a))
+	var kk := clampf(k, 0.0, 1.0)
+	if kk > 0.05 and tw > 1.0:
+		var bw := maxf(tw * 0.55, 40.0 * u)
+		var br := Rect2(Vector2(x0 + tw / 2.0 - bw / 2.0, c.y + 5.0 * u), Vector2(bw, 7.0 * u))
+		ci.draw_colored_polygon(swash_points(br, kk, 5.0), Color(Toon.VERMILION, 0.95 * a))
+	if kanji != "":
+		var s := 20.0 * u
+		var cy := c.y - float(px) * 0.36
+		seal(ci, Rect2(Vector2(x0 + tw + 8.0 * u, cy - s / 2.0), Vector2(s, s)), kanji, Toon.VERMILION, Toon.WASHI, a, u, 3.0)
+	return tw
+
+
+## Disque d'un bouton rond (retour, réglages, son) : ombre, lavis, cerne d'encre ; même dessin qu'InkButton « round ».
+static func icon_disc(ci: CanvasItem, c: Vector2, rr: float, ink: Color, wash: Color, a := 1.0) -> void:
+	ci.draw_circle(c + Vector2(0, 2), rr, Color(0, 0, 0, 0.2 * a))
+	ci.draw_circle(c, rr, Color(wash, 0.95 * a))
+	ci.draw_arc(c, rr - 1.0, 0.0, TAU, 40, Color(ink, 0.75 * a), 2.0, true)
+
+
+## Flèche de retour (pointe à gauche) tenant dans un rayon s.
+static func back_arrow(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
+	var w := maxf(1.5, s * 0.28)
+	var head := c + Vector2(-s * 0.75, 0.0)
+	ci.draw_line(c + Vector2(s * 0.8, 0.0), head, col, w, true)
+	ci.draw_line(head, head + Vector2(s * 0.6, -s * 0.6), col, w, true)
+	ci.draw_line(head, head + Vector2(s * 0.6, s * 0.6), col, w, true)
+	ci.draw_circle(head, w * 0.5, col)
+
+
+## Maison (retour à l'accueil) tenant dans un rayon s ; hole : la porte (couleur du fond).
+static func home_icon(ci: CanvasItem, c: Vector2, s: float, ink: Color, hole: Color) -> void:
+	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-s, -s * 0.05), c + Vector2(0, -s), c + Vector2(s, -s * 0.05)]), ink)
+	ci.draw_rect(Rect2(c + Vector2(-s * 0.7, -s * 0.1), Vector2(s * 1.4, s * 0.95)), ink)
+	ci.draw_rect(Rect2(c + Vector2(-s * 0.18, s * 0.3), Vector2(s * 0.36, s * 0.55)), hole)
+
+
+## Bouton retour dessiné (écrans sans InkButton), centré en c ; press (0..1) : enfoncé ;
+## home : maison d'encre (retour à l'accueil) au lieu de la flèche vermillon.
+static func back_button(ci: CanvasItem, c: Vector2, u: float, a: float, press := 0.0, home := false) -> void:
+	var rr := ICON_BTN * 0.5 * u * (1.0 - 0.06 * clampf(press, 0.0, 1.0))
+	icon_disc(ci, c, rr, Toon.ui_ink, Toon.ui_wash, a)
+	if home:
+		home_icon(ci, c, rr * ICON_GLYPH, Color(Toon.ui_ink, a), Color(Toon.ui_wash, a))
+	else:
+		back_arrow(ci, c, rr * ICON_GLYPH, Color(Toon.VERMILION, a))
+
+
+## Zone tactile du bouton retour centré en c (plus large que le dessin).
+static func back_rect(c: Vector2, u: float) -> Rect2:
+	var hs := 26.0 * u
+	return Rect2(c - Vector2(hs, hs), Vector2(hs, hs) * 2.0)
+
+
+## Shuriken (quatre lames recourbées) : puce, fin de filet ; hole : couleur du trou central (NONE : aucun).
+static func shuriken(ci: CanvasItem, c: Vector2, r: float, col: Color, rot := 0.0, hole := NONE) -> void:
+	if r <= 0.5:
+		return
+	if not _shapes.has("shuriken"):
+		var sh := PackedVector2Array()
+		for k in 4:
+			var t := PI * 0.5 * float(k)
+			sh.append(Vector2.from_angle(t))
+			sh.append(Vector2.from_angle(t + 0.5) * 0.42)
+			sh.append(Vector2.from_angle(t + PI * 0.25) * 0.26)
+		_shapes["shuriken"] = sh
+	var pts: PackedVector2Array = _shapes["shuriken"]
+	_poly(ci, Transform2D(rot, Vector2(r, r), 0.0, c) * pts, col)
+	if hole.a > 0.01:
+		ci.draw_circle(c, r * 0.18, hole)
+
+
+## Kunai couché en p (centre), pointe vers dir, longueur l : lame en losange, poignée, anneau.
+static func kunai(ci: CanvasItem, p: Vector2, dir: Vector2, l: float, col: Color) -> void:
+	var d := dir.normalized()
+	if d == Vector2.ZERO or l <= 1.0:
+		return
+	var n := Vector2(-d.y, d.x)
+	_poly(ci, PackedVector2Array([p + d * l * 0.5, p + d * l * 0.06 + n * l * 0.13, p - d * l * 0.06, p + d * l * 0.06 - n * l * 0.13]), col)
+	ci.draw_line(p - d * l * 0.06, p - d * l * 0.34, col, maxf(1.0, l * 0.08), true)
+	ci.draw_arc(p - d * l * 0.42, l * 0.08, 0.0, TAU, 12, col, maxf(1.0, l * 0.04), true)
+
+
+## Filet au pinceau : deux traits effilés qui partent d'un shuriken vermillon central (séparateur de blocs).
+static func brush_rule(ci: CanvasItem, x0: float, x1: float, y: float, u: float, col: Color, a := 1.0) -> void:
+	var cx := (x0 + x1) / 2.0
+	var gap := 8.0 * u
+	var c := Color(col, col.a * a)
+	brush_line(ci, Vector2(cx - gap, y), Vector2(x0, y), 2.2 * u, c)
+	brush_line(ci, Vector2(cx + gap, y), Vector2(x1, y), 2.2 * u, c)
+	shuriken(ci, Vector2(cx, y), 4.5 * u, Color(Toon.VERMILION, 0.85 * a), 0.2)
+
+
+## Titre de section : sceau à kanji facultatif, petites capitales, trait de pinceau jusqu'à x1 fini par un
+## shuriken. y : ligne de base du libellé ; font : UI_FONT (ou sa variation) ; ink : encre pleine.
+static func section(ci: CanvasItem, font: Font, label: String, x0: float, x1: float, y: float, u: float, ink: Color, a: float, kanji := "") -> void:
+	var px := maxi(1, int(FS_CAPTION * u))
+	var mid := y - float(px) * 0.36
+	var x := x0
+	if kanji != "":
+		var s := 16.0 * u
+		seal(ci, Rect2(Vector2(x0, mid - s / 2.0), Vector2(s, s)), kanji, Toon.VERMILION, Toon.WASHI, a, u, 2.0)
+		x += s + 6.0 * u
+	ci.draw_string(font, Vector2(x, y), label, HORIZONTAL_ALIGNMENT_LEFT, -1, px, Color(ink, ink.a * 0.6 * a))
+	var lx0 := x + font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x + 8.0 * u
+	var lx1 := x1 - 9.0 * u
+	if lx1 - lx0 > 12.0 * u:
+		brush_line(ci, Vector2(lx0, mid), Vector2(lx1, mid), 2.4 * u, Color(ink, ink.a * 0.22 * a))
+		shuriken(ci, Vector2(x1 - 4.0 * u, mid), 4.0 * u, Color(Toon.VERMILION, 0.75 * a), 0.3)
+
+
+## Puce ou segment en pilule : on = plein de fg, texte en bg, pointe vermillon à gauche ; sinon cerné de fg.
+## dim : grisé (sans effet). Le libellé rétrécit pour tenir. sb : StyleBoxFlat réutilisée par l'écran.
+static func chip(ci: CanvasItem, sb: StyleBoxFlat, r: Rect2, label: String, font: Font, px: int, on: bool, fg: Color, bg: Color, a: float, dim := false) -> void:
+	var rad := int(r.size.y / 2.0)
+	var k := 0.4 if dim else 1.0
+	if on:
+		ci.draw_style_box(box(sb, Color(fg, a * k), rad), r)
+	else:
+		ci.draw_style_box(box(sb, Color(0, 0, 0, 0), rad, Color(fg, 0.3 * a * k), maxi(1, int(r.size.y * 0.035))), r)
+	var f := maxi(1, px)
+	var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x
+	# pointe vermillon seulement s'il reste la place (puces étroites : le texte d'abord)
+	var dot := on and not dim and tw <= r.size.x - r.size.y * 1.1
+	var maxw := r.size.x - r.size.y * (1.1 if dot else 0.4)
+	if tw > maxw and tw > 0.0 and maxw > 0.0:
+		f = maxi(1, int(float(f) * maxw / tw))
+	var tc: Color = Color(fg, a * (0.35 if dim else 0.8))
+	if on:
+		tc = Color(bg, a * (0.6 if dim else 1.0))
+	text(ci, font, label, Vector2(r.get_center().x, r.get_center().y + float(f) * 0.36), f, tc)
+	if dot:
+		ci.draw_circle(Vector2(r.position.x + r.size.y * 0.42, r.get_center().y), maxf(1.5, r.size.y * 0.07), Color(Toon.VERMILION, a))
+
+
+## Fibres de papier (washi) sur un cadre : quelques brins d'encre très pâles, toujours au même endroit.
+static func fibres(ci: CanvasItem, r: Rect2, ink: Color, a: float, u: float, sd := 0.0, n := 10) -> void:
+	for i in n:
+		var p := r.position + Vector2((0.5 + 0.44 * _wob(float(i), sd + 7.0)) * r.size.x, (0.5 + 0.44 * _wob(float(i) + 2.3, sd + 9.0)) * r.size.y)
+		var dv := Vector2.from_angle(_wob(float(i), sd + 11.0) * PI) * (5.0 + 4.0 * absf(_wob(float(i), sd + 13.0))) * u
+		ci.draw_line(p, (p + dv).clamp(r.position, r.end), Color(ink, 0.05 * a), maxf(1.0, 0.8 * u), true)
+
+
+## Feuille d'une fenêtre (options, pause, mes pouvoirs, résultats) : washi aux bords barbés et, sur
+## `head` × u de haut, des vagues seigaiha très pâles (0 : aucune) fermées d'un filet.
+static func sheet(ci: CanvasItem, r: Rect2, paper: Color, ink: Color, a: float, u: float, sd := 0.0, head := 0.0) -> void:
+	washi_sheet(ci, r, paper, ink, a, u, sd)
+	if head > 0.0:
+		var band := Rect2(r.position + Vector2(8.0, 8.0) * u, Vector2(r.size.x - 16.0 * u, head * u))
+		seigaiha(ci, band, Color(ink, A_PATTERN * a), 13.0 * u)
+		ci.draw_line(Vector2(band.position.x, band.end.y), Vector2(band.end.x, band.end.y), Color(ink, 0.07 * a), maxf(1.0, 0.8 * u))
+
+
+## Segments mis en cache d'un motif (clé, taille, cellule) ; vide si trop petit.
+static func _pattern(kind: String, size: Vector2, cell: float) -> PackedVector2Array:
+	var w := float(int(size.x))
+	var h := float(int(size.y))
+	var cl := float(maxi(3, int(cell)))
+	var key := "%s%d_%d_%d" % [kind, int(w), int(h), int(cl)]
+	if _pat.has(key):
+		var hit: PackedVector2Array = _pat[key]
+		return hit
+	if _pat.size() > 24:
+		_pat.clear()
+	var r := Rect2(Vector2.ZERO, Vector2(w, h))
+	var segs := PackedVector2Array()
+	if kind == "s":
+		segs = _seigaiha_segs(r, cl)
+	else:
+		segs = _asanoha_segs(r, cl)
+	_pat[key] = segs
+	return segs
+
+
+## Ajoute le segment [p0, p1] à `out` (un Array, passé par référence) s'il tient dans r.
+static func _seg(out: Array, r: Rect2, p0: Vector2, p1: Vector2) -> void:
+	if r.has_point(p0) and r.has_point(p1):
+		out.append(p0)
+		out.append(p1)
+
+
+## Écailles du seigaiha (rayon R) : arcs du haut, sans ce que cache la rangée du dessous (décalée de R, R/2).
+static func _seigaiha_segs(r: Rect2, cr: float) -> PackedVector2Array:
+	var cell := PackedVector2Array()
+	var below := [Vector2(-cr, cr * 0.5), Vector2(cr, cr * 0.5)]
+	for ring in [0.96, 0.68, 0.4]:
+		var rad := cr * float(ring)
+		var n := 10
+		for i in n:
+			var t0 := PI + PI * float(i) / float(n)
+			var t1 := PI + PI * float(i + 1) / float(n)
+			var p0 := Vector2(cos(t0), sin(t0)) * rad
+			var p1 := Vector2(cos(t1), sin(t1)) * rad
+			var m := (p0 + p1) * 0.5
+			var hidden := false
+			for b in below:
+				var bv: Vector2 = b
+				if m.distance_to(bv) < cr:
+					hidden = true
+			if not hidden:
+				cell.append(p0)
+				cell.append(p1)
+	var out: Array = []
+	var rows := int(r.size.y / (cr * 0.5)) + 3
+	var cols := int(r.size.x / (cr * 2.0)) + 3
+	for j in rows:
+		var ox := cr if j % 2 == 1 else 0.0
+		for i in cols:
+			var c := Vector2(float(i) * cr * 2.0 + ox - cr, float(j) * cr * 0.5)
+			for k in range(0, cell.size() - 1, 2):
+				_seg(out, r, c + cell[k], c + cell[k + 1])
+	return PackedVector2Array(out)
+
+
+## Asanoha (feuille de chanvre) : réseau de triangles de côté s, chaque triangle partagé en trois vers son centre.
+static func _asanoha_segs(r: Rect2, s: float) -> PackedVector2Array:
+	var out: Array = []
+	var hh := s * sqrt(3.0) / 2.0
+	var rows := int(r.size.y / hh) + 2
+	var cols := int(r.size.x / s) + 2
+	for j in rows:
+		var y := float(j) * hh
+		var ox := s * 0.5 if j % 2 == 1 else 0.0
+		for i in range(-1, cols):
+			var p := Vector2(float(i) * s + ox, y)
+			var q := p + Vector2(s, 0.0)
+			var dn := Vector2(p.x + s * 0.5, y + hh)
+			var up := Vector2(p.x + s * 0.5, y - hh)
+			_seg(out, r, p, q)
+			_seg(out, r, p, dn)
+			_seg(out, r, q, dn)
+			var g := (p + q + dn) / 3.0
+			_seg(out, r, p, g)
+			_seg(out, r, q, g)
+			_seg(out, r, dn, g)
+			var g2 := (p + q + up) / 3.0
+			_seg(out, r, p, g2)
+			_seg(out, r, q, g2)
+			_seg(out, r, up, g2)
+	return PackedVector2Array(out)
+
+
+## Seigaiha (vagues de la mer, Hokusai) en traits fins de couleur col dans r ; cell : rayon d'une écaille (px).
+static func seigaiha(ci: CanvasItem, r: Rect2, col: Color, cell: float) -> void:
+	if r.size.x < 4.0 or r.size.y < 4.0 or col.a <= 0.0:
+		return
+	var segs := _pattern("s", r.size, cell)
+	if segs.size() >= 2:
+		ci.draw_multiline(Transform2D(0.0, r.position) * segs, col)
+
+
+## Asanoha (feuille de chanvre, kimono et kumiko) en traits fins de couleur col dans r ; cell : côté (px).
+static func asanoha(ci: CanvasItem, r: Rect2, col: Color, cell: float) -> void:
+	if r.size.x < 4.0 or r.size.y < 4.0 or col.a <= 0.0:
+		return
+	var segs := _pattern("a", r.size, cell)
+	if segs.size() >= 2:
+		ci.draw_multiline(Transform2D(0.0, r.position) * segs, col)
+
+
+## Mon (blason de clan) de rayon r : « tomoe » (trois virgules), « hishi » (quatre losanges),
+## « kikko » (carapace hexagonale), « kikyo » (campanule) ; ring : cerclé d'un anneau.
+static func mon(ci: CanvasItem, c: Vector2, r: float, kind: String, col: Color, ring := true) -> void:
+	if r <= 1.0:
+		return
+	var w := maxf(1.0, r * 0.09)
+	var k := r
+	if ring:
+		ci.draw_arc(c, r * 0.94, 0.0, TAU, 40, col, w, true)
+		k = r * 0.76
+	match kind:
+		"tomoe":
+			# virgule d'un seul polygone (pas de recouvrement : la couleur reste égale même transparente) :
+			# queue qui s'enroule en s'effilant, puis l'arrière rond de la tête
+			for i in 3:
+				var a0 := TAU * float(i) / 3.0
+				var left := PackedVector2Array()
+				var right := PackedVector2Array()
+				for j in 9:
+					var t := float(j) / 8.0
+					var ang := a0 + t * 1.7
+					var p := c + Vector2.from_angle(ang) * lerpf(0.38, 0.6, t) * k
+					var hw := (0.3 * (1.0 - t) + 0.02) * k
+					left.append(p + Vector2.from_angle(ang) * hw)
+					right.append(p - Vector2.from_angle(ang) * hw)
+				right.reverse()
+				left.append_array(right)
+				var hc := c + Vector2.from_angle(a0) * 0.38 * k
+				for m in range(1, 8):
+					left.append(hc + Vector2.from_angle(a0 - PI + PI * float(m) / 8.0) * 0.32 * k)
+				ci.draw_colored_polygon(left, col)
+		"kikko":
+			var hexa := PackedVector2Array()
+			var inner := PackedVector2Array()
+			for i in 7:
+				var t := -PI / 2.0 + TAU * float(i % 6) / 6.0
+				hexa.append(c + Vector2.from_angle(t) * 0.9 * k)
+				if i < 6:
+					inner.append(c + Vector2.from_angle(t) * 0.42 * k)
+			ci.draw_polyline(hexa, col, w * 1.3, true)
+			ci.draw_colored_polygon(inner, col)
+		"kikyo":
+			_shp(ci, "star5", c, k, col, Vector2.ZERO, 0.95)
+		_:
+			for d in [Vector2(0, -1), Vector2(1, 0), Vector2(0, 1), Vector2(-1, 0)]:
+				var dv: Vector2 = d
+				var q := c + dv * 0.46 * k
+				var e := 0.38 * k
+				ci.draw_colored_polygon(PackedVector2Array([q + Vector2(0, -e), q + Vector2(e, 0), q + Vector2(0, e), q + Vector2(-e, 0)]), col)
 
 
 # ------------------------------------------------------------------ libellés des rouleaux (choix de pouvoir)

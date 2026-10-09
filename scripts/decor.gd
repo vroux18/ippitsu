@@ -440,6 +440,139 @@ static func _tube(st: SurfaceTool, pts: PackedVector3Array, rad: PackedFloat32Ar
 			_tri_s(st, r0[k2], r1[k2], r1[k], m0[k2], m1[k2], m1[k])
 
 
+# ------------------------------------------------------------------ toits incurvés (profil extrudé)
+
+## Toit japonais à quatre pans (yosemune ; hōgyō de pagode si `rl` = 0) : pans incurvés, presque plats à
+## l'égout et raides vers le faîtage, coins relevés (sori) et un peu sortis, bandeau d'égout épais `t`,
+## sous-face fermée (le contour d'encre reste propre). Empreinte w × d (x, z) au dessus de l'égout (y = 0),
+## faîtage à `h` le long de x, long de `rl` × w. `lift` : relevé des coins en fraction de h.
+## Maillage partagé (cache) : à fusionner dans les lots comme une primitive.
+static func roof_mesh(w: float, d: float, h: float, rl := 0.0, lift := 0.35, t := 0.06) -> ArrayMesh:
+	var qw := _qf(w)
+	var qd := _qf(d)
+	var qh := _qf(h)
+	var qt := _qf(t)
+	var key := "roof%.4f_%.4f_%.4f_%.2f_%.2f_%.4f" % [qw, qd, qh, rl, lift, qt]
+	if _meshes.has(key):
+		var cached: ArrayMesh = _meshes[key]
+		return cached
+	var hw := qw * 0.5
+	var hd := qd * 0.5
+	var r := clampf(rl, 0.0, 0.95) * hw
+	var lf := lift * qh
+	var c0 := Vector3(-hw, 0, hd)
+	var c1 := Vector3(hw, 0, hd)
+	var c2 := Vector3(hw, 0, -hd)
+	var c3 := Vector3(-hw, 0, -hd)
+	var t0 := Vector3(-r, qh, 0)
+	var t1 := Vector3(r, qh, 0)
+	# pans : [égout A, égout B, faîtage A, faîtage B, normale horizontale sortante]
+	var faces: Array = [[c0, c1, t0, t1, Vector3(0, 0, 1)], [c1, c2, t1, t1, Vector3(1, 0, 0)],
+		[c2, c3, t1, t0, Vector3(0, 0, -1)], [c3, c0, t0, t0, Vector3(-1, 0, 0)]]
+	var ns := 6
+	var nu := 4
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var down := Vector3(0, -qt, 0)
+	for f in faces:
+		var fa: Array = f
+		var ea: Vector3 = fa[0]
+		var eb: Vector3 = fa[1]
+		var ta: Vector3 = fa[2]
+		var tb: Vector3 = fa[3]
+		var out: Vector3 = fa[4]
+		var grid: Array[PackedVector3Array] = []
+		var norms: Array[PackedVector3Array] = []
+		for i in ns + 1:
+			var s := float(i) / ns
+			var row := PackedVector3Array()
+			var nrow := PackedVector3Array()
+			for j in nu + 1:
+				var u := float(j) / nu
+				row.append(_roof_pt(ea, eb, ta, tb, s, u, qh, lf))
+				# normale par différences finies (u borné : le faîtage d'un pan en triangle est un point)
+				var uu := minf(u, 0.9)
+				var ds := _roof_pt(ea, eb, ta, tb, minf(s + 0.02, 1.0), uu, qh, lf) - _roof_pt(ea, eb, ta, tb, maxf(s - 0.02, 0.0), uu, qh, lf)
+				var du := _roof_pt(ea, eb, ta, tb, s, uu + 0.05, qh, lf) - _roof_pt(ea, eb, ta, tb, s, maxf(uu - 0.05, 0.0), qh, lf)
+				var n := ds.cross(du).normalized()
+				if n.dot(out + Vector3(0, 0.6, 0)) < 0.0:
+					n = -n
+				nrow.append(n)
+			grid.append(row)
+			norms.append(nrow)
+		for i in ns:
+			var g0: PackedVector3Array = grid[i]
+			var g1: PackedVector3Array = grid[i + 1]
+			var m0: PackedVector3Array = norms[i]
+			var m1: PackedVector3Array = norms[i + 1]
+			for j in nu:
+				_tri_s(st, g0[j], g1[j], g1[j + 1], m0[j], m1[j], m1[j + 1])
+				_tri_s(st, g0[j], g1[j + 1], g0[j + 1], m0[j], m1[j + 1], m0[j + 1])
+			# bandeau d'égout (épaisseur du toit) et sous-face
+			var e0 := g0[0]
+			var e1 := g1[0]
+			_tri_s(st, e0, e1, e1 + down, out, out, out)
+			_tri_s(st, e0, e1 + down, e0 + down, out, out, out)
+			_tri_s(st, e0 + down, e1 + down, down, Vector3.DOWN, Vector3.DOWN, Vector3.DOWN)
+	var mesh := st.commit()
+	_meshes[key] = mesh
+	return mesh
+
+
+## Point du pan : (s le long de l'égout, u de l'égout vers le faîtage). Coins relevés et sortis.
+static func _roof_pt(ea: Vector3, eb: Vector3, ta: Vector3, tb: Vector3, s: float, u: float, h: float, lf: float) -> Vector3:
+	var k := pow(absf(2.0 * s - 1.0), 3.0)
+	var e := ea.lerp(eb, s)
+	e = Vector3(e.x * (1.0 + 0.07 * k), lf * k, e.z * (1.0 + 0.07 * k))
+	var tp := ta.lerp(tb, s)
+	var q := e.lerp(tp, u)
+	q.y = lerpf(e.y, h, pow(u, 1.5))
+	return q
+
+
+## Toit incurvé ajouté au lot `b` (matériau `m`), placé par `xf` (voir roof_mesh), et son faîtage :
+## poutre ronde (kamune) et tuiles de bout (onigawara) dans le lot `bn` (matériau `ridge`).
+static func roof_into(b: Dictionary, bn: Dictionary, m: Material, ridge: Material, xf: Transform3D, w: float, d: float, h: float, rl := 0.0, lift := 0.35) -> void:
+	var t := clampf(minf(w, d) * 0.04, 0.025, 0.12)
+	_add(b, m, roof_mesh(w, d, h, rl, lift, t), xf)
+	var r := clampf(rl, 0.0, 0.95) * w * 0.5
+	var rr := clampf(minf(w, d) * 0.035, 0.02, 0.1)
+	if r > 0.05:
+		_add(bn, ridge, cyl(rr, rr, r * 2.0 + rr * 2.0, 6), xf * Transform3D(Basis(Vector3(0, 0, 1), PI * 0.5), Vector3(0, h + rr * 0.4, 0)))
+		for sx: float in [-1.0, 1.0]:
+			_add(bn, ridge, box(Vector3(rr * 1.6, rr * 3.2, rr * 3.0)), xf * _at(Vector3(sx * (r + rr), h + rr * 1.2, 0)))
+	else:
+		# hōgyō : bouton au sommet
+		_add(bn, ridge, ball(rr * 1.6, rr * 3.0, 6, 3), xf * _at(Vector3(0, h + rr, 0)))
+
+
+## Mon (blason de clan) plat, face à +Z local, rayon `r` : cercle (anneau) et motif au centre.
+## 0 : trois tomoe stylisés, 1 : deux barres (maru ni ni-no-ji), 2 : losange (hishi), 3 : étoile de shuriken.
+static func mon_into(b: Dictionary, m: Material, xf: Transform3D, r: float, kind: int) -> void:
+	var th := 0.012
+	var ring := torus(r * 0.82, r, 16, 3)
+	_add(b, m, ring, xf * Transform3D(Basis(Vector3.RIGHT, PI * 0.5).scaled(Vector3(1.0, 1.0, 0.4)), Vector3.ZERO))
+	match kind:
+		0:
+			for k in 3:
+				var a := TAU * k / 3.0 + 0.3
+				var c := Vector3(cos(a), sin(a), 0) * r * 0.32
+				_add(b, m, ball(r * 0.2, r * 0.4, 7, 3), xf * Transform3D(Basis.from_scale(Vector3(1, 1, 0.25)), c))
+				var tail := Vector3(cos(a + 1.3), sin(a + 1.3), 0) * r * 0.42
+				_add(b, m, cyl(0.0, r * 0.09, r * 0.34, 4), xf * Transform3D(_basis_y(tail - c).scaled(Vector3(1, 1, 0.3)), (c + tail) * 0.5))
+		1:
+			for sy: float in [-1.0, 1.0]:
+				var wl := r * (1.2 if sy > 0.0 else 1.0)
+				_add(b, m, box(Vector3(wl, r * 0.16, th)), xf * _at(Vector3(0, sy * r * 0.22, 0)))
+		2:
+			_add(b, m, box(Vector3(r * 0.7, r * 0.7, th)), xf * Transform3D(Basis(Vector3(0, 0, 1), PI * 0.25).scaled(Vector3(1.0, 0.75, 1.0)), Vector3.ZERO))
+		_:
+			for k in 4:
+				var a := PI * 0.5 * k + PI * 0.25
+				_add(b, m, cyl(0.0, r * 0.16, r * 0.62, 4), xf * Transform3D(Basis(Vector3(0, 0, 1), a).scaled(Vector3(1, 1, 0.2)), Vector3(cos(a + PI * 0.5), sin(a + PI * 0.5), 0) * r * 0.3))
+			_add(b, m, cyl(r * 0.12, r * 0.12, th, 8), xf * Transform3D(Basis(Vector3.RIGHT, PI * 0.5), Vector3.ZERO))
+
+
 # ------------------------------------------------------------------ cerisier
 
 ## Cerisier en fleurs (tronc tordu, branches, 6-10 amas roses, pétales au sol) ajouté aux lots partagés (tronc et fleurs dans `bs`, pétales au sol dans `bn`).
@@ -523,14 +656,6 @@ static func pine_into(bs: Dictionary, xf: Transform3D, sd := 0) -> void:
 	var rng := _rng(sd)
 	var x2 := xf * Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3.ZERO)
 	_pine_build(bs, bs, rng, true, x2)
-
-
-static func _pine_into(root: Node3D, rng: RandomNumberGenerator, near: bool) -> void:
-	var wood := {}
-	var leaf := {}
-	_pine_build(wood, leaf, rng, near, Transform3D.IDENTITY)
-	_flush(wood, root)
-	_flush(leaf, root)
 
 
 static func _pine_build(wood: Dictionary, leaf: Dictionary, rng: RandomNumberGenerator, near: bool, xf: Transform3D) -> void:
@@ -726,27 +851,6 @@ static func rock_into(bs: Dictionary, xf: Transform3D, sd := 0, base := ROCK) ->
 	var st1: SurfaceTool = sts[1]
 	_add(bs, _toon_vc("rock_vc"), cpu_from(st0), x2, 0)
 	_add(bs, _ink(0.03), cpu_from(st1), x2, 0)
-
-
-## Maillage du rocher en MeshInstance3D (ombre portée).
-static func _rock_mi(rng: RandomNumberGenerator, rad: Vector3, near: bool, base: Color) -> MeshInstance3D:
-	var mi := MeshInstance3D.new()
-	mi.mesh = _rock_mesh(rng, rad, near, base)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-	return mi
-
-
-## Maillage du rocher : surface 0 facettée à couleurs de sommets, surface 1 contour (si proche).
-static func _rock_mesh(rng: RandomNumberGenerator, rad: Vector3, near: bool, base: Color) -> ArrayMesh:
-	var sts: Array = _rock_tools(rng, rad, near, base)
-	var st: SurfaceTool = sts[0]
-	var mesh := st.commit()
-	mesh.surface_set_material(0, _toon_vc("rock_vc"))
-	if near:
-		var st2: SurfaceTool = sts[1]
-		st2.commit(mesh)
-		mesh.surface_set_material(1, _ink(0.03))
-	return mesh
 
 
 ## Surfaces du rocher remplies (facettes, puis contour si `near`, sinon null), pas encore validées.
@@ -952,8 +1056,9 @@ static func sake_barrel_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, la
 
 
 ## Nobori : mât sombre, bannière verticale (face à +Z local) avec bande de tête et marques d'encre.
-## `base_y` (local) : pied du mât (négatif pour descendre dans l'eau).
-static func nobori_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, cloth: Color, ink: Color, base_y := 0.0) -> void:
+## `base_y` (local) : pied du mât (négatif pour descendre dans l'eau). `mon` ≥ 0 : blason de clan (mon_into)
+## au lieu des « kanji » stylisés.
+static func nobori_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, cloth: Color, ink: Color, base_y := 0.0, mon := -1) -> void:
 	var pole := _toon("pole", POLE, true, 0.02)
 	var cm := _toon("nobori_" + cloth.to_html(false), cloth, true, 0.012)
 	var im := _toon("nobori_ink_" + ink.to_html(false), ink, false)
@@ -970,10 +1075,14 @@ static func nobori_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, cloth: 
 	# bande de tête, bande de pied, « kanji » stylisés
 	_add(bn, im, box(Vector3(bw + 0.004, 0.12, 0.016)), xf * _at(Vector3(bx, top - 0.18, 0)))
 	_add(bn, im, box(Vector3(bw + 0.004, 0.05, 0.016)), xf * _at(Vector3(bx, by - bh * 0.5 + 0.06, 0)))
-	for k in 3:
-		var cy := by + 0.32 - k * 0.3
-		_add(bn, im, box(Vector3(0.18 - k * 0.02, 0.04, 0.016)), xf * _at(Vector3(bx, cy, 0)))
-		_add(bn, im, box(Vector3(0.035, 0.17, 0.016)), xf * _at(Vector3(bx + 0.035 * (k - 1), cy - 0.05, 0)))
+	if mon >= 0:
+		for sz: float in [-1.0, 1.0]:
+			mon_into(bn, im, xf * _at(Vector3(bx, by + 0.18, sz * 0.009), Vector3(0, 0.0 if sz > 0.0 else PI, 0)), 0.14, mon)
+	else:
+		for k in 3:
+			var cy := by + 0.32 - k * 0.3
+			_add(bn, im, box(Vector3(0.18 - k * 0.02, 0.04, 0.016)), xf * _at(Vector3(bx, cy, 0)))
+			_add(bn, im, box(Vector3(0.035, 0.17, 0.016)), xf * _at(Vector3(bx + 0.035 * (k - 1), cy - 0.05, 0)))
 	# anneaux (chichi) qui tiennent la bannière au mât
 	for k in 4:
 		_add(bn, im, cyl(0.045, 0.045, 0.025, 6), xf * _at(Vector3(0, by + bh * 0.4 - k * bh * 0.27, 0)))
@@ -992,14 +1101,12 @@ static func hokora_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, wood: C
 	_add(bs, wm, box(Vector3(0.4, 0.36, 0.34)), xf * _at(Vector3(0, 0.28, 0)))
 	_add(bn, dark, box(Vector3(0.26, 0.26, 0.02)), xf * _at(Vector3(0, 0.27, 0.171)))
 	_add(bn, gold, box(Vector3(0.018, 0.26, 0.024)), xf * _at(Vector3(0, 0.27, 0.172)))
-	# toit à deux pans (faîtage le long de Z) et faîtage
-	for sx: float in [-1.0, 1.0]:
-		_add(bs, rm, box(Vector3(0.36, 0.035, 0.56)), xf * _at(Vector3(sx * 0.15, 0.53, 0.0), Vector3(0, 0, -sx * 0.5)))
-	_add(bs, rm, box(Vector3(0.06, 0.06, 0.6)), xf * _at(Vector3(0, 0.6, 0)))
+	# toit incurvé aux coins relevés (faîtage le long de Z) et sa poutre faîtière
+	roof_into(bs, bs, rm, rm, xf * _at(Vector3(0, 0.46, 0), Vector3(0, PI * 0.5, 0)), 0.64, 0.6, 0.16, 0.55, 0.4)
 	# chigi : planches croisées aux extrémités du faîtage
 	for sz: float in [-1.0, 1.0]:
 		for sx: float in [-1.0, 1.0]:
-			_add(bs, wm, box(Vector3(0.025, 0.18, 0.025)), xf * _at(Vector3(sx * 0.04, 0.68, sz * 0.28), Vector3(0, 0, sx * 0.45)))
+			_add(bs, wm, box(Vector3(0.025, 0.18, 0.025)), xf * _at(Vector3(sx * 0.04, 0.68, sz * 0.19), Vector3(0, 0, sx * 0.45)))
 	# petite shimenawa et shide sur la façade
 	_add(bn, straw, cyl(0.025, 0.025, 0.42, 6), xf * _at(Vector3(0, 0.44, 0.19), Vector3(0, 0, PI * 0.5)))
 	for sx: float in [-1.0, 1.0]:
@@ -1173,11 +1280,10 @@ static func bell_tower_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, sno
 		_add(bs, wood, box(Vector3(1.7, 0.12, 0.12)), xf * _at(Vector3(0, 2.2, sz * 0.75)))
 		_add(bs, wood, box(Vector3(0.12, 0.12, 1.7)), xf * _at(Vector3(sz * 0.75, 2.2, 0)))
 	_add(bs, wood, box(Vector3(1.6, 0.1, 0.12)), xf * _at(Vector3(0, 2.08, 0)))
-	_add(bs, roof, cyl(0.45, 1.75, 0.55, 4), xf * _at(Vector3(0, 2.55, 0), Vector3(0, PI * 0.25, 0)))
-	_add(bs, roof, box(Vector3(0.9, 0.12, 0.12)), xf * _at(Vector3(0, 2.86, 0)))
+	roof_into(bs, bs, roof, roof, xf * _at(Vector3(0, 2.3, 0)), 2.5, 2.4, 0.6, 0.36, 0.4)
 	if snow:
 		var sm := _toon("fence_snow", Color("#F2F5F8"), false)
-		_add(bs, sm, cyl(0.42, 1.62, 0.5, 4), xf * _at(Vector3(0, 2.62, 0), Vector3(0, PI * 0.25, 0)))
+		_add(bs, sm, roof_mesh(2.3, 2.2, 0.56, 0.36, 0.4, 0.04), xf * _at(Vector3(0, 2.36, 0)))
 	# cloche, dôme, crochet, cerclages, point de frappe
 	_add(bs, bronze, cyl(0.3, 0.33, 0.62, 12), xf * _at(Vector3(0, 1.62, 0)))
 	_add(bs, bronze, ball(0.3, 0.3, 12, 4), xf * _at(Vector3(0, 1.93, 0)))
@@ -1358,32 +1464,39 @@ static func _wave_color(t: float, shade: float) -> Color:
 
 ## Îlot rocheux d'arrière-plan : grand rocher plat, cailloux, collerette d'écume, 1-2 pins (sans contour).
 static func island(parent: Node3D, pos: Vector3, s := 1.0, sd := 0) -> Node3D:
+	var root := _root(parent, pos, 1.0, "Island")
+	var b := {}
+	island_into(b, Transform3D(Basis.from_scale(Vector3.ONE * s), Vector3.ZERO), sd)
+	_flush(b, root, false)
+	return root
+
+
+## Îlot ajouté au lot partagé `b` (placé et mis à l'échelle par `xf`) : plusieurs îlots d'un lointain
+## tiennent ainsi en 6 draw calls (rochers, écume, écorce, trois verts) au lieu d'une dizaine chacun.
+static func island_into(b: Dictionary, xf: Transform3D, sd := 0) -> void:
 	var rng := _rng(sd)
-	var root := _root(parent, pos, s, "Island")
-	root.rotation.y = rng.randf() * TAU
+	var x0 := xf * Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3.ZERO)
 	var big := Vector3(rng.randf_range(1.9, 2.4), rng.randf_range(0.9, 1.2), rng.randf_range(1.5, 1.9))
-	var main := _rock_mi(rng, big, false, ISLAND_ROCK)
-	main.position = Vector3(0, 0.12, 0)
-	root.add_child(main)
+	var rock := _toon_vc("rock_vc")
+	var sts: Array = _rock_tools(rng, big, false, ISLAND_ROCK)
+	var st0: SurfaceTool = sts[0]
+	_add(b, rock, cpu_from(st0), x0 * _at(Vector3(0, 0.12, 0)))
 	for i in rng.randi_range(2, 3):
 		var a := rng.randf() * TAU
-		var pebble := _rock_mi(rng, Vector3(0.55, 0.42, 0.5) * rng.randf_range(0.7, 1.3), false, ISLAND_ROCK)
-		pebble.position = Vector3(cos(a) * big.x * 1.05, 0.0, sin(a) * big.z * 1.05)
-		root.add_child(pebble)
-	Toon.part(root, Toon.cyl(big.x * 1.2, big.x * 1.2, 0.02, 14), _flat("foam", Toon.FOAM),
-		Vector3(0, 0.03, 0), Vector3(1, 1, big.z / big.x))
+		var ps: Array = _rock_tools(rng, Vector3(0.55, 0.42, 0.5) * rng.randf_range(0.7, 1.3), false, ISLAND_ROCK)
+		var pst: SurfaceTool = ps[0]
+		_add(b, rock, cpu_from(pst), x0 * _at(Vector3(cos(a) * big.x * 1.05, 0.0, sin(a) * big.z * 1.05)))
+	_add(b, _flat("foam", Toon.FOAM), cyl(big.x * 1.2, big.x * 1.2, 0.02, 14),
+		x0 * Transform3D(Basis.from_scale(Vector3(1, 1, big.z / big.x)), Vector3(0, 0.03, 0)))
 	var npine := rng.randi_range(1, 2)
 	for i in npine:
-		var holder := Node3D.new()
 		var ox := 0.0
 		if npine > 1:
 			ox = -0.45 if i == 0 else 0.45
-		holder.position = Vector3(ox, 0.12 + big.y * 0.72, rng.randf_range(-0.25, 0.25))
-		holder.scale = Vector3.ONE * rng.randf_range(0.85, 1.2)
-		holder.rotation.y = rng.randf() * TAU
-		root.add_child(holder)
-		_pine_into(holder, rng, false)
-	return root
+		var hp := Vector3(ox, 0.12 + big.y * 0.72, rng.randf_range(-0.25, 0.25))
+		var hs := rng.randf_range(0.85, 1.2)
+		var hx := x0 * Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * hs), hp)
+		_pine_build(b, b, rng, false, hx)
 
 
 # ------------------------------------------------------------------ pétales

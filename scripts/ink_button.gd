@@ -24,7 +24,7 @@ var lead_icon := "":  # icône dessinée à gauche du texte (play, replay, home�
 		if v != lead_icon:
 			lead_icon = v
 			queue_redraw()
-var icon := "":  # sound_on | sound_off | home | replay | pause | play | gear | help | brush | dojo | hanger
+var icon := "":  # sound_on | sound_off | home | replay | pause | play | gear | help | brush | dojo | hanger | back
 	set(v):
 		if v != icon:
 			icon = v
@@ -130,13 +130,12 @@ func _draw() -> void:
 			draw_style_box(_box, r)
 			_label(r, Toon.ui_ink)
 		"round":
+			# même disque que les boutons retour dessinés par les écrans (UiKit.icon_disc)
 			var c := r.get_center()
 			var rr := minf(r.size.x, r.size.y) / 2.0
-			draw_circle(c + Vector2(0, 2), rr, Color(0, 0, 0, 0.2))
 			_hole = Toon.ui_wash
-			draw_circle(c, rr, Color(Toon.ui_wash, 0.95))
-			draw_arc(c, rr - 1.0, 0, TAU, 40, Color(Toon.ui_ink, 0.75), 2.0, true)
-			_icon(icon, c, rr * 0.5, Toon.ui_ink)
+			UiKit.icon_disc(self, c, rr, Toon.ui_ink, Toon.ui_wash)
+			_icon(icon, c, rr * UiKit.ICON_GLYPH, Toon.ui_ink)
 		"brush":
 			_draw_brush()
 		"text":
@@ -331,3 +330,6 @@ func _icon(kind: String, c: Vector2, s: float, ink: Color) -> void:
 				UiKit.text(self, UiKit.TITLE_FONT, "道", c + Vector2(0, dfs * 0.36), dfs, ink)
 		"hanger":
 			UiKit.hanger_icon(self, c, s * 1.15, ink)
+		"back":
+			# retour : flèche vermillon (même dessin que UiKit.back_button)
+			UiKit.back_arrow(self, c, s, Toon.VERMILION)

@@ -485,6 +485,10 @@ func _draw() -> void:
 			_big -= cut
 			ch -= cut * 2.0
 		ch = maxf(ch - maxf(0.0, head + ch + tail - avail), 120.0 * u)
+	# kakemono : rouleau élancé, plus haut que son contenu (dans la place qui reste) ; le contenu se centre
+	var need := ch
+	ch = maxf(ch, minf(cw * 1.95, ch + maxf(0.0, avail - (head + ch + tail))))
+	_ytop = (ch - need) * 0.42
 	var gt := maxf(12.0 * u, (h - (head + ch + tail)) * 0.47)
 	var gy := gt + head + ch * 0.5  # centre des cartes : la lueur les suit
 	# voile d'encre et lueur (prusse, sanctuaire, ou or pour un légendaire)
@@ -1131,6 +1135,9 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 
 
 ## Hauteur utile d'une carte (le contenu mesuré sans être dessiné) : la carte s'arrête sous son contenu.
+var _ytop := 0.0  # marge ajoutée au-dessus du contenu quand la carte est allongée
+
+
 func _need_h(info: Dictionary, id: String, cw: float, u: float, i: int) -> float:
 	return _content(Rect2(Vector2.ZERO, Vector2(cw, 2000.0)), info, id, u, 0.0, i, false) + 4.0 * u  # place du rouleau du bas
 
@@ -1151,7 +1158,7 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	var cx := r.position.x + r.size.x / 2.0
 	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
 	var cap := _fs(11.0, s)
-	var y := r.position.y + 14.0 * s
+	var y := r.position.y + 14.0 * s + (_ytop if really else 0.0)
 	# apparition du contenu : chaque élément paraît une fois sorti du rouleau (_rv) ; le médaillon « pope » au
 	# passage du rouleau. Légendaire retourné : le médaillon pope, puis le texte se fond (temps _ct).
 	var pk := (_ct - POP_AT) / POP_DUR

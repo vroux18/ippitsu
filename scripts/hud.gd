@@ -94,6 +94,9 @@ var _banner_col := Toon.SUMI
 var _banner_t := -1.0
 var _banner_len := 2.0
 var _banner_icon := "ink"  # pictogramme du sceau du bandeau (UiKit.glyph)
+var _bfit_at := Vector2(-1, -1)  # (u, place) des tailles de texte ajustées du bandeau
+var _bfit_big := 12
+var _bfit_small := 7
 var cine := 0.0  # bandes de cinéma (0..1) pendant l'entrée d'un boss
 var _card: Array = []  # carton titre de boss : [kanji, nom, épithète, sous-titre]
 var _card_mini := false
@@ -101,6 +104,8 @@ var _card_kanji := false  # la police contient-elle ces kanji ?
 var _card_t := -1.0
 var _card_len := 2.0
 var _pause: Control
+var _idle_drawn := false  # la dernière image dessinée était vide (hors jeu, rien d'animé)
+var _idle_size := Vector2.ZERO
 var _t := 0.0
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 var _heart := PackedVector2Array()  # cœur unité (rayon 1), puis fermé pour le contour
@@ -194,6 +199,7 @@ func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 	_banner_col = col
 	_banner_t = 0.0
 	_banner_len = length
+	_bfit_at = Vector2(-1, -1)  # nouveaux textes : tailles à réajuster
 	# sceau du bandeau d'après l'annonce ; zone ou étape nettoyée : brève et festive
 	var up := _banner_big.to_upper()
 	_banner_icon = "ink"
@@ -252,7 +258,15 @@ func _process(_delta: float) -> void:
 	_pause.visible = in_play and pause_enabled and dying <= 0.0 and not dojo
 	_pause.size = Vector2(36, 36) * u
 	_pause.position = Vector2(size.x - 48 * u, 4 * u + top_off)
-	queue_redraw()
+	# hors jeu (accueil, carte, refuge…) et sans rien d'animé : _draw ne dessinerait rien ;
+	# une dernière image vide, puis plus de redessin tant que rien ne change
+	var idle := not in_play and enemy_bars.is_empty() and screen_flash <= 0.0 and hurt_flash <= 0.0 \
+		and cine <= 0.001 and _card_t < 0.0 and _banner_t < 0.0 and dying <= 0.0 and not show_fps \
+		and wipe <= 0.001 and wash <= 0.001 and size == _idle_size
+	if not idle or not _idle_drawn:
+		queue_redraw()
+	_idle_drawn = idle
+	_idle_size = size
 
 
 func _draw() -> void:
@@ -1294,15 +1308,20 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var tx := x0 + 58.0 * u
 	var room := bw - 66.0 * u
 	var ta := a * clampf((t - 0.08) / 0.2, 0.0, 1.0)
-	var fs := int(22 * u)
-	while fs > 12 and UiKit.TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
-		fs -= 1
+	# tailles ajustées une fois par bandeau (et par largeur d'écran), pas à chaque image
+	if _bfit_at != Vector2(u, room):
+		_bfit_at = Vector2(u, room)
+		_bfit_big = int(22 * u)
+		while _bfit_big > 12 and UiKit.TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, _bfit_big).x > room:
+			_bfit_big -= 1
+		_bfit_small = int(10 * u)
+		while has_sub and _bfit_small > 7 and UiKit.UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, _bfit_small).x > room:
+			_bfit_small -= 1
+	var fs := _bfit_big
 	var ty := cy + (-1.0 * u if has_sub else fs * 0.36)
 	draw_string(UiKit.TITLE_FONT, Vector2(tx + (1.0 - ein) * 12.0 * u, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, ta))
 	if has_sub:
-		var sfs := int(10 * u)
-		while sfs > 7 and UiKit.UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > room:
-			sfs -= 1
+		var sfs := _bfit_small
 		draw_string(UiKit.UI_FONT, Vector2(tx, cy + 16.0 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(acc_l.lerp(Toon.WASHI, 0.45), ta))
 
 

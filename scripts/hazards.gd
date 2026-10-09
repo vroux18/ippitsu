@@ -88,7 +88,8 @@ func begin_room(room: int, hero_pos: Vector3, boss := false, zone := Rect2(), ke
 				holes.append([c, r])
 				_make_hole(c, r)
 				break
-	_wave_on = room >= 6 and not boss
+	# déferlante : seulement avec le pacte « Déferlante » du sanctuaire (mode difficile choisi)
+	_wave_on = room >= 3 and not boss and "tide" in main.curses
 	_wave_t = randf_range(6.0, 8.0)
 
 
@@ -1050,7 +1051,9 @@ func update(dt: float) -> void:
 			var k := clampf(1.0 - _warn / WAVE_WARN, 0.0, 1.0)
 			_band_fill.scale = Vector3(1, 1, k)
 			var m := _band_fill.material_override as StandardMaterial3D
-			m.albedo_color = Color(Toon.FOAM, 0.8) if _warn < 0.15 else Color(Toon.PRUSSIAN, 0.5)
+			var want := Color(Toon.FOAM, 0.8) if _warn < 0.15 else Color(Toon.PRUSSIAN, 0.5)
+			if m.albedo_color != want:  # la matière n'est réécrite (et renvoyée au rendu) qu'au changement
+				m.albedo_color = want
 			if _warn <= 0.0:
 				_hit_band()
 	if _crest_t >= 0.0:
@@ -1097,8 +1100,9 @@ func _hit_band() -> void:
 	_crest = Node3D.new()
 	add_child(_crest)
 	_crest.position = Vector3(0, 0, _band_z)
-	Toon.part(_crest, Toon.box(Vector3(0.9, 1.1, WAVE_W)), Toon.mat(Toon.PRUSSIAN), Vector3(0, 0.5, 0))
-	Toon.part(_crest, Toon.box(Vector3(0.5, 0.4, WAVE_W + 0.1)), Toon.mat(Toon.FOAM), Vector3(0.25 * _band_dir, 1.1, 0))
+	# plus de bloc : une gerbe d'écume en travers de la bande
+	for k in 5:
+		main._splash(Vector3(lerpf(_zone.position.x + 0.8, _zone.end.x - 0.8, float(k) / 4.0), 0.3, _band_z), Toon.FOAM, 10)
 	_crest_t = 0.0
 	main.sfx.play("strike", 0.6)
 	main.shake = maxf(main.shake, 0.3)

@@ -23,6 +23,8 @@ var _coin_glow: StandardMaterial3D
 var _star_mesh: QuadMesh
 var _star_mat: StandardMaterial3D
 var _gather := false
+const POOL_MAX := 24  # objets gardés en réserve par sorte (gemme, pièce) au lieu d'être recréés
+var _pool := {"xp": [], "coin": []}  # [nœud, halo, étincelle] cachés, prêts à resservir
 
 
 func _ready() -> void:
@@ -107,30 +109,29 @@ func _emissive(c: Color, energy: float) -> StandardMaterial3D:
 ## Fait jaillir du butin depuis un ennemi tué.
 func drop(pos: Vector3, kind: String, count: int, value := 1) -> void:
 	for i in count:
-		var n := MeshInstance3D.new()
-		n.mesh = _gem_mesh if kind == "xp" else _coin_mesh
-		n.material_override = _gem_mat if kind == "xp" else _coin_mat
-		n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(n)
+		var trio := _take(kind)
+		var n: Node3D = trio[0]
+		var disc: Node3D = trio[1]
+		var star: Node3D = trio[2]
 		n.position = pos + Vector3(0, 0.6, 0)
-		if kind != "xp":
-			var hole := MeshInstance3D.new()
-			hole.mesh = _hole_mesh
-			hole.material_override = _hole_mat
-			n.add_child(hole)
-		var disc := MeshInstance3D.new()
-		disc.mesh = _disc_mesh
-		disc.material_override = _gem_glow if kind == "xp" else _coin_glow
-		disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(disc)
-		var star := MeshInstance3D.new()
-		star.mesh = _star_mesh
-		star.material_override = _star_mat
-		star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		add_child(star)
 		var a := randf() * TAU
 		var v := Vector3(cos(a), 0, sin(a)) * randf_range(1.5, 3.2) + Vector3(0, randf_range(3.5, 5.5), 0)
 		_items.append({"node": n, "disc": disc, "star": star, "kind": kind, "value": value, "vel": v, "t": randf() * 3.0, "pull": false})
+
+
+## Préchauffage (main._warmup) : gemme, pièce, trou, halos et étincelle posés une fois sous `parent`
+## (shaders compilés d'avance, pas de butin ramassable).
+func warm(parent: Node3D, at: Vector3) -> void:
+	var meshes: Array = [_gem_mesh, _coin_mesh, _hole_mesh, _disc_mesh, _disc_mesh, _star_mesh]
+	var mats: Array = [_gem_mat, _coin_mat, _hole_mat, _gem_glow, _coin_glow, _star_mat]
+	for i in meshes.size():
+		var mi := MeshInstance3D.new()
+		mi.mesh = meshes[i]
+		mi.material_override = mats[i]
+		if i != 2:  # comme en jeu : seul le trou de la pièce projette une ombre
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.position = at + Vector3(float(i) * 0.6, 0.4, 0)
+		parent.add_child(mi)
 
 
 ## Fin de salle : tout le butin restant vole vers le héros.
@@ -201,8 +202,58 @@ func _process(delta: float) -> void:
 		_gather = false
 
 
+## Gemme ou pièce (nœud, halo, étincelle) : reprise de la réserve si possible, sinon construite.
+func _take(kind: String) -> Array:
+	var key := "xp" if kind == "xp" else "coin"
+	var pool: Array = _pool[key]
+	while not pool.is_empty():
+		var tr: Array = pool.pop_back()
+		if is_instance_valid(tr[0]) and is_instance_valid(tr[1]) and is_instance_valid(tr[2]):
+			var n0: Node3D = tr[0]
+			n0.rotation = Vector3.ZERO  # comme un nœud neuf (la pièce et la gemme tournent sur elles-mêmes)
+			n0.visible = true
+			var s0: Node3D = tr[2]
+			s0.visible = true
+			return tr
+	var n := MeshInstance3D.new()
+	n.mesh = _gem_mesh if key == "xp" else _coin_mesh
+	n.material_override = _gem_mat if key == "xp" else _coin_mat
+	n.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(n)
+	if key != "xp":
+		var hole := MeshInstance3D.new()
+		hole.mesh = _hole_mesh
+		hole.material_override = _hole_mat
+		n.add_child(hole)
+	var disc := MeshInstance3D.new()
+	disc.mesh = _disc_mesh
+	disc.material_override = _gem_glow if key == "xp" else _coin_glow
+	disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(disc)
+	var star := MeshInstance3D.new()
+	star.mesh = _star_mesh
+	star.material_override = _star_mat
+	star.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(star)
+	return [n, disc, star]
+
+
+## Objet ramassé ou effacé : ses nœuds sont cachés et rangés dans la réserve (bornée), sinon libérés.
 func _free_item(it: Dictionary) -> void:
-	for k in ["node", "disc", "star"]:
-		var nd = it.get(k)
+	var key := "xp" if String(it.get("kind", "")) == "xp" else "coin"
+	var pool: Array = _pool[key]
+	var nv = it.get("node")
+	var dv = it.get("disc")
+	var sv = it.get("star")
+	if pool.size() < POOL_MAX and is_instance_valid(nv) and is_instance_valid(dv) and is_instance_valid(sv):
+		var n: Node3D = nv
+		var d: Node3D = dv
+		var s: Node3D = sv
+		n.visible = false
+		d.visible = false
+		s.visible = false
+		pool.append([n, d, s])
+		return
+	for nd in [nv, dv, sv]:
 		if is_instance_valid(nd):
 			nd.queue_free()

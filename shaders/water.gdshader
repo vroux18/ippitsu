@@ -3,6 +3,8 @@ render_mode diffuse_toon, specular_disabled;
 
 // Le vide sous l'arène (mer, étang, lave, encre) : fond en lavis qui dérive lentement, rubans de vague
 // à la Hokusai (traits brisés et animés, effacés au loin), écume au pied du cadre de l'arène.
+// Au large seulement (jamais au pied des plateformes ni dans les fosses) : motif seigaiha d'éventails
+// de vagues, très léger, coupé en rendu allégé.
 
 uniform vec4 deep : source_color = vec4(0.07, 0.14, 0.25, 1.0);
 uniform vec4 shallow : source_color = vec4(0.12, 0.23, 0.37, 1.0);
@@ -12,6 +14,8 @@ uniform float flow = 1.0;
 uniform float band = 0.8;
 uniform vec4 shore_rect = vec4(-4.6, -8.6, 4.6, 8.6);
 uniform float shore_k = 0.5;
+uniform float sei_k = 0.0;  // force du motif seigaiha (0 : aucun)
+uniform float sei_size = 0.55;  // rayon d'un éventail (m)
 uniform bool fine = true;
 
 varying vec3 v_world;
@@ -35,6 +39,31 @@ float vnoise(vec2 p) {
 
 void vertex() {
 	v_world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+
+// Seigaiha : éventails de cercles concentriques en rangées décalées, chaque rangée recouvrant la
+// précédente (vers +z, le bas de l'écran). Renvoie l'intensité du trait (0..1).
+float seigaiha(vec2 p) {
+	vec2 q = p / sei_size;
+	float sv = 0.5;
+	float k = floor((q.y + 1.0) / sv);
+	float d = 1.0;
+	bool found = false;
+	for (int i = 0; i < 4; i++) {
+		float row = k - float(i);
+		float off = mod(row, 2.0);
+		float cx = floor((q.x - off) * 0.5 + 0.5) * 2.0 + off;
+		float dd = length(q - vec2(cx, row * sv));
+		if (!found && dd < 1.0) {
+			d = dd;
+			found = true;
+		}
+	}
+	// trois arcs par éventail ; s'efface quand les traits deviennent plus fins qu'un pixel
+	float f = d * 3.0;
+	float fw = fwidth(f);
+	float ring = smoothstep(0.38 - fw, 0.38 + fw, abs(fract(f) - 0.5));
+	return ring * clamp(1.0 - fw * 2.5, 0.0, 1.0);
 }
 
 void fragment() {
@@ -70,6 +99,11 @@ void fragment() {
 	float ring = 1.0 - smoothstep(0.08 - rw, 0.08 + rw, rip);
 	float lip = (1.0 - smoothstep(0.0, 0.1 + rw, od)) * outside;
 	col = mix(col, foam.rgb, clamp(ring * close * close * shore_k + lip * shore_k * 0.8, 0.0, 1.0));
+	// seigaiha au large : nul au pied du cadre (lisibilité), monte entre 1.2 et 3 m
+	if (fine && sei_k > 0.0) {
+		float far_k = smoothstep(1.2, 3.0, od) * outside;
+		col = mix(col, mix(col, foam.rgb, 0.55), seigaiha(p + vec2(0.0, t * 0.05)) * sei_k * far_k);
+	}
 	ALBEDO = col;
 	ROUGHNESS = 0.6;
 }

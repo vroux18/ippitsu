@@ -1,13 +1,17 @@
 shader_type canvas_item;
 render_mode blend_premul_alpha, unshaded;
 
-// Voile d'estampe par-dessus la 3D (sous l'interface) : vignette d'encre douce et grain de papier fixe.
+// Voile d'estampe par-dessus la 3D (sous l'interface) : vignette d'encre douce, grain de papier fixe et
+// ichimonji bokashi (bande de bleu de Prusse dégradée en haut de l'image, comme en tête des estampes).
 // Prémultiplié : rgb s'ajoute, alpha assombrit ce qui est dessous.
 
 uniform vec4 ink : source_color = vec4(0.07, 0.06, 0.08, 1.0);
 uniform vec4 paper : source_color = vec4(0.94, 0.9, 0.82, 1.0);
 uniform float vignette = 0.3;
 uniform float grain = 0.035;
+uniform vec4 band_col : source_color = vec4(0.12, 0.23, 0.37, 1.0);
+uniform float band_k = 0.2;  // force de la bande du haut (0 : aucune)
+uniform float band_h = 0.07;  // hauteur de la bande (fraction de l'écran)
 uniform bool fine = true;
 
 float hash12(vec2 p) {
@@ -41,5 +45,7 @@ void fragment() {
 		dark += max(-g, 0.0) * grain * 2.0 * (1.0 - v);
 		lift = paper.rgb * max(g, 0.0) * grain;
 	}
-	COLOR = vec4(ink.rgb * v + lift, dark);
+	// bande du haut : se fond dans l'image, n'empiète jamais sur le cœur de l'arène
+	float bk = band_k * (1.0 - smoothstep(0.0, band_h, UV.y));
+	COLOR = vec4(ink.rgb * v + lift + band_col.rgb * bk, clamp(dark + bk, 0.0, 1.0));
 }

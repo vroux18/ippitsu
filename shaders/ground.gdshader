@@ -78,10 +78,11 @@ void fragment() {
 		float mp = vnoise(wp * 0.7 + vec2(4.0, 9.0));
 		float mz = smoothstep(0.5, 0.8, mp) * (0.35 + 0.65 * joint) * moss_k * top;
 		col = mix(col, moss.rgb, clamp(mz, 0.0, 0.85));
-		// mouchetis d'encre (pinceau secoué)
+		// mouchetis d'encre (pinceau secoué) : rares et à demi-teinte, pour ne jamais passer pour
+		// un projectile ou une tache d'attaque
 		float sp = vnoise(wp * 9.0 + vec2(v_seed * 31.0, v_seed * 17.0));
-		float dots = smoothstep(0.86, 0.93, sp) * speckle * top;
-		col = mix(col, ink.rgb, dots);
+		float dots = smoothstep(0.88, 0.94, sp) * speckle * top;
+		col = mix(col, ink.rgb, dots * 0.6);
 	}
 	col *= 1.0 - edge_ao * joint * top;
 	ALBEDO = col;

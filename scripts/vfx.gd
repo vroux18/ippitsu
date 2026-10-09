@@ -240,8 +240,13 @@ func ring(pos: Vector3, c: Color, r: float) -> void:
 
 ## Étincelles lumineuses projetées dans la direction du coup.
 func sparks(pos: Vector3, dir: Vector3, amount: int, c: Color, vmin := 6.0, vmax := 12.0, spread := 55.0) -> void:
-	var p := CPUParticles3D.new()
 	var key := c.to_html()
+	# émetteur repris de la réserve (même couleur) : tous ses réglages variables sont reposés ci-dessous
+	var p := _pooled("spark" + key)
+	var fresh := p == null
+	if fresh:
+		p = CPUParticles3D.new()
+		p.set_meta("pool", "spark" + key)
 	if not _spark_boxes.has(key):
 		var bm := BoxMesh.new()
 		bm.size = Vector3(0.07, 0.07, 0.36)
@@ -262,9 +267,55 @@ func sparks(pos: Vector3, dir: Vector3, amount: int, c: Color, vmin := 6.0, vmax
 	p.scale_amount_min = 0.6
 	p.scale_amount_max = 1.3
 	p.position = pos
-	add_child(p)
-	p.emitting = true
+	_emit(p, fresh)
 	_fx.append({"node": p, "t": 0.0, "life": 0.9, "kind": "none"})
+
+
+# ------------------------------------------------------------------ réserve d'émetteurs
+# Étincelles, confettis : un émetteur ponctuel (one_shot) par coup. Fini, il est caché et rangé par sorte
+# au lieu d'être libéré, puis relancé (restart) au coup suivant : pas de nœud créé à chaque impact.
+
+const PPOOL_MAX := 10  # émetteurs gardés par sorte
+var _ppool := {}  # sorte -> Array de CPUParticles3D éteints et cachés
+
+
+func _pooled(key: String) -> CPUParticles3D:
+	if not _ppool.has(key):
+		return null
+	var pool: Array = _ppool[key]
+	while not pool.is_empty():
+		var pv = pool.pop_back()
+		if is_instance_valid(pv):
+			var p: CPUParticles3D = pv
+			return p
+	return null
+
+
+## Lance un émetteur ponctuel : neuf, il entre dans l'arbre ; repris, il réapparaît et repart de zéro.
+func _emit(p: CPUParticles3D, fresh: bool) -> void:
+	if fresh:
+		add_child(p)
+		p.emitting = true
+	else:
+		p.visible = true
+		p.restart()
+
+
+## Émetteur fini : rangé (caché, éteint) s'il vient de la réserve et qu'il y a la place. Faux sinon.
+func _recycle(node: Node3D) -> bool:
+	if not node.has_meta("pool") or not (node is CPUParticles3D):
+		return false
+	var key := String(node.get_meta("pool"))
+	if not _ppool.has(key):
+		_ppool[key] = []
+	var pool: Array = _ppool[key]
+	if pool.size() >= PPOOL_MAX:
+		return false
+	var p := node as CPUParticles3D
+	p.emitting = false
+	p.visible = false
+	pool.append(p)
+	return true
 
 
 ## Mise à mort : éclat d'or, quelques confettis de papier ; le grand 斬 seulement sur un beau coup (`big`).
@@ -273,8 +324,12 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false) -> void:
 	# éclat additif bref au cœur du coup (le « tchac » de la mise à mort)
 	if _rich(1.0):
 		_flare(pos + Vector3(0, 0.9, 0), Color(1.0, 0.93, 0.78), 1.05 if big else 0.75, 0.12)
-	# confettis de washi
-	var p := CPUParticles3D.new()
+	# confettis de washi (émetteur repris de la réserve : réglages tous reposés)
+	var p := _pooled("confetti")
+	var fresh := p == null
+	if fresh:
+		p = CPUParticles3D.new()
+		p.set_meta("pool", "confetti")
 	if _confetti == null:
 		_confetti = QuadMesh.new()
 		_confetti.size = Vector2(0.14, 0.1)
@@ -299,8 +354,7 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false) -> void:
 	p.damping_max = 3.0
 	p.color = Toon.WASHI
 	p.position = pos + Vector3(0, 1.0, 0)
-	add_child(p)
-	p.emitting = true
+	_emit(p, fresh)
 	_fx.append({"node": p, "t": 0.0, "life": 1.4, "kind": "none"})
 	# éclat d'encre face caméra qui jaillit derrière l'étoile d'or (dessiné avant les lueurs)
 	var burst := Node3D.new()
@@ -2225,5 +2279,6 @@ func _process(delta: float) -> void:
 				l.outline_modulate.a = l.modulate.a
 				l.position.y += dt * 1.2
 		if k >= 1.0:
-			node.queue_free()
+			if not _recycle(node):
+				node.queue_free()
 			_fx.remove_at(i)

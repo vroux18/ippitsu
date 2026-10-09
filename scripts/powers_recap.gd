@@ -68,9 +68,9 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	_ui.base_font = UiKit.UI_FONT
-	_ui.spacing_glyph = 1
+	_ui.spacing_glyph = UiKit.CAPS_SPACING
 	_title.base_font = UiKit.TITLE_FONT
-	_title.spacing_glyph = 3
+	_title.spacing_glyph = UiKit.TITLE_SPACING
 	# le contenu se dessine dans un enfant qui découpe ce qui dépasse
 	_list = Control.new()
 	_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -326,8 +326,8 @@ func _layout() -> void:
 	var u := _u
 	var ch := minf(h - 40.0 * u, 720.0 * u)
 	_card = Rect2(Vector2(w * 0.05, h * 0.5 - ch / 2.0 + 14 * u * (1.0 - UiKit.ease_out(_t / 0.3))), Vector2(w * 0.9, ch))
-	var bc := _card.position + Vector2(34, 40) * u
-	_back = Rect2(bc - Vector2(26, 26) * u, Vector2(52, 52) * u)
+	var bc := _card.position + Vector2(UiKit.HEAD_X, UiKit.HEAD_Y) * u
+	_back = UiKit.back_rect(bc, u)
 	_view = Rect2(Vector2(_card.position.x + 10 * u, _card.position.y + 92 * u), Vector2(_card.size.x - 20 * u, _card.size.y - 102 * u))
 	_list.position = _view.position
 	_list.size = _view.size
@@ -402,24 +402,16 @@ func _draw() -> void:
 	var a := clampf(_t / 0.25, 0.0, 1.0)
 	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
 	var card := _card
-	UiKit.box(_sb, Color(Toon.ui_paper, a), int(18 * u))
-	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
-	_sb.shadow_size = int(20 * u)
-	draw_style_box(_sb, card)
-	# titre et nombre de pouvoirs
+	# feuille de washi (comme les options et la pause), vagues seigaiha dans l'en-tête
+	UiKit.sheet(self, card, Toon.ui_paper, Toon.ui_ink, a, u, 5.0, 74.0)
+	# titre souligné de vermillon, sceau 巻 (rouleaux), nombre de pouvoirs dessous
 	var cxc := card.get_center().x
-	UiKit.text(self, _title, "MES POUVOIRS", Vector2(cxc + 10 * u, card.position.y + 48 * u), int(22 * u), Color(Toon.ui_ink, a))
-	draw_line(Vector2(cxc - 20 * u, card.position.y + 60 * u), Vector2(cxc + 40 * u, card.position.y + 60 * u), Color(Toon.VERMILION, a), 2 * u)
+	var tmax: float = card.size.x - 2.0 * (UiKit.HEAD_X + 26.0) * u
+	UiKit.screen_title(self, _title, "MES POUVOIRS", Vector2(cxc, card.position.y + UiKit.HEAD_BASE * u), u, Toon.ui_ink, a, "巻", tmax, UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0)))
 	var sub: String = "%d POUVOIR%s" % [_count, "S" if _count > 1 else ""] if _count > 0 else "AUCUN POUVOIR"
-	UiKit.text(self, _ui, sub, Vector2(cxc + 10 * u, card.position.y + 78 * u), int(10 * u), Color(Toon.ui_ink, 0.5 * a))
-	# retour : ensō et flèche en haut à gauche de la carte (comme les options)
-	var bc := _back.get_center()
-	var k: float = 0.92 if _pressed == BACK_TARGET else 1.0
-	draw_arc(bc, 16 * u * k, -PI * 0.35, PI * 1.45, 28, Color(Toon.ui_ink, a), 3.5 * u, true)
-	var head := bc + Vector2(-7, 0) * u * k
-	draw_line(bc + Vector2(8, 0) * u * k, head, Color(Toon.VERMILION, a), 3 * u, true)
-	draw_line(head, head + Vector2(5, -5) * u * k, Color(Toon.VERMILION, a), 3 * u, true)
-	draw_line(head, head + Vector2(5, 5) * u * k, Color(Toon.VERMILION, a), 3 * u, true)
+	UiKit.text(self, _ui, sub, Vector2(cxc, card.position.y + 78 * u), int(UiKit.FS_CAPTION * u), Color(Toon.ui_ink, UiKit.A_CAPTION * a))
+	# retour en haut à gauche de la carte (même bouton que les options)
+	UiKit.back_button(self, _back.get_center(), u, a, 1.0 if _pressed == BACK_TARGET else 0.0)
 
 
 func _draw_list() -> void:
@@ -441,9 +433,9 @@ func _draw_list() -> void:
 		_draw_tile(i, Rect2(r.position + Vector2(0.0, oy), r.size), u, a)
 	# bonus d'école
 	var sy := _sec_y + oy
-	UiKit.text(_list, _title, "BONUS D'ÉCOLE", Vector2(W / 2.0, sy + 18.0 * u), int(13 * u), Toon.ui_ink)
-	_list.draw_line(Vector2(W / 2.0 - 20 * u, sy + 26 * u), Vector2(W / 2.0 + 20 * u, sy + 26 * u), Toon.VERMILION, 2 * u)
-	UiKit.text(_list, _ui, "2 ou 4 pouvoirs d'une école : un bonus", Vector2(W / 2.0, sy + 41 * u), int(9 * u), Color(Toon.ui_ink, 0.5))
+	# titre de section commun (sceau 流 : l'école, trait de pinceau, shuriken), puis la règle en légende
+	UiKit.section(_list, _ui, UiKit.plain("BONUS D'ÉCOLE"), 6.0 * u, W - 6.0 * u, sy + 18.0 * u, u, Toon.ui_ink, 1.0, "流")
+	UiKit.text(_list, _ui, "2 ou 4 pouvoirs d'une école : un bonus", Vector2(W / 2.0, sy + 38 * u), int(UiKit.FS_CAPTION * u), Color(Toon.ui_ink, UiKit.A_CAPTION))
 	for k in _school_c.size():
 		var c: Vector2 = _school_c[k]
 		_draw_school(k, c + Vector2(0.0, oy), u)
