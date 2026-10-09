@@ -119,11 +119,13 @@ const PRINTS := {
 const LOOK_KINDS := ["cape", "trail", "ink"]
 const LOOK_NAMES := {"cape": "Écharpe", "trail": "Sillage", "ink": "Encre"}
 
-## Garde-robe : tenues (atlas du ronin recoloré, capuche comprise) et thèmes de l'interface.
+## Garde-robe : tenues et thèmes de l'interface. Une tenue teinte le hakama (et ses vagues) et l'obi du Ronin
+## de papier (ninja_rig.hero_config) ; le kimono washi, le chapeau et l'écharpe (pièce « cape ») ne changent
+## pas. « tex » : atlas de l'ancien modèle KayKit, l'id de la tenue en est tiré (hero.set_outfit).
 ## Obtention : « free » ; « print » = Vue possédée ; « prints » = nombre de Vues ; « cost » = encre (achat unique).
 const OUTFIT_ORDER := ["sumi", "indigo", "matcha", "kaki", "sakura", "neige", "glycine", "or"]
 const OUTFITS := {
-	"sumi": {"name": "Encre", "col": Color("#4A4858"), "tex": "res://assets/kaykit/tex/rogue_ink.png", "free": true},
+	"sumi": {"name": "Bleu de Prusse", "col": Color("#1F3A5C"), "tex": "res://assets/kaykit/tex/rogue_ink.png", "free": true},
 	"indigo": {"name": "Indigo d'Edo", "col": Color("#2B4C7E"), "tex": "res://assets/kaykit/tex/rogue_indigo.png", "cost": 120},
 	"matcha": {"name": "Matcha", "col": Color("#5E7F4A"), "tex": "res://assets/kaykit/tex/rogue_matcha.png", "print": "w2_room"},
 	"kaki": {"name": "Kaki", "col": Color("#E8692A"), "tex": "res://assets/kaykit/tex/rogue_kaki.png", "cost": 250},

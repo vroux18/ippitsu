@@ -35,9 +35,14 @@ const FIG_KANJI := {"loop": "渦", "zigzag": "雷", "straight": "一", "return":
 # technique débloquée par le rouleau de chaque figure (powers.gd FIG_NAMES, en clair)
 const FIG_TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR EN CHAÎNE", "straight": "COUPE IAÏ", "return": "GARDE",
 	"enso": "FRAPPE AU SOL", "hook": "ESTOC"}
-# le ronin (même allure que le héros 3D : capuche sombre, kimono indigo, écharpe vermillon)
-const HOOD := Color("#2E2C38")
-const ROBE := Color("#2B4C7E")
+# le Ronin de papier (même allure que le héros 3D, ninja_rig.gd RONIN_PAL) : chapeau de paille, chevelure
+# d'encre, kimono washi, hakama bleu de Prusse aux vagues claires, obi d'encre, écharpe vermillon
+const STRAW := Color("#CDAB6B")
+const HAIR := Color("#1E1B22")
+const KIMONO := Color("#F4EAD6")
+const HAKAMA := Color("#1F3A5C")
+const WAVE := Color("#6F9BC8")
+const HEM := Color("#2A2733")
 const ONI := Color("#C2453A")  # peau du petit oni
 const GAUGE_INK := Color("#7B7B83")  # encre par défaut de la jauge du HUD (sumi éclaircie, hud.gd)
 const RARITY_COLS := [Color("#8A8478"), Color("#3D78B8"), Color("#8752B5"), Color("#E2A93B")]
@@ -699,9 +704,12 @@ func _page_gardien(t0: float) -> void:
 
 # ------------------------------------------------------------------ petits dessins
 
-## Le ronin, à l'encre (même allure que le héros 3D) : capuche sombre, kimono indigo, écharpe vermillon, katana.
-## Pieds en p ; s = pixels par unité (environ 40 unités de haut) ; face = 1 (regarde à droite) ou -1.
-## pose : 0 debout, 1 ruée (sabre tendu), 2 bond, 3 victoire (sabre levé). lift : hauteur au-dessus du sol (pixels).
+## Le Ronin de papier, à l'encre (même allure que le héros 3D) : chapeau de paille conique posé en arrière,
+## visage nu aux traits d'encre, queue de cheval, kimono washi aux manches amples (col et ourlet à l'encre),
+## hakama bleu aux vagues seigaiha, longue écharpe vermillon qui retombe au repos et s'étire en ruée, katana.
+## Pieds en p ; s = pixels par unité (environ 46 unités de haut, chapeau compris) ; face = 1 (regarde à droite)
+## ou -1. pose : 0 debout, 1 ruée (sabre tendu), 2 bond, 3 victoire (sabre levé). lift : hauteur au-dessus du
+## sol (pixels).
 func _ronin(p: Vector2, s: float, face: float, pose: int, k: float, lift := 0.0) -> void:
 	if k <= 0.01:
 		return
@@ -711,8 +719,8 @@ func _ronin(p: Vector2, s: float, face: float, pose: int, k: float, lift := 0.0)
 	var front := Vector2(4, 0)
 	var hand := Vector2(7, 14)
 	var tip := Vector2(20, 5)  # pointe du sabre
-	var tail := 10.0  # longueur de l'écharpe
-	var droop := 6.0  # l'écharpe retombe au repos, flotte pendant la course
+	var tail := 15.0  # longueur de l'écharpe
+	var droop := 9.0  # l'écharpe retombe au repos, s'étire pendant la course
 	match pose:
 		1:
 			lean = 0.3
@@ -720,16 +728,16 @@ func _ronin(p: Vector2, s: float, face: float, pose: int, k: float, lift := 0.0)
 			front = Vector2(9, 0)
 			hand = Vector2(9, 16)
 			tip = Vector2(31, 18)
-			tail = 18.0
-			droop = 0.0
+			tail = 30.0
+			droop = -1.0
 		2:
 			lean = -0.12
 			back = Vector2(-6, 6)
 			front = Vector2(5, 4)
 			hand = Vector2(4, 16)
 			tip = Vector2(-12, 8)
-			tail = 14.0
-			droop = -4.0
+			tail = 22.0
+			droop = -6.0
 		3:
 			back = Vector2(-5, 0)
 			front = Vector2(5, 0)
@@ -740,47 +748,92 @@ func _ronin(p: Vector2, s: float, face: float, pose: int, k: float, lift := 0.0)
 			bob = 0.5 + 0.5 * sin(_now * 4.0)
 	# ombre au sol (plus petite quand il est en l'air)
 	var sh := 1.0 / (1.0 + lift / (40.0 * s))
-	_ellipse(p + Vector2(0, 1.5 * s), 11.0 * s * sh, 3.0 * s * sh, _c(Toon.SUMI, 0.18 * k))
+	_ellipse(p + Vector2(0, 1.5 * s), 12.0 * s * sh, 3.2 * s * sh, _c(Toon.SUMI, 0.18 * k))
 	var xf := Transform2D(lean * face, Vector2(face * s, -s), 0.0, p - Vector2(0, lift + bob * s))
-	# écharpe qui flotte derrière
+	var ink := _c(Toon.SUMI, k)
+	# écharpe : deux pans qui partent de la nuque, ondulent, retombent au repos et filent en ruée
 	var w1 := sin(_now * 11.0)
 	var w2 := sin(_now * 11.0 - 1.2)
-	draw_polyline(xf * PackedVector2Array([Vector2(-1, 22.5), Vector2(-tail * 0.5, 22.0 - droop * 0.5 + 1.5 * w1), Vector2(-tail, 21.0 - droop + 2.5 * w2)]), _c(Toon.VERMILION, k), 3.2 * s, true)
-	draw_polyline(xf * PackedVector2Array([Vector2(-1, 21.5), Vector2(-tail * 0.45, 20.5 - droop * 0.5 + 1.5 * w2), Vector2(-tail * 0.8, 18.5 - droop + 2.0 * w1)]), _c(Toon.VERMILION.darkened(0.2), k), 2.2 * s, true)
-	# jambes et hakama
-	draw_line(xf * Vector2(-2.5, 9), xf * back, _c(HOOD, k), 5.5 * s, true)
-	draw_line(xf * Vector2(2.5, 9), xf * front, _c(HOOD, k), 5.5 * s, true)
-	draw_circle(xf * back, 2.5 * s, _c(Toon.SUMI, k))
-	draw_circle(xf * front, 2.5 * s, _c(Toon.SUMI, k))
-	draw_colored_polygon(xf * PackedVector2Array([Vector2(-7, 6), Vector2(7, 6), Vector2(6, 13), Vector2(-6, 13)]), _c(HOOD, k))
-	# kimono, ceinture, col, écharpe nouée au cou
-	var torso := xf * PackedVector2Array([Vector2(-6.5, 12), Vector2(6.5, 12), Vector2(5.5, 22.5), Vector2(-5.5, 22.5)])
-	draw_colored_polygon(torso, _c(ROBE, k))
-	_outline(torso, _c(Toon.SUMI, k), 1.2 * s)
-	draw_line(xf * Vector2(-6.4, 14), xf * Vector2(6.4, 14), _c(Toon.VERMILION, k), 2.4 * s)
-	draw_polyline(xf * PackedVector2Array([Vector2(-1.5, 22.5), Vector2(1.5, 18), Vector2(4.5, 22.5)]), _c(Toon.WASHI, k), 1.2 * s, true)
-	draw_line(xf * Vector2(-5.5, 22.8), xf * Vector2(6, 22.8), _c(Toon.VERMILION, k), 3.4 * s, true)
-	# tête : capuche à pointe, visage, yeux, joues
-	draw_colored_polygon(xf * PackedVector2Array([Vector2(-4, 36), Vector2(-12.5, 37.5), Vector2(-7.5, 30)]), _c(HOOD, k))
+	var w3 := sin(_now * 11.0 - 2.3)
+	var pan := xf * PackedVector2Array([Vector2(-1, 23), Vector2(-tail * 0.33, 22.5 - droop * 0.3 + 1.2 * w1),
+		Vector2(-tail * 0.66, 21.5 - droop * 0.7 + 2.0 * w2), Vector2(-tail, 20.0 - droop + 2.6 * w3)])
+	draw_polyline(pan, ink, 4.4 * s, true)
+	draw_polyline(pan, _c(Toon.VERMILION, k), 3.0 * s, true)
+	var pan2 := xf * PackedVector2Array([Vector2(-1, 22), Vector2(-tail * 0.3, 21.0 - droop * 0.35 + 1.3 * w2),
+		Vector2(-tail * 0.6, 19.5 - droop * 0.75 + 1.8 * w3), Vector2(-tail * 0.82, 17.5 - droop * 1.05 + 2.2 * w1)])
+	draw_polyline(pan2, ink, 3.4 * s, true)
+	draw_polyline(pan2, _c(Toon.VERMILION.darkened(0.18), k), 2.1 * s, true)
+	# hakama : jambes larges, puis la jupe du haut ; vagues seigaiha claires ; zōri et tabi
+	draw_line(xf * Vector2(-2.5, 9), xf * back, ink, 8.2 * s, true)
+	draw_line(xf * Vector2(2.5, 9), xf * front, ink, 8.2 * s, true)
+	draw_line(xf * Vector2(-2.5, 9), xf * back, _c(HAKAMA, k), 6.6 * s, true)
+	draw_line(xf * Vector2(2.5, 9), xf * front, _c(HAKAMA, k), 6.6 * s, true)
+	var skirt := xf * PackedVector2Array([Vector2(-8.5, 5.5), Vector2(8.5, 5.5), Vector2(7, 14), Vector2(-7, 14)])
+	draw_colored_polygon(skirt, _c(HAKAMA, k))
+	_outline(skirt, ink, 1.1 * s)
+	for row in 3:
+		var y := 7.0 + 2.6 * float(row)
+		var x0 := -6.0 + (1.3 if row % 2 == 1 else 0.0)
+		for i in 5:
+			var cx := x0 + 2.6 * float(i)
+			if absf(cx) > 6.6:
+				continue
+			draw_arc(xf * Vector2(cx, y), 1.2 * s, PI * (1.0 + 0.05), PI * (2.0 - 0.05), 8, _c(WAVE, 0.85 * k), 0.75 * s, true)
+	draw_circle(xf * back, 2.7 * s, ink)
+	draw_circle(xf * front, 2.7 * s, ink)
+	draw_circle(xf * (back + Vector2(0.3, 0.8)), 1.7 * s, _c(KIMONO, k))
+	draw_circle(xf * (front + Vector2(0.3, 0.8)), 1.7 * s, _c(KIMONO, k))
+	# kimono washi : buste, pli, col croisé (pan gauche par-dessus, ourlet d'encre jusqu'à la hanche), juban
+	var torso := xf * PackedVector2Array([Vector2(-7, 12.5), Vector2(7, 12.5), Vector2(5.8, 23), Vector2(-5.8, 23)])
+	draw_colored_polygon(torso, _c(KIMONO, k))
+	_outline(torso, ink, 1.2 * s)
+	draw_line(xf * Vector2(-3.8, 21.5), xf * Vector2(-4.6, 14.5), _c(Toon.SUMI, 0.35 * k), 0.6 * s, true)
+	draw_polyline(xf * PackedVector2Array([Vector2(-1.8, 22.8), Vector2(1.6, 18.2), Vector2(4.6, 22.8)]), _c(Color.WHITE, k), 1.3 * s, true)
+	draw_polyline(xf * PackedVector2Array([Vector2(-2.4, 22.8), Vector2(1.6, 17.6), Vector2(4.4, 13.2)]), ink, 1.1 * s, true)
+	draw_line(xf * Vector2(4.8, 22.6), xf * Vector2(2.4, 19.4), ink, 0.9 * s, true)
+	# obi d'encre au cordon d'or
+	draw_line(xf * Vector2(-6.9, 13.6), xf * Vector2(6.9, 13.6), _c(HEM, k), 2.4 * s)
+	draw_line(xf * Vector2(-6.9, 13.6), xf * Vector2(6.9, 13.6), _c(Toon.GOLD, k), 0.5 * s)
+	# écharpe nouée au cou
+	draw_line(xf * Vector2(-5.8, 23.2), xf * Vector2(6.2, 23.2), ink, 4.6 * s, true)
+	draw_line(xf * Vector2(-5.8, 23.2), xf * Vector2(6.2, 23.2), _c(Toon.VERMILION, k), 3.2 * s, true)
+	# tête : chevelure d'encre, queue de cheval nouée, visage, traits (sourcils froncés, yeux fendus, nez, bouche)
 	var hc := xf * Vector2(1, 30)
-	draw_circle(hc, 9.6 * s, _c(Toon.SUMI, k))
-	draw_circle(hc, 8.6 * s, _c(HOOD, k))
-	draw_circle(xf * Vector2(3.6, 28.4), 5.0 * s, _c(Toon.SKIN, k))
-	draw_circle(xf * Vector2(3.4, 33.2), 4.0 * s, _c(HOOD, k))
-	draw_circle(xf * Vector2(2.3, 27.8), 1.0 * s, _c(Toon.SUMI, k))
-	draw_circle(xf * Vector2(5.7, 27.8), 1.0 * s, _c(Toon.SUMI, k))
-	draw_circle(xf * Vector2(1.4, 26.2), 0.9 * s, _c(Toon.VERMILION, 0.35 * k))
-	draw_circle(xf * Vector2(6.8, 26.2), 0.9 * s, _c(Toon.VERMILION, 0.35 * k))
-	# bras et katana (poignée, tsuba d'or, lame claire)
+	draw_line(xf * Vector2(-6.5, 31.5), xf * Vector2(-12.5, 25.5), ink, 2.8 * s, true)
+	draw_circle(xf * Vector2(-8.0, 30.0), 1.2 * s, _c(Color.WHITE, k))
+	draw_circle(hc, 9.5 * s, ink)
+	draw_circle(hc, 8.6 * s, _c(HAIR, k))
+	draw_circle(xf * Vector2(2.6, 28.6), 6.9 * s, _c(Toon.SKIN, k))
+	draw_line(xf * Vector2(0.2, 30.6), xf * Vector2(2.9, 29.9), ink, 0.9 * s, true)
+	draw_line(xf * Vector2(4.5, 29.9), xf * Vector2(7.2, 30.6), ink, 0.9 * s, true)
+	draw_line(xf * Vector2(0.8, 28.5), xf * Vector2(3.0, 28.5), ink, 1.0 * s, true)
+	draw_line(xf * Vector2(4.6, 28.5), xf * Vector2(6.8, 28.5), ink, 1.0 * s, true)
+	draw_line(xf * Vector2(4.0, 27.6), xf * Vector2(4.3, 26.5), _c(Toon.SUMI, 0.5 * k), 0.5 * s, true)
+	draw_line(xf * Vector2(3.4, 25.3), xf * Vector2(5.2, 25.3), ink, 0.7 * s, true)
+	draw_circle(xf * Vector2(1.2, 26.6), 0.9 * s, _c(Toon.VERMILION, 0.3 * k))
+	draw_circle(xf * Vector2(7.0, 26.6), 0.9 * s, _c(Toon.VERMILION, 0.3 * k))
+	# sandogasa : cône de paille posé en arrière, bord épais, tressage, cordon
+	var hat := xf * PackedVector2Array([Vector2(-13.0, 35.0), Vector2(14.6, 35.6), Vector2(0.4, 46.0)])
+	draw_colored_polygon(hat, _c(STRAW, k))
+	_outline(hat, ink, 1.3 * s)
+	draw_line(xf * Vector2(-9.5, 38.0), xf * Vector2(10.6, 38.4), _c(Toon.SUMI, 0.22 * k), 0.6 * s, true)
+	draw_line(xf * Vector2(-6.0, 41.0), xf * Vector2(6.8, 41.3), _c(Toon.SUMI, 0.22 * k), 0.6 * s, true)
+	draw_line(xf * Vector2(-13.0, 35.0), xf * Vector2(14.6, 35.6), ink, 1.8 * s, true)
+	# bras : manche ample (ourlet d'encre), avant-bras nu, main ; katana (poignée, tsuba d'or, lame claire)
 	var d := (tip - hand).normalized()
 	var sho := Vector2(1, 20)
-	draw_line(xf * sho, xf * hand, _c(Toon.SUMI, k), 4.6 * s, true)
-	draw_line(xf * sho, xf * hand, _c(ROBE, k), 3.0 * s, true)
-	draw_line(xf * (hand - d * 5.0), xf * (hand + d * 1.0), _c(Toon.SUMI, k), 2.6 * s, true)
-	draw_line(xf * (hand + d * 1.8), xf * tip, _c(Toon.SUMI, k), 2.8 * s, true)
+	var elb := sho.lerp(hand, 0.55)
+	draw_line(xf * sho, xf * elb, ink, 7.0 * s, true)
+	draw_line(xf * sho, xf * elb, _c(KIMONO, k), 5.4 * s, true)
+	draw_circle(xf * elb, 3.5 * s, ink)
+	draw_circle(xf * elb, 2.6 * s, _c(KIMONO, k))
+	draw_line(xf * elb, xf * hand, ink, 3.6 * s, true)
+	draw_line(xf * elb, xf * hand, _c(Toon.SKIN, k), 2.2 * s, true)
+	draw_line(xf * (hand - d * 5.0), xf * (hand + d * 1.0), ink, 2.6 * s, true)
+	draw_line(xf * (hand + d * 1.8), xf * tip, ink, 2.8 * s, true)
 	draw_line(xf * (hand + d * 2.6), xf * tip, _c(Toon.FOAM, k), 1.2 * s, true)
 	draw_circle(xf * (hand + d * 1.3), 1.7 * s, _c(Toon.GOLD, k))
-	draw_circle(xf * hand, 2.2 * s, _c(Toon.SUMI, k))
+	draw_circle(xf * hand, 2.2 * s, ink)
 	draw_circle(xf * hand, 1.6 * s, _c(Toon.SKIN, k))
 
 
