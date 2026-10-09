@@ -795,16 +795,24 @@ func _advance_head(dist: float) -> void:
 		_push_trail(head_pos)
 
 
+## _trail[0] est la tête « flottante » (position exacte), _trail[1] le dernier échantillon fixé : on compare
+## toujours au point FIXÉ. (Avant, on comparait à la tête flottante qu'on venait de déplacer : à 120 Hz un pas
+## d'image est plus court que l'écart d'échantillon, la traîne ne grandissait jamais et tout le corps restait
+## empilé sous la tête.)
 func _push_trail(p: Vector3) -> void:
-	var last: Vector3 = _trail[0]
 	var step := SPACING / 12.0
-	var d := p.distance_to(last)
+	var anchor: Vector3 = _trail[1] if _trail.size() > 1 else _trail[0]
+	var d := p.distance_to(anchor)
 	if d < step:
 		_trail[0] = p
 		return
 	var n := int(d / step)
+	if _trail.size() > 1:
+		_trail.pop_front()  # la tête flottante est remplacée par les échantillons fixés
 	for i in range(1, n + 1):
-		_trail.push_front(last.lerp(p, float(i) / n))
+		_trail.push_front(anchor.lerp(p, float(i) / n))
+	if _trail[0] != p:
+		_trail.push_front(p)
 	while _trail.size() > SEGMENTS * 12 + 2:
 		_trail.pop_back()
 

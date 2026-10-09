@@ -361,6 +361,7 @@ var _alive_prev := 0
 var _ritual := false
 var _ritual_from := Vector3.ZERO
 var _ritual_flash := false
+var _walk_from := Vector3.ZERO  # rituel du torii : d'où le héros entre à pied dans la suite
 # exploration : course au doigt posé
 var _explore := false  # hors combat (calculé à chaque image)
 var _running := false
@@ -3014,11 +3015,23 @@ func _update_ritual() -> void:
 		if t >= 0.8:
 			hud.wash = 1.0
 			_rebuild_room()
-			hero.ch.play(hero.ch.idle)
+			# la suite : le héros arrive à pied depuis le sud pendant que l'encre se retire, la caméra le rattrape
+			_walk_from = arena.start + Vector3(0, 0, 2.2)
+			hero.position = _walk_from
+			_prev_hero = hero.position
+			hero.ch.play("Walking_A", 1.2)
+			_cam_dz = _cam_target() + 1.6
 	else:
+		var k2 := clampf((t - 0.8) / 0.6, 0.0, 1.0)
 		hud.wash_out = true
-		hud.wash = clampf(1.0 - (t - 0.8) / 0.35, 0.0, 1.0)
-	if t >= 1.15 and _rebuilt:
+		hud.wash = 1.0 - k2 * k2 * (3.0 - 2.0 * k2)
+		var kw := clampf((t - 0.8) / 0.7, 0.0, 1.0)
+		hero.position = _walk_from.lerp(arena.start, kw * (2.0 - kw))
+		_prev_hero = hero.position
+		if t >= 1.5:
+			hero.position = arena.start
+			hero.ch.play(hero.ch.idle)
+	if t >= 1.5 and _rebuilt:
 		hud.wash = 0.0
 		hud.wash_out = false
 		_set_state("play")

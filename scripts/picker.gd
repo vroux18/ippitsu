@@ -2785,10 +2785,7 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	draw_set_transform_matrix(_xf)
 	# pastille : nouveau (étoile d'or sur rond d'encre) ou montée de niveau (pilule d'or, chevron et niveau atteint)
 	if bool(info.get("is_new", true)):
-		var nc := Vector2(o.x + 17.0 * s, o.y + 17.0 * s)
-		draw_circle(nc, 11.0 * s, Color(UIColors.SUMI, ma))
-		draw_arc(nc, 10.25 * s, 0.0, TAU, 32, Color(UIColors.GOLD, ma), maxf(1.0, 1.5 * s), true)
-		UiKit.draw_path(self, STAR4, 32, nc, 12.0 * s, UIColors.GOLD, 0.5, UIColors.GOLD, ma)
+		pass  # (plus d'étoile « nouveau » : tout rouleau non possédé est nouveau, l'étoile n'apportait rien)
 	else:
 		var nf := UiKit.num_font()
 		var lfs := maxi(1, int(12.0 * s))
