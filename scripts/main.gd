@@ -102,6 +102,7 @@ const MINI_ROOM := 8  # combat du mini-boss (son arène)
 # courbe du budget d'ennemis dans un monde (index = salle) : montée, gardien (8), respiration (9), épreuve
 const ROOM_CURVE := [0.0, 0.75, 0.85, 1.0, 1.0, 1.05, 1.1, 1.2, 1.0, 0.9, 1.05, 1.15, 1.2, 1.3, 1.4, 1.0]  # index = salle (8 gardien, 9 respiration, 14 épreuve, 15 boss)
 const TRIAL_ROOM := 14  # épreuve : un élite garanti
+const MOB_SCALE := 1.12  # un peu plus d'ennemis par combat, tous mondes
 const WAVE_OVERLAP_T := 9.0  # vagues qui se chevauchent : la suivante arrive au plus tard après ce délai
 const REINF_DIST := 5.0  # renforts du boss : apparition à cette distance du héros au moins
 const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fins des étapes 2 et 5)
@@ -2261,7 +2262,7 @@ func _begin_room() -> void:
 	var b0 := world_diff("b0", 4.0)
 	var per := world_diff("per", 1.0)
 	var curve := float(ROOM_CURVE[clampi(room, 0, ROOM_CURVE.size() - 1)])
-	var budget := int((b0 + per * float(room)) * curve)
+	var budget := int((b0 + per * float(room)) * curve * MOB_SCALE)
 	if _gentle_room():
 		budget = maxi(3, int(budget * 0.55))  # premier tutoriel : moins d'ennemis
 	if hero.hp <= 1:
@@ -2367,6 +2368,15 @@ func _draw_kinds(pool: Dictionary, budget: int) -> Array:
 		list.append(k)
 		budget -= cost
 	return list
+
+
+## Vitesse de la ruée selon le monde : plus lente au début (on voit venir les dangers et on apprend à
+## esquiver), pleine vitesse dès le monde 4. Dojo et tutoriel : vitesse du monde 1.
+const WORLD_DASH := {1: 0.78, 2: 0.86, 3: 0.94}
+
+
+func _world_dash_mult() -> float:
+	return float(WORLD_DASH.get(current_world, 1.0))
 
 
 ## Réglage de difficulté du monde en cours (worlds.gd : tokens, tele, b0, per, elite, bullet).
@@ -4250,13 +4260,21 @@ func _touch_move(sp: Vector2) -> void:
 
 
 ## Figure d'un trait : le trait posé (amorce depuis le héros écartée), sinon le geste brut du doigt.
+## En combat, le trait posé est rogné par les bords de la zone et coupé par l'encre : une boucle contre un mur
+## devient un zigzag ou un crochet. Le geste brut du doigt (raw) fait foi quand il lit une forme fermée
+## (boucle, ensō, aller-retour) là où le trait posé n'en voit pas, ou en voit une plus pauvre.
+const FIG_CLOSED := ["loop", "enso", "return"]
+
+
 func _detect_fig(s: Node) -> Dictionary:
 	var pts: PackedVector3Array = s.get("points")
 	var r: Dictionary = StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
-	if r.is_empty():
-		var rw: PackedVector3Array = s.get("raw")
-		if rw.size() >= 3:
-			r = StrokeShapes.detect(rw)
+	var rw: PackedVector3Array = s.get("raw")
+	if rw.size() >= 3:
+		var r2: Dictionary = StrokeShapes.detect(rw)
+		if not r2.is_empty():
+			if r.is_empty() or (String(r2.get("shape")) in FIG_CLOSED and not (String(r.get("shape")) in FIG_CLOSED)):
+				r = r2
 	return r
 
 
@@ -4510,7 +4528,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_stroke_stop = 0.0
 	_stroke_hit = false
 	_prev_hero = hero.position
-	hero.speed_mult = powers.dash_mult()
+	hero.speed_mult = powers.dash_mult() * _world_dash_mult()
 	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
@@ -5383,7 +5401,7 @@ func _process(_delta: float) -> void:
 	else:
 		hud.elan = elan / elan_max()
 	if touching and stroke != null:
-		stroke.danger = is_danger(stroke.last(), stroke.length / Hero.DASH_SPEED)
+		stroke.danger = is_danger(stroke.last(), stroke.length / (Hero.DASH_SPEED * _world_dash_mult()))
 	hud.elan_empty = touching and stroke != null and stroke.exhausted
 	hud.wave = stage_i + 1
 	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
