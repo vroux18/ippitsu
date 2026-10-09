@@ -538,6 +538,9 @@ func _ready() -> void:
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
+	# `?bestiaire` (captures) : ouvre l'encyclopédie des yōkai depuis l'accueil (avec `unlockall` : complète)
+	if "bestiaire" in wsearch:
+		_open_bestiary()
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)

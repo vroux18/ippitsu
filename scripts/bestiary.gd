@@ -633,13 +633,16 @@ func _pose(e: Node3D) -> void:
 		# le personnage seul reste vivant (squelette, animation, accessoires sur les os) : l'ennemi, lui, est figé
 		(c as Node3D).process_mode = Node.PROCESS_MODE_ALWAYS
 		var ap = c.get("anim")
+		var idle := String(c.get("idle"))
 		if ap is AnimationPlayer:
 			var player: AnimationPlayer = ap as AnimationPlayer
 			player.process_mode = Node.PROCESS_MODE_ALWAYS
-			var idle := String(c.get("idle"))
 			if idle != "" and player.has_animation(idle):
 				c.call("play", idle, 1.0, 0.0)
 				player.seek(0.35, true)
+		elif idle != "" and c.has_method("play"):
+			# rigs procéduraux (ninja, encre) : l'attente tout de suite, pas l'apparition
+			c.call("play", idle, 1.0, 0.0)
 
 
 ## Cadre la caméra orthographique sur les maillages visibles du modèle (vue de trois quarts, un peu d'en haut).
