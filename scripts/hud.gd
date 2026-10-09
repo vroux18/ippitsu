@@ -872,8 +872,21 @@ func _draw_score(sz: Vector2, u: float) -> void:
 				UiKit.text(self, nf, mtxt, Vector2(anchor.x, cy + mfs * 0.36), mfs, Color(UIColors.SUMI, la))
 				if age >= 0.08:
 					draw_line(mr.position + Vector2(8.0 * u, mr.size.y * 0.6), mr.end - Vector2(8.0 * u, mr.size.y * 0.6), Color(Toon.VERMILION, la), 2.0 * u, true)
+	# chaîne brisée : étiquette sumi « CHAÎNE BRISÉE ×n » sous le score, qui descend et s'efface, éclats vermillon
+	if chain_break > 0.0:
+		var k := 1.0 - chain_break
+		var txt := "CHAÎNE BRISÉE  ×%d" % chain_lost
+		var tfs := int(11 * u)
+		var tw2 := UiKit.UI_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+		var tp := Vector2(sz.x - 66.0 * u - tw2, (_below_k() + 8.0 + 14.0 * k) * u)
+		draw_style_box(UiKit.box(_sb, Color(UIColors.SUMI, 0.8 * chain_break), 999), Rect2(tp + Vector2(-8 * u, -tfs), Vector2(tw2 + 16 * u, tfs + 6 * u)))
+		draw_string(UiKit.UI_FONT, tp, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.VERMILION.lightened(0.25), chain_break))
+		var c := tp + Vector2(tw2 * 0.5, -tfs * 0.4)
+		for j in 6:
+			var a := TAU * j / 6.0
+			draw_rect(Rect2(c + Vector2(cos(a), sin(a)) * 36.0 * u * k, Vector2(6, 3) * u), Color(Toon.VERMILION, chain_break))
 	# primes : sous la zone du haut, à droite, elles montent et s'effacent
-	var py := (_below_k() + 22.0) * u
+	var py := (_below_k() + 22.0 + (18.0 if chain_break > 0.0 else 0.0)) * u
 	var pr := sz.x - 66.0 * u
 	for i in _score_pops.size():
 		var sp: Array = _score_pops[_score_pops.size() - 1 - i]
