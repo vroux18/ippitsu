@@ -568,7 +568,7 @@ func _draw_tip(y0: float, w: float, u: float, fade: float) -> void:
 			ex = cand
 	var lines: Array = [
 		"Un rouleau = un pouvoir, gardé toute la partie",
-		when + ex if ex != "" else "En haut = QUAND le pouvoir agit",
+		"En bas : son élément, ou la figure à tracer",
 		"Points près de l'élément : 2 du même = bonus",
 		"Crans dorés : reprends-le plus tard pour le monter",
 	]
@@ -806,7 +806,10 @@ func _body_col(info: Dictionary) -> Color:
 
 
 ## Baguette de bois sombre et ses embouts (jiku), de x0 à x1 à la hauteur y.
-func _rod(x0: float, x1: float, y: float, u: float, a: float) -> void:
+func _rod(x0_in: float, x1_in: float, y: float, u: float, a: float) -> void:
+	# embouts dans la largeur de la carte : les baguettes de deux cartes voisines ne se touchent pas
+	var x0 := x0_in + 3.0 * u
+	var x1 := x1_in - 3.0 * u
 	var rh := 2.3 * u
 	draw_rect(Rect2(Vector2(x0, y - rh), Vector2(x1 - x0, rh * 2.0)), Color(WOOD, a))
 	draw_line(Vector2(x0, y - rh * 0.45), Vector2(x1, y - rh * 0.45), Color(WOOD.lightened(0.35), 0.7 * a), maxf(1.0, 0.8 * u))
@@ -935,39 +938,21 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	# ruban sur le bord haut : NOUVEAU, ou AMÉLIORATION d'un pouvoir déjà pris
 	if rank >= 0 and really:
 		var is_new := bool(info.get("is_new", true))
-		var rt := "NOUVEAU" if is_new else "AMÉLIORATION"
-		var rbg: Color = GOLD_HI if leg else (Toon.VERMILION if is_new else UP_COL)
-		var rf := cap
-		while rf > 10 and _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x > r.size.x - 22.0 * s:
+		# étiquette discrète : petit cartouche cerné, posé sur la baguette (une amélioration dit son niveau)
+		var rt := "NOUVEAU" if is_new else "NIV %d → %d" % [int(info.get("cur_level", 0)), int(info.get("level", 1))]
+		var rcol: Color = GOLD_HI if leg else (Toon.VERMILION if is_new else UP_COL)
+		var rbg: Color = LEG_BODY if leg else (Color("#2A2522") if Toon.ui_dark else Toon.ui_paper)
+		var rf := maxi(9, cap - 2)
+		while rf > 9 and _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x > r.size.x - 30.0 * s:
 			rf -= 1
-		var rw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x + 16.0 * s
-		var rib := Rect2(Vector2(cx - rw / 2.0, r.position.y - 9.0 * s), Vector2(rw, 18.0 * s))
+		var rw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x + 12.0 * s
+		var rib := Rect2(Vector2(cx - rw / 2.0, r.position.y - 7.0 * s), Vector2(rw, 14.0 * s))
 		var ka := a * _rv(rib.end.y)  # chaque élément paraît une fois sorti du rouleau
-		draw_style_box(UiKit.box(_sb, Color(rbg, ka), int(4 * s), Color(Toon.SUMI, 0.5 * ka), maxi(1, int(1.2 * s))), rib)
-		UiKit.text(self, _ui, rt, Vector2(cx, rib.get_center().y + float(rf) * 0.36), rf, Color(LEG_BODY if leg else Toon.WASHI, ka))
+		draw_style_box(UiKit.box(_sb, Color(rbg, ka), 999, Color(rcol, 0.85 * ka), maxi(1, int(1.2 * s))), rib)
+		UiKit.text(self, _ui, rt, Vector2(cx, rib.get_center().y + float(rf) * 0.36), rf, Color(rcol, ka))
 
-	# déclencheur en clair : la figure à tracer (ou son pictogramme) et son nom
-	if rank >= 0:
-		y += 2.0 * s
-		var ct := _trig_caption(id, info, r.size.x - 42.0 * s, cap)
-		var tw0 := _ui.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x
-		var pw := minf(tw0 + 32.0 * s, r.size.x - 8.0 * s)
-		var pill := Rect2(Vector2(cx - pw / 2.0, y), Vector2(pw, 21.0 * s))
-		if really:
-			var ka := a * _rv(pill.end.y)
-			var pc: Color = GOLD_HI if leg else Toon.ui_ink
-			var tc: Color = LEG_BODY if leg else Toon.ui_wash
-			draw_style_box(UiKit.box(_sb, Color(pc, ka), 999), pill)
-			var ic := Vector2(pill.position.x + 12.0 * s, pill.get_center().y)
-			var fig := UiKit.trigger_figure(id)
-			if fig != "":
-				UiKit.figure(self, fig, ic, 7.5 * s, ka)
-			else:
-				UiKit.trigger_icon(self, id, ic, 6.5 * s, tc, pc, ka)
-			draw_string(_ui, Vector2(pill.position.x + 24.0 * s, pill.get_center().y + float(cap) * 0.36), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(tc, ka))
-		y = pill.end.y + 8.0 * s
-	else:
-		y += 6.0 * s
+	# plus de pastille de déclencheur : la carte reste sobre (la figure d'une technique est dans le pied)
+	y += 8.0 * s
 
 	# médaillon : cadre de rareté, disque d'élément, reflet, traces d'encre, pictogramme
 	var big := _big
@@ -1015,13 +1000,9 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 			lt = "NIVEAU UNIQUE"
 		elif cur > 0:
 			lt = "NIV %d → %d" % [cur, lv]
-		# carte allégée : le texte du niveau seulement pour une amélioration (une nouveauté : les crans suffisent)
-		if cur > 0:
-			y += float(cap)
-			if really:
-				UiKit.text(self, _ui, lt, Vector2(cx, y), cap, Color(ink, 0.8 * a * _rv(y + 3.0 * s)))
-		else:
-			y += 2.0 * s
+		# carte allégée : pas de texte de niveau (l'étiquette du haut dit « NIV 1 → 2 », les crans le reste) ;
+		# même hauteur pour toutes les cartes, tout reste aligné d'une carte à l'autre
+		y += 2.0 * s
 		if mx > 1:
 			y += 5.0 * s
 			var bw := minf(r.size.x - 28.0 * s, 22.0 * s * float(mx))
@@ -1076,7 +1057,7 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		if really:
 			var ka := a * _rv(y + float(k) * lh + float(efs) * 0.3)
 			_rich(lines[k], cx, y + float(k) * lh, efs, Color(ink, 0.92 * ka), Color(accent, ka))
-	y += float(maxi(nl - 1, 0)) * lh + 10.0 * s
+	y += float(maxi(nl, 2) - 1) * lh + 10.0 * s  # toujours la place de 2 lignes : pieds alignés
 
 	# pied : élément (pictogramme et nom), bonus d'élément, synergie
 	var school := String(info.get("school", ""))
@@ -1087,6 +1068,10 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	y += 4.0 * s
 	var sd: Dictionary = Data.SCHOOLS.get(school, {})
 	var el := "Technique" if school == "fig" else ("Encre" if school == "ink" else String(sd.get("word", "")))
+	if school == "fig":
+		var fw := String(UiKit.FIG_WORD.get(UiKit.trigger_figure(id), ""))
+		if fw != "":
+			el = fw.substr(0, 1) + fw.substr(1).to_lower()  # la figure à tracer, ex. « Aller-retour »
 	var goal := int(info.get("aff_goal", 0))
 	# progression du bonus d'élément : des points à droite du nom (pleins = pouvoirs de cet élément)
 	var pips := goal if goal > 0 and school != "ink" and school != "fig" and not bool(info.get("aff_hit", false)) else 0

@@ -17,7 +17,7 @@ const ENSO_MIN_TURN := 245.0
 # Uzu (boucle)
 const LOOP_TURN := 300.0
 const LOOP_R_MIN := 0.6
-const LOOP_R_MAX := 3.5         # en combat on trace grand : une grosse boucle reste une boucle
+const LOOP_R_MAX := 3.0         # en combat on trace grand : une grosse boucle reste une boucle
 const LOOP_PAD := 4             # points ajoutés de part et d'autre de la boucle pour l'angle cumulé
 # Kaeshi (aller-retour)
 const RET_GAP := 1.2
@@ -25,18 +25,18 @@ const RET_FAR := 3.0
 const RET_DEV := 0.8
 const RET_SAMPLES := 24
 # Inazuma (zigzag)
-const ZZ_ANGLE := 75.0           # virage net (un Z dessiné vite tourne d'environ 110-150°, un N pressé ~80°)
+const ZZ_ANGLE := 85.0           # virage net (un Z dessiné vite tourne d'environ 110-150°, un N pressé ~80°)
 const ZZ_SEG_MIN := 0.6
 const ZZ_SEG_MAX := 12.0         # le pad agrandit le geste : les branches peuvent être longues
 const ZZ_COUNT := 2              # un Z (2 virages) suffit
 # Ittō (trait droit)
-const ST_LEN := 6.0
+const ST_LEN := 7.0
 const ST_DEV := 0.4
 # Kagi (crochet) : changement de direction entre l'avant-dernier et le dernier segment
 const HK_LAST := 1.5
 const HK_PREV := 0.8
 const HK_MIN := 120.0
-const HK_MAX := 178.0  # l'aller-retour est testé avant : un retour court et replié reste un crochet
+const HK_MAX := 170.0  # l'aller-retour est testé avant : un retour court et replié reste un crochet
 
 
 ## Trait de combat : il part du héros, puis suit le doigt. Le geste du joueur commence au point `lead_n`
@@ -210,11 +210,11 @@ static func _detect_return(p: PackedVector3Array) -> Dictionary:
 
 
 static func _ret_gap(far: float) -> float:
-	return maxf(RET_GAP, far * 0.3)
+	return maxf(RET_GAP, far * 0.25)
 
 
 static func _ret_dev(far: float) -> float:
-	return maxf(RET_DEV, far * 0.18)
+	return maxf(RET_DEV, far * 0.14)
 
 
 static func _detect_zigzag(s: PackedVector3Array) -> Dictionary:
@@ -238,12 +238,12 @@ static func _detect_zigzag(s: PackedVector3Array) -> Dictionary:
 ## au moins deux coins de sens alterné (un Z, un N, un W) séparés de vraies branches.
 const ZZ_STEP := 0.2
 const ZZ_WIN := 3
-const ZZ_SOFT_ANGLE := 85.0
-const ZZ_BRANCH := 0.7
+const ZZ_SOFT_ANGLE := 95.0
+const ZZ_BRANCH := 1.0
 
 
 static func _detect_zigzag_soft(p: PackedVector3Array) -> Dictionary:
-	if length(p) < 2.5:
+	if length(p) < 3.5:
 		return {}
 	var q := _resample_step(p, ZZ_STEP)
 	var n := q.size()
@@ -318,7 +318,7 @@ static func _detect_straight(p: PackedVector3Array) -> Dictionary:
 
 ## Un long trait à main levée ondule un peu : l'écart toléré suit la longueur.
 static func _st_dev(l: float) -> float:
-	return maxf(ST_DEV, l * 0.05)
+	return maxf(ST_DEV, l * 0.035)
 
 
 static func _detect_hook(s: PackedVector3Array) -> Dictionary:
@@ -715,7 +715,7 @@ static func self_test() -> Array:
 		sc.append(Vector3(1.1 * cos(t3), 0.0, 1.1 * sin(t3)))
 	_check(fails, "petite boucle fermée", _resample_step(sc, step), "loop")
 	# aller-retour long et approximatif (combat)
-	_check(fails, "return large", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(8, 0), Vector2(8.3, 1.0), Vector2(1.2, 1.6)])), step), "return")
+	_check(fails, "return large", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(8, 0), Vector2(8.3, 0.6), Vector2(0.6, 0.9)])), step), "return")
 	# ensō tracé loin du héros : amorce droite depuis le héros, puis le cercle du doigt
 	var lead := _resample_step(_poly(PackedVector2Array([Vector2(-4, -5), Vector2(5.5, 1.0)])), step)
 	var nl := lead.size() - 1
