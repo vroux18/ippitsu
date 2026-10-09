@@ -57,7 +57,7 @@ const BOSS_LAYOUT := "full"  # les boss supposent toute l'arène (HALF)
 const FIRST_LAYOUTS := ["court", "court_wide"]  # salle 1 : une cour simple, ouverte, d'un seul tenant
 # saveur par monde : ces formes sortent deux fois plus souvent (formes fixes et générées)
 const FLAVOR := {
-	1: ["g_oct", "cross", "court_wide"],  # quais larges et plats (premier monde : rien de morcelé)
+	1: ["cross"],  # quais larges et plats (premier monde : rien de morcelé)
 	2: ["quad", "diamond", "stairs", "g_isles", "g_plus", "g_oct"],  # îlots de la bambouseraie
 	3: ["moat", "ring", "ell", "g_oct", "g_ell", "g_split"],  # places enneigées, berges de la Sumida
 	4: ["zigzag", "stairs", "hourglass", "islands", "g_diag", "g_broken", "g_terrace"],  # coulées, gradins de basalte
@@ -67,7 +67,7 @@ const FLAVOR := {
 	8: ["hourglass", "cross", "zigzag", "spine", "g_alcove", "g_broken", "g_tee"],  # allées de tombes, pente de Yomi
 }
 # monde 1 : seulement des places larges d'un seul tenant (on découvre le jeu, pas de vide partout)
-const W1_SHAPES := ["full", "court", "court_wide", "g_oct", "cross"]
+const W1_SHAPES := ["full", "cross"]  # les cours octogonales font des redans en escalier : pas au monde 1
 const MAX_USES := 2  # une forme au plus deux fois par partie
 const MAX_USES_GEN := 3  # forme générée : tirée au hasard à chaque fois, elle peut revenir un peu plus
 # formes générées des étapes : famille (jamais deux fois de suite) et palier (0 simple -> 2 morcelée)
@@ -236,10 +236,22 @@ func follow_camera(dz: float) -> void:
 
 
 ## Cadre de l'arène (ou de l'étape) transmis à l'eau : l'écume lèche le pied des plateformes.
+## À l'accueil (barque en pleine mer), pas de cadre : on rejette le rectangle très loin.
+var shore_hidden := false
+
+
 func _push_shore() -> void:
 	if _void_mat == null:
 		return
+	if shore_hidden:
+		_void_mat.set_shader_parameter("shore_rect", Vector4(9000.0, 9000.0, 9001.0, 9001.0))
+		return
 	_void_mat.set_shader_parameter("shore_rect", Vector4(stage_rect.position.x, stage_rect.position.y, stage_rect.end.x, stage_rect.end.y))
+
+
+func hide_shore(on: bool) -> void:
+	shore_hidden = on
+	_push_shore()
 
 
 ## Construit la salle : forme, sol, bords, décor, torii de sortie (caché).
@@ -330,6 +342,8 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 		var extra: Dictionary = {}
 		if i == 0 and first:
 			key = String(FIRST_LAYOUTS[rng.randi() % FIRST_LAYOUTS.size()])
+			if world_id == 1:
+				key = "full"  # premier monde : un ponton large et droit, sans redans
 			mir = rng.randf() < 0.5
 			local = _layout_rects(key, mir)
 		else:
@@ -1319,6 +1333,8 @@ func _pick_layout(room: int, rooms: int, mini_room: int, rng: RandomNumberGenera
 		_used.clear()
 		_last = ""
 		var first := String(FIRST_LAYOUTS[rng.randi() % FIRST_LAYOUTS.size()])
+		if world_id == 1:
+			first = "full"
 		_used[first] = 1
 		_last = first
 		return first
@@ -1397,6 +1413,9 @@ func _pick_chunk(rng: RandomNumberGenerator, i: int, fams: Dictionary, last_fam:
 			var key := String(k)
 			if world_id == 1:
 				if not (key in W1_SHAPES) or (key == _last and pass_i == 0):
+					continue
+				# quatre premières étapes : rien que de grandes places rectangulaires ou en cour
+				if _stage_n < 4 and key in ["g_oct", "cross"]:
 					continue
 			elif key == BOSS_LAYOUT or key == _last:
 				continue

@@ -93,6 +93,72 @@ static func figure(ci: CanvasItem, shape: String, c: Vector2, r: float, a: float
 			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
 
 
+## Geste d'une figure, en coordonnées 0..1 du cadre (tracé de bas en haut, comme au doigt).
+## Partagé par le tutoriel (coach.gd) et le carnet du dojo (dojo.gd).
+static func gesture_points(kind: String) -> PackedVector2Array:
+	var p := PackedVector2Array()
+	match kind:
+		"loop":
+			for i in 41:
+				var t := float(i) / 40.0
+				var base := Vector2(0.5, 0.92 - 0.82 * t)
+				var lp := clampf((t - 0.3) / 0.4, 0.0, 1.0)
+				if lp > 0.0 and lp < 1.0:
+					base += Vector2(sin(lp * TAU) * 0.22, (1.0 - cos(lp * TAU)) * 0.12)
+				p.append(base)
+		"zigzag":
+			var zz := [Vector2(0.5, 0.92), Vector2(0.2, 0.7), Vector2(0.8, 0.5), Vector2(0.2, 0.3), Vector2(0.75, 0.1)]
+			for i in range(zz.size() - 1):
+				var za: Vector2 = zz[i]
+				var zb: Vector2 = zz[i + 1]
+				for j in 6:
+					p.append(za.lerp(zb, j / 6.0))
+			p.append(zz[zz.size() - 1])
+		"straight":
+			for i in 13:
+				p.append(Vector2(0.5, 0.95 - 0.9 * i / 12.0))
+		"return":
+			for i in 13:
+				p.append(Vector2(0.44, 0.9 - 0.75 * i / 12.0))
+			for i in range(1, 13):
+				p.append(Vector2(0.54, 0.15 + 0.73 * i / 12.0))
+		"hook":
+			for i in 13:
+				p.append(Vector2(0.35 + 0.15 * i / 12.0, 0.9 - 0.75 * i / 12.0))
+			for i in range(1, 9):
+				p.append(Vector2(0.5 + 0.3 * i / 8.0, 0.15 + 0.4 * i / 8.0))
+		_:
+			for i in 41:
+				var ang := PI / 2.0 + TAU * 0.92 * i / 40.0
+				p.append(Vector2(0.5, 0.5) + Vector2(cos(ang), sin(ang)) * 0.4)
+	return p
+
+
+## La figure se trace en boucle dans un petit cadre (t : horloge en secondes). col : encre du tracé
+## (alpha 0 : papier clair sur cadre d'encre) ; light : cadre clair teinté de col ; start : marque le point
+## de départ d'un petit rond (sens du geste). sb : StyleBoxFlat réutilisée par l'écran qui dessine.
+static func draw_gesture(ci: CanvasItem, sb: StyleBoxFlat, kind: String, frame: Rect2, u: float, a: float, t: float,
+		col := Color(0, 0, 0, 0), light := false, start := false) -> void:
+	var c := Toon.WASHI if col.a <= 0.0 else Color(col, 1.0)
+	if light:
+		ci.draw_style_box(box(sb, Color(c, 0.12 * a), int(8.0 * u), Color(c, 0.6 * a), int(maxf(1.0, 1.2 * u))), frame)
+	else:
+		ci.draw_style_box(box(sb, Color(Toon.SUMI, 0.9 * a), int(8.0 * u)), frame)
+	var inner := frame.grow(-8.0 * u)
+	var pts := gesture_points(kind)
+	var k := clampf(fmod(maxf(t, 0.0), 2.2) / 1.6, 0.0, 1.0)
+	var n := int(k * float(pts.size() - 1))
+	var mapped := PackedVector2Array()
+	for p in pts:
+		mapped.append(inner.position + p * inner.size)
+	ci.draw_polyline(mapped, Color(c, 0.2 * a), 2.0 * u, true)
+	if start:
+		ci.draw_arc(mapped[0], 3.5 * u, 0.0, TAU, 16, Color(c, 0.75 * a), 1.5 * u, true)
+	if n >= 1:
+		ci.draw_polyline(mapped.slice(0, n + 1), Color(c, a), 2.5 * u, true)
+	ci.draw_circle(mapped[n], 4.0 * u, Color(Toon.VERMILION, 0.9 * a))
+
+
 ## Vignette d'une Vue (meta.PRINTS) : ciel en bokashi, Fuji enneigé, sol, cartouche et filet.
 static func print_thumb(ci: CanvasItem, r: Rect2, p: Dictionary, u: float, a := 1.0) -> void:
 	var sky: Color = p.get("sky", Toon.WASHI)

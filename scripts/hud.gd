@@ -63,6 +63,7 @@ var enemy_bars: Array = []  # [position écran, ratio de vie, (ratio de bouclier
 const SHIELD_BAR := Color("#6FB7FF")
 const ELITE_MARK := Color("#FFB23E")
 var in_play := false
+var dojo := false  # dojo (main) : HUD réduit à l'encre et à l'ultime, l'en-tête du dojo remplace les pastilles
 var pause_enabled := true  # main : vrai seulement quand la pause est possible (état « play »)
 var level := 1
 var xp_ratio := 0.0
@@ -248,7 +249,7 @@ func _process(_delta: float) -> void:
 			_card_t = -1.0
 	_band_k = lerpf(_band_k, _below_k(), 1.0 - exp(-real * 9.0))
 	var u := size.x / 400.0
-	_pause.visible = in_play and pause_enabled and dying <= 0.0
+	_pause.visible = in_play and pause_enabled and dying <= 0.0 and not dojo
 	_pause.size = Vector2(36, 36) * u
 	_pause.position = Vector2(size.x - 48 * u, 4 * u + top_off)
 	queue_redraw()
@@ -287,22 +288,27 @@ func _draw() -> void:
 
 	if in_play:
 		_draw_pad(u)
-		_draw_top_shade(sz, u)
-		_draw_hearts(u)
-		_draw_xp(u)
+		# dojo : ni vie, ni XP, ni or, ni score, ni étape, ni chaîne ; les sceaux de figure laissent la place
+		# au verdict du dojo (sous son en-tête). Restent l'encre et l'ultime.
+		if not dojo:
+			_draw_top_shade(sz, u)
+			_draw_hearts(u)
+			_draw_xp(u)
 		draw_set_transform(Vector2(0, top_off))
-		_draw_status(sz, u)
-		# pouvoirs : plus affichés en jeu (lisibilité) — rangée sur la carte de pause et bilan de fin
-		_draw_shape_pop(sz, u)
-		_draw_chain(u)
-		_draw_score(sz, u)
-		_draw_room(sz, u)
+		if not dojo:
+			_draw_status(sz, u)
+			# pouvoirs : plus affichés en jeu (lisibilité) — rangée sur la carte de pause et bilan de fin
+			_draw_shape_pop(sz, u)
+			_draw_chain(u)
+			_draw_score(sz, u)
+			_draw_room(sz, u)
 		if boss_name != "":
 			_draw_boss(sz, u)
 		draw_set_transform(Vector2.ZERO)
-		_draw_stage_bar(sz, u)
+		if not dojo:
+			_draw_stage_bar(sz, u)
 		_draw_gauge(sz, u)
-		if gate_hint:
+		if gate_hint and not dojo:
 			_draw_gate_hint(sz, u)
 		# le combo du trait n'a plus de tache flottante à gauche (« ×2 » sans contexte) :
 		# il s'affiche sur les ennemis touchés (à partir de 3) et dans la chaîne
@@ -325,6 +331,8 @@ func _draw() -> void:
 		var tw := UiKit.TITLE_FONT.get_string_size(_toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
 		# sous les pastilles du haut (et sous le badge de chaîne quand il est là)
 		var ty := top_off + (_below_k() + (34.0 if chain >= 2 else 0.0) + 26.0) * u
+		if dojo:
+			ty = top_off + 210.0 * u  # sous le bandeau, loin du verdict du dojo
 		var tp := Vector2(sz.x / 2.0 - tw / 2.0, ty - 6 * u * (1.0 - ta))
 		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.75 * ta), 999), Rect2(tp + Vector2(-14 * u, -tfs - 4 * u), Vector2(tw + 28 * u, tfs + 14 * u)))
 		draw_string(UiKit.TITLE_FONT, tp, _toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(Toon.WASHI, ta))
@@ -1241,6 +1249,8 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var bw := minf(sz.x - 28.0 * u, 352.0 * u)
 	var h := 62.0 * u if has_sub else 48.0 * u
 	var cy := top_off + maxf(118.0, _below_k() + 40.0) * u  # en haut au centre, sous les pastilles
+	if dojo:
+		cy = top_off + 160.0 * u  # sous l'en-tête du dojo et son verdict
 	var x0 := (sz.x - bw) / 2.0 + (1.0 - k_out) * 26.0 * u
 	var reach := bw * (0.15 + 0.85 * ein)
 	var acc := _banner_col

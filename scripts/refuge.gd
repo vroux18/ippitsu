@@ -16,6 +16,7 @@ const GOLD_HI := Color("#E2A93B")
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
 const LEG_BODY := Color("#1C1A21")
 const LOCK_BODY := Color("#18141A")
+const BADGE_R := 16.0  # rayon (en u) de la pastille de récompense des estampes
 const C_COMMON := Color("#B9AE98")
 const C_RARE := Color("#3D78B8")
 const C_EPIC := Color("#8752B5")
@@ -1177,19 +1178,19 @@ func _draw_gallery(y0: float, W: float, u: float) -> float:
 	var cw3 := (W - 8 * u - gap * 2.0) / 3.0
 	for k in Meta.LOOK_KINDS.size():
 		var kind: String = Meta.LOOK_KINDS[k]
-		var r := Rect2(Vector2(4 * u + float(k) * (cw3 + gap), y), Vector2(cw3, 34 * u))
+		var r := Rect2(Vector2(4 * u + float(k) * (cw3 + gap), y), Vector2(cw3, 38 * u))
 		var on: bool = meta.look_on(kind)
-		_panel(_list, r, Color(Toon.SUMI, 0.5), 17 * u, Color(GOLD_HI, 0.5) if on else Color(Toon.WASHI, 0.1), 1.0 * u)
-		var sc := r.position + Vector2(17 * u, r.size.y / 2.0)
-		_list.draw_circle(sc, 11 * u, Toon.WASHI)
-		_look_swatch(_list, sc, kind, meta.look_color(kind), 0.85 * u, on)
-		var tx := r.position.x + 33 * u
+		_panel(_list, r, Color(Toon.SUMI, 0.5), 19 * u, Color(GOLD_HI, 0.5) if on else Color(Toon.WASHI, 0.1), 1.0 * u)
+		# pastille agrandie (rayon 15) : l'apparence portée se lit d'un coup d'œil
+		var sc := r.position + Vector2(19 * u, r.size.y / 2.0)
+		_badge(_list, sc, 15.0 * u, kind, meta.look_color(kind), on, 1.0, u)
+		var tx := r.position.x + 39 * u
 		var tw := r.end.x - 8 * u - tx
-		_list.draw_string(_ui, Vector2(tx, r.position.y + 13 * u), _p(String(KIND_LABELS[kind])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7 * u), Color(Toon.WASHI, 0.45))
+		_list.draw_string(_ui, Vector2(tx, r.position.y + 15 * u), _p(String(KIND_LABELS[kind])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7 * u), Color(Toon.WASHI, 0.45))
 		var ln := _p(String(meta.look_name(kind)))
 		var lfs := _fit(UiKit.UI_FONT, ln, int(9 * u), tw, int(7 * u))
-		_list.draw_string(UiKit.UI_FONT, Vector2(tx, r.position.y + 26 * u), ln, HORIZONTAL_ALIGNMENT_LEFT, tw, lfs, Color(Toon.WASHI, 0.9 if on else 0.55))
-	y += 46 * u
+		_list.draw_string(UiKit.UI_FONT, Vector2(tx, r.position.y + 28 * u), ln, HORIZONTAL_ALIGNMENT_LEFT, tw, lfs, Color(Toon.WASHI, 0.9 if on else 0.55))
+	y += 50 * u
 	var pids: Array = []
 	var fk := String(FILTER_KINDS[_filter])
 	for pid in Meta.PRINT_ORDER:
@@ -1282,11 +1283,9 @@ func _print_card(pid: String, r: Rect2, art_h: float, u: float) -> void:
 			_panel(_list, rr.grow(3.0 * u), Color(0, 0, 0, 0), radius + 3.0 * u, Color(GOLD_HI, 0.25), 2.0 * u)
 		_panel(_list, rr, Toon.ui_paper, radius, tier, 2.0 * u, 0.4, u)
 		_art(_list, art, p, u)
-		# récompense : pastille de l'apparence, en haut à droite
-		var sc := art.position + Vector2(art.size.x - 10 * u, 10 * u)
-		_list.draw_circle(sc, 9.0 * u, Toon.WASHI)
-		_list.draw_arc(sc, 9.0 * u, 0.0, TAU, 20, Color(Toon.SUMI, 0.5), 1.0 * u, true)
-		_look_swatch(_list, sc, kind, col, 0.65 * u, true)
+		# récompense : pastille de l'apparence, en haut à droite (loin du ruban ÉQUIPÉ, en bas à gauche)
+		var sc := art.position + Vector2(art.size.x - (BADGE_R + 3.0) * u, (BADGE_R + 3.0) * u)
+		_badge(_list, sc, BADGE_R * u, kind, col, true, 1.0, u)
 		if meta.is_worn(pid):
 			var efs := int(7.5 * u)
 			var et := _p("ÉQUIPÉ")
@@ -1299,11 +1298,11 @@ func _print_card(pid: String, r: Rect2, art_h: float, u: float) -> void:
 		var nfs := _fit(UiKit.TITLE_FONT, nm, int(10.5 * u), rr.size.x - 10 * u, int(7 * u))
 		UiKit.text(_list, UiKit.TITLE_FONT, nm, Vector2(cx, art.end.y + 18 * u), nfs, Toon.ui_ink)
 		var ln := _p(String(p["look"]))
-		var lfs := _fit(UiKit.UI_FONT, ln, int(8.5 * u), rr.size.x - 26 * u, int(7 * u))
+		var lfs := _fit(UiKit.UI_FONT, ln, int(8.5 * u), rr.size.x - 32 * u, int(7 * u))
 		var lw := UiKit.UI_FONT.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
-		var lx := cx - (lw + 14 * u) / 2.0
-		_look_swatch(_list, Vector2(lx + 5 * u, art.end.y + 32 * u), kind, col, 0.5 * u, true)
-		_list.draw_string(UiKit.UI_FONT, Vector2(lx + 14 * u, art.end.y + 32 * u + lfs * 0.36), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.ui_ink, 0.6))
+		var lx := cx - (lw + 20 * u) / 2.0
+		_look_swatch(_list, Vector2(lx + 7 * u, art.end.y + 32 * u), kind, col, 0.85 * u, true)
+		_list.draw_string(UiKit.UI_FONT, Vector2(lx + 20 * u, art.end.y + 32 * u + lfs * 0.36), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.ui_ink, 0.6))
 	else:
 		# silhouette au lavis, cadenas, et la condition en court
 		_panel(_list, rr, LOCK_BODY, radius, Color(Toon.WASHI, 0.12), 1.5 * u, 0.35, u)
@@ -1313,9 +1312,8 @@ func _print_card(pid: String, r: Rect2, art_h: float, u: float) -> void:
 		_list.draw_circle(lc, 15 * u, Color(Toon.SUMI, 0.85))
 		_list.draw_arc(lc, 15 * u, 0.0, TAU, 28, Color(Toon.WASHI, 0.2), 1.0 * u, true)
 		UiKit.glyph(_list, "at_lock", lc, 8.0 * u, Color(Toon.WASHI, 0.8), Toon.SUMI)
-		var sc2 := art.position + Vector2(art.size.x - 10 * u, 10 * u)
-		_list.draw_circle(sc2, 9.0 * u, Color(Toon.WASHI, 0.18))
-		_look_swatch(_list, sc2, kind, Color(col, 0.7), 0.65 * u, true)
+		var sc2 := art.position + Vector2(art.size.x - (BADGE_R + 3.0) * u, (BADGE_R + 3.0) * u)
+		_badge(_list, sc2, BADGE_R * u, kind, col, true, 0.55, u)
 		var cd := _cond(p)
 		var l1 := _p(String(cd[1]))
 		var f1 := _fit(UiKit.UI_FONT, l1, int(8.5 * u), rr.size.x - 10 * u, int(6.5 * u))
@@ -1323,9 +1321,9 @@ func _print_card(pid: String, r: Rect2, art_h: float, u: float) -> void:
 		var l2 := _p(String(cd[2]))
 		var f2 := int(8 * u)
 		var w2 := UiKit.UI_FONT.get_string_size(l2, HORIZONTAL_ALIGNMENT_LEFT, -1, f2).x
-		var x2 := cx - (w2 + 15 * u) / 2.0
-		UiKit.glyph(_list, String(cd[0]), Vector2(x2 + 5 * u, art.end.y + 31 * u), 5.0 * u, Color(GOLD_HI, 0.8), LOCK_BODY)
-		_list.draw_string(UiKit.UI_FONT, Vector2(x2 + 15 * u, art.end.y + 31 * u + f2 * 0.36), l2, HORIZONTAL_ALIGNMENT_LEFT, -1, f2, Color(Toon.WASHI, 0.5))
+		var x2 := cx - (w2 + 19 * u) / 2.0
+		UiKit.glyph(_list, String(cd[0]), Vector2(x2 + 6.5 * u, art.end.y + 31 * u), 6.5 * u, Color(GOLD_HI, 0.8), LOCK_BODY)
+		_list.draw_string(UiKit.UI_FONT, Vector2(x2 + 19 * u, art.end.y + 31 * u + f2 * 0.36), l2, HORIZONTAL_ALIGNMENT_LEFT, -1, f2, Color(Toon.WASHI, 0.5))
 	if _stamp_key == key and _stamp > 0.0:
 		_panel(_list, rr, Color(1, 1, 1, 0.45 * _stamp * _stamp), radius)
 		_stamp_fx(_list, art.get_center(), "", u)
@@ -1403,9 +1401,7 @@ func _draw_sheet() -> void:
 	var rb := Rect2(Vector2(pr.position.x + 20 * u, hb.end.y + 8 * u), Vector2(pr.size.x - 40 * u, 38 * u))
 	_panel(_sheet, rb, Color(Toon.ui_ink, 0.06), 10 * u)
 	var rc := rb.position + Vector2(20 * u, rb.size.y / 2.0)
-	_sheet.draw_circle(rc, 13 * u, Toon.WASHI)
-	_sheet.draw_arc(rc, 13 * u, 0.0, TAU, 24, Color(Toon.SUMI, 0.4), 1.0 * u, true)
-	_look_swatch(_sheet, rc, kind, col, 0.95 * u, true)
+	_badge(_sheet, rc, 14.0 * u, kind, col, true, 1.0, u)
 	_sheet.draw_string(_ui, Vector2(hx, rb.position.y + 14 * u), _p("RÉCOMPENSE  ·  " + String(KIND_LABELS[kind])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7.5 * u), Color(Toon.ui_ink, 0.45))
 	_sheet.draw_string(UiKit.TITLE_FONT, Vector2(hx, rb.position.y + 30 * u), _p(String(p["look"])), HORIZONTAL_ALIGNMENT_LEFT, hw, int(12 * u), Toon.ui_ink)
 	# ÉQUIPER / RETIRER / verrouillée
@@ -1422,26 +1418,64 @@ func _draw_sheet() -> void:
 		_button(_sheet, br, "buy", _p("ÉQUIPER"), "", "", u, 1.0)
 
 
-## Échantillon d'apparence : écharpe (bout d'étoffe), sillage (trait), encre (goutte).
+## Pastille ronde d'une apparence : fond de papier, liseré d'encre, pictogramme à l'échelle du rayon.
+## `a` < 1 : version éteinte (Vue verrouillée).
+func _badge(ci: CanvasItem, c: Vector2, rad: float, kind: String, col: Color, on: bool, a: float, u: float) -> void:
+	var lit := a >= 1.0
+	ci.draw_circle(c + Vector2(0, 1.5 * u), rad, Color(0, 0, 0, 0.3 * a))
+	ci.draw_circle(c, rad, Color(Toon.WASHI, 0.95) if lit else Color(Toon.WASHI, 0.22))
+	ci.draw_arc(c, rad - 0.6 * u, 0.0, TAU, 32, Color(Toon.SUMI, 0.45 * a), maxf(1.0, 1.2 * u), true)
+	# le pictogramme (±8,5 unités) occupe ~65 % du rayon
+	_look_swatch(ci, c, kind, Color(col, col.a * (1.0 if lit else 0.75)), rad * 0.075, on)
+
+
+## Échantillon d'apparence : écharpe (bande et pan qui retombe), sillage (ruban effilé), encre (goutte).
+## Tient dans un carré de ±8,5 unités multipliées par `s`.
 func _look_swatch(ci: CanvasItem, c: Vector2, kind: String, col: Color, s: float, on: bool) -> void:
+	var edge := Color(Toon.SUMI, 0.85 * col.a)
+	var lw := maxf(1.0, 1.1 * s)
 	match kind:
 		"cape":
-			var pts := PackedVector2Array([c + Vector2(-7, -5) * s, c + Vector2(7, -5) * s, c + Vector2(5, 2) * s,
-				c + Vector2(8, 7) * s, c + Vector2(1, 3) * s, c + Vector2(-6, 3) * s])
-			ci.draw_colored_polygon(pts, col)
-			var outline := pts.duplicate()
-			outline.append(pts[0])
-			ci.draw_polyline(outline, Color(Toon.SUMI, 0.8 * col.a), maxf(0.8, 1.0 * s))
+			var band := PackedVector2Array([c + Vector2(-8, -5) * s, c + Vector2(0, -6) * s, c + Vector2(8, -5) * s,
+				c + Vector2(7, 0) * s, c + Vector2(0, -1) * s, c + Vector2(-7, 0) * s])
+			var tail := PackedVector2Array([c + Vector2(1.5, -1.2) * s, c + Vector2(5.5, -0.6) * s,
+				c + Vector2(7.5, 7.5) * s, c + Vector2(3, 6) * s])
+			ci.draw_colored_polygon(tail, col.darkened(0.15))
+			ci.draw_colored_polygon(band, col)
+			var ot := tail.duplicate()
+			ot.append(tail[0])
+			ci.draw_polyline(ot, edge, lw, true)
+			var ob := band.duplicate()
+			ob.append(band[0])
+			ci.draw_polyline(ob, edge, lw, true)
+			# pli de l'étoffe
+			ci.draw_line(c + Vector2(-5.5, -2.8) * s, c + Vector2(5.5, -2.8) * s, Color(Toon.SUMI, 0.3 * col.a), maxf(1.0, 0.9 * s), true)
 		"trail":
+			var pts := PackedVector2Array()
+			for i in 7:
+				var t := float(i) / 6.0
+				pts.append(c + Vector2(-8.0 + 16.0 * t, 4.5 - 9.0 * t + 2.2 * sin(PI * t)) * s)
 			if on:
-				ci.draw_line(c + Vector2(-8, 4) * s, c + Vector2(8, -4) * s, Color(Toon.SUMI, 0.8 * col.a), 5.5 * s)
-				ci.draw_line(c + Vector2(-8, 4) * s, c + Vector2(8, -4) * s, col, 3.5 * s)
+				ci.draw_polyline(pts, Color(Toon.SUMI, 0.8 * col.a), 5.2 * s, true)
+				ci.draw_polyline(pts, col, 3.2 * s, true)
+				ci.draw_circle(pts[pts.size() - 1], 1.6 * s, col)
+				# reflet du ruban
+				ci.draw_line(pts[1], pts[3], Color(1, 1, 1, 0.45 * col.a), maxf(1.0, 0.9 * s), true)
 			else:
 				# aucun sillage porté
-				ci.draw_line(c + Vector2(-8, 4) * s, c + Vector2(8, -4) * s, Color(Toon.SUMI, 0.3), maxf(1.0, 1.5 * s))
+				ci.draw_polyline(pts, Color(Toon.SUMI, 0.35), maxf(1.0, 1.6 * s), true)
 		_:
-			ci.draw_circle(c + Vector2(0, 1.5) * s, 5.0 * s, col)
-			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-3.6, -0.5) * s, c + Vector2(3.6, -0.5) * s, c + Vector2(0, -8) * s]), col)
+			# goutte d'encre : panse ronde, pointe, liseré et reflet
+			var drop := PackedVector2Array()
+			for i in 17:
+				var ang := PI * (-0.18 + 1.36 * float(i) / 16.0)
+				drop.append(c + Vector2(cos(ang), sin(ang)) * 5.4 * s + Vector2(0, 2) * s)
+			drop.append(c + Vector2(0, -8) * s)
+			ci.draw_colored_polygon(drop, col)
+			var od := drop.duplicate()
+			od.append(drop[0])
+			ci.draw_polyline(od, edge, lw, true)
+			ci.draw_circle(c + Vector2(-2, 2.6) * s, 1.3 * s, Color(1, 1, 1, 0.5 * col.a))
 
 
 func _pt(r: Rect2, x: float, y: float) -> Vector2:

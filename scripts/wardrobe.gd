@@ -24,6 +24,9 @@ var _sel_on := false
 var _t := 0.0
 var _hits: Array = []  # [Rect2, cible] : « tab:i », « item:<id> »
 var _pressed := ""
+var _down := false  # un appui est en cours (doigt ou souris)
+var _press_pos := Vector2.ZERO
+var _press_ms := 0
 var _msg := ""
 var _msg_t := 0.0
 var _bump := 0.0  # élément qui vient d'être porté ou acheté (1 -> 0)
@@ -67,6 +70,7 @@ func open() -> void:
 	_sel = ""
 	_sel_on = false
 	_pressed = ""
+	_down = false
 	_msg_t = 0.0
 	_bump = 0.0
 	_hits.clear()
@@ -79,6 +83,7 @@ func close() -> void:
 		return
 	visible = false
 	_pressed = ""
+	_down = false
 	closed.emit()
 
 
@@ -117,22 +122,55 @@ func _target_at(p: Vector2) -> String:
 	return ""
 
 
-func _gui_input(event: InputEvent) -> void:
-	if meta == null or not (event is InputEventMouseButton):
-		return
-	var mb := event as InputEventMouseButton
-	if mb.button_index != MOUSE_BUTTON_LEFT:
-		return
-	accept_event()
-	var mp := mb.position
-	if mb.pressed:
-		# le toucher qui a ouvert la garde-robe n'agit pas
-		_pressed = _target_at(mp) if _t >= 0.3 else ""
-		return
+## Appui (doigt ou souris) : la cible est retenue à l'appui ; le toucher qui a ouvert la garde-robe n'agit pas.
+func _press_at(p: Vector2) -> void:
+	var now := Time.get_ticks_msec()
+	if _down and now - _press_ms < 400 and p.distance_to(_press_pos) < 40.0:
+		return  # même appui, déjà suivi (le tactile et la souris émulée arrivent tous les deux)
+	# sinon : nouvel appui (un relâché perdu ne bloque jamais la garde-robe)
+	_down = true
+	_press_ms = now
+	_press_pos = p
+	_pressed = _target_at(p) if _t >= 0.3 else ""
+
+
+## Relâché : on agit si le doigt est resté sur la cible, ou n'a presque pas bougé (un doigt dérive).
+func _release_at(p: Vector2) -> void:
+	if not _down:
+		return  # relâché déjà traité par l'autre source : pas de double déclenchement
+	_down = false
 	var start := _pressed
 	_pressed = ""
-	if start != "" and _target_at(mp) == start:
+	if start == "":
+		return
+	var u := size.x / 400.0
+	if _target_at(p) == start or p.distance_to(_press_pos) <= 24.0 * u:
 		tap(start)
+
+
+func _gui_input(event: InputEvent) -> void:
+	if meta == null:
+		return
+	# tactile direct (téléphone) : ne dépend pas de l'émulation de la souris
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		accept_event()
+		if st.index != 0:
+			return
+		if st.pressed:
+			_press_at(st.position)
+		else:
+			_release_at(st.position)
+		return
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		accept_event()
+		if mb.pressed:
+			_press_at(mb.position)
+		else:
+			_release_at(mb.position)
 
 
 ## Toucher une cible : onglet, ou élément (porté s'il est possédé ; sinon choisi, le détail dit comment l'obtenir).
@@ -152,10 +190,11 @@ func tap(key: String) -> void:
 	var c := cat_id()
 	_sel = id
 	_sel_on = true
+	# retour visuel à chaque toucher (même sur un élément verrouillé ou déjà porté)
+	_bump = 1.0
+	_bump_key = key
 	if bool(meta.cosmetic_owned(c, id)):
 		if not bool(meta.cosmetic_worn(c, id)) and bool(meta.wear_cosmetic(c, id)):
-			_bump = 1.0
-			_bump_key = key
 			if c == "theme":
 				_read_theme()
 			changed.emit(c)
@@ -286,14 +325,14 @@ func _draw() -> void:
 		var owned := bool(meta.cosmetic_owned(c, id))
 		var worn := bool(meta.cosmetic_worn(c, id))
 		var key := "item:" + id
-		var rad := 21.0 * u * (1.0 + (0.12 * _bump if key == _bump_key else 0.0))
+		var rad := 24.0 * u * (1.0 + (0.12 * _bump if key == _bump_key else 0.0))
 		_swatch(c, id, cc, rad, ka * (1.0 if owned else 0.45))
 		if worn:
 			draw_arc(cc, rad + 4 * u, 0.0, TAU, 40, Color(_accent, ka), 2.6 * u, true)
 		elif id == shown and _sel_on:
 			draw_arc(cc, rad + 4 * u, 0.0, TAU, 40, Color(_ink, 0.6 * ka), 1.6 * u, true)
 		if not owned:
-			UiKit.glyph(self, "at_lock", cc + Vector2(rad * 0.62, -rad * 0.62), 7.0 * u, Color(Toon.WASHI, 0.95 * ka), Toon.SUMI)
+			UiKit.glyph(self, "at_lock", cc + Vector2(rad * 0.66, -rad * 0.66), 8.5 * u, Color(Toon.WASHI, 0.95 * ka), Toon.SUMI)
 		# nom court, ou prix pour ce qui s'achète
 		var lab := UiKit.plain(String(meta.cosmetic_name(c, id)))
 		var lc := Color(_ink, (0.85 if owned else 0.5) * ka)
@@ -305,8 +344,8 @@ func _draw() -> void:
 		var lw2 := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
 		if lw2 > cw - 4 * u and lw2 > 0.0:
 			fs2 = maxi(1, int(float(fs2) * (cw - 4 * u) / lw2))
-		UiKit.text(self, _ui, lab, cc + Vector2(0, rad + 17 * u), fs2, lc)
-		_hits.append([Rect2(cc - Vector2(cw * 0.5, 28 * u), Vector2(cw, rh - 4 * u)), key])
+		UiKit.text(self, _ui, lab, cc + Vector2(0, 40 * u), fs2, lc)
+		_hits.append([Rect2(cc - Vector2(cw * 0.5, 30 * u), Vector2(cw, rh - 2 * u)), key])
 	# détail de l'élément affiché
 	var rows := int(ceil(float(ids.size()) / float(COLS)))
 	var dy := gy + rh * maxi(rows, 2) + 8 * u

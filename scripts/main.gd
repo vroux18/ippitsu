@@ -90,6 +90,7 @@ const PUZZLE_REWARDS := ["gold", "heal", "reroll"]
 const LANTERN_R := 1.6
 const LANTERN_TOUCH := 0.6
 const STELE_NEAR := 2.5
+const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 15  # combats d'un monde
@@ -129,6 +130,10 @@ const DODGE_DIST := 2.4
 const ENEMY_HP_MULT := 2.0
 const DODGE_COOLDOWN := 0.7  # esquive gratuite (sans encre), mais pas en rafale
 const ULT_DAMAGE := 4.0
+const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
+const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
+var _fig_slow := 0.0
+const SHOW_DMG := false  # chiffres de dégâts au-dessus des ennemis
 const HIT_REACH := 0.55
 
 var cam: Camera3D
@@ -658,6 +663,8 @@ func _save() -> void:
 
 
 func _set_state(s: String) -> void:
+	if s != "menu" and state == "menu":
+		_home_scene_end()
 	state = s
 	_state_t = 0.0
 	hud.visible = not s in ["menu", "worlds", "sail"]
@@ -698,7 +705,7 @@ func _on_play() -> void:
 		# toute première partie (ou tutoriel à revoir) : droit au monde 1, le coach explique en jouant
 		_start_first_run()
 	else:
-		_set_state("sail")
+		_open_worlds()  # plus de départ de barque : la carte des mondes tout de suite
 
 
 ## Choix du monde sur le rouleau, centré sur `center` (par défaut le monde en cours). `reveal` : monde que
@@ -751,6 +758,7 @@ func _on_world_chosen(id: int) -> void:
 ## Sous le rideau d'encre : monde choisi construit, barque cachée, héros posé au départ.
 func _intro_swap() -> void:
 	_intro_swapped = true
+	arena.hide_shore(false)
 	if _intro_world > 0:
 		if _intro_world != current_world:
 			apply_world(_intro_world)
@@ -837,7 +845,7 @@ func _on_intro_finished(action: String) -> void:
 		if meta.coach_first_run():
 			_start_first_run()
 		else:
-			_set_state("sail")
+			_open_worlds()
 	else:
 		menu.show_mode("home")
 
@@ -1387,6 +1395,7 @@ func _show_stage(on: bool) -> void:
 	# en jeu la barque n'a plus rien à faire là (l'intro la garde jusqu'à l'arrivée de la caméra)
 	if menu_boat != null and state != "intro":
 		menu_boat.visible = false
+		arena.hide_shore(false)
 	if is_instance_valid(_boat_birds):
 		_boat_birds.visible = false
 	for r in _boat_rings:
@@ -1399,9 +1408,10 @@ func _show_stage(on: bool) -> void:
 ## rides sur l'eau, oiseaux de passage, dérive de la caméra.
 func _rock_boat(real := 0.0) -> void:
 	_drift_t += real
-	var bob := sin(_state_t * 1.3) * 0.045
+	# houle : la barque monte et descend, tangue et roule doucement (deux rythmes mêlés, jamais mécanique)
+	var bob := sin(_state_t * 1.3) * 0.075 + sin(_state_t * 0.55 + 1.0) * 0.03
 	menu_boat.position.y = MENU_BOAT.y + bob
-	menu_boat.rotation = Vector3(sin(_state_t * 0.9) * 0.025, 0, sin(_state_t * 1.1) * 0.035)
+	menu_boat.rotation = Vector3(sin(_state_t * 0.9) * 0.04 + sin(_state_t * 0.37) * 0.012, sin(_state_t * 0.21) * 0.03, sin(_state_t * 1.1) * 0.06)
 	hero.position = Vector3(menu_boat.position.x, BOAT_DECK + bob - BOAT_HERO_Z * sin(menu_boat.rotation.x), menu_boat.position.z + BOAT_HERO_Z)
 	if real <= 0.0:
 		return
@@ -1456,8 +1466,70 @@ func _rock_boat(real := 0.0) -> void:
 			_boat_birds.visible = true
 
 
+## Accueil : le paysage derrière la barque change de temps en temps (un monde au hasard), sous un fondu
+## de papier. Le monde du joueur (current_world) ne bouge pas : on le remet en partant de l'accueil.
+const HOME_SCENE_EVERY := 14.0
+var _scene_t := 0.0
+var _scene_swapped := false
+var _scene_veil: ColorRect
+
+
+func _home_scene_tick(real: float, hold: bool) -> void:
+	if _scene_veil == null:
+		var vl := CanvasLayer.new()
+		vl.layer = -1  # au-dessus de la 3D, sous l'interface de l'accueil
+		add_child(vl)
+		_scene_veil = ColorRect.new()
+		_scene_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_scene_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_scene_veil.color = Color(Toon.WASHI, 0.0)
+		vl.add_child(_scene_veil)
+	if hold or _bot != null:
+		return
+	_scene_t += real
+	var k := 0.0
+	if _scene_t > HOME_SCENE_EVERY:
+		var f := _scene_t - HOME_SCENE_EVERY
+		k = clampf(f / 0.7, 0.0, 1.0) if f < 0.8 else clampf(1.0 - (f - 0.8) / 1.0, 0.0, 1.0)
+		if f >= 0.72 and not _scene_swapped:
+			_scene_swapped = true
+			var n := Worlds.WORLDS.size()
+			var id := 1 + randi() % n
+			if id == arena.world_id:
+				id = 1 + (id % n)
+			_home_scene(id)
+		if f >= 1.8:
+			_scene_t = 0.0
+			_scene_swapped = false
+	_scene_veil.color = Color(Toon.WASHI, k)
+
+
+## Ciel, brume, lumière et lointain du monde `id`, sans toucher au monde du joueur.
+func _home_scene(id: int) -> void:
+	var w: Dictionary = Worlds.world(id)
+	_env.background_color = w.sky
+	_env.fog_light_color = w.fog
+	_env.fog_density = float(w.fog_density) * 0.7
+	_env.ambient_light_color = w.ambient_color
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.0)
+	_sun.light_color = w.sun_color
+	_sun.light_energy = float(w.sun_energy) * 0.86
+	arena.set_world(id)
+	arena.hide_shore(true)
+
+
+func _home_scene_end() -> void:
+	_scene_t = 0.0
+	_scene_swapped = false
+	if _scene_veil != null:
+		_scene_veil.color = Color(Toon.WASHI, 0.0)
+	if arena.world_id != current_world:
+		apply_world(current_world)
+
+
 ## Pose le héros sur la barque, à la proue, de dos (face au paysage).
 func _board_boat() -> void:
+	arena.hide_shore(true)  # accueil : un paysage, pas le cadre de la salle
 	menu_boat.visible = true
 	menu_boat.position = MENU_BOAT
 	if _boat_fx_world != current_world:
@@ -1883,11 +1955,15 @@ func _begin_room() -> void:
 		hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
 	var w: Dictionary = Worlds.world(current_world)
 	var weights: Dictionary = w.enemies
-	var budget := 5 + 2 * room
+	# montée douce : le monde 1 garde des combats aérés, le monde 2 un peu plus, puis le rythme plein
+	var wi := clampi(current_world - 1, 0, 2)
+	var b0: int = [3, 4, 5][wi]
+	var per: float = [0.9, 1.5, 2.0][wi]
+	var budget: int = b0 + int(float(room) * per)
 	if _gentle_room():
 		budget = maxi(3, int(budget * 0.55))  # premier tutoriel : moins d'ennemis
 	var list: Array = []
-	if room >= 3:
+	if room >= (6 if current_world == 1 else 3):
 		list.append("brute")
 		budget -= 3
 	var guard := 0
@@ -2851,8 +2927,8 @@ func _lantern_spots(c: Vector3, n: int) -> Array:
 	return []
 
 
-## Décor de l'énigme et sa consigne au-dessus : kanji de la figure (et la figure peinte au sol),
-## numéros des lanternes, ensō au-dessus de l'esprit (et son aire en pointillés).
+## Décor de l'énigme (puzzle_art.gd) : stèle gravée et sa figure qui se trace au sol, tōrō numérotés
+## reliés de pointillés, esprit errant cerné d'un cercle fléché.
 func _puzzle_node(pk: Dictionary) -> Node3D:
 	var n := Node3D.new()
 	add_child(n)
@@ -2860,63 +2936,12 @@ func _puzzle_node(pk: Dictionary) -> Node3D:
 	n.position = c
 	match String(pk["pz"]):
 		"stele":
-			var stone := Toon.mat(Color("#7E7A74"))
-			Toon.part(n, Toon.box(Vector3(0.8, 0.14, 0.5)), stone, Vector3(0, 0.07, 0))
-			Toon.part(n, Toon.box(Vector3(0.56, 1.15, 0.2)), stone, Vector3(0, 0.71, 0))
-			Toon.part(n, Toon.box(Vector3(0.66, 0.1, 0.28)), stone, Vector3(0, 1.33, 0))
-			Toon.part(n, Toon.box(Vector3(0.36, 0.6, 0.02)), Toon.mat(Toon.PAPER, false), Vector3(0, 0.78, 0.11))
 			var shape := String(pk["shape"])
-			var gm := Toon.flat(Color(Toon.SUMI, 0.6))
-			_ribbon(n, _glyph_pts(shape, Vector3(0, 0, 1.15), 0.75), 0.09, gm)
-			pk["gmat"] = gm
-			pk["label"] = _puzzle_label(n, String(SHAPE_KANJI.get(shape, "円")), Vector3(0, 1.95, 0), Toon.SUMI)
+			PuzzleArt.build_stele(n, pk, _glyph_pts(shape, PuzzleArt.GLYPH_O, PuzzleArt.GLYPH_K), shape, String(SHAPE_KANJI.get(shape, "円")))
 		"lanterns":
-			var mats: Array = []
-			var spots: Array = pk["lanterns"]
-			var stone2 := Toon.mat(Color("#8C8A86"))
-			var roof := Toon.mat(Toon.SUMI)
-			for i in spots.size():
-				var q: Vector3 = spots[i]
-				var ln := Node3D.new()
-				n.add_child(ln)
-				ln.position = q - c
-				Toon.part(ln, Toon.cyl(0.2, 0.24, 0.12), stone2, Vector3(0, 0.06, 0))
-				Toon.part(ln, Toon.box(Vector3(0.12, 0.42, 0.12)), stone2, Vector3(0, 0.33, 0))
-				var lamp := Toon.mat(Color("#6B6258"))
-				lamp.emission_enabled = true
-				lamp.emission = Color.BLACK
-				Toon.part(ln, Toon.box(Vector3(0.3, 0.26, 0.3)), lamp, Vector3(0, 0.67, 0))
-				Toon.part(ln, Toon.cyl(0.04, 0.3, 0.14, 4), roof, Vector3(0, 0.87, 0))
-				_disc(ln, 0.42, Toon.flat(Color(Toon.GOLD, 0.22)), 0.015)
-				_puzzle_label(ln, str(i + 1), Vector3(0, 1.3, 0), Toon.VERMILION)
-				mats.append(lamp)
-			pk["mats"] = mats
-			var how3 := _puzzle_label(n, UiKit.plain("D'UN SEUL TRAIT : 1 → %d" % spots.size()), Vector3(0, 1.9, 0), Toon.VERMILION)
-			how3.font_size = 40
-			how3.outline_size = 14
+			PuzzleArt.build_lanterns(n, pk, pk["lanterns"], c)
 		"spirit":
-			var rm := Toon.flat(Color("#7FD3E0", 0.5))
-			for k in 10:
-				var a0 := TAU * float(k) / 10.0
-				var arc := PackedVector3Array()
-				for j in 5:
-					var a := a0 + 0.42 * float(j) / 4.0
-					arc.append(Vector3(cos(a), 0, sin(a)) * 1.7)
-				_ribbon(n, arc, 0.06, rm)
-			var sp := Node3D.new()
-			sp.name = "Spirit"
-			n.add_child(sp)
-			sp.position = Vector3(0, 0.95, 0)
-			Toon.part(sp, Toon.sphere(0.22), Toon.flat(Color("#CFF6FF", 0.85)), Vector3.ZERO)
-			Toon.part(sp, Toon.sphere(0.11), Toon.flat(Color(1, 1, 1, 0.95)), Vector3(0, 0.02, 0.06))
-			Toon.part(sp, Toon.sphere(0.12), Toon.flat(Color("#9FE6F2", 0.6)), Vector3(0, 0.2, 0), Vector3(0.8, 1.6, 0.8))
-			_puzzle_label(sp, "円", Vector3(0, 0.75, 0), Color("#2E8FA3"))
-			# consigne en clair : sans elle, l'esprit ressemble à un simple bonus
-			var how2 := _puzzle_label(n, UiKit.plain("ENTOURE L'ESPRIT D'UNE BOUCLE"), Vector3(0, 2.25, 0), Color("#2E8FA3"))
-			how2.font_size = 40
-			how2.outline_size = 14
-			var sh := _disc(n, 0.25, Toon.flat(Color(Toon.SUMI, 0.15)), 0.012)
-			sh.name = "Shadow"
+			PuzzleArt.build_spirit(n, pk)
 	return n
 
 
@@ -2994,38 +3019,17 @@ func _update_puzzle(pk: Dictionary, n: Node3D, d: float) -> void:
 		pk["hinted"] = true
 		hud.toast(_puzzle_hint(pk))
 		sfx.play("shrine", 1.6, -8.0)
+	# la figure se trace d'elle-même, les lanternes s'allument au fil du trait, l'esprit erre (puzzle_art.gd)
+	var lit := 0
+	var q := Vector3.ZERO
 	match String(pk["pz"]):
-		"stele":
-			# la figure peinte au sol respire : c'est là qu'on la trace
-			var gmv = pk.get("gmat")
-			if gmv is StandardMaterial3D and not bool(pk["used"]):
-				var gm: StandardMaterial3D = gmv
-				gm.albedo_color = Color(Toon.SUMI, 0.35 + 0.35 * (0.5 + 0.5 * sin(run_time * 3.2)))
 		"spirit":
-			var sp := n.get_node_or_null("Spirit") as Node3D
-			if sp != null:
-				var q := spirit_pos(pk)
-				sp.position = Vector3(q.x - n.position.x, 0.95 + 0.12 * sin(run_time * 3.0 + float(pk["t"])), q.z - n.position.z)
-				var sh := n.get_node_or_null("Shadow") as Node3D
-				if sh != null:
-					sh.position = Vector3(sp.position.x, 0.012, sp.position.z)
+			q = spirit_pos(pk)
 		"lanterns":
-			var mats: Array = pk["mats"]
-			var lit := 0
 			var fail := run_time - float(pk["fail_t"]) < 0.6
 			if not fail and touching and stroke != null and _explore and d < 7.0:
 				lit = maxi(0, _lantern_progress(pk["lanterns"], stroke.points))
-			for i in mats.size():
-				var m: StandardMaterial3D = mats[i]
-				if fail:
-					m.albedo_color = Toon.VERMILION
-					m.emission = Color.BLACK
-				elif i < lit:
-					m.albedo_color = Color("#FFD27A")
-					m.emission = Color("#FFB648")
-				else:
-					m.albedo_color = Color("#6B6258")
-					m.emission = Color.BLACK
+	PuzzleArt.update(pk, n, run_time, lit, q)
 
 
 func _puzzle_hint(pk: Dictionary) -> String:
@@ -3115,8 +3119,8 @@ func _puzzle_stroke(pts: PackedVector3Array) -> void:
 				var wind := absf(_winding(pts, sp))
 				# boucle ou ensō reconnu autour de lui ; et au bord du quai (trait rogné par l'eau), un tour partiel suffit
 				var fig_c: Vector3 = _shape.get("center", Vector3.INF)
-				var ringed := String(_shape.get("shape", "")) in ["loop", "enso"] and fig_c != Vector3.INF 					and Vector2(fig_c.x - sp.x, fig_c.z - sp.z).length() < 1.8
-				var edge := not arena.walkable(sp, 1.4)
+				var ringed: bool = String(_shape.get("shape", "")) in ["loop", "enso"] and fig_c != Vector3.INF 					and Vector2(fig_c.x - sp.x, fig_c.z - sp.z).length() < 1.8
+				var edge: bool = not arena.walkable(sp, 1.4)
 				if wind >= PI * 1.6 or ringed or (edge and wind >= PI * 1.05):
 					_solve_puzzle(pk)
 				else:
@@ -3129,6 +3133,7 @@ func _puzzle_stroke(pts: PackedVector3Array) -> void:
 
 func _puzzle_fail(pk: Dictionary, msg: String) -> void:
 	pk["fail_t"] = run_time
+	PuzzleArt.fail(pk, run_time)  # secousse vermillon de l'objet (puzzle_art.update)
 	hud.toast(msg)
 	sfx.play("empty", 0.9, -4.0)
 
@@ -3139,22 +3144,8 @@ func _solve_puzzle(pk: Dictionary) -> void:
 	puzzles_solved += 1
 	var c: Vector3 = pk["pos"]
 	var n = pk["node"]  # sans type : le nœud peut avoir été libéré
-	var lb = pk.get("label", null)
-	if is_instance_valid(lb):
-		lb.modulate = Toon.GOLD
-	if pk.has("gmat"):
-		var gm: StandardMaterial3D = pk["gmat"]
-		gm.albedo_color = Color(Toon.GOLD, 0.85)
-	if pk.has("mats"):
-		for m in pk["mats"]:
-			var lm: StandardMaterial3D = m
-			lm.albedo_color = Color("#FFD27A")
-			lm.emission = Color("#FFB648")
-	if String(pk["pz"]) == "spirit" and is_instance_valid(n):
-		var sp = n.get_node_or_null("Spirit")
-		if is_instance_valid(sp):
-			_splash(sp.global_position, Color("#CFF6FF"), 18)
-			sp.queue_free()
+	# gravure et figure dorées, colonne de lumière ; lanternes allumées ; l'esprit s'envole (puzzle_art.gd)
+	PuzzleArt.solve(pk, n)
 	var reward := String(pk["reward"])
 	if reward == "heal" and hero.hp >= hero.max_hp:
 		reward = "gold"
@@ -3562,6 +3553,8 @@ func shape_text(pos: Vector3, kanji: String) -> void:
 ## Chiffre de dégâts : encre épaisse, rebond à l'apparition, petite courbe en montant ; les touches
 ## rapprochées sur un même ennemi s'additionnent. Blanc normal, or gros coup, vermillon coup fatal.
 func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> void:
+	if not SHOW_DMG:
+		return  # demandé : pas de chiffre à chaque coup (l'impact, la jauge et le score suffisent)
 	var now := Time.get_ticks_msec()
 	var kid := key.get_instance_id() if key != null else -1
 	if kid != -1 and _dmg_labels.has(kid):
@@ -4027,6 +4020,7 @@ func _launch(s: MeshInstance3D) -> void:
 	s.set_figure(String(_shape.get("shape", "")))
 	_fig_mods = {}
 	if not _shape.is_empty():
+		_fig_slow = FIG_SLOW_LEN
 		shape_text(s.last(), String(SHAPE_KANJI.get(_shape.shape, "")))
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
@@ -4482,7 +4476,11 @@ func _process(_delta: float) -> void:
 	elif state == "play":
 		target = powers.time_mult()  # ralentis des pouvoirs (souffle suspendu, instant volé)
 		if coach.slows():
-			target = minf(target, Coach.SLOW)  # tutoriel : le jeu attend le premier trait (ralenti, pas figé)
+			target = minf(target, Coach.SLOW)
+		if _fig_slow > 0.0:
+			# figure réussie : léger ralenti qui se relâche en douceur (temps réel)
+			_fig_slow = maxf(0.0, _fig_slow - real)
+			target = minf(target, lerpf(1.0, FIG_SLOW_SCALE, minf(1.0, _fig_slow / (FIG_SLOW_LEN * 0.6))))  # tutoriel : le jeu attend le premier trait (ralenti, pas figé)
 		if _slowmo_t >= 0.0:
 			# dernier ennemi du combat : ralenti cinématographique (temps réel)
 			target = minf(target, _slowmo_scale())
@@ -4663,6 +4661,7 @@ func _process(_delta: float) -> void:
 		var sway := Vector3(sin(_state_t * 0.35) * 0.18, sin(_state_t * 0.5) * 0.06, 0)
 		var mt := _menu_transform().translated(sway)
 		var w_on := _wardrobe_on and wardrobe != null and wardrobe.visible
+		_home_scene_tick(real, w_on)
 		_wardrobe_k = move_toward(_wardrobe_k, 1.0 if w_on else 0.0, real * 1.4)
 		if _wardrobe_k > 0.0:
 			var wk := _wardrobe_k * _wardrobe_k * (3.0 - 2.0 * _wardrobe_k)
@@ -4689,7 +4688,6 @@ func _process(_delta: float) -> void:
 		if _state_t > 1.3:
 			_open_worlds()
 	elif state == "worlds":
-		menu_boat.position.z = maxf(menu_boat.position.z - real * 0.6, 11.4)  # elle glisse encore vers le ponton derrière la carte
 		_rock_boat(real)
 		cam.global_transform = _menu_transform()
 	elif state == "boss_intro":
@@ -4712,6 +4710,7 @@ func _process(_delta: float) -> void:
 		# cadrage de jeu (efface le rapproché de la mort) ; mode pad : l'arène descend quand le pad s'efface
 		_cam_base = _cam_mix()
 	hud.in_play = state in IN_PLAY_STATES
+	hud.dojo = state == "tuto"  # dojo : HUD réduit (posé à l'entrée, levé à la sortie de l'état)
 	if is_instance_valid(hero) and not cam.is_position_behind(hero.position):
 		hud.hero_screen = cam.unproject_position(hero.position + Vector3(0, 3.6, 0))
 	hud.pause_enabled = state == "play"  # le bouton pause n'apparaît que là où il agit

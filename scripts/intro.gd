@@ -1,5 +1,5 @@
 extends Control
-## Intro : sept planches animées qui présentent le jeu, dont un petit lexique (premier JOUER, ou bouton « ? » de l'accueil).
+## Intro : six planches animées qui présentent le jeu (premier JOUER, ou bouton « ? » de l'accueil).
 ## Glisser à gauche / à droite, ou toucher, pour tourner les planches.
 ## main appelle open(replay) ; l'intro émet finished(action) : "done" (fin ou PASSER au premier lancement),
 ## "tuto" (lancer le tutoriel, depuis le « ? ») ou "back" (retour à l'accueil).
@@ -13,17 +13,6 @@ signal finished(action: String)
 const PAGES := [
 	{"kanji": "一", "title": "Un seul trait",
 		"text": "Trace un trait du doigt : ton ronin fonce le long et tranche tout ce qu'il touche."},
-	# lexique : [pastille, mot, définition courte]
-	{"kanji": "巻", "title": "Petit lexique", "text": "", "terms": [
-		["trait", "Trait", "Ton doigt dessine, le ronin suit."],
-		["encre", "Encre", "La jauge de droite : chaque trait en coûte."],
-		["esquive", "Esquive", "Un tap : un bond, sans encre."],
-		["figure", "Figure", "Boucle, zigzag… : +1 chaîne. Son rouleau : une technique."],
-		["chaine", "Chaîne", "Traits réussis sans être touché : + dégâts."],
-		["rouleau", "Rouleau", "Pouvoir à chaque niveau, du commun au légendaire."],
-		["affinite", "Affinité", "2 pouvoirs d'une même école = bonus."],
-		["torii", "Torii", "La porte vers l'étape suivante."],
-	]},
 	{"kanji": "墨", "title": "L'encre",
 		"text": "Chaque trait coûte de l'encre (la jauge à droite). Elle remonte quand tu ne traces pas, et à chaque ennemi touché."},
 	{"kanji": "円", "title": "Les figures",
@@ -293,14 +282,12 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 		0:
 			_page_trait(t)
 		1:
-			pass  # le lexique se dessine plus bas, sans illustration
-		2:
 			_page_encre(t)
-		3:
+		2:
 			_page_figures(t)
-		4:
+		3:
 			_page_esquive(t)
-		5:
+		4:
 			_page_progres(t)
 		_:
 			_page_gardien(t)
