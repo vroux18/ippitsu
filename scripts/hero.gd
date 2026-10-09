@@ -407,7 +407,7 @@ func set_outfit(tex: Texture2D) -> void:
 func _update_pose(delta: float) -> void:
 	if _drawn_t > 0.0:
 		_drawn_t -= delta
-	var drawn := dashing or _drawn_t > 0.0 or ch._once or dead
+	var drawn: bool = dashing or _drawn_t > 0.0 or ch._once or dead
 	if _blade_hand != null:
 		_blade_hand.visible = drawn
 	if _hilt != null:
