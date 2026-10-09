@@ -95,6 +95,17 @@ func _click(ctrl: Control, p: Vector2, pressed: bool, button: MouseButton = MOUS
 	ctrl.call("_gui_input", ev)
 
 
+## Glissé sur un écran qui lit _unhandled_input (accueil) : appui en a, relâché en b.
+func _swipe(ctrl: Control, a: Vector2, b: Vector2) -> void:
+	for pt in [[a, true], [b, false]]:
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = bool(pt[1])
+		ev.position = pt[0]
+		ev.global_position = pt[0]
+		ctrl.call("_unhandled_input", ev)
+
+
 ## Toucher : appui puis relâché au même point.
 func _tap(ctrl: Control, p: Vector2) -> void:
 	_click(ctrl, p, true)
@@ -770,41 +781,12 @@ func _step_dojo() -> bool:
 # ------------------------------------------------------------------ mondes
 
 func _step_world(w: int) -> bool:
-	var wm = main.worldmap
-	await _press(main.menu._play, "JOUER")
-	if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "JOUER -> barque -> carte des mondes"):
-		return false
-	_ok("monde %d : barque et carte des mondes" % w)
-	_check(not bool(main.arena._room_root.visible), "monde %d : accueil sans plateau (décor seul)" % w, "salle visible sous la carte")
-	if w == 1:
-		# la maison ramène à l'accueil, puis on rouvre la carte
-		await _until(func(): return float(wm._t) >= 0.4, "carte prête")
-		await _press(wm._back, "maison de la carte")
-		if not await _until(func(): return String(main.state) == "menu" and not bool(wm.visible), "carte : retour à l'accueil"):
+	if w >= 4:
+		# mondes 4 et plus : choisis sur l'accueil (glissé, chevrons), JOUER y entre directement
+		if not await _home_pick(w):
 			return false
-		_ok("carte des mondes : retour à l'accueil")
-		await _press(main.menu._play, "JOUER")
-		if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "carte rouverte"):
-			return false
-	await _until(func(): return float(wm._t) >= 0.4, "carte prête")
-	if w == 2:
-		# glissé du rouleau : la carte suit le doigt
-		var s0: float = wm._scroll
-		var c: Vector2 = wm.size / 2.0
-		await _drag(wm, c, c + Vector2(-60.0, 0.0))
-		_check(absf(float(wm._scroll) - s0) > 0.01 or float(wm._target) != s0, "carte : glissé du rouleau", "le rouleau n'a pas bougé")
-	# molette : une étape par cran, jusqu'au monde voulu
-	var guard := 0
-	while int(round(float(wm._target))) != w - 1 and guard < 12:
-		guard += 1
-		_wheel(wm, int(round(float(wm._target))) < w - 1)
-		await _frame()
-	if not await _until(func(): return int(wm._sel()) == w - 1, "carte centrée sur le monde %d" % w):
+	elif not await _map_pick(w):
 		return false
-	await _press(wm._go, "PARTIR")
-	if not await _until(func(): return String(main.state) == "intro" and int(main.current_world) == w, "PARTIR -> entrée du monde %d" % w):
-		return false
-	_ok("monde %d choisi (PARTIR)" % w)
 	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "entrée du monde %d -> sanctuaire de départ" % w):
 		return false
 	_ok("monde %d : plan d'entrée puis sanctuaire" % w)
@@ -835,6 +817,102 @@ func _step_world(w: int) -> bool:
 	if w == 3:
 		return await _step_defeat_atelier()
 	return await _quit_to_menu(w)
+
+
+## Accueil : le sélecteur de monde (glissé sur le paysage, chevrons) choisit le monde `w`, le paysage
+## suit sous le fondu ; un monde scellé grise JOUER, qui ouvre alors la carte sur lui ; JOUER entre dans `w`.
+func _home_pick(w: int) -> bool:
+	var mn = main.menu
+	if not await _until(func(): return String(main.state) == "menu" and String(mn.mode) == "home", "accueil (sélecteur de monde)"):
+		return false
+	_check(int(main._home_sel) == int(main.current_world) and int(mn.sel_world) == int(main.current_world),
+		"accueil : sélecteur sur le monde du joueur", "choisi %d, monde %d" % [int(main._home_sel), int(main.current_world)])
+	if w == 4:
+		# glissé vers la gauche sur le paysage : monde suivant
+		var s0 := int(main._home_sel)
+		var msz: Vector2 = mn.size
+		var c := Vector2(msz.x / 2.0, msz.y * 0.45)
+		_swipe(mn, c, c + Vector2(-140.0 * msz.x / 400.0, 0.0))
+		await _frame()
+		_check(int(main._home_sel) == s0 % Worlds.WORLDS.size() + 1, "accueil : glissé -> monde suivant", "choisi %d (avant %d)" % [int(main._home_sel), s0])
+	var guard := 0
+	while int(main._home_sel) != w and guard < 12:
+		guard += 1
+		await _press(mn._sel_next, "chevron monde suivant")
+	if not _check(int(main._home_sel) == w and int(mn.sel_world) == w, "accueil : chevrons -> monde %d" % w, "choisi %d" % int(main._home_sel)):
+		return false
+	if not await _until(func(): return int(main.arena.world_id) == w, "accueil : paysage du monde %d sous le fondu" % w, 5.0):
+		return false
+	_check(int(main.current_world) != w, "accueil : le monde du joueur ne change pas avant JOUER", "monde %d" % int(main.current_world))
+	if w == 4:
+		# monde scellé (progression réelle, sans test_unlock_all) : JOUER grisé ouvre la carte sur lui
+		main.meta.test_unlock_all = false
+		main._home_select(w)
+		var locked := w > int(main.meta.unlocked)
+		_check(bool(mn.sel_locked) == locked, "accueil : monde %d scellé = %s" % [w, str(locked)], "sel_locked %s" % str(mn.sel_locked))
+		if locked:
+			var wm = main.worldmap
+			await _press(mn._play, "JOUER (monde scellé)")
+			var ok: bool = await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "JOUER sur un monde scellé -> carte des mondes")
+			main.meta.test_unlock_all = true
+			if not ok:
+				return false
+			await _until(func(): return float(wm._t) >= 0.4, "carte prête")
+			_check(int(wm._sel()) == w - 1, "carte : centrée sur le monde scellé %d" % w, "centrée %d" % int(wm._sel()))
+			await _press(wm._back, "maison de la carte")
+			if not await _until(func(): return String(main.state) == "menu" and not bool(wm.visible), "carte : retour à l'accueil"):
+				return false
+			guard = 0
+			while int(main._home_sel) != w and guard < 12:
+				guard += 1
+				await _press(mn._sel_next, "chevron monde suivant")
+		main.meta.test_unlock_all = true
+		main._home_select(w)
+	await _press(mn._play, "JOUER")
+	if not await _until(func(): return String(main.state) == "intro" and int(main.current_world) == w, "accueil : JOUER -> entrée du monde %d" % w):
+		return false
+	_ok("monde %d choisi sur l'accueil (JOUER)" % w)
+	return true
+
+
+## Pastille du sélecteur de l'accueil -> carte des mondes, puis PARTIR sur le monde `w`.
+func _map_pick(w: int) -> bool:
+	var wm = main.worldmap
+	await _press(main.menu._worlds, "pastille du monde (carte)")
+	if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "pastille du monde -> carte des mondes"):
+		return false
+	_ok("monde %d : barque et carte des mondes" % w)
+	_check(not bool(main.arena._room_root.visible), "monde %d : accueil sans plateau (décor seul)" % w, "salle visible sous la carte")
+	if w == 1:
+		# la maison ramène à l'accueil, puis on rouvre la carte
+		await _until(func(): return float(wm._t) >= 0.4, "carte prête")
+		await _press(wm._back, "maison de la carte")
+		if not await _until(func(): return String(main.state) == "menu" and not bool(wm.visible), "carte : retour à l'accueil"):
+			return false
+		_ok("carte des mondes : retour à l'accueil")
+		await _press(main.menu._worlds, "pastille du monde (carte)")
+		if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "carte rouverte"):
+			return false
+	await _until(func(): return float(wm._t) >= 0.4, "carte prête")
+	if w == 2:
+		# glissé du rouleau : la carte suit le doigt
+		var s0: float = wm._scroll
+		var c: Vector2 = wm.size / 2.0
+		await _drag(wm, c, c + Vector2(-60.0, 0.0))
+		_check(absf(float(wm._scroll) - s0) > 0.01 or float(wm._target) != s0, "carte : glissé du rouleau", "le rouleau n'a pas bougé")
+	# molette : une étape par cran, jusqu'au monde voulu
+	var guard := 0
+	while int(round(float(wm._target))) != w - 1 and guard < 12:
+		guard += 1
+		_wheel(wm, int(round(float(wm._target))) < w - 1)
+		await _frame()
+	if not await _until(func(): return int(wm._sel()) == w - 1, "carte centrée sur le monde %d" % w):
+		return false
+	await _press(wm._go, "PARTIR")
+	if not await _until(func(): return String(main.state) == "intro" and int(main.current_world) == w, "PARTIR -> entrée du monde %d" % w):
+		return false
+	_ok("monde %d choisi (PARTIR)" % w)
+	return true
 
 
 func _transit_to_room1(w: int) -> bool:

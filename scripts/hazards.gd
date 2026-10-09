@@ -84,6 +84,17 @@ func begin_room(room: int, hero_pos: Vector3, boss := false, zone := Rect2(), ke
 				var hc: Vector3 = h[0]
 				if hc.distance_to(c) < float(h[1]) + r + 1.5:
 					ok = false
+			# ni sous un recoin (stèle, lanternes, esprit, coffre, source) : l'énigme doit rester sur le sol
+			for pk in main._pockets:
+				var pkd: Dictionary = pk
+				var pp: Vector3 = pkd.get("pos", Vector3.INF)
+				if pp != Vector3.INF and Vector2(pp.x - c.x, pp.z - c.z).length() < r + 3.0:
+					ok = false
+				if String(pkd.get("pz", "")) == "lanterns":
+					for lq in pkd.get("lanterns", []):
+						var lv: Vector3 = lq
+						if Vector2(lv.x - c.x, lv.z - c.z).length() < r + 1.5:
+							ok = false
 			if ok:
 				holes.append([c, r])
 				_make_hole(c, r)

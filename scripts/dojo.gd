@@ -7,7 +7,9 @@ extends Control
 ## sinon ce qui a manqué (StrokeShapes.near_miss / describe).
 ## Le carnet (page déroulante) explique les six figures : geste animé, tracé, technique, encre ;
 ## toucher une figure en fait la cible de l'entraînement. Il compte aussi esquives, zones, ultimes et défis.
-## Mannequin offensif : l'un d'eux annonce régulièrement une zone rouge sous le héros, pour s'exercer au bond.
+## Mode offensif : trois mannequins (au plus) poursuivent le héros et frappent avec leurs annonces, comme en
+## combat (le héros reste intouchable, ils reviennent quand on les abat) ; l'un d'eux annonce aussi
+## régulièrement une zone rouge sous le héros, pour s'exercer au bond.
 ## Le tutoriel (tutorial.gd) le possède et lui transmet on_dash_end, on_dodge, on_ultimate et is_over_ui.
 
 const Toon = preload("res://scripts/toon.gd")
@@ -20,6 +22,7 @@ signal closed
 
 const SLOTS := [Vector3(-2.2, 0, 1.6), Vector3(2.2, 0, 1.6), Vector3(-1.6, 0, -1.8), Vector3(1.8, 0, -1.4)]
 const RESPAWN := 1.2        # secondes avant qu'un mannequin abattu revienne
+const OFF_MAX := 3          # mode offensif : mannequins qui attaquent en même temps (les premiers emplacements)
 const ZONE_R := 1.6         # rayon de la zone rouge (le bond fait 2,4 m)
 const ZONE_TIME := 2.0      # durée de l'annonce
 const ZONE_EVERY := 3.5     # pause entre deux annonces
@@ -51,9 +54,6 @@ const EFFECT := {
 	"enso": "Tu bondis au centre du cercle et l'onde de choc frappe autour.",
 	"hook": "Demi-tour : tu transperces l'ennemi le plus proche.",
 }
-# powers.gd : figure_launch (dégâts ×1,15), main._add_chain (2 au lieu de 1) ; Data.FIG_UNLOCK : le rouleau
-const RULE := "Sans son rouleau, une figure ajoute +15 % de dégâts à sa ruée, et la chaîne monte de 2 au lieu de 1 si elle touche. Son rouleau débloque la technique. Au dojo, les six sont prêtées."
-const INK_KEY := "Dès qu'une figure est reconnue, ton trait prend sa couleur :"
 const CHALLENGES := [
 	{"id": "loop_zz", "text": "Boucle puis zigzag d'affilée"},
 	{"id": "enso3", "text": "3 ensō de suite"},
@@ -238,6 +238,18 @@ func _toggle_offensive() -> void:
 	_zone_wait = 1.0
 	if not offensive:
 		_clear_zone()
+	# offensif : les premiers mannequins se mettent en garde et attaquent, le dernier se retire ;
+	# sinon les attaquants s'effacent (annonces comprises) et des cibles immobiles reviennent vite
+	for i in _slot_e.size():
+		var e = _slot_e[i]
+		if not is_instance_valid(e) or e.dead:
+			continue
+		if offensive and i < OFF_MAX:
+			e.spar = true
+		else:
+			e.queue_free()
+			_slot_e[i] = null
+			_slot_t[i] = 0.3
 
 
 ## Rangée du défi : carnet ouvert, elle le referme ; une cible posée, elle la retire ; sinon elle ouvre le carnet.
@@ -380,7 +392,8 @@ func _next_challenge() -> Dictionary:
 # ------------------------------------------------------------------ monde : mannequins, zone rouge
 
 func _update_dummies(dt: float) -> void:
-	for i in SLOTS.size():
+	var n: int = OFF_MAX if offensive else SLOTS.size()
+	for i in n:
 		var e = _slot_e[i]
 		if is_instance_valid(e) and not e.dead:
 			continue
@@ -391,6 +404,9 @@ func _update_dummies(dt: float) -> void:
 		main.spawn_dummy(SLOTS[i])
 		if not main.enemies.is_empty():
 			_slot_e[i] = main.enemies[main.enemies.size() - 1]
+			var ne = _slot_e[i]
+			if offensive and is_instance_valid(ne):
+				ne.spar = true  # mode offensif : il revient à la charge
 		_slot_t[i] = RESPAWN
 
 
@@ -470,6 +486,10 @@ func _process(_delta: float) -> void:
 			_pts = ds.points
 		_update_dummies(real)
 		main.ult = minf(1.0, float(main.ult) + ULT_REGEN * real)
+		# intouchable même quand une garde (figure retour) remplace la sienne : les coups ne blessent pas
+		var hero = main.hero
+		if is_instance_valid(hero) and float(hero.guard_t) < 1000.0:
+			hero.guard_t = 99999.0
 		# carnet ouvert : la zone rouge attend qu'on ait fini de lire
 		if offensive and not open:
 			_update_zone(real)
@@ -625,7 +645,7 @@ func _draw() -> void:
 		_draw_verdict(card, u)
 
 
-## Seconde rangée de l'en-tête : la figure ciblée, ou le prochain défi ; carnet ouvert, la consigne du carnet.
+## Seconde rangée de l'en-tête : la figure ciblée, ou le prochain défi ; vide quand le carnet est ouvert.
 func _draw_task(card: Rect2, u: float, a: float) -> void:
 	var cy := card.position.y + (HEAD_H + TASK_H * 0.5) * u
 	var fs := int(10.5 * u)
@@ -635,9 +655,8 @@ func _draw_task(card: Rect2, u: float, a: float) -> void:
 	var col: Color = Toon.VERMILION
 	var seal := ""
 	if open:
-		label = "CARNET"
-		txt = "Touche une figure pour t'y exercer"
-	elif target != "":
+		return  # carnet ouvert : son titre suffit
+	if target != "":
 		label = "CIBLE"
 		seal = target
 		col = InkStroke.FIG_INK.get(target, Toon.GOLD)
@@ -713,7 +732,7 @@ func _draw_verdict(card: Rect2, u: float) -> void:
 
 # ------------------------------------------------------------------ dessin : page du carnet
 
-## Carnet : encre des figures, règle commune, les six figures (geste animé, tracé, technique, compte),
+## Carnet : les six figures (geste animé, tracé, technique, compte ; chaque carte à la couleur de son encre),
 ## puis l'entraînement et les défis. Le contenu défile sous le titre fixe ; la page est découpée à son cadre.
 func _draw_page() -> void:
 	var ci: Control = _page
@@ -730,32 +749,6 @@ func _draw_page() -> void:
 	var y := top + 12.0 * u
 	var x0 := pad
 	var x1 := w - pad
-	# l'encre du trait : la couleur de chaque figure
-	_psection(ci, "L'ENCRE DU TRAIT", x0, x1, y + 9.0 * u, u)
-	y += 20.0 * u
-	var bfs := int(10 * u)
-	for l in UiKit.wrap(UiKit.UI_FONT, UiKit.plain(INK_KEY), bfs, x1 - x0, GLUE):
-		y += float(bfs) * 1.4
-		ci.draw_string(UiKit.UI_FONT, Vector2(x0, y), String(l), HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(ink, 0.8))
-	y += 8.0 * u
-	var kfs := int(8.5 * u)
-	var cw := (x1 - x0) / 3.0
-	for i in UiKit.FIGURES.size():
-		var kind := String(UiKit.FIGURES[i])
-		var col: Color = InkStroke.FIG_INK.get(kind, Toon.GOLD)
-		var kx := x0 + cw * float(i % 3)
-		var ky := y + 9.0 * u + 18.0 * u * floorf(float(i) / 3.0)
-		UiKit.brush_line(ci, Vector2(kx + 2.0 * u, ky), Vector2(kx + 22.0 * u, ky), 5.0 * u, col)
-		ci.draw_string(_ui, Vector2(kx + 28.0 * u, ky + kfs * 0.36), UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind))), HORIZONTAL_ALIGNMENT_LEFT, -1, kfs, Color(ink, 0.85))
-	y += 18.0 * u * 2.0 + 10.0 * u
-	# les six figures
-	_psection(ci, "LES SIX FIGURES", x0, x1, y + 9.0 * u, u)
-	y += 20.0 * u
-	var rfs := int(9.5 * u)
-	for l in UiKit.wrap(UiKit.UI_FONT, UiKit.plain(RULE), rfs, x1 - x0, GLUE):
-		y += float(rfs) * 1.4
-		ci.draw_string(UiKit.UI_FONT, Vector2(x0, y), String(l), HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(ink, 0.7))
-	y += 12.0 * u
 	var tile := 64.0 * u
 	var nfs := int(15 * u)
 	var hfs := int(10 * u)

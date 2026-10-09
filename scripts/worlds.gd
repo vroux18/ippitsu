@@ -62,7 +62,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.72,
 		"ambient_color": Color(0.86, 0.9, 1.0),
 		"ambient_energy": 0.3,
-		"ground": [Color("#8E8274"), Color("#857A6D"), Color("#978B7C"), Color("#7D7266"), Color("#8A7F71")],  # cèdre délavé par la mer (plus d'orange saturé)
+		"ground": [Color("#C79B6A"), Color("#BC8F5F"), Color("#D3A874"), Color("#B08458"), Color("#C49668")],  # hinoki doré, chaud et lumineux (le gris délavé faisait triste)
 		"ground_style": "planks",
 		"edge": Color("#1B1A1E"),
 		"under": Color("#3E3631"),
@@ -243,7 +243,7 @@ static func world(id: int) -> Dictionary:
 static func floor_look(id: int) -> Dictionary:
 	match clampi(id, 1, WORLDS.size()):
 		1:
-			return {"alt": Color("#6F6A63"), "alt_k": 0.55, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#34486A"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
+			return {"alt": Color("#9C7148"), "alt_k": 0.4, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#34486A"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
 		2:
 			return {"alt": Color("#5D6B60"), "alt_k": 0.5, "moss": Color("#3F5440"), "moss_k": 0.45, "wear": 0.2, "accent": Color(0, 0, 0, 0), "leaves": [Color("#7E8F55"), Color("#9AA36A")]}
 		3:
@@ -1317,8 +1317,12 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 	var b := {}
 	var bn := {}
 	for k in 9:
-		Decor.bamboo_into(b, bn, _at(Vector3(-12.0 + k * 3.0 + rng.randf_range(-0.6, 0.6), VOID_Y, rng.randf_range(-16.5, -13.5)), Vector3.ZERO,
-			Vector3.ONE * rng.randf_range(2.6, 3.4)), 200 + k)
+		var bx := -12.0 + k * 3.0 + rng.randf_range(-0.6, 0.6)
+		var bz := rng.randf_range(-16.5, -13.5)
+		var bsc := rng.randf_range(2.6, 3.4)
+		if absf(bx) < 7.5:
+			continue  # le lointain suit la caméra : au milieu, ces géants se dresseraient sur le chemin du haut
+		Decor.bamboo_into(b, bn, _at(Vector3(bx, VOID_Y, bz), Vector3.ZERO, Vector3.ONE * bsc), 200 + k)
 	for k in 5:
 		Decor.bamboo_into(b, bn, _at(Vector3(rng.randf_range(10.5, 12.5), VOID_Y, -11.0 + k * 3.8), Vector3.ZERO, Vector3.ONE * rng.randf_range(2.4, 3.2)), 220 + k)
 	for k in 3:

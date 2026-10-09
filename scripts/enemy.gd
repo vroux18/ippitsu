@@ -61,6 +61,7 @@ var main: Node
 
 var dead := false
 var dummy := false  # mannequin du tutoriel : ne bouge pas, n'attaque pas
+var spar := false  # mannequin du dojo offensif : poursuit et attaque comme en combat (sans butin)
 var last_stroke := -1
 var body: Node3D
 var ch: Node3D
@@ -1474,7 +1475,7 @@ func _process(delta: float) -> void:
 		_ghost(delta)
 		return
 
-	if dummy:
+	if dummy and not spar:
 		return
 
 	if _hit_cd > 0.0:

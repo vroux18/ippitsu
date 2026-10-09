@@ -795,7 +795,7 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 			# trait d'encre qui relie les figures enchaînées
 			draw_line(Vector2(x0 + (i - 1) * gap + r, y), c - Vector2(rr, 0), Color(Toon.SUMI, 0.6 * a), 2.0 * u)
 		_draw_symbol(String(sh[0]), c, rr, a)
-	if shape_name != "":
+	if shape_name != "" and false:  # plus de texte au-dessus des sceaux (demandé) : le sceau suffit
 		var fs := int(8 * u)
 		var tw := UiKit.UI_FONT.get_string_size(shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var cx := x0 + (n - 1) * gap
@@ -1260,9 +1260,12 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var a := k_out
 	var ein := UiKit.ease_out(k_in)
 	var has_sub := _banner_small != ""
-	var bw := minf(sz.x - 28.0 * u, 352.0 * u)
-	var h := 62.0 * u if has_sub else 48.0 * u
-	var cy := top_off + maxf(118.0, _below_k() + 40.0) * u  # en haut au centre, sous les pastilles
+	# bandeau compact, entre les jauges, dans le bas de l'écran (sous le héros, loin des pastilles et de la chaîne)
+	var bw := minf(sz.x - 124.0 * u, 250.0 * u)
+	var h := 44.0 * u if has_sub else 36.0 * u
+	var cy := sz.y * 0.8
+	if pad.size.x >= 10.0:
+		cy = minf(cy, pad.position.y - 34.0 * u)
 	if dojo:
 		cy = top_off + 160.0 * u  # sous l'en-tête du dojo et son verdict
 	var x0 := (sz.x - bw) / 2.0 + (1.0 - k_out) * 26.0 * u
@@ -1292,12 +1295,12 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	draw_line(Vector2(x0 + 8 * u, cy + h / 2.0 - 5 * u), Vector2(x0 + maxf(8 * u, reach - 14 * u), cy + h / 2.0 - 5 * u), Color(acc_l, 0.95 * a), 2.5 * u, true)
 	# sceau : se pose comme un tampon juste après le trait
 	var sk := clampf((t - 0.1) / 0.22, 0.0, 1.0)
-	var sc := Vector2(x0 + 30.0 * u, cy - 1.0 * u)
+	var sc := Vector2(x0 + 22.0 * u, cy - 1.0 * u)
 	if sk > 0.0:
 		var z := lerpf(1.6, 1.0, UiKit.ease_out(sk))
-		var half := 17.0 * u * z
+		var half := 12.0 * u * z
 		draw_style_box(UiKit.box(_sb, Color(acc, a * sk), int(6 * u), Color(Toon.WASHI, 0.85 * a * sk), maxi(1, int(1.5 * u))), Rect2(sc - Vector2(half, half), Vector2(half, half) * 2.0))
-		UiKit.glyph(self, _banner_icon, sc, 11.0 * u * z, Toon.WASHI, acc, a * sk)
+		UiKit.glyph(self, _banner_icon, sc, 8.0 * u * z, Toon.WASHI, acc, a * sk)
 	# zone ou étape nettoyée : petite gerbe d'or autour du sceau
 	if _banner_icon == "torii" and t < 0.8:
 		var gk := clampf((t - 0.15) / 0.6, 0.0, 1.0)
@@ -1305,16 +1308,16 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 			var d := Vector2.from_angle(TAU * float(j) / 10.0 + 0.3)
 			draw_line(sc + d * (22.0 + 18.0 * gk) * u, sc + d * (28.0 + 24.0 * gk) * u, Color(Toon.GOLD.lightened(0.25), (1.0 - gk) * a), 2.0 * u, true)
 	# textes, à droite du sceau (rétrécis s'ils débordent)
-	var tx := x0 + 58.0 * u
-	var room := bw - 66.0 * u
+	var tx := x0 + 42.0 * u
+	var room := bw - 50.0 * u
 	var ta := a * clampf((t - 0.08) / 0.2, 0.0, 1.0)
 	# tailles ajustées une fois par bandeau (et par largeur d'écran), pas à chaque image
 	if _bfit_at != Vector2(u, room):
 		_bfit_at = Vector2(u, room)
-		_bfit_big = int(22 * u)
+		_bfit_big = int(17 * u)
 		while _bfit_big > 12 and UiKit.TITLE_FONT.get_string_size(_banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, _bfit_big).x > room:
 			_bfit_big -= 1
-		_bfit_small = int(10 * u)
+		_bfit_small = int(9 * u)
 		while has_sub and _bfit_small > 7 and UiKit.UI_FONT.get_string_size(_banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, _bfit_small).x > room:
 			_bfit_small -= 1
 	var fs := _bfit_big
@@ -1322,7 +1325,7 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	draw_string(UiKit.TITLE_FONT, Vector2(tx + (1.0 - ein) * 12.0 * u, ty), _banner_big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, ta))
 	if has_sub:
 		var sfs := _bfit_small
-		draw_string(UiKit.UI_FONT, Vector2(tx, cy + 16.0 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(acc_l.lerp(Toon.WASHI, 0.45), ta))
+		draw_string(UiKit.UI_FONT, Vector2(tx, cy + 13.0 * u), _banner_small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(acc_l.lerp(Toon.WASHI, 0.45), ta))
 
 
 func _brush_bar(pos: Vector2, w: float, h: float, fill: float, c: Color) -> void:

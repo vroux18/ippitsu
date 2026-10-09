@@ -1,4 +1,5 @@
 extends RefCounted
+const SHOW_EMA := false
 ## Décor des énigmes des recoins (appelé par main.gd : _puzzle_node, _update_puzzle, _solve_puzzle, _puzzle_fail).
 ## Stèle de pierre (sekihi) et sa figure qui se trace toute seule au pinceau dans un cercle de pierres,
 ## lanternes de pierre (tōrō) numérotées à relier dans l'ordre, esprit errant (hitodama) à entourer.
@@ -262,7 +263,7 @@ static func build_lanterns(n: Node3D, pk: Dictionary, spots: Array, c: Vector3) 
 		_part_flat(n, ribbon_mesh(paths, 0.04, 0.0, 0.02), pm, Vector3.ZERO)
 		pk["pmat"] = pm
 	# ema sur son piquet, à côté de la première lanterne (vers l'intérieur), tourné vers la caméra
-	if not spots.is_empty():
+	if SHOW_EMA and not spots.is_empty():  # panneau retiré (demandé) : les numéros suffisent
 		var q1: Vector3 = spots[0]
 		var side := -1.0 if q1.x > c.x else 1.0
 		var sg := Node3D.new()

@@ -367,7 +367,8 @@ func _ready() -> void:
 	refuge.closed.connect(_on_refuge_closed)
 	_setup_wardrobe()
 	menu.atelier_pressed.connect(_on_atelier)
-	menu.worlds_pressed.connect(_open_worlds)
+	menu.worlds_pressed.connect(_on_home_worlds)
+	menu.world_step.connect(_on_home_world_step)
 	menu.resume_pressed.connect(_on_resume)
 	menu.restart_pressed.connect(_on_restart)
 	menu.next_pressed.connect(_on_next_world)
@@ -459,6 +460,10 @@ func _ready() -> void:
 	if "pick" in wsearch:
 		_pick_context = "room"
 		_set_state("pick")
+		# `?pickstyle=N` : style des cartes à comparer (0 kakemono, 1 ofuda, 2 estampe), ex. `?pick&pickstyle=1`
+		var ps := wsearch.find("pickstyle=")
+		if ps >= 0:
+			picker.style = clampi(int(wsearch.substr(ps + 10).get_slice("&", 0)), 0, 2)
 		_open_upgrades()
 	if "atelier" in wsearch:
 		_on_atelier()
@@ -700,6 +705,7 @@ func _set_state(s: String) -> void:
 	_show_stage(not s in ["menu", "worlds", "sail"])
 	match s:
 		"menu":
+			_home_select(current_world)  # le sélecteur repart du monde du joueur
 			menu.show_mode("home")
 			music.play_menu()
 			_board_boat()
@@ -734,7 +740,7 @@ func _on_play() -> void:
 		# toute première partie (ou tutoriel à revoir) : droit au monde 1, le coach explique en jouant
 		_start_first_run()
 	else:
-		_open_worlds()  # plus de départ de barque : la carte des mondes tout de suite
+		_home_play()  # droit dans le monde choisi sur l'accueil (scellé : la carte)
 
 
 ## Choix du monde sur le rouleau, centré sur `center` (par défaut le monde en cours). `reveal` : monde que
@@ -742,7 +748,7 @@ func _on_play() -> void:
 ## rouleaux débloqués avec lui (aperçu sur sa carte).
 func _open_worlds(center := -1, reveal := 0, reveal_powers := []) -> void:
 	_set_state("worlds")
-	var unlocked: int = Worlds.WORLDS.size() if UNLOCK_ALL or bool(meta.test_unlock_all) else int(meta.unlocked)
+	var unlocked := _unlocked_count()
 	# records : meilleur combat atteint -> meilleure étape
 	var best := {}
 	for k in meta.world_best.keys():
@@ -1495,15 +1501,67 @@ func _rock_boat(real := 0.0) -> void:
 			_boat_birds.visible = true
 
 
-## Accueil : le paysage derrière la barque change de temps en temps (un monde au hasard), sous un fondu
-## de papier. Le monde du joueur (current_world) ne bouge pas : on le remet en partant de l'accueil.
-const HOME_SCENE_EVERY := 14.0
-var _scene_t := 0.0
+## Accueil : le paysage derrière la barque est celui du monde choisi (sélecteur au-dessus de JOUER,
+## chevrons ou glissé). Changer de monde le remplace sous un court fondu de papier. Le monde du joueur
+## (current_world) ne bouge pas tant que JOUER n'a pas lancé le monde choisi : on le remet en partant.
+const SCENE_IN := 0.25  # fondu vers le papier (s)
+const SCENE_OUT := 0.35  # retour du paysage (s)
+var _home_sel := 1  # monde choisi sur l'accueil
+var _scene_f := -1.0  # temps du fondu en cours (-1 : aucun)
 var _scene_swapped := false
 var _scene_veil: ColorRect
 
 
-func _home_scene_tick(real: float, hold: bool) -> void:
+## Nombre de mondes ouverts (tous en prototype, au CI ou avec `?unlockall`).
+func _unlocked_count() -> int:
+	if UNLOCK_ALL or bool(meta.test_unlock_all):
+		return Worlds.WORLDS.size()
+	return int(meta.unlocked)
+
+
+## Sélecteur de l'accueil : monde `id` choisi (aperçu permis même scellé), affiché par le menu.
+func _home_select(id: int) -> void:
+	var n := Worlds.WORLDS.size()
+	_home_sel = wrapi(id, 1, n + 1)
+	var w: Dictionary = Worlds.world(_home_sel)
+	menu.sel_world = _home_sel
+	menu.sel_name = UiKit.plain(String(w.name))
+	menu.sel_kanji = String(w.kanji)
+	menu.sel_color = w.color
+	menu.sel_locked = _home_sel > _unlocked_count()
+
+
+## Chevrons et glissé de l'accueil : monde précédent (-1) ou suivant (+1).
+func _on_home_world_step(dir: int) -> void:
+	if state != "menu":
+		return
+	sfx.play("whoosh", 1.25, -9.0)
+	_home_select(_home_sel + dir)
+
+
+## Nom du monde (accueil) : la carte des mondes, centrée sur le monde choisi.
+func _on_home_worlds() -> void:
+	if state != "menu":
+		return
+	sfx.play("whoosh", 1.0, -6.0)
+	_open_worlds(_home_sel)
+
+
+## JOUER sur l'accueil (hors premier lancement) : droit dans le monde choisi, sous le rideau d'encre,
+## comme PARTIR sur la carte ; monde scellé : la carte s'ouvre sur lui (la condition pour l'ouvrir).
+func _home_play() -> void:
+	var id := _home_sel
+	if id > _unlocked_count():
+		_open_worlds(id)
+		return
+	if arena.world_id != id:
+		_home_scene(id)  # fondu pas encore basculé : le paysage du monde choisi tout de suite
+	apply_world(id)  # le monde du joueur devient le monde choisi (_home_scene_end ne le remet pas)
+	_intro_world = id
+	_set_state("intro")
+
+
+func _home_scene_tick(real: float) -> void:
 	if _scene_veil == null:
 		var vl := CanvasLayer.new()
 		vl.layer = -1  # au-dessus de la 3D, sous l'interface de l'accueil
@@ -1513,23 +1571,30 @@ func _home_scene_tick(real: float, hold: bool) -> void:
 		_scene_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_scene_veil.color = Color(Toon.WASHI, 0.0)
 		vl.add_child(_scene_veil)
-	if hold or _bot != null:
-		return
-	_scene_t += real
+	if _scene_f < 0.0:
+		if arena.world_id == _home_sel:
+			_scene_veil.color = Color(Toon.WASHI, 0.0)
+			return
+		_scene_f = 0.0
+		_scene_swapped = false
+	_scene_f += real
 	var k := 0.0
-	if _scene_t > HOME_SCENE_EVERY:
-		var f := _scene_t - HOME_SCENE_EVERY
-		k = clampf(f / 0.7, 0.0, 1.0) if f < 0.8 else clampf(1.0 - (f - 0.8) / 1.0, 0.0, 1.0)
-		if f >= 0.72 and not _scene_swapped:
-			_scene_swapped = true
-			var n := Worlds.WORLDS.size()
-			var id := 1 + randi() % n
-			if id == arena.world_id:
-				id = 1 + (id % n)
-			_home_scene(id)
-		if f >= 1.8:
-			_scene_t = 0.0
+	if _scene_f < SCENE_IN:
+		k = clampf(_scene_f / SCENE_IN, 0.0, 1.0)
+	else:
+		k = clampf(1.0 - (_scene_f - SCENE_IN) / SCENE_OUT, 0.0, 1.0)
+		if arena.world_id != _home_sel:
+			if _scene_swapped:
+				# nouveau choix pendant le retour : le voile remonte depuis où il en est
+				_scene_f = k * SCENE_IN
+				_scene_swapped = false
+			else:
+				_home_scene(_home_sel)  # sous le papier : le monde se construit sans se voir
+				_scene_swapped = true
+		elif _scene_f >= SCENE_IN + SCENE_OUT:
+			_scene_f = -1.0
 			_scene_swapped = false
+			k = 0.0
 	_scene_veil.color = Color(Toon.WASHI, k)
 
 
@@ -1547,8 +1612,10 @@ func _home_scene(id: int) -> void:
 	arena.hide_shore(true)
 
 
+## En quittant l'accueil : plus de fondu ; le paysage redevient le monde du joueur (déjà le monde
+## choisi si JOUER l'a lancé : _home_play).
 func _home_scene_end() -> void:
-	_scene_t = 0.0
+	_scene_f = -1.0
 	_scene_swapped = false
 	if _scene_veil != null:
 		_scene_veil.color = Color(Toon.WASHI, 0.0)
@@ -3768,9 +3835,17 @@ func _touch_move(sp: Vector2) -> void:
 		# le doigt bouge encore : pas de course
 		_hold_sp = sp
 		_hold_t = 0.0
-	var target := _clamp_point(_ground(sp))
+	var free_pt := _ground(sp)
 	if ctrl_mode == "pad":
-		target = _clamp_point(origin + _pad_to_world(sp - _touch_sp))
+		free_pt = origin + _pad_to_world(sp - _touch_sp)
+	var target := _clamp_point(free_pt)
+	# geste brut (non rogné par les bords de la zone, ni coupé net par l'encre) : en combat, une figure
+	# tracée près d'un bord ou au bout de l'encre se lit quand même
+	var rw: PackedVector3Array = stroke.raw
+	if rw.is_empty() or Vector2(rw[rw.size() - 1].x - free_pt.x, rw[rw.size() - 1].z - free_pt.z).length() >= 0.15:
+		if StrokeShapes.length(rw) < float(stroke.length) + 2.5:
+			rw.append(Vector3(free_pt.x, 0, free_pt.z))
+			stroke.raw = rw
 		var tr: PackedVector2Array = hud.pad_trail
 		if tr.size() == 0 or tr[tr.size() - 1].distance_to(sp) > 4.0:
 			tr.append(sp)
@@ -3787,10 +3862,21 @@ func _touch_move(sp: Vector2) -> void:
 	# figure reconnue en direct : l'encre se teinte (testé tous les 30 cm de trait)
 	if used > 0.0 and float(stroke.length) - float(stroke.probe_len) >= 0.3:
 		stroke.probe_len = stroke.length
-		var live: Dictionary = StrokeShapes.detect_lead(stroke.points, int(stroke.lead_n)) if float(stroke.length) >= 2.0 else {}
+		var live: Dictionary = _detect_fig(stroke) if float(stroke.length) >= 2.0 else {}
 		stroke.set_figure(String(live.get("shape", "")))
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
+
+
+## Figure d'un trait : le trait posé (amorce depuis le héros écartée), sinon le geste brut du doigt.
+func _detect_fig(s: Node) -> Dictionary:
+	var pts: PackedVector3Array = s.get("points")
+	var r: Dictionary = StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
+	if r.is_empty():
+		var rw: PackedVector3Array = s.get("raw")
+		if rw.size() >= 3:
+			r = StrokeShapes.detect(rw)
+	return r
 
 
 func _touch_up(sp: Vector2) -> void:
@@ -4045,7 +4131,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
-	_shape = StrokeShapes.detect_lead(s.points, int(s.lead_n)) if s.length >= 2.0 else {}
+	_shape = _detect_fig(s) if s.length >= 2.0 else {}
 	s.set_figure(String(_shape.get("shape", "")))
 	_fig_mods = {}
 	if not _shape.is_empty():
@@ -4715,6 +4801,9 @@ func _process(_delta: float) -> void:
 		# léger rapproché vers le dernier coup
 		cb.origin = cb.origin.lerp(_slowmo_pos + Vector3(0, 0.8, 0), 0.14 * _slowmo_w())
 
+	# barque (accueil, carte, départ) : pas d'anneau au sol sous le héros
+	if is_instance_valid(hero):
+		hero.ring_off = state in ["menu", "worlds", "sail"] or (state == "intro" and not _intro_swapped)
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
 		# la barque tangue doucement, le héros avec elle ; garde-robe : la caméra glisse vers la proue
@@ -4722,7 +4811,7 @@ func _process(_delta: float) -> void:
 		var sway := Vector3(sin(_state_t * 0.35) * 0.18, sin(_state_t * 0.5) * 0.06, 0)
 		var mt := _menu_transform().translated(sway)
 		var w_on := _wardrobe_on and wardrobe != null and wardrobe.visible
-		_home_scene_tick(real, w_on)
+		_home_scene_tick(real)
 		_wardrobe_k = move_toward(_wardrobe_k, 1.0 if w_on else 0.0, real * 1.4)
 		if _wardrobe_k > 0.0:
 			var wk := _wardrobe_k * _wardrobe_k * (3.0 - 2.0 * _wardrobe_k)

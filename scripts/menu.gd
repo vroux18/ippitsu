@@ -42,6 +42,7 @@ signal powers_pressed
 signal dojo_pressed
 signal next_pressed  # résultats d'une victoire : vers le monde suivant
 signal wardrobe_pressed
+signal world_step(dir: int)  # accueil : monde précédent (-1) ou suivant (+1), chevrons ou glissé
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -105,6 +106,16 @@ var _help: Control
 var _gear: Control
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 var _wardrobe: Control  # GARDE-ROBE (accueil)
+# sélecteur de monde de l'accueil (posé par main._home_select) ; _worlds : la pastille, ouvre la carte
+var sel_world := 1
+var sel_name := ""
+var sel_kanji := "波"
+var sel_color := Toon.PRUSSIAN
+var sel_locked := false
+var _sel_prev: Control
+var _sel_next: Control
+var _swipe_on := false  # glissé commencé sur le paysage
+var _swipe_p := Vector2.ZERO
 var _safe := Vector2.ZERO  # marges de sécurité de l'écran (haut, bas), en pixels
 # pause : RECOMMENCER et QUITTER demandent un second toucher
 var _confirm := ""  # restart | quit | ""
@@ -130,6 +141,7 @@ func _ready() -> void:
 	# accueil : un coup de pinceau JOUER (sceau 始), trois entrées à icône, icônes nues en haut
 	_play = _button("JOUER", "brush")
 	_play.kanji = "始"
+	_play.shimmer = true  # encre encore humide : un reflet passe de temps en temps
 	_play.pressed.connect(func(): play_pressed.emit())
 	_atelier = _button("ATELIER", "icon")
 	_atelier.icon = "brush"
@@ -151,8 +163,13 @@ func _ready() -> void:
 	_gear.pressed.connect(func(): options_pressed.emit())
 	_sound = _button("", "bare")
 	_sound.pressed.connect(_toggle_sound)
-	_worlds = _button("MONDES", "text")
+	# sélecteur de monde : pastille (ouvre la carte des mondes) entre deux chevrons, dessinés par _draw_home
+	_worlds = _button("MONDES", "area")
 	_worlds.pressed.connect(func(): worlds_pressed.emit())
+	_sel_prev = _button("", "area")
+	_sel_prev.pressed.connect(func(): world_step.emit(-1))
+	_sel_next = _button("", "area")
+	_sel_next.pressed.connect(func(): world_step.emit(1))
 
 	# résultats : pinceau principal (REJOUER, ou le monde suivant), actions secondaires en texte
 	_replay = _button("REJOUER", "brush")
@@ -221,6 +238,37 @@ func _top_y(u: float) -> float:
 ## au-dessus de la barre de geste.
 func _play_y(h: float, u: float) -> float:
 	return h - _safe.y - 236.0 * u
+
+
+## Pastille du sélecteur de monde (au-dessus de JOUER) ; les chevrons se posent de part et d'autre.
+func _sel_rect(w: float, h: float, u: float) -> Rect2:
+	var sw := minf(w - 120.0 * u, 214.0 * u)
+	var sh := 46.0 * u
+	return Rect2(Vector2((w - sw) / 2.0, _play_y(h, u) - sh - 14.0 * u), Vector2(sw, sh))
+
+
+## Accueil : un glissé horizontal sur le paysage (hors boutons) change de monde, comme les chevrons.
+## Souris (le tactile est émulé en souris : project.godot).
+func _unhandled_input(event: InputEvent) -> void:
+	if mode != "home" or not visible:
+		_swipe_on = false
+		return
+	if not (event is InputEventMouseButton):
+		return
+	var mb := event as InputEventMouseButton
+	if mb.button_index != MOUSE_BUTTON_LEFT:
+		return
+	var u := size.x / 400.0
+	if mb.pressed:
+		var top := _top_y(u) + UiKit.ICON_BTN * u
+		var bottom := _sel_rect(size.x, size.y, u).position.y
+		_swipe_on = mb.position.y > top and mb.position.y < bottom
+		_swipe_p = mb.position
+	elif _swipe_on:
+		_swipe_on = false
+		var d := mb.position - _swipe_p
+		if absf(d.x) > 48.0 * u and absf(d.x) > absf(d.y) * 1.4:
+			world_step.emit(1 if d.x < 0.0 else -1)
 
 
 func _toggle_sound() -> void:
@@ -294,7 +342,9 @@ func _process(_delta: float) -> void:
 	_next.visible = mode == "over" and _t > 0.45 and has_next
 	_home.visible = mode == "over" and _t > 0.45
 	_over_atelier.visible = mode == "over" and _t > 0.45
-	_worlds.visible = false
+	_worlds.visible = mode == "home"
+	_sel_prev.visible = mode == "home"
+	_sel_next.visible = mode == "home"
 	_resume.visible = mode == "pause"
 	_quit.visible = mode == "pause"
 	_restart.visible = mode == "pause"
@@ -334,6 +384,20 @@ func _layout_home(w: float, h: float, u: float) -> void:
 	_play.position = Vector2((w - bw) / 2.0, py + 10.0 * u * (1.0 - appear))
 	_play.reveal = appear
 	_play.font_size = int(27 * u)
+	_play.modulate.a = 0.55 if sel_locked else 1.0  # monde scellé : JOUER ouvre la carte, sur lui
+	# sélecteur de monde, juste au-dessus du pinceau
+	var sk := UiKit.ease_out(clampf((_t - 0.7) / 0.4, 0.0, 1.0))
+	var sr := _sel_rect(w, h, u)
+	_worlds.position = sr.position
+	_worlds.size = sr.size
+	var cb := sr.size.y
+	_sel_prev.size = Vector2(cb, cb)
+	_sel_prev.position = Vector2(sr.position.x - cb - 4.0 * u, sr.position.y)
+	_sel_next.size = Vector2(cb, cb)
+	_sel_next.position = Vector2(sr.end.x + 4.0 * u, sr.position.y)
+	for sb in [_worlds, _sel_prev, _sel_next]:
+		var sc: Control = sb
+		sc.modulate.a = sk
 	var row: Array = [_atelier, _dojo, _wardrobe]
 	var ew := 108.0 * u
 	for i in row.size():
@@ -490,29 +554,61 @@ func _draw_home() -> void:
 		var br := Rect2(Vector2(w / 2.0 - bw / 2.0, title_y + 13.0 * u), Vector2(bw, 9.0 * u))
 		draw_colored_polygon(UiKit.swash_points(br, k, 5.0), Color(Toon.VERMILION, 0.95))
 
-	# accroche, entre deux shuriken
-	var gy := title_y + 46.0 * u
-	var gfs: int = int(UiKit.FS_BODY * u)
-	var gw := UiKit.text(self, _ui, "UN SEUL TRAIT", Vector2(w / 2.0 + 2.0, gy), gfs, Color(th_ink, 0.6 * a))
-	for sgn in [-1.0, 1.0]:
-		var sx: float = w / 2.0 + float(sgn) * (gw / 2.0 + 12.0 * u)
-		UiKit.shuriken(self, Vector2(sx, gy - gfs * 0.36), 4.0 * u, Color(Toon.VERMILION, 0.75 * a), 0.3 + _t * 0.4 * float(sgn))
-
-	# record : une ligne discrète entre deux filets
-	if best > 0:
-		var ra := UiKit.ease_out(clampf((_t - 1.1) / 0.5, 0.0, 1.0))
-		var ry := _play_y(h, u) + 210.0 * u
-		var rtw := UiKit.text(self, _ui, "RECORD  ·  ÉTAPE %d / %d" % [best, rooms_total], Vector2(w / 2.0, ry), int(UiKit.FS_CAPTION * u), Color(th_ink, 0.5 * ra))
-		var lx := rtw / 2.0 + 10.0 * u
-		# filets au pinceau, épais près du texte et effilés vers l'extérieur
-		UiKit.brush_line(self, Vector2(w / 2.0 - lx, ry - 4.0 * u), Vector2(w / 2.0 - lx - 26.0 * u, ry - 4.0 * u), 2.0 * u, Color(th_ink, 0.25 * ra))
-		UiKit.brush_line(self, Vector2(w / 2.0 + lx, ry - 4.0 * u), Vector2(w / 2.0 + lx + 26.0 * u, ry - 4.0 * u), 2.0 * u, Color(th_ink, 0.25 * ra))
+	_draw_world_sel(w, h, u)
 
 	# compteur d'encre (par-dessus le voile du haut)
 	_draw_ink_counter(Vector2(20.0 * u, ty0 + 23.0 * u), u)
 	# numéro de version : pour vérifier que l'appli est bien à jour
 	var ver := "v" + str(ProjectSettings.get_setting("application/config/version", "dev"))
 	UiKit.text(self, _ui, ver, Vector2(w - 30 * u, h - _safe.y - 8 * u), int(9 * u), Color(th_ink, 0.35))
+
+
+## Sélecteur de monde : chevrons au pinceau, pastille de papier avec le sceau du monde, « MONDE N »
+## et son nom ; scellé : sceau délavé, cadenas et « VERROUILLÉ ».
+func _draw_world_sel(w: float, h: float, u: float) -> void:
+	var sa := UiKit.ease_out(clampf((_t - 0.7) / 0.4, 0.0, 1.0))
+	if sa <= 0.01:
+		return
+	var sr := _sel_rect(w, h, u)
+	var cy := sr.get_center().y
+	# chevrons : deux traits de pinceau épais à la pointe, effilés vers l'arrière
+	for sgn in [-1.0, 1.0]:
+		var sg: float = sgn
+		var tip := Vector2(w / 2.0 + sg * (sr.size.x / 2.0 + 4.0 * u + sr.size.y * 0.58), cy)
+		var back := tip - Vector2(sg * 8.0 * u, 0.0)
+		var col := Color(th_ink, 0.72 * sa)
+		UiKit.brush_line(self, tip, back + Vector2(0.0, -10.0 * u), 4.0 * u, col)
+		UiKit.brush_line(self, tip, back + Vector2(0.0, 10.0 * u), 4.0 * u, col)
+	# pastille de papier
+	var rad := int(sr.size.y / 2.0)
+	draw_style_box(UiKit.box(_sb, Color(th_paper, 0.86 * sa), rad, Color(th_ink, 0.2 * sa), maxi(1, int(UiKit.BW_HAIR * u))), sr)
+	# sceau du monde (délavé s'il est scellé), cadenas posé sur son coin
+	var seal := Rect2(sr.position + Vector2(10.0 * u, 7.0 * u), Vector2(26.0 * u, sr.size.y - 14.0 * u))
+	var scol: Color = th_ink.lerp(th_paper, 0.5) if sel_locked else sel_color
+	UiKit.seal(self, seal, sel_kanji, scol, Toon.WASHI, sa, u * 0.8, float(sel_world))
+	if sel_locked:
+		var lc := seal.end - Vector2(1.0, 3.0) * u
+		draw_circle(lc, 8.0 * u, Color(th_paper, sa))
+		UiKit.glyph(self, "at_lock", lc, 5.5 * u, th_ink, th_paper, sa)
+	# MONDE N (VERROUILLÉ en vermillon), puis le nom
+	var x0 := seal.end.x + 8.0 * u
+	var x1 := sr.end.x - 16.0 * u
+	var cx := (x0 + x1) / 2.0
+	var cap := UiKit.plain("MONDE %d" % sel_world)
+	if sel_locked:
+		cap = UiKit.plain("MONDE %d  ·  VERROUILLÉ" % sel_world)
+	var cfs := int(UiKit.FS_CAPTION * u)
+	var cw := _small.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+	if cw > x1 - x0 and cw > 0.0:
+		cfs = maxi(1, int(float(cfs) * (x1 - x0) / cw))
+	var ccol := Color(Toon.VERMILION, 0.9 * sa) if sel_locked else Color(th_ink, UiKit.A_CAPTION * sa)
+	UiKit.text(self, _small, cap, Vector2(cx, sr.position.y + 17.0 * u), cfs, ccol)
+	var nm := UiKit.plain(sel_name)
+	var nfs := int(UiKit.FS_HEADING * u)
+	var nw := _title.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	if nw > x1 - x0 and nw > 0.0:
+		nfs = maxi(1, int(float(nfs) * (x1 - x0) / nw))
+	UiKit.text(self, _title, nm, Vector2(cx, sr.end.y - 10.0 * u), nfs, Color(th_ink, (0.55 if sel_locked else 1.0) * sa))
 
 
 ## Compteur d'encre : un bâton d'encre et le nombre.

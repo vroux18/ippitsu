@@ -63,6 +63,7 @@ var _tail_n := 7
 const TAIL_SEG := 0.12
 # anneau au sol (lisibilité)
 var _ring: Node3D
+var ring_off := false  # accueil, carte des mondes (barque) : anneau au sol caché (posé par main)
 
 
 func _ready() -> void:
@@ -420,7 +421,7 @@ func _update_pose(delta: float) -> void:
 	else:
 		body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 12.0))
 	if _ring != null:
-		_ring.visible = not dead
+		_ring.visible = not dead and not ring_off
 		_ring.rotation.y = body.rotation.y
 		var s := 1.0 + 0.05 * sin(_life * 3.0) if calm else 0.9
 		_ring.scale = _ring.scale.lerp(Vector3(s, 1.0, s), minf(1.0, delta * 10.0))
