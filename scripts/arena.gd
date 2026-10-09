@@ -2169,11 +2169,21 @@ static func _carve_rects(rs: Array, fp: Rect2) -> Array:
 		if not rr.intersects(fp):
 			out.append(rr)
 			continue
-		out.append(Rect2(rr.position.x, rr.position.y, rr.size.x, fp.position.y - rr.position.y))
-		out.append(Rect2(rr.position.x, fp.end.y, rr.size.x, rr.end.y - fp.end.y))
-		out.append(Rect2(rr.position.x, rr.position.y, fp.position.x - rr.position.x, rr.size.y))
-		out.append(Rect2(fp.end.x, rr.position.y, rr.end.x - fp.end.x, rr.size.y))
+		# bords calculés par min/max : pas de bande fantôme quand l'empreinte déborde de la plateforme
+		var x0 := rr.position.x
+		var x1 := rr.end.x
+		var y0 := rr.position.y
+		var y1 := rr.end.y
+		_carve_add(out, x0, y0, x1, minf(fp.position.y, y1))
+		_carve_add(out, x0, maxf(fp.end.y, y0), x1, y1)
+		_carve_add(out, x0, y0, minf(fp.position.x, x1), y1)
+		_carve_add(out, maxf(fp.end.x, x0), y0, x1, y1)
 	return out
+
+
+static func _carve_add(out: Array, x0: float, y0: float, x1: float, y1: float) -> void:
+	if x1 - x0 > 0.05 and y1 - y0 > 0.05:
+		out.append(Rect2(x0, y0, x1 - x0, y1 - y0))
 
 
 static func _rect_dist(r: Rect2, p: Vector2) -> float:
@@ -3314,7 +3324,7 @@ static func check_layouts() -> Array:
 		fails.append("découpe d'une pièce de décor : sol coupé en deux")
 	for r in cut:
 		var rr: Rect2 = r
-		if rr.intersects(Rect2(-0.6, -6.6, 1.2, 1.0)):
+		if rr.intersects(Rect2(-0.6, -6.6, 1.2, 1.0).grow(-0.01)):  # un bord commun n'est pas un recouvrement
 			fails.append("découpe d'une pièce de décor : l'empreinte reste praticable")
 	# étapes : la forme pleine (repli) doit se raccorder à toutes les autres, des deux côtés
 	var full: Array = _layout_rects(BOSS_LAYOUT, false)
