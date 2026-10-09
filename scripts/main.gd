@@ -475,6 +475,13 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_fit_camera)
 	# `?world=N` (web) : ouvre directement le monde N
 	var wsearch := str(JavaScriptBridge.eval("location.search", true)) if OS.has_feature("web") else ""
+	# `-- --q=pick&world=3` (bureau) : mêmes réglages que `?…` sur le web ; `-- --shot=f.png[:s]` : capture puis sortie
+	for a in OS.get_cmdline_user_args():
+		var s := String(a)
+		if s.begins_with("--q="):
+			wsearch = "?" + s.substr(4)
+		elif s.begins_with("--shot="):
+			_shot(s.substr(7))
 	var wpos := wsearch.find("world=")
 	hud.show_fps = "fps" in wsearch
 	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
@@ -541,6 +548,17 @@ func _ready() -> void:
 	perf_mark("boot_ready", _ticks - t_ready)
 	# la suite (squelettes, boss, préchauffage) vient après l'affichage de l'accueil
 	_boot_async(t_ready)
+
+
+## Capture d'écran (bureau, `-- --shot=fichier.png[:secondes]`) : attend, enregistre l'image, quitte.
+func _shot(arg: String) -> void:
+	var path := arg.get_slice(":", 0)
+	var wait := float(arg.get_slice(":", 1)) if arg.contains(":") else 4.0
+	await get_tree().create_timer(wait, true, false, true).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(path)
+	print("SHOT ", path)
+	get_tree().quit()
 
 
 ## Mesure de chargement : gardée pour le bilan du robot, et affichée (« BOT PERF <étape> <ms> ») avec lui.

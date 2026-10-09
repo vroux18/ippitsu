@@ -8,10 +8,9 @@ const PowerData = preload("res://scripts/power_data.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Score = preload("res://scripts/score.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
-# pictogramme d'un monde d'après son kanji (UI v2 : plus de kanji dans l'interface). Vague, bambou, neige :
-# planches ; feu, encre, ciel, dragon, enfers : correspondances provisoires, à valider.
-const WORLD_ICON := {"波": "hud/vague", "竹": "hud/bambou", "雪": "hud/neige", "火": "elements/feu", "墨": "hud/pinceau",
-	"天": "hud/etoile", "龍": "hud/couronne", "冥": "elements/ombre"}
+# pictogramme d'un monde d'après son kanji (UI v2 : plus de kanji dans l'interface) : table partagée avec le HUD
+# (UIColors.WORLD_ICON). Vague, bambou, neige : planches ; feu, encre, ciel, dragon, enfers : provisoires, à valider.
+const WORLD_ICON := UIColors.WORLD_ICON
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
 # feuille de résultats : hauteurs des blocs (× u) et sceaux par ligne
 const HEAD_H := 164.0
