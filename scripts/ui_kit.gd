@@ -6,6 +6,11 @@ extends RefCounted
 const TITLE_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
 const Toon = preload("res://scripts/toon.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")  # jetons de couleur du handoff UI v2 (theme.json)
+const Icons = preload("res://scripts/ui_icons.gd")  # sources SVG des pictogrammes v2 (res://ui/icons)
+# UI v2 : plus de kanji dans l'interface (seul le logo 一筆 de l'accueil reste) : les sceaux à côté des titres
+# d'écran et de section ne se dessinent plus (screen_title, section)
+const KANJI_SEALS := false
 # les six figures, dans l'ordre d'affichage
 const FIGURES := ["straight", "return", "zigzag", "loop", "enso", "hook"]
 
@@ -14,7 +19,8 @@ const FIGURES := ["straight", "return", "zigzag", "loop", "enso", "hook"]
 # résultats, options, mes pouvoirs, atelier et garde-robe puisent ici (composants plus bas :
 # screen_title, back_button, section, chip, sheet, seigaiha, asanoha, mon, shuriken, kunai).
 
-# --- échelle typographique (taille × u) ; TITLE_FONT : titres, noms, chiffres ; UI_FONT : le reste
+# --- échelle typographique (taille × u) ; TITLE_FONT : titres, noms ; num_font() : tous les chiffres (UI v2 :
+# Zen Kaku Gothic New Black, chiffres tabulaires, jamais Shippori qui décale la ligne de base) ; UI_FONT : le reste
 const FS_DISPLAY := 34.0  # mot-événement (VICTOIRE), un seul par écran
 const FS_TITLE := 24.0  # titre d'écran (OPTIONS, MES POUVOIRS, ATELIER, GARDE-ROBE, PAUSE)
 const FS_HEADING := 15.0  # nom d'une carte, d'un élément, titre d'une bulle
@@ -1397,8 +1403,9 @@ static func seal(ci: CanvasItem, r: Rect2, chars: String, col: Color, paper: Col
 
 
 ## Titre d'écran : capitales (font : variation espacée de TITLE_FONT) centrées sur c.x, ligne de base c.y,
-## soulignées d'un coup de pinceau vermillon ; kanji : petit sceau à droite (le groupe reste centré).
-## Rétrécit pour tenir dans maxw (0 : sans limite) ; k (0..1) pose le trait. Renvoie la largeur du titre.
+## soulignées d'un coup de pinceau vermillon. kanji : ignoré (UI v2 : plus de sceau à côté des titres ;
+## paramètre gardé pour les appelants). Rétrécit pour tenir dans maxw (0 : sans limite) ; k (0..1) pose le trait.
+## Renvoie la largeur du titre.
 static func screen_title(ci: CanvasItem, font: Font, txt: String, c: Vector2, u: float, ink: Color, a: float,
 		kanji := "", maxw := 0.0, k := 1.0) -> float:
 	var px := maxi(1, int(FS_TITLE * u))
@@ -1406,7 +1413,7 @@ static func screen_title(ci: CanvasItem, font: Font, txt: String, c: Vector2, u:
 	if font is FontVariation:
 		sp = float((font as FontVariation).spacing_glyph)
 	var sw := 0.0
-	if kanji != "":
+	if kanji != "" and KANJI_SEALS:
 		sw = 28.0 * u
 	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x - sp
 	if maxw > 0.0 and tw + sw > maxw and tw > 0.0:
@@ -1419,7 +1426,7 @@ static func screen_title(ci: CanvasItem, font: Font, txt: String, c: Vector2, u:
 		var bw := maxf(tw * 0.55, 40.0 * u)
 		var br := Rect2(Vector2(x0 + tw / 2.0 - bw / 2.0, c.y + 5.0 * u), Vector2(bw, 7.0 * u))
 		ci.draw_colored_polygon(swash_points(br, kk, 5.0), Color(Toon.VERMILION, 0.95 * a))
-	if kanji != "":
+	if kanji != "" and KANJI_SEALS:
 		var s := 20.0 * u
 		var cy := c.y - float(px) * 0.36
 		seal(ci, Rect2(Vector2(x0 + tw + 8.0 * u, cy - s / 2.0), Vector2(s, s)), kanji, Toon.VERMILION, Toon.WASHI, a, u, 3.0)
@@ -1506,13 +1513,13 @@ static func brush_rule(ci: CanvasItem, x0: float, x1: float, y: float, u: float,
 	shuriken(ci, Vector2(cx, y), 4.5 * u, Color(Toon.VERMILION, 0.85 * a), 0.2)
 
 
-## Titre de section : sceau à kanji facultatif, petites capitales, trait de pinceau jusqu'à x1 fini par un
-## shuriken. y : ligne de base du libellé ; font : UI_FONT (ou sa variation) ; ink : encre pleine.
+## Titre de section : petites capitales, trait de pinceau jusqu'à x1 fini par un shuriken (kanji : ignoré en UI v2,
+## voir KANJI_SEALS). y : ligne de base du libellé ; font : UI_FONT (ou sa variation) ; ink : encre pleine.
 static func section(ci: CanvasItem, font: Font, label: String, x0: float, x1: float, y: float, u: float, ink: Color, a: float, kanji := "") -> void:
 	var px := maxi(1, int(FS_CAPTION * u))
 	var mid := y - float(px) * 0.36
 	var x := x0
-	if kanji != "":
+	if kanji != "" and KANJI_SEALS:
 		var s := 16.0 * u
 		seal(ci, Rect2(Vector2(x0, mid - s / 2.0), Vector2(s, s)), kanji, Toon.VERMILION, Toon.WASHI, a, u, 2.0)
 		x += s + 6.0 * u
@@ -1921,3 +1928,290 @@ static func fx_compact(rows: Array) -> String:
 		var l := String(rw[2])
 		parts.append((v + " " + l).strip_edges() if v != "" else l)
 	return " · ".join(parts)
+
+
+# ------------------------------------------------------------------ UI v2 : chiffres, capitales, pictogrammes SVG
+# Handoff design/ui_v2 : chiffres en Zen Kaku Gothic New Black tabulaire, pictogrammes SVG (ui_icons.gd) rastérisés
+# à la taille voulue, médaillons de pouvoir (disque washi, pictogramme sumi), anneau d'harmonie, halos sans flou.
+
+const SVG_HEAD := '<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d">'
+# lettres capitales absentes de la police réduite : remplacées par leur forme sans accent
+const CAPS_FALLBACK := {"Û": "U", "Ù": "U", "Ü": "U", "Ë": "E", "Ï": "I", "Î": "I", "Ô": "O", "Â": "A", "À": "A",
+	"Ç": "C", "É": "E", "È": "E", "Ê": "E", "Œ": "OE"}
+# pictogramme d'effet (Data.EFFECTS, fx_rows) -> pictogramme v2 (icons/effets) ; les autres gardent leur glyph()
+const FX_ICON := {"fire": "effets/brulure", "hourglass": "effets/duree", "clock": "effets/duree", "fx_dmg": "effets/degats",
+	"t_hit": "effets/degats", "backstab": "effets/degats", "fx_heart": "effets/cur", "heart_plus": "effets/cur",
+	"chain_bolt": "effets/cibles", "t_multi": "effets/cibles", "fx_crit": "effets/critique", "stun": "effets/etourdi",
+	"fx_range": "effets/portee", "long_stroke": "effets/portee", "fx_radius": "effets/portee", "push_wave": "effets/recul",
+	"speed": "effets/vitesse"}
+# déclencheur (champ « trig ») -> pictogramme v2 (icons/declencheurs) ; les autres gardent leur glyph « t_… »
+const TRIG_ICON := {"arrive": "declencheurs/a_larrivee", "back": "declencheurs/dans_le_dos", "stroke": "declencheurs/pendant_la_ruee",
+	"hurt": "declencheurs/quand_touche", "figure": "declencheurs/sur_figure"}
+# figure tracée -> pictogramme v2 (icons/figures, à l'encre de la figure)
+const FIG_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "straight": "figures/trait_droit",
+	"return": "figures/aller_retour", "enso": "figures/enso", "hook": "figures/crochet"}
+# glyphe d'un pouvoir dans son médaillon (gabarit 60, disque de rayon 28) : [tracé SVG, remplissage à la couleur
+# d'élément ?]. Pouvoirs dessinés par la maquette (Rouleaux, MesPouvoirs) ; les autres gardent glyph(icon_of(id)).
+const POWER_GLYPH := {
+	"water_tide": ["M18 32 a12 12 0 0 1 24 0 M11 32 a19 19 0 0 1 38 0 M25 32 a5 5 0 0 1 10 0 M18 40 a12 12 0 0 0 24 0", false],
+	"bolt_arc": ["M15 44 L26 30 L34 37 L45 17 M15 44 m-3 0 a3 3 0 1 0 6 0 M45 17 m-3 0 a3 3 0 1 0 6 0", false],
+	"fire_burn": ["M15 45 L38 22 M34 18 L42 26 M40 33 C44 39 47 41 45 45 A4 4 0 0 1 37 45 C36 41 38 39 40 33 Z", true],
+	"fig_hook": ["M13 30 H45 M38 23 L46 30 L38 37 M13 25 V35", false],
+	"fig_hook_double": ["M13 24 H43 M36 18 L44 24 L36 30 M13 36 H43 M36 30 L44 36 L36 42", false],
+	"fig_hook_back": ["M13 30 H45 M38 23 L46 30 L38 37 M18 21 L23 30 L18 39", false],
+}
+
+static var _num_font: FontVariation = null
+static var _tex := {}  # textures SVG en cache : clé|taille|couleurs -> ImageTexture (null : échec)
+static var _hex_re: RegEx = null
+
+
+## Police des chiffres (UI v2) : Zen Kaku Gothic New. Seule la graisse Bold est embarquée : la Black 900 est
+## imitée par un léger embolden ; chiffres tabulaires (tnum) si la police les a.
+static func num_font() -> Font:
+	if _num_font == null:
+		var f := FontVariation.new()
+		f.base_font = UI_FONT
+		f.variation_embolden = 0.45
+		var ts := TextServerManager.get_primary_interface()
+		if ts != null:
+			f.opentype_features = {ts.name_to_tag("tnum"): 1}
+		_num_font = f
+	return _num_font
+
+
+## Capitales lisibles par la police réduite (sans macrons ; « Û » absent -> « U »).
+static func caps(s: String, font: Font = null) -> String:
+	var f: Font = font if font != null else UI_FONT
+	var up := plain(s).to_upper()
+	var out := ""
+	for i in up.length():
+		var ch := up.substr(i, 1)
+		if CAPS_FALLBACK.has(ch) and not f.has_char(up.unicode_at(i)):
+			ch = String(CAPS_FALLBACK[ch])
+		out += ch
+	return out
+
+
+## Dimension déclarée (la plus grande de width / height) de la balise racine d'un SVG.
+static func _svg_dim(s: String) -> float:
+	var out := 0.0
+	for attr in [' width="', ' height="']:
+		var tag := String(attr)
+		var at := s.find(tag)
+		if at < 0:
+			continue
+		var b := at + tag.length()
+		var e := s.find('"', b)
+		if e > b:
+			out = maxf(out, s.substr(b, e - b).to_float())
+	return out
+
+
+## Texture d'une source SVG, rastérisée à px pixels (sa plus grande dimension). recolor : {"#1B1A1E": "#EFE6D2"}
+## remplace des couleurs de la source ; {"*": "#RRGGBB"} les remplace toutes. key : nom court pour le cache.
+## Rien n'est importé : nette à toute taille. null si la source est vide ou illisible.
+static func svg_tex(src: String, px: float, recolor := {}, key := "") -> Texture2D:
+	if src == "" or px < 1.0:
+		return null
+	var p := clampi(int(ceil(px / 2.0)) * 2, 4, 1024)  # tailles paires : moins d'entrées dans le cache
+	var ck := "%s|%d|%s" % [key if key != "" else str(src.hash()), p, str(recolor)]
+	if _tex.has(ck):
+		return _tex[ck]
+	if _tex.size() > 400:
+		_tex.clear()
+	var s := src
+	for k in recolor.keys():
+		var to := String(recolor[k])
+		if String(k) == "*":
+			if _hex_re == null:
+				_hex_re = RegEx.new()
+				_hex_re.compile("#[0-9A-Fa-f]{6}")
+			s = _hex_re.sub(s, to, true)
+		else:
+			s = s.replace(String(k), to)
+	var dim := _svg_dim(s)
+	var img := Image.new()
+	var err := img.load_svg_from_string(s, float(p) / maxf(dim, 1.0))
+	if err != OK or img.is_empty():
+		_tex[ck] = null
+		return null
+	var t := ImageTexture.create_from_image(img)
+	_tex[ck] = t
+	return t
+
+
+## Texture d'un pictogramme v2 (clé de ui_icons.gd : « elements/feu », « effets/duree »…), px de côté.
+static func icon(key: String, px: float, recolor := {}) -> Texture2D:
+	return svg_tex(String(Icons.SVG.get(key, "")), px, recolor, key)
+
+
+## Dessine une texture centrée en c, de taille sz (sa plus grande dimension), modulée par a.
+static func _blit(ci: CanvasItem, t: Texture2D, c: Vector2, sz: float, a: float) -> void:
+	var ts := Vector2(t.get_size())
+	var ds := ts * (sz / maxf(maxf(ts.x, ts.y), 1.0))
+	ci.draw_texture_rect(t, Rect2(c - ds / 2.0, ds), false, Color(1, 1, 1, a))
+
+
+## Pictogramme v2 centré en c, de taille sz (px) ; col (alpha > 0) : tout le pictogramme dans cette couleur.
+## Renvoie false si la clé est inconnue (l'appelant dessine alors son glyph()).
+static func draw_icon(ci: CanvasItem, key: String, c: Vector2, sz: float, a := 1.0, col := NONE) -> bool:
+	if not Icons.SVG.has(key):
+		return false
+	if sz < 1.0 or a <= 0.005:
+		return true
+	var rc := {}
+	if col.a > 0.0:
+		rc = {"*": UIColors.hex(col)}
+	var t := icon(key, sz, rc)
+	if t == null:
+		return false
+	_blit(ci, t, c, sz, a * (col.a if col.a > 0.0 else 1.0))
+	return true
+
+
+## Source SVG construite (tracé d) dessinée centrée en c, taille sz (gabarit box × box).
+static func draw_path(ci: CanvasItem, d: String, box: int, c: Vector2, sz: float, stroke: Color, sw: float, fill := NONE, a := 1.0) -> void:
+	if sz < 1.0 or a <= 0.005:
+		return
+	var src := SVG_HEAD % [box, box, box, box]
+	src += '<path d="%s" fill="%s" stroke="%s" stroke-width="%s" stroke-linecap="round" stroke-linejoin="round"/></svg>' % [
+		d, UIColors.hex(fill) if fill.a > 0.0 else "none", UIColors.hex(stroke), str(sw)]
+	var t := svg_tex(src, sz, {}, "p%d|%s|%s|%s" % [d.hash(), UIColors.hex(stroke), UIColors.hex(fill) if fill.a > 0.0 else "-", str(sw)])
+	if t != null:
+		_blit(ci, t, c, sz, a)
+
+
+## Pictogramme d'une pastille d'effet (Data.EFFECTS) en couleur col, taille sz : version v2 si elle existe.
+static func fx_icon(ci: CanvasItem, name: String, c: Vector2, sz: float, col: Color, a := 1.0) -> void:
+	if FX_ICON.has(name) and draw_icon(ci, String(FX_ICON[name]), c, sz, a, col):
+		return
+	glyph(ci, name, c, sz * 0.42, col, NONE, a)
+
+
+## Déclencheur d'un pouvoir en pictogramme (couleur col, taille sz) : version v2 si elle existe.
+static func trig_icon(ci: CanvasItem, id: String, c: Vector2, sz: float, col: Color, a := 1.0) -> void:
+	var d: Dictionary = Data.POWERS.get(id, {})
+	var trig := String(d.get("trig", "always"))
+	if TRIG_ICON.has(trig) and draw_icon(ci, String(TRIG_ICON[trig]), c, sz, a, col):
+		return
+	glyph(ci, "t_" + trig, c, sz * 0.4, col, NONE, a)
+
+
+## Pictogramme de l'élément d'une école (couleur jour, ou col si alpha > 0), taille sz.
+static func element_icon(ci: CanvasItem, school: String, c: Vector2, sz: float, a := 1.0, col := NONE) -> void:
+	var tint := col if col.a > 0.0 else UIColors.element(school)
+	if not draw_icon(ci, UIColors.element_icon(school), c, sz, a, tint):
+		glyph(ci, school, c, sz * 0.42, tint, NONE, a)
+
+
+## Pictogramme d'une figure tracée, à son encre (ou col), taille sz.
+static func figure_icon(ci: CanvasItem, fig: String, c: Vector2, sz: float, a := 1.0, col := NONE) -> void:
+	var tint: Color = col
+	if col.a <= 0.0:
+		tint = UIColors.FIGURES_INK.get(fig, Toon.SUMI)
+	if not FIG_ICON.has(fig) or not draw_icon(ci, String(FIG_ICON[fig]), c, sz, a, tint):
+		_fsym(ci, fig, c, sz * 0.4, Color(tint, tint.a * a), maxf(1.2, sz * 0.07))
+
+
+## Médaillon de pouvoir v2, centré en c, s = pixels par unité du gabarit 60 : disque washi (rayon disc_r) cerné
+## de `ring` (épaisseur ring_w), filet intérieur facultatif (inner, rayon 23, épaisseur 2), glyphe sumi (trait glyph_w).
+static func power_medal(ci: CanvasItem, id: String, c: Vector2, s: float, ring: Color, disc_r: float, ring_w: float,
+		inner := NONE, glyph_w := 3.0, a := 1.0) -> void:
+	if s <= 0.0 or a <= 0.005:
+		return
+	ci.draw_circle(c, disc_r * s, Color(UIColors.WASHI_LIGHT, a))
+	if inner.a > 0.0:
+		ci.draw_arc(c, 23.0 * s, 0.0, TAU, 48, Color(inner, inner.a * a), maxf(1.0, 2.0 * s), true)
+	var gp: Array = POWER_GLYPH.get(id, [])
+	if gp.size() >= 2:
+		var fill: Color = UIColors.element(power_school(id)) if bool(gp[1]) else NONE
+		draw_path(ci, String(gp[0]), 60, c, 60.0 * s, UIColors.SUMI, glyph_w, fill, a)
+	else:
+		glyph(ci, icon_of(id), c, 15.0 * s, UIColors.SUMI, UIColors.WASHI_LIGHT, a)
+	ci.draw_arc(c, disc_r * s, 0.0, TAU, 56, Color(ring, ring.a * a), maxf(1.0, ring_w * s), true)
+
+
+## Arc en pointillés (tirets de `dash`, espaces de `gap`, en px le long de l'arc).
+static func dashed_arc(ci: CanvasItem, c: Vector2, r: float, a0: float, a1: float, col: Color, w: float, dash: float, gap: float) -> void:
+	if r <= 0.5:
+		return
+	var da := dash / r
+	var step := (dash + gap) / r
+	var t := a0
+	while t < a1 - 0.001:
+		ci.draw_arc(c, r, t, minf(t + da, a1), 4, col, w, true)
+		t += step
+
+
+## Losange plein (palier d'harmonie), demi-diagonale e, cerné de `edge` (alpha 0 : sans cerne).
+static func diamond(ci: CanvasItem, c: Vector2, e: float, col: Color, edge := NONE, ew := 1.0) -> void:
+	var pts := PackedVector2Array([c + Vector2(0, -e), c + Vector2(e, 0), c + Vector2(0, e), c + Vector2(-e, 0)])
+	if col.a > 0.0:
+		ci.draw_colored_polygon(pts, col)
+	if edge.a > 0.0:
+		pts.append(pts[0])
+		ci.draw_polyline(pts, edge, ew, true)
+
+
+## Anneau d'harmonie (gabarit 38 : 4 arcs de rayon 16, losange d'or en bas = palier 2), centré en c, rayon r.
+## owned : arcs pleins (couleur col) = pouvoirs de l'élément déjà pris ; gain : arcs suivants en or pointillé
+## (apportés par la carte) ; dim : arcs éteints ; lit : palier atteint, l'anneau s'illumine ; dia : losange.
+static func harmony_ring(ci: CanvasItem, c: Vector2, r: float, owned: int, gain: int, col: Color, dim: Color, a := 1.0,
+		lit := false, dia := true, w_on := 2.6, w_off := 2.0) -> void:
+	var k := r / 16.0
+	if lit:
+		ci.draw_circle(c, r - 1.5 * k, Color(UIColors.GOLD, 0.3 * a))
+	for i in 4:
+		var a0 := deg_to_rad(-85.0 + 90.0 * float(i))
+		var a1 := a0 + deg_to_rad(80.0)
+		if i < owned:
+			ci.draw_arc(c, r, a0, a1, 16, Color(col, col.a * a), maxf(1.0, w_on * k), true)
+		elif i < owned + gain:
+			dashed_arc(ci, c, r, a0, a1, Color(UIColors.GOLD, a), maxf(1.0, w_on * k), 3.0 * k, 2.0 * k)
+		else:
+			ci.draw_arc(c, r, a0, a1, 16, Color(dim, dim.a * a), maxf(1.0, w_off * k), true)
+	if dia:
+		diamond(ci, c + Vector2(0, 16.2 * k), 2.6 * k, Color(UIColors.GOLD, a), Color(UIColors.SUMI, a), maxf(1.0, 0.8 * k))
+
+
+## Halo sans flou : n cercles concentriques à alpha décroissant autour de c (rayon r, écart spread).
+static func halo(ci: CanvasItem, c: Vector2, r: float, col: Color, a: float, n := 3, spread := 3.0) -> void:
+	for i in n:
+		ci.draw_circle(c, r + spread * float(i + 1), Color(col, col.a * a * (0.24 - 0.07 * float(i))))
+
+
+## Rectangle aux coins arrondis (rayon rad), en polygone (sens horaire) ; top_only : coins du bas carrés.
+static func rrect_points(r: Rect2, rad: float, top_only := false) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var rr := clampf(rad, 0.0, minf(r.size.x, r.size.y) * 0.5)
+	var cs: Array = [Vector2(r.end.x - rr, r.position.y + rr), Vector2(r.end.x - rr, r.end.y - rr),
+		Vector2(r.position.x + rr, r.end.y - rr), Vector2(r.position.x + rr, r.position.y + rr)]
+	for k in 4:
+		if top_only and (k == 1 or k == 2):
+			pts.append(Vector2(r.end.x, r.end.y) if k == 1 else Vector2(r.position.x, r.end.y))
+			continue
+		var cc: Vector2 = cs[k]
+		for j in 6:
+			var ang := -PI * 0.5 + PI * 0.5 * float(k) + PI * 0.5 * float(j) / 5.0
+			pts.append(cc + Vector2(cos(ang), sin(ang)) * rr)
+	return pts
+
+
+## Valeur d'effet découpée pour l'affichage : [avant (« 3 → », vide sinon), chiffre, unité].
+## « 50 %/s » -> ["", "50", "%/s"] ; « 3 → 4 s » -> ["3 →", "4", "s"] ; « +1 » -> ["", "+1", ""].
+static func split_value(v: String) -> Array:
+	var head := ""
+	var body := v.strip_edges()
+	var k := body.find(" → ")
+	if k >= 0:
+		head = body.substr(0, k + 2)
+		body = body.substr(k + 3).strip_edges()
+	var last := -1
+	for i in body.length():
+		var cc := body.unicode_at(i)
+		if cc >= 48 and cc <= 57:
+			last = i
+	if last < 0:
+		return [head, body, ""]
+	return [head, body.substr(0, last + 1).strip_edges(), body.substr(last + 1).strip_edges()]

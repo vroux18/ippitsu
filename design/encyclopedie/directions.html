@@ -1,0 +1,277 @@
+<title>Yōkai : trois directions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&family=Zen+Kaku+Gothic+New:wght@400;700;900&display=swap">
+<style>
+/* Mise en page : trois planches de concept côte à côte (une par direction), chacune avec les mêmes 3 yōkai puis la même échelle d'évolution. */
+:root{
+  --washi:#EFE6D2; --card:#F7F1E3; --sumi:#1B1A1E; --muted:#5A5148; --line:#D9CCB0; --verm:#D7372B; --gold:#E2A93B;
+  --display:"Shippori Mincho","Yu Mincho",Georgia,serif; --ui:"Zen Kaku Gothic New","Yu Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--washi:#16151A;--card:#F2EADA;--sumi:#EFE6D2;--muted:#A79E8E;--line:#3A3640;color-scheme:dark}}
+:root[data-theme="dark"]{--washi:#16151A;--card:#F2EADA;--sumi:#EFE6D2;--muted:#A79E8E;--line:#3A3640;color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--washi);color:var(--sumi);font-family:var(--ui);margin:0;line-height:1.5}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:clamp(16px,4vw,40px);padding-block:28px 60px}
+h1{font-family:var(--display);font-size:clamp(30px,5vw,48px);margin:0 0 6px;text-wrap:balance}
+.lede{max-width:70ch;color:var(--muted);margin:0 0 28px}
+.dirs{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px}
+.dir{background:var(--card);color:#1B1A1E;border-radius:12px;overflow:hidden;border:1px solid var(--line);display:flex;flex-direction:column;min-width:0}
+.dir header{padding:16px 18px 8px}
+.tag{display:inline-block;font:900 12px var(--ui);letter-spacing:.14em;background:#1B1A1E;color:#F7F1E3;border-radius:4px;padding:2px 8px}
+.dir h2{font-family:var(--display);font-size:26px;margin:8px 0 2px;color:#1B1A1E}
+.dir p{margin:0;color:#5A5148;font-size:14px}
+.stage{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:6px 10px 0}
+.stage figure{margin:0;text-align:center}
+.stage svg{width:100%;height:auto;display:block}
+.stage figcaption{font:700 12px var(--ui);letter-spacing:.1em;color:#5A5148;margin-top:-4px}
+.evo{margin:10px 14px 0;padding:10px 6px 4px;border-top:1px dashed #CFC4AE}
+.evo h3{margin:0 0 4px 6px;font:900 11px var(--ui);letter-spacing:.14em;color:#5A5148;text-transform:uppercase}
+.evo .row{display:grid;grid-template-columns:1fr 1.15fr 1.35fr;align-items:end;gap:4px}
+.evo svg{width:100%;height:auto;display:block}
+.evo .lbl{display:grid;grid-template-columns:1fr 1.15fr 1.35fr;text-align:center;font:700 11px var(--ui);color:#5A5148;letter-spacing:.08em}
+.rules{padding:12px 18px 18px;margin-top:auto}
+.rules ul{margin:0;padding-left:18px;font-size:13.5px;color:#1B1A1E;display:grid;gap:4px}
+.common{margin-top:34px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px}
+.common h2{font-family:var(--display);font-size:24px;margin:0 0 8px}
+.common ul{margin:0;padding-left:18px;display:grid;gap:6px;max-width:65ch}
+.hero-sec{margin-top:34px}.hero-sec h2{font-family:var(--display);font-size:26px;margin:0 0 4px}
+.heroes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px}
+.heroes figure{margin:0;background:var(--card);color:#1B1A1E;border:1px solid var(--line);border-radius:12px;padding:12px 18px 18px;display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:center}
+.heroes svg{width:100%;height:auto}.heroes figcaption{font-size:14px;color:#5A5148}.heroes b{color:#1B1A1E}
+@media (max-width:480px){.heroes figure{grid-template-columns:1fr}.heroes svg{max-width:220px;margin:auto}}
+.note{margin-top:26px;color:var(--muted);font-size:13px}
+</style>
+<div class="wrap">
+<h1>Yōkai d'Ippitsu : trois directions</h1>
+<p class="lede">Croquis de concept pour refaire tous les monstres dans une même famille visuelle. Les trois planches montrent les mêmes yōkai (oni, kappa, kitsunebi) et la même montée en puissance : commun, élite, gardien. Choisis une direction (ou un mélange) : elle deviendra la règle pour les 55 monstres, modelés en code comme le ninja.</p>
+<div class="dirs" id="dirs"></div>
+<div class="common">
+<div><h2>Ce qui vaut pour toutes les directions</h2><ul>
+<li>Une seule famille : mêmes proportions, même œil, même contour d'encre, même lumière.</li>
+<li>Un monde = une palette dominante (bois et prusse au monde 1, nuit d'été au 2, glace au 3, braise au 4…).</li>
+<li>Un rôle = un signe lisible de loin : mêlée (arme en main), distance (arme levée au-dessus de la tête), soutien (lanterne ou sceau flottant), lourd (plus large, armure).</li>
+<li>Le vermillon pur reste réservé aux annonces de danger.</li>
+</ul></div>
+<div><h2>L'évolution, la même partout</h2><ul>
+<li><b>Commun</b> : silhouette simple, 2 couleurs, petit.</li>
+<li><b>Élite</b> : +20 % de taille, une pièce d'armure ou de parure en plus, liseré or, yeux plus vifs.</li>
+<li><b>Gardien</b> : +45 % de taille, couronne ou cornes doublées, motifs (seigaiha, flammes), halo d'encre or.</li>
+<li><b>Boss</b> : échelle d'arène, une seule idée forte (serpent, géant, vague), même langage de formes.</li>
+<li>Les mondes avancés gardent les mêmes règles mais avec des parures plus riches : on sent qu'on progresse.</li>
+</ul></div>
+</div>
+<p class="note">Croquis 2D pour choisir une direction : le rendu en jeu sera en 3D toon, mêmes formes et mêmes couleurs.</p>
+</div>
+<script>
+const S='#1B1A1E';
+// ---------- outils
+const P=(d,f,w=4,extra='')=>`<path d="${d}" fill="${f}" stroke="${S}" stroke-width="${w}" stroke-linejoin="round" stroke-linecap="round" ${extra}/>`;
+const C=(x,y,r,f,w=4)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${f}" stroke="${S}" stroke-width="${w}"/>`;
+const E=(x,y,rx,ry,f,w=4,extra='')=>`<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="${f}" stroke="${S}" stroke-width="${w}" ${extra}/>`;
+const shadow=(x=100,w=56)=>`<ellipse cx="${x}" cy="226" rx="${w}" ry="9" fill="#1B1A1E" opacity=".16"/>`;
+const svg=(inner,vb='0 0 200 240')=>`<svg viewBox="${vb}" xmlns="http://www.w3.org/2000/svg">${inner}</svg>`;
+const eyesToy=(y,dx=17,col='#FFF',r=11,pup='#1B1A1E',angry=true)=>{
+  let s='';for(const sx of [-1,1]){const x=100+sx*dx;s+=C(x,y,r,col,3.5)+`<circle cx="${x+sx*1.5}" cy="${y+1.5}" r="${r*.48}" fill="${pup}"/><circle cx="${x-2}" cy="${y-3}" r="${r*.2}" fill="#fff"/>`;
+  if(angry)s+=`<path d="M${x-sx*12} ${y-r-7} L${x+sx*10} ${y-r+1}" stroke="${S}" stroke-width="5" stroke-linecap="round"/>`;}return s;};
+
+// ---------- A : jouet laqué (figurine daruma)
+function A_oni(t=0){const crown=t>=2,armor=t>=1;let s=shadow(100,58+t*6);
+ s+=P('M150 118 l26 -70 l14 6 l-24 72 z','#5B4636',4); // massue
+ s+=`<g fill="#3A3C42">${[60,74,88,102].map(y=>`<circle cx="${178-(y-48)*.33}" cy="${y-6}" r="3"/>`).join('')}</g>`;
+ s+=P('M48 150 C40 90 66 54 100 54 C134 54 160 90 152 150 C148 196 126 222 100 222 C74 222 52 196 48 150 Z','#D9473A');
+ s+=P('M118 70 C140 82 150 110 148 150 C146 186 130 208 112 216 C130 196 136 160 132 128 C130 100 124 84 118 70Z','#B5352B',0);
+ s+=P('M54 168 C70 178 130 178 146 168 L142 196 C124 206 76 206 58 196 Z','#E39B32');
+ s+=`<g stroke="${S}" stroke-width="4" stroke-linecap="round"><path d="M74 176 l6 14"/><path d="M100 178 v16"/><path d="M126 176 l-6 14"/></g>`;
+ s+=P('M72 64 L60 22 L88 56 Z','#EDE1C4')+P('M128 64 L140 22 L112 56 Z','#EDE1C4');
+ if(crown)s+=P('M84 56 L100 14 L116 56 Z','#EDE1C4')+P('M64 52 C80 40 120 40 136 52','none',5)+`<g fill="${'#E2A93B'}" stroke="${S}" stroke-width="3">${[70,100,130].map(x=>`<circle cx="${x}" cy="${x==100?44:50}" r="5"/>`).join('')}</g>`;
+ s+=eyesToy(108,18,'#FFE27A',12);
+ s+=P('M78 138 C90 146 110 146 122 138 L118 150 C108 156 92 156 82 150 Z','#5A1E1A',3.5)+P('M84 140 l4 9 l4 -8 Z','#fff',2.5)+P('M116 140 l-4 9 l-4 -8 Z','#fff',2.5);
+ if(armor)s+=P('M58 120 C48 116 40 124 42 136 C52 138 60 132 62 126 Z','#3A3C42')+P('M142 120 C152 116 160 124 158 136 C148 138 140 132 138 126 Z','#3A3C42')+`<path d="M60 168 C76 176 124 176 140 168" stroke="#E2A93B" stroke-width="4" fill="none"/>`;
+ if(t>=2)s+=`<g fill="none" stroke="#E2A93B" stroke-width="2.5" opacity=".7"><circle cx="100" cy="132" r="96"/><circle cx="100" cy="132" r="103" opacity=".5"/></g>`;
+ s+=E(64,178,13,11,'#D9473A',3.5)+E(136,178,13,11,'#D9473A',3.5);
+ return svg(s);}
+function A_kappa(){let s=shadow();
+ s+=P('M56 112 C46 128 46 176 62 196 L138 196 C154 176 154 128 144 112 Z','#7A5A3A');
+ s+=P('M52 150 C46 96 70 62 100 62 C130 62 154 96 148 150 C144 194 124 220 100 220 C76 220 56 194 52 150 Z','#6FB26A');
+ s+=P('M120 76 C140 92 146 120 144 152 C142 186 128 206 112 214 C128 192 134 160 130 130 C128 104 124 90 120 76Z','#4F8F4E',0);
+ s+=E(100,64,32,10,'#BFE4EE',4)+E(100,63,22,5,'#E9F7FA',0);
+ s+=`<g fill="#2C3E2A">${[[64,70],[78,58],[122,58],[136,70]].map(([x,y])=>`<path d="M${x} ${y} l-6 -10 l12 4z"/>`).join('')}</g>`;
+ s+=eyesToy(112,19,'#FFF',11,'#1B1A1E',false);
+ s+=P('M86 134 L100 128 L114 134 L100 150 Z','#E9B23A',3.5);
+ s+=P('M44 160 C34 156 28 166 34 174 C40 178 48 174 50 168 Z','#6FB26A',3.5)+P('M156 160 C166 156 172 166 166 174 C160 178 152 174 150 168 Z','#6FB26A',3.5);
+ s+=P('M74 216 l-10 8 h22 z','#6FB26A',3.5)+P('M126 216 l10 8 h-22 z','#6FB26A',3.5);
+ return svg(s);}
+function A_kitsune(){let s=shadow(100,46);
+ s+=P('M138 170 C170 160 182 120 168 90 C182 104 194 92 190 76 C198 110 190 160 150 188 Z','#5BB4F0');
+ s+=P('M150 178 C170 166 178 140 172 118 C182 134 176 166 160 182 Z','#BDE6FF',0);
+ s+=P('M60 160 C54 112 74 80 100 80 C126 80 146 112 140 160 C136 196 120 218 100 218 C80 218 64 196 60 160 Z','#FBF5EA');
+ s+=P('M70 92 L62 40 L96 80 Z','#FBF5EA')+P('M72 82 L68 54 L88 78 Z','#E7685A',0)+P('M130 92 L138 40 L104 80 Z','#FBF5EA')+P('M128 82 L132 54 L112 78 Z','#E7685A',0);
+ s+=`<path d="M78 108 q8 -8 16 0" stroke="#D7372B" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M106 108 q8 -8 16 0" stroke="#D7372B" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+ s+=`<path d="M80 124 q6 6 12 0 M108 124 q6 6 12 0" stroke="${S}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+ s+=E(100,142,6,4.5,'#1B1A1E',0)+`<path d="M100 92 l-6 14 h12 z" fill="#D7372B"/>`;
+ s+=C(48,128,15,'#5BB4F0',3.5)+C(48,128,7,'#E9F7FF',0);
+ return svg(s);}
+
+// ---------- B : masque d'estampe (nō + ukiyo-e)
+const pat=(id,col,bg)=>`<defs><pattern id="${id}" width="20" height="10" patternUnits="userSpaceOnUse"><rect width="20" height="10" fill="${bg}"/><path d="M0 10 a10 10 0 0 1 20 0 M4 10 a6 6 0 0 1 12 0" fill="none" stroke="${col}" stroke-width="1.6"/></pattern></defs>`;
+function B_oni(t=0){let s=pat('sgB'+t,'#E9D8B4','#1F3A5F')+shadow(100,50+t*6);
+ s+=P('M60 236 L70 150 L130 150 L140 236 Z',`url(#sgB${t})`,3.5);
+ s+=P('M62 150 L100 186 L138 150 L132 140 L68 140 Z','#EFE6D2',3);
+ s+=P('M60 158 L140 158 L138 170 L62 170 Z','#C49A45',3);
+ s+=P('M146 196 L176 70 L186 72 L158 200 Z','#2F2A36',3.5)+`<path d="M176 70 l10 2" stroke="#C49A45" stroke-width="6"/>`;
+ s+=P('M54 92 C54 52 76 34 100 34 C124 34 146 52 146 92 C146 124 128 142 100 142 C72 142 54 124 54 92 Z','#C8423A',3.5);
+ s+=P('M60 46 C50 30 46 18 50 6 C62 18 70 30 74 40 Z','#F3E7C9',3)+P('M140 46 C150 30 154 18 150 6 C138 18 130 30 126 40 Z','#F3E7C9',3);
+ if(t>=2)s+=P('M88 36 C90 20 96 10 100 2 C104 10 110 20 112 36 Z','#E2A93B',3);
+ s+=P('M66 80 L92 88 L90 96 L68 92 Z','#F3E7C9',2.5)+P('M134 80 L108 88 L110 96 L132 92 Z','#F3E7C9',2.5);
+ s+=`<circle cx="82" cy="91" r="3.2" fill="${S}"/><circle cx="118" cy="91" r="3.2" fill="${S}"/>`;
+ s+=`<path d="M62 74 Q80 62 96 76 M138 74 Q120 62 104 76" stroke="${S}" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+ s+=P('M76 112 Q100 126 124 112 L118 128 Q100 136 82 128 Z','#1B1A1E',3)+P('M82 114 l3 10 l4 -9 Z M118 114 l-3 10 l-4 -9 Z','#F3E7C9',2);
+ if(t>=1)s+=P('M50 140 L66 132 L74 150 L56 160 Z','#3A3846',3)+P('M150 140 L134 132 L126 150 L144 160 Z','#3A3846',3)+`<path d="M60 170 H140" stroke="#E2A93B" stroke-width="3"/>`;
+ if(t>=2)s+=`<g fill="none" stroke="#E2A93B" stroke-width="2" opacity=".7"><path d="M24 210 Q100 -40 176 210"/><path d="M14 214 Q100 -60 186 214" opacity=".5"/></g>`;
+ return svg(s);}
+function B_kappa(){let s=pat('sgK','#9DC1B4','#2E5E55')+shadow(100,48);
+ s+=P('M64 236 L72 146 L128 146 L136 236 Z',`url(#sgK)`,3.5);
+ s+=P('M52 150 C40 170 44 210 60 226 L74 150 Z','#7A5A3A',3);
+ s+=P('M60 160 L140 160 L138 172 L62 172 Z','#D7372B',3);
+ s+=P('M58 96 C58 58 78 40 100 40 C122 40 142 58 142 96 C142 128 124 146 100 146 C76 146 58 128 58 96 Z','#7FB38A',3.5);
+ s+=E(100,44,30,8,'#DDEFF2',3.5);
+ s+=`<path d="M58 70 Q70 46 100 50 Q130 46 142 70" stroke="#1E2A22" stroke-width="7" fill="none"/>`;
+ s+=P('M70 88 L92 92 L90 100 L72 98 Z','#F3E7C9',2.5)+P('M130 88 L108 92 L110 100 L128 98 Z','#F3E7C9',2.5)+`<circle cx="83" cy="95" r="3" fill="${S}"/><circle cx="117" cy="95" r="3" fill="${S}"/>`;
+ s+=P('M86 112 L100 106 L114 112 L100 130 Z','#E2A93B',3);
+ s+=P('M150 150 Q172 120 168 96','none',4)+P('M162 92 l12 6 l-14 6 Z','#B4BAC2',3);
+ return svg(s);}
+function B_kitsune(){let s=shadow(100,44);
+ s+=P('M134 196 C176 186 186 140 170 108 C186 120 196 110 192 94 C200 130 190 180 146 206 Z','#F3E7C9',3.5);
+ s+=P('M150 196 C172 182 178 158 172 138','none',3,'stroke-dasharray="4 6" opacity=".6"');
+ s+=P('M66 236 L74 150 L126 150 L134 236 Z','#F3E7C9',3.5)+P('M66 236 L74 150 L100 196 Z','#D7372B',0)+`<path d="M74 150 L100 196 L126 150" stroke="${S}" stroke-width="3" fill="none"/>`;
+ s+=P('M64 98 C64 64 82 50 100 50 C118 50 136 64 136 98 C136 126 120 146 100 152 C80 146 64 126 64 98 Z','#FBF6EC',3.5);
+ s+=P('M70 66 L62 18 L94 56 Z','#FBF6EC',3.5)+P('M130 66 L138 18 L106 56 Z','#FBF6EC',3.5);
+ s+=P('M72 84 Q84 76 94 90 Q82 92 72 84 Z','#D7372B',2)+P('M128 84 Q116 76 106 90 Q118 92 128 84 Z','#D7372B',2);
+ s+=`<path d="M78 86 q6 4 12 2 M122 86 q-6 4 -12 2" stroke="${S}" stroke-width="3.5" fill="none" stroke-linecap="round"/>`;
+ s+=`<path d="M100 60 v16" stroke="#D7372B" stroke-width="5" stroke-linecap="round"/>`+E(100,130,5,4,S,0);
+ s+=P('M36 140 C30 124 40 110 48 100 C50 112 60 118 58 132 C56 144 44 150 36 140 Z','#5BB4F0',3);
+ return svg(s);}
+
+// ---------- C : encre vivante (sumi + une couleur)
+const inkBody=(d,fill='#1B1A1E')=>`<path d="${d}" fill="${fill}"/>`;
+const drips=(xs,y)=>xs.map(([x,l])=>`<path d="M${x-5} ${y} q5 ${l} 10 0 z" fill="#1B1A1E"/><circle cx="${x}" cy="${y+l*.8}" r="4.5" fill="#1B1A1E"/>`).join('');
+const glowEye=(x,y,c,r=8)=>`<circle cx="${x}" cy="${y}" r="${r+7}" fill="${c}" opacity=".18"/><circle cx="${x}" cy="${y}" r="${r+3}" fill="${c}" opacity=".35"/><circle cx="${x}" cy="${y}" r="${r}" fill="${c}"/><circle cx="${x}" cy="${y}" r="${r*.4}" fill="#FFF8E0"/>`;
+function C_oni(t=0){const g=t>=1;let s=shadow(100,54+t*6)+`<path d="M30 226 q20 -10 40 0 q10 -6 22 2" fill="none" stroke="#1B1A1E" stroke-width="3" opacity=".3"/>`;
+ s+=`<path d="M156 112 l18 -66 l12 4 l-16 68 z" fill="#1B1A1E"/>`;
+ s+=inkBody('M46 150 C36 98 62 56 100 54 C142 54 166 96 154 152 C150 182 138 206 132 214 C122 220 112 214 104 220 C92 214 84 222 72 214 C60 206 50 184 46 150 Z');
+ s+=drips([[70,12],[96,18],[124,10]],212);
+ s+=`<path d="M64 74 L52 26 L86 60 Z" fill="#D9473A"/><path d="M136 74 L148 26 L114 60 Z" fill="#D9473A"/>`;
+ if(t>=2)s+=`<path d="M86 58 L100 14 L114 58 Z" fill="#E2A93B"/>`;
+ s+=`<path d="M60 90 Q100 70 140 90 L136 120 Q100 108 64 120 Z" fill="#D9473A"/>`;
+ s+=glowEye(82,104,'#FFD34A',8)+glowEye(118,104,'#FFD34A',8);
+ s+=`<path d="M78 146 Q100 160 122 146" stroke="#D9473A" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M84 148 l4 10 l4 -8 M116 148 l-4 10 l-4 -8" stroke="#F3E7C9" stroke-width="3.5" fill="none" stroke-linejoin="round"/>`;
+ if(g)s+=`<path d="M56 176 C80 186 120 186 144 176" stroke="#E2A93B" stroke-width="5" fill="none"/><path d="M44 128 q-12 4 -8 18 q10 0 14 -10z M156 128 q12 4 8 18 q-10 0 -14 -10z" fill="#E2A93B"/>`;
+ if(t>=2)s+=`<g fill="none" stroke="#E2A93B" stroke-width="2.5" opacity=".75"><path d="M18 220 C10 120 60 30 100 30 C140 30 190 120 182 220"/></g><g fill="#1B1A1E">${[[24,60],[176,70],[30,180],[172,170]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="5"/><circle cx="${x+9}" cy="${y+6}" r="2.5"/>`).join('')}</g>`;
+ return svg(s);}
+function C_kappa(){let s=shadow(100,52);
+ s+=inkBody('M48 152 C40 104 64 66 100 64 C138 66 160 104 152 152 C148 186 132 212 120 216 C110 210 100 220 90 214 C78 220 60 200 48 152 Z');
+ s+=drips([[78,14],[112,10]],210);
+ s+=`<ellipse cx="100" cy="66" rx="34" ry="9" fill="#4FC9B0"/><ellipse cx="100" cy="64" rx="22" ry="4" fill="#C9FFF2"/>`;
+ s+=`<path d="M70 92 Q100 84 130 92 L126 104 Q100 98 74 104 Z" fill="#4FC9B0"/>`;
+ s+=glowEye(84,118,'#B6FFE8',7)+glowEye(116,118,'#B6FFE8',7);
+ s+=`<path d="M88 138 L100 132 L112 138 L100 154 Z" fill="#E9B23A"/>`;
+ s+=`<path d="M40 162 q-12 -2 -12 10 q8 8 18 0z M160 162 q12 -2 12 10 q-8 8 -18 0z" fill="#1B1A1E"/>`;
+ return svg(s);}
+function C_kitsune(){let s=shadow(100,44);
+ s+=`<path d="M136 176 C172 168 186 126 170 92 C186 106 198 94 192 76 C204 116 190 168 148 194 Z" fill="#1B1A1E"/>`;
+ s+=`<path d="M150 182 C170 170 180 142 174 116" stroke="#5BB4F0" stroke-width="5" fill="none" stroke-linecap="round"/><circle cx="174" cy="96" r="10" fill="#5BB4F0" opacity=".9"/><circle cx="174" cy="96" r="18" fill="#5BB4F0" opacity=".2"/>`;
+ s+=inkBody('M62 160 C56 116 76 84 100 84 C124 84 144 116 138 160 C134 192 122 214 112 216 C104 210 96 218 88 214 C78 214 66 194 62 160 Z');
+ s+=`<path d="M70 96 L62 42 L96 84 Z M130 96 L138 42 L104 84 Z" fill="#1B1A1E"/>`;
+ s+=`<path d="M70 100 Q100 88 130 100 Q126 132 100 140 Q74 132 70 100 Z" fill="#FBF5EA"/>`;
+ s+=`<path d="M78 108 q8 -7 16 0 M106 108 q8 -7 16 0" stroke="#D7372B" stroke-width="4.5" fill="none" stroke-linecap="round"/>`;
+ s+=glowEye(86,118,'#5BB4F0',5)+glowEye(114,118,'#5BB4F0',5);
+ s+=`<circle cx="44" cy="130" r="20" fill="#5BB4F0" opacity=".2"/><circle cx="44" cy="130" r="12" fill="#5BB4F0"/><circle cx="44" cy="130" r="5" fill="#E9F7FF"/>`;
+ return svg(s);}
+
+// ---------- D : masque d'encre (B + C)
+function D_oni(t=0){let s=pat('sgD'+t,'#E9D8B4','#1F3A5F')+shadow(100,52+t*6);
+ s+=`<path d="M152 118 l20 -74 l12 4 l-18 76 z" fill="#1B1A1E"/><path d="M168 52 l14 4" stroke="#C49A45" stroke-width="7"/>`;
+ s+=inkBody('M50 156 C40 110 62 74 100 72 C140 74 162 110 150 158 C146 186 136 208 128 214 C118 220 110 212 102 220 C92 212 82 222 72 214 C60 204 52 184 50 156 Z');
+ s+=drips([[72,12],[100,18],[126,10]],210);
+ s+=`<path d="M56 160 Q100 150 144 160 L140 190 Q100 182 60 190 Z" fill="url(#sgD${t})"/><path d="M56 160 Q100 150 144 160" stroke="#C49A45" stroke-width="4" fill="none"/>`;
+ s+=P('M60 98 C60 62 78 44 100 44 C122 44 140 62 140 98 C140 124 124 138 100 140 C76 138 60 124 60 98 Z','#C8423A',3);
+ s+=P('M64 56 C54 40 52 26 56 12 C66 24 74 36 78 48 Z','#F3E7C9',3)+P('M136 56 C146 40 148 26 144 12 C134 24 126 36 122 48 Z','#F3E7C9',3);
+ if(t>=2)s+=P('M90 46 C92 28 96 18 100 8 C104 18 108 28 110 46 Z','#E2A93B',3);
+ s+=`<path d="M66 82 Q82 72 96 84 M134 82 Q118 72 104 84" stroke="${S}" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+ s+=P('M68 88 L94 94 L92 102 L70 98 Z','#1B1A1E',2)+P('M132 88 L106 94 L108 102 L130 98 Z','#1B1A1E',2);
+ s+=`<circle cx="82" cy="96" r="5" fill="#FFD34A"/><circle cx="118" cy="96" r="5" fill="#FFD34A"/><circle cx="82" cy="96" r="10" fill="#FFD34A" opacity=".25"/><circle cx="118" cy="96" r="10" fill="#FFD34A" opacity=".25"/>`;
+ s+=P('M78 116 Q100 130 122 116 L116 130 Q100 138 84 130 Z','#1B1A1E',3)+P('M84 118 l3 10 l4 -9 Z M116 118 l-3 10 l-4 -9 Z','#F3E7C9',2);
+ if(t>=1)s+=`<path d="M40 128 q-12 6 -6 20 q10 -2 14 -12z M160 128 q12 6 6 20 q-10 -2 -14 -12z" fill="#E2A93B" stroke="${S}" stroke-width="3"/>`;
+ if(t>=2)s+=`<g fill="none" stroke="#E2A93B" stroke-width="2.5" opacity=".75"><path d="M18 222 C10 120 60 22 100 22 C140 22 190 120 182 222"/></g><g fill="#1B1A1E">${[[24,64],[176,74],[28,182],[174,172]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="5"/><circle cx="${x+9}" cy="${y+6}" r="2.5"/>`).join('')}</g>`;
+ return svg(s);}
+function D_kappa(){let s=pat('sgDK','#9DC1B4','#2E5E55')+shadow(100,50);
+ s+=inkBody('M50 156 C42 112 64 78 100 76 C138 78 158 112 150 156 C146 188 132 212 120 216 C110 210 100 220 90 214 C78 220 60 200 50 156 Z');
+ s+=drips([[80,14],[114,10]],210);
+ s+=`<path d="M58 162 Q100 152 142 162 L138 184 Q100 176 62 184 Z" fill="url(#sgDK)"/><path d="M58 162 Q100 152 142 162" stroke="#D7372B" stroke-width="4" fill="none"/>`;
+ s+=P('M64 104 C64 72 80 56 100 56 C120 56 136 72 136 104 C136 128 120 142 100 144 C80 142 64 128 64 104 Z','#7FB38A',3);
+ s+=E(100,58,30,8,'#DDEFF2',3);
+ s+=P('M72 92 L94 96 L92 104 L74 102 Z','#1B1A1E',2)+P('M128 92 L106 96 L108 104 L126 102 Z','#1B1A1E',2)+`<circle cx="84" cy="99" r="4.5" fill="#B6FFE8"/><circle cx="116" cy="99" r="4.5" fill="#B6FFE8"/>`;
+ s+=P('M88 116 L100 110 L112 116 L100 132 Z','#E2A93B',3);
+ s+=`<path d="M42 166 q-12 -2 -12 10 q8 8 18 0z M158 166 q12 -2 12 10 q-8 8 -18 0z" fill="#1B1A1E"/>`;
+ return svg(s);}
+function D_kitsune(){let s=shadow(100,44);
+ s+=`<path d="M136 180 C172 170 186 128 170 94 C186 108 198 96 192 78 C204 118 190 170 148 198 Z" fill="#1B1A1E"/><path d="M152 186 C172 172 180 144 174 118" stroke="#5BB4F0" stroke-width="5" fill="none" stroke-linecap="round"/><circle cx="174" cy="98" r="10" fill="#5BB4F0"/><circle cx="174" cy="98" r="18" fill="#5BB4F0" opacity=".2"/>`;
+ s+=inkBody('M62 162 C56 120 76 92 100 92 C124 92 144 120 138 162 C134 194 122 214 112 216 C104 210 96 218 88 214 C78 214 66 196 62 162 Z');
+ s+=`<path d="M66 176 L100 210 L134 176" stroke="#D7372B" stroke-width="5" fill="none"/>`;
+ s+=P('M66 104 C66 74 82 62 100 62 C118 62 134 74 134 104 C134 128 120 146 100 150 C80 146 66 128 66 104 Z','#FBF6EC',3);
+ s+=P('M70 76 L62 26 L94 64 Z','#FBF6EC',3)+P('M130 76 L138 26 L106 64 Z','#FBF6EC',3)+`<path d="M72 68 L68 44 L86 64 Z M128 68 L132 44 L114 64 Z" fill="#D7372B"/>`;
+ s+=P('M72 92 Q84 84 94 98 Q82 100 72 92 Z','#D7372B',2)+P('M128 92 Q116 84 106 98 Q118 100 128 92 Z','#D7372B',2);
+ s+=`<path d="M78 96 q6 4 12 2 M122 96 q-6 4 -12 2" stroke="${S}" stroke-width="3.5" fill="none" stroke-linecap="round"/><circle cx="84" cy="97" r="2.5" fill="#5BB4F0"/><circle cx="116" cy="97" r="2.5" fill="#5BB4F0"/>`;
+ s+=`<path d="M100 70 v14" stroke="#D7372B" stroke-width="5" stroke-linecap="round"/>`+E(100,134,5,4,S,0);
+ s+=`<circle cx="42" cy="134" r="20" fill="#5BB4F0" opacity=".2"/><circle cx="42" cy="134" r="12" fill="#5BB4F0"/><circle cx="42" cy="134" r="5" fill="#E9F7FF"/>`;
+ return svg(s);}
+
+// ---------- Héros
+function H_washi(){let s=pat('sgH','#9FB6D0','#1F3A5F')+shadow(100,40);
+ s+=P('M118 92 C150 96 176 120 188 150 C170 132 150 124 128 122 Z','#D7372B',3.5); // écharpe au vent
+ s+=P('M70 236 L76 168 L124 168 L130 236 L106 236 L100 196 L94 236 Z',`url(#sgH)`,3.5); // hakama
+ s+=P('M66 172 C64 140 74 116 100 116 C126 116 136 140 134 172 Z','#F3ECDD',3.5); // kimono washi
+ s+=P('M86 118 L100 150 L114 118','none',3)+P('M66 164 H134 V176 H66 Z','#1B1A1E',3);
+ s+=P('M98 120 Q118 104 126 92 L134 96 Q124 112 104 126 Z','#D7372B',3);
+ s+=P('M140 186 L182 98','none',6)+P('M140 186 L182 98','none',2.5,'stroke="#E9DCC0"')+P('M176 110 l10 -20','none',6,'stroke="#C49A45"');
+ s+=E(100,96,22,24,'#F1DCC4',3.5); // visage
+ s+=`<path d="M86 96 q6 -4 12 0 M102 96 q6 -4 12 0" stroke="${S}" stroke-width="4" fill="none" stroke-linecap="round"/>`;
+ s+=P('M46 84 Q100 30 154 84 Q100 74 46 84 Z','#C9A55A',3.5)+P('M96 50 L100 40 L104 50','none',3); // kasa
+ s+=`<path d="M60 78 Q100 70 140 78" stroke="#8E6E36" stroke-width="2" fill="none"/>`;
+ s+=P('M76 150 C66 160 60 172 62 182','none',4)+C(62,184,7,'#F1DCC4',3);
+ return svg(s);}
+function H_ink(){let s=shadow(100,40);
+ s+=P('M118 96 C150 100 176 124 188 154 C170 136 150 128 128 126 Z','#D7372B',3.5);
+ s+=inkBody('M66 176 C62 140 76 116 100 116 C124 116 138 140 134 176 C132 200 124 214 116 218 C108 212 100 220 92 214 C82 218 70 204 66 176 Z');
+ s+=drips([[86,10],[112,12]],212);
+ s+=`<path d="M70 160 H130 V172 H70 Z" fill="#C49A45"/>`;
+ s+=`<path d="M140 186 L182 98" stroke="#E9DCC0" stroke-width="4"/><path d="M176 110 l10 -20" stroke="#C49A45" stroke-width="6"/>`;
+ s+=P('M76 92 C76 66 88 56 100 56 C112 56 124 66 124 92 C124 112 114 124 100 126 C86 124 76 112 76 92 Z','#F7F1E3',3);
+ s+=`<path d="M82 88 L96 92 M118 88 L104 92" stroke="${S}" stroke-width="4" stroke-linecap="round"/><path d="M100 64 v10" stroke="#D7372B" stroke-width="5" stroke-linecap="round"/>`;
+ s+=`<path d="M70 60 Q100 46 130 60 L126 70 Q100 60 74 70 Z" fill="#D7372B"/>`;
+ return svg(s);}
+document.addEventListener('DOMContentLoaded',()=>{});
+window.__hero=()=>`<section class="hero-sec"><h2>Le héros dans ce monde d'encre</h2><p class="lede">Les yōkai sont faits d'encre ; le héros doit rester le plus lisible de l'écran. Deux pistes :</p>
+<div class="heroes"><figure>${H_washi()}<figcaption><b>1 · Ronin de papier</b> : kimono washi clair, hakama à vagues prusse, chapeau de paille, écharpe vermillon au vent. Le seul personnage clair et à visage nu : il ressort sur tous les sols, et l'opposition « papier contre encre » raconte le jeu.</figcaption></figure>
+<figure>${H_ink()}<figcaption><b>2 · Maître du pinceau</b> : lui aussi fait d'encre, avec un masque blanc et un bandeau vermillon. Même famille que les yōkai, mais moins lisible au milieu d'eux.</figcaption></figure></div></section>`;
+
+const DIRS=[
+ {k:'A',name:'Jouet laqué',sub:'Figurines daruma et kokeshi : corps en œuf, grands yeux, couleurs franches et brillantes.',
+  m:[A_oni(0),A_kappa(),A_kitsune()],evo:[A_oni(0),A_oni(1),A_oni(2)],
+  rules:['Corps et tête fondus en une forme ronde : silhouette très lisible de loin.','Deux tons par couleur (aplat + ombre), un reflet blanc.','Très gai et coloré, proche du style des maquettes UI v2.','Risque : un peu « enfantin », moins de menace.']},
+ {k:'B',name:'Masque d\'estampe',sub:'Masques de nō peints, kimonos à motifs seigaiha, palette des estampes (prusse, vermillon, or).',
+  m:[B_oni(0),B_kappa(),B_kitsune()],evo:[B_oni(0),B_oni(1),B_oni(2)],
+  rules:['Proportions chibi héroïques comme le ninja (tête ≈ 1/3).','Chaque yōkai porte un masque peint : expression forte, visage reconnaissable.','Motifs japonais sur les vêtements : le plus « Hokusai » des trois.','Risque : plus de détails, à doser pour la lisibilité à 10 m.']},
+ {k:'C',name:'Encre vivante',sub:'Les yōkai sont faits d\'encre sumi : corps noir qui coule, une seule couleur vive, yeux lumineux.',
+  m:[C_oni(0),C_kappa(),C_kitsune()],evo:[C_oni(0),C_oni(1),C_oni(2)],
+  rules:['Lien direct avec le thème : tu tranches de l\'encre avec de l\'encre.','Une couleur par yōkai (cornes, masque, coupelle) : lisible et cohérent.','Kill spectaculaire : le monstre éclate en encre.','Risque : moins de variété de couleurs à l\'écran, sol sombre à éviter.']},
+ {k:'B + C',name:'Masque d\'encre',sub:'Le mélange : corps d\'encre vivante qui coule, masque de nō peint et étoffe à motifs d\'estampe aux couleurs du monde.',
+  m:[D_oni(0),D_kappa(),D_kitsune()],evo:[D_oni(0),D_oni(1),D_oni(2)],
+  rules:['Le corps d\'encre fait la famille : tous les yōkai sont « nés du pinceau ».','Le masque peint fait l\'identité : expression forte, reconnaissable de loin.','L\'étoffe à motifs porte la couleur du monde : on sent où l\'on est.','Yeux lumineux à travers le masque ; au kill, le masque tombe et l\'encre éclate.']},
+];
+document.getElementById('dirs').innerHTML=DIRS.map(d=>`<article class="dir"><header><span class="tag">DIRECTION ${d.k}</span><h2>${d.name}</h2><p>${d.sub}</p></header>
+<div class="stage">${d.m.map((x,i)=>`<figure>${x}<figcaption>${['ONI','KAPPA','KITSUNEBI'][i]}</figcaption></figure>`).join('')}</div>
+<div class="evo"><h3>Évolution de l'oni</h3><div class="row">${d.evo.join('')}</div><div class="lbl"><span>COMMUN</span><span>ÉLITE</span><span>GARDIEN</span></div></div>
+<div class="rules"><ul>${d.rules.map(r=>`<li>${r}</li>`).join('')}</ul></div></article>`).join('');
+document.getElementById('dirs').insertAdjacentHTML('afterend',window.__hero());
+</script>

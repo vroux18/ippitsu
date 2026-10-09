@@ -7,6 +7,11 @@ const UiKit = preload("res://scripts/ui_kit.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Score = preload("res://scripts/score.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
+# pictogramme d'un monde d'après son kanji (UI v2 : plus de kanji dans l'interface). Vague, bambou, neige :
+# planches ; feu, encre, ciel, dragon, enfers : correspondances provisoires, à valider.
+const WORLD_ICON := {"波": "hud/vague", "竹": "hud/bambou", "雪": "hud/neige", "火": "elements/feu", "墨": "hud/pinceau",
+	"天": "hud/etoile", "龍": "hud/couronne", "冥": "elements/ombre"}
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
 # feuille de résultats : hauteurs des blocs (× u) et sceaux par ligne
 const HEAD_H := 164.0
@@ -91,6 +96,10 @@ var _title := FontVariation.new()
 var _title_wide := FontVariation.new()  # titre IPPITSU de l'accueil, lettres espacées
 var _ui := FontVariation.new()
 var _small := FontVariation.new()  # légendes des entrées de l'accueil
+var _tag_font := FontVariation.new()  # étiquettes de la pause (OPTIONS, QUITTER) : Shippori espacée
+var _resume_font := FontVariation.new()  # REPRENDRE : Shippori largement espacée
+var _pause_title := FontVariation.new()  # PAUSE dans l'en-tête sumi (espacement 8 u)
+var _band_font := FontVariation.new()  # POUVOIRS sur la bande de la pause (espacement 3 u)
 var _play: Control
 var _replay: Control
 var _next: Control
@@ -190,17 +199,28 @@ func _ready() -> void:
 	_home.lead_icon = "home"
 	_home.pressed.connect(func(): home_pressed.emit())
 
-	# pause : REPRENDRE au pinceau, la rangée des pouvoirs ouvre MES POUVOIRS, deux actions confirmées
+	# pause : REPRENDRE au pinceau, la bande des pouvoirs ouvre MES POUVOIRS, deux actions confirmées en étiquettes
+	_tag_font.base_font = UiKit.TITLE_FONT
+	_tag_font.spacing_glyph = 2
+	_resume_font.base_font = UiKit.TITLE_FONT
+	_resume_font.spacing_glyph = 6
+	_pause_title.base_font = UiKit.TITLE_FONT
+	_pause_title.spacing_glyph = 8
+	_band_font.base_font = UiKit.TITLE_FONT
+	_band_font.spacing_glyph = 3
 	_resume = _button("REPRENDRE", "brush")
-	_resume.lead_icon = "play"
+	_resume.font = _resume_font
 	_resume.pressed.connect(func(): resume_pressed.emit())
 	_powers_btn = _button("MES POUVOIRS", "area")
 	_powers_btn.pressed.connect(func(): powers_pressed.emit())
-	_restart = _button("RECOMMENCER", "text")
-	_restart.lead_icon = "replay"
+	_restart = _button("RECOMMENCER", "label")
+	_restart.icon = "replay"
+	_restart.font = _tag_font
 	_restart.pressed.connect(func(): _confirm_press("restart"))
-	_quit = _button("QUITTER", "text")
-	_quit.lead_icon = "home"
+	_quit = _button("QUITTER", "label")
+	_quit.icon = "quit"
+	_quit.danger = true
+	_quit.font = _tag_font
 	_quit.pressed.connect(func(): _confirm_press("quit"))
 	show_mode("home")
 
@@ -355,7 +375,7 @@ func _process(_delta: float) -> void:
 	_quit.visible = mode == "pause"
 	_restart.visible = mode == "pause"
 	_powers_btn.visible = mode == "pause"
-	_sound.visible = mode == "home" or mode == "pause"
+	_sound.visible = mode == "home"  # en pause, le son se règle dans OPTIONS (planche Pause v2)
 	_atelier.visible = mode == "home"
 	_dojo.visible = mode == "home"
 	_wardrobe.visible = mode == "home"
@@ -378,6 +398,9 @@ func _layout_home(w: float, h: float, u: float) -> void:
 	var ib: float = UiKit.ICON_BTN * u
 	_sound.size = Vector2(ib, ib)
 	_sound.position = Vector2(w - 14.0 * u - ib, ty)
+	# réglages : icône nue à l'accueil (étiquette OPTIONS en pause)
+	_gear.style = "bare"
+	_gear.text = ""
 	_gear.size = Vector2(ib, ib)
 	_gear.position = _sound.position - Vector2(ib + 4.0 * u, 0)
 	_help.size = Vector2(ib, ib)
@@ -468,36 +491,42 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 			bc.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
-## Pause : réglages en haut de la carte, la rangée des pouvoirs, REPRENDRE au pinceau,
-## RECOMMENCER et QUITTER côte à côte (second toucher pour confirmer).
+## Pause (UI v2, planche Pause) : feuille à en-tête sumi, trois tuiles (étape, temps, score), bande POUVOIRS
+## (ouvre MES POUVOIRS), REPRENDRE au pinceau, OPTIONS et QUITTER en étiquettes, RECOMMENCER dessous
+## (QUITTER et RECOMMENCER : second toucher pour confirmer, l'étiquette s'arme en vermillon).
 func _layout_pause(u: float) -> void:
 	var pc := _pause_card()
-	# réglages et son : boutons ronds de l'en-tête commun, centrés à (HEAD_X, HEAD_Y) des coins de la carte
-	var ib: float = UiKit.ICON_BTN * u
-	var hc := Vector2(UiKit.HEAD_X, UiKit.HEAD_Y) * u
-	_gear.size = Vector2(ib, ib)
-	_gear.position = pc.position + hc - Vector2(ib, ib) / 2.0
-	_sound.size = Vector2(ib, ib)
-	_sound.position = Vector2(pc.end.x - hc.x - ib / 2.0, pc.position.y + hc.y - ib / 2.0)
 	var pr := _powers_rect(pc, u)
 	_powers_btn.position = pr.position
 	_powers_btn.size = pr.size
-	var rw := pc.size.x - 64.0 * u
+	_spacing(_tag_font, maxi(1, int(2.0 * u)))
+	_spacing(_resume_font, maxi(1, int(6.0 * u)))
+	var rw := pc.size.x - 40.0 * u
 	_resume.size = Vector2(rw, UiKit.BTN_MAIN_H * u)
-	_resume.position = Vector2(pc.get_center().x - rw / 2.0, pc.position.y + 309.0 * u)
+	_resume.position = Vector2(pc.get_center().x - rw / 2.0, pc.position.y + 303.0 * u)
 	_resume.reveal = clampf((_t - 0.1) / 0.45, 0.0, 1.0)
 	_resume.font_size = _fit_font(_resume, int(21 * u), rw * 0.6)
 	_restart.text = "CONFIRMER" if _confirm == "restart" else "RECOMMENCER"
 	_restart.accent = _confirm == "restart"
 	_quit.text = "CONFIRMER" if _confirm == "quit" else "QUITTER"
 	_quit.accent = _confirm == "quit"
-	var hw := (pc.size.x - 40.0 * u) / 2.0
-	_restart.size = Vector2(hw, UiKit.BTN_H * u)
-	_restart.position = Vector2(pc.position.x + 20.0 * u, pc.position.y + 408.0 * u)
-	_quit.size = Vector2(hw, UiKit.BTN_H * u)
-	_quit.position = Vector2(pc.position.x + 20.0 * u + hw, pc.position.y + 408.0 * u)
-	_restart.font_size = _fit_font(_restart, int(14 * u), hw - 14.0 * u)
-	_quit.font_size = _fit_font(_quit, int(14 * u), hw - 14.0 * u)
+	# étiquettes 150 × 46 : OPTIONS à gauche, QUITTER à droite, RECOMMENCER centré dessous
+	var lw := 150.0 * u
+	var lh := 46.0 * u
+	_gear.style = "label"
+	_gear.icon = "gear"
+	_gear.text = "OPTIONS"
+	_gear.font = _tag_font
+	_gear.size = Vector2(lw, lh)
+	_gear.position = Vector2(pc.position.x + 20.0 * u, pc.position.y + 396.0 * u)
+	_quit.size = Vector2(lw, lh)
+	_quit.position = Vector2(pc.end.x - 20.0 * u - lw, pc.position.y + 396.0 * u)
+	var rlw := 176.0 * u
+	_restart.size = Vector2(rlw, lh)
+	_restart.position = Vector2(pc.get_center().x - rlw / 2.0, pc.position.y + 456.0 * u)
+	for b in [_gear, _quit, _restart]:
+		var lb: Control = b
+		lb.font_size = int(13 * u)
 
 
 func _draw() -> void:
@@ -1062,84 +1091,119 @@ func _draw_record_stamp(c: Vector2, u: float, a: float) -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-## Carte de la pause (au centre de l'écran, dans les marges de sécurité).
+## Carte de la pause (planche Pause v2 : 352 × 560 u, au centre de l'écran, dans les marges de sécurité).
 func _pause_card() -> Rect2:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
-	var cw := minf(w * 0.9, 360.0 * u)  # même largeur que les options et MES POUVOIRS
-	var ch := 470.0 * u
+	var cw := minf(w - 32.0 * u, 352.0 * u)
+	var ch := minf(560.0 * u, maxf(510.0 * u, h - _safe.x - _safe.y - 24.0 * u))
 	var lo := _safe.x + 12.0 * u
 	var cy := clampf(h * 0.5 - ch / 2.0, lo, maxf(lo, h - _safe.y - 12.0 * u - ch))
 	return Rect2(Vector2((w - cw) / 2.0, cy), Vector2(cw, ch))
 
 
-## Rangée des pouvoirs de la pause : la toucher ouvre MES POUVOIRS.
+## Bande POUVOIRS de la pause : la toucher ouvre MES POUVOIRS.
 func _powers_rect(card: Rect2, u: float) -> Rect2:
-	return Rect2(card.position + Vector2(20.0 * u, 204.0 * u), Vector2(card.size.x - 40.0 * u, 86.0 * u))
+	return Rect2(card.position + Vector2(20.0 * u, 186.0 * u), Vector2(card.size.x - 40.0 * u, 70.0 * u))
 
 
-## Pause : voile d'encre, feuille de washi, sceau du monde, la partie en cours, les pouvoirs.
+## Espacement des lettres (px) d'une variation de police, posé seulement s'il change (suit u).
+func _spacing(f: FontVariation, px: int) -> void:
+	if f.spacing_glyph != px:
+		f.spacing_glyph = px
+
+
+## Pause (planche Pause v2) : voile d'encre, feuille washi à en-tête sumi souligné de vermillon, tuiles de la partie
+## (étape, temps, score : pictogrammes et chiffres, sans légende), bande POUVOIRS (médaillons, ouvre MES POUVOIRS).
+## REPRENDRE et les étiquettes OPTIONS, QUITTER, RECOMMENCER sont des InkButton (_layout_pause).
 func _draw_pause() -> void:
 	var w := size.x
 	var u := w / 400.0
 	var a := UiKit.ease_out(clampf(_t / 0.25, 0.0, 1.0))
-	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.8 * a))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.88 * a))
 	var card := _pause_card()
-	var dy := 16.0 * u * (1.0 - a)
-	card.position.y += dy
-	# feuille de washi commune (options, mes pouvoirs) : vagues seigaiha pâles derrière le sceau et le titre
-	UiKit.sheet(self, card, th_paper, th_ink, a, u, 6.0, 126.0)
-	# trait de la couleur du monde en tête de feuille
-	var band := Rect2(card.position + Vector2(70.0 * u, 16.0 * u), Vector2(card.size.x - 140.0 * u, 7.0 * u))
-	var bk := UiKit.ease_out(clampf(_t / 0.5, 0.0, 1.0))
+	card.position.y += 16.0 * u * (1.0 - a)
+	var cx := card.get_center().x
+	# ombre portée sans flou (deux couches décalées), puis la feuille aux coins arrondis
+	var sheet := UiKit.rrect_points(card, 18.0 * u)
+	draw_colored_polygon(Transform2D(0.0, Vector2(0, 7.0 * u)) * sheet, Color(0, 0, 0, 0.14 * a))
+	draw_colored_polygon(Transform2D(0.0, Vector2(0, 3.0 * u)) * sheet, Color(0, 0, 0, 0.18 * a))
+	draw_colored_polygon(sheet, Color(th_paper, a))
+	# en-tête sumi : PAUSE en papier, trait vermillon qui se pose dessous
+	var head := Rect2(card.position, Vector2(card.size.x, 70.0 * u))
+	draw_colored_polygon(UiKit.rrect_points(head, 18.0 * u, true), Color(UIColors.SUMI, a))
+	var sp := maxi(1, int(8.0 * u))
+	_spacing(_pause_title, sp)
+	UiKit.text(self, _pause_title, "PAUSE", Vector2(cx + float(sp) * 0.5, card.position.y + 45.0 * u), int(26 * u), Color(UIColors.WASHI, a))
+	var bk := UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0))
 	if bk > 0.05:
-		draw_colored_polygon(UiKit.swash_points(band, bk, 4.0), Color(world_color, 0.85 * a))
-	# sceau du monde, puis le titre souligné de vermillon (même titre que les autres écrans)
-	var seal := Rect2(Vector2(card.get_center().x - 23.0 * u, card.position.y + 36.0 * u), Vector2(46, 46) * u)
-	UiKit.hanko(self, seal, world_kanji, world_color, Toon.WASHI, a, u, 4.0)
-	UiKit.screen_title(self, _title, "PAUSE", Vector2(card.get_center().x, card.position.y + 116.0 * u), u, th_ink, a, "", 0.0, UiKit.ease_out(clampf((_t - 0.1) / 0.35, 0.0, 1.0)))
-	# la partie en cours
-	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["SCORE", Score.fmt(stat_score)],
-		["TEMPS", "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]]]
-	for i in cols.size():
-		var cx := card.position.x + card.size.x * (0.14 + 0.24 * i)
-		UiKit.text(self, _ui, String(cols[i][0]), Vector2(cx, card.position.y + 154 * u), int(UiKit.FS_CAPTION * u), Color(th_ink, UiKit.A_CAPTION * a))
-		UiKit.text(self, UiKit.TITLE_FONT, String(cols[i][1]), Vector2(cx, card.position.y + 180 * u), int(UiKit.FS_NUMBER * u), Color(th_ink, a))
-		if i > 0:
-			var lx := card.position.x + card.size.x * (0.02 + 0.24 * i)
-			draw_line(Vector2(lx, card.position.y + 144 * u), Vector2(lx, card.position.y + 184 * u), Color(th_ink, 0.12 * a), 1.5 * u)
-	# pouvoirs de la partie : pastilles en rangée ; la rangée entière ouvre MES POUVOIRS
+		var swash := Rect2(Vector2(cx - 81.0 * u, card.position.y + 51.0 * u), Vector2(162.0 * u, 10.0 * u))
+		draw_colored_polygon(UiKit.swash_points(swash, bk, 5.0), Color(UIColors.VERMILION, a))
+	# la partie en cours : trois tuiles (pictogramme, chiffre)
+	var nf := UiKit.num_font()
+	var nfs := int(19 * u)
+	var tile_w := (card.size.x - 60.0 * u) / 3.0
+	for i in 3:
+		var tile := Rect2(Vector2(card.position.x + 20.0 * u + float(i) * (tile_w + 10.0 * u), card.position.y + 92.0 * u), Vector2(tile_w, 74.0 * u))
+		draw_style_box(UiKit.box(_sb, Color(th_ink, 0.07 * a), int(12 * u)), tile)
+		var ic := Vector2(tile.get_center().x, tile.position.y + 25.0 * u)
+		var by := tile.position.y + 58.0 * u
+		match i:
+			0:
+				# étape : pastille du monde (pictogramme sur sa couleur), « 5/8 » (le total plus petit et pâle)
+				var sq := Rect2(ic - Vector2(12.0, 12.0) * u, Vector2(24.0, 24.0) * u)
+				draw_style_box(UiKit.box(_sb, Color(world_color, a), int(4 * u)), sq)
+				UiKit.draw_icon(self, String(WORLD_ICON.get(world_kanji, "hud/vague")), ic, 15.0 * u, a, UIColors.WASHI)
+				var big := str(stat_room)
+				var small := "/%d" % rooms_total
+				var sfs := int(12 * u)
+				var bw := nf.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+				var sw := nf.get_string_size(small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+				var x0 := tile.get_center().x - (bw + sw) / 2.0
+				draw_string(nf, Vector2(x0, by), big, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(th_ink, a))
+				draw_string(nf, Vector2(x0 + bw, by), small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(th_ink, 0.6 * a))
+			1:
+				# temps de la partie
+				UiKit.draw_icon(self, "effets/duree", ic, 22.0 * u, a, th_ink)
+				var clock := "%02d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]
+				UiKit.text(self, nf, clock, Vector2(tile.get_center().x, by), _fit_num(clock, nfs, tile_w - 10.0 * u), Color(th_ink, a))
+			_:
+				# score
+				UiKit.draw_icon(self, "effets/critique", ic, 22.0 * u, a)
+				var sc := Score.fmt(stat_score)
+				UiKit.text(self, nf, sc, Vector2(tile.get_center().x, by), _fit_num(sc, nfs, tile_w - 10.0 * u), Color(th_ink, a))
+	# bande POUVOIRS (sumi) : médaillons des pouvoirs pris, le mot et un chevron ; la bande entière ouvre MES POUVOIRS
 	var pr := _powers_rect(card, u)
-	draw_style_box(UiKit.box(_sb, Color(th_ink, 0.035 * a), int(12 * u), Color(th_ink, 0.13 * a), int(maxf(1.0, u))), pr)
+	draw_style_box(UiKit.box(_sb, Color(UIColors.SUMI, a), int(12 * u)), pr)
+	var chev := Vector2(pr.end.x - 22.0 * u, pr.get_center().y)
+	UiKit.draw_path(self, "M12 6 L22 16 L12 26", 32, chev, 16.0 * u, UIColors.WASHI, 3.0, UiKit.NONE, a)
+	var bsp := maxi(1, int(3.0 * u))
+	_spacing(_band_font, bsp)
+	var lfs := int(14 * u)
+	var lw := _band_font.get_string_size("POUVOIRS", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
+	var lx := chev.x - 16.0 * u - lw
+	draw_string(_band_font, Vector2(lx, pr.get_center().y + float(lfs) * 0.36), "POUVOIRS", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(UIColors.WASHI, a))
 	var ids: Array = pause_powers
-	var iy := pr.position.y + 32.0 * u
-	if ids.is_empty():
-		UiKit.text(self, _ui, "AUCUN ROULEAU POUR L'INSTANT", Vector2(pr.get_center().x, iy + 4.0 * u), int(10 * u), Color(th_ink, 0.4 * a))
-	else:
-		var r := 14.0 * u
-		var gap := 2.0 * r + 5.0 * u
-		var n := mini(ids.size(), maxi(1, int((pr.size.x - 24.0 * u) / gap)))
-		if ids.size() > n:
-			n -= 1  # place pour le « +N »
-		var shown := maxi(n, 0)
-		var slots := shown + (1 if ids.size() > shown else 0)
-		var x0 := pr.get_center().x - gap * float(slots - 1) / 2.0
-		for i in shown:
-			var ik := UiKit.ease_out(clampf((_t - 0.15 - 0.03 * i) / 0.25, 0.0, 1.0))
-			UiKit.power_icon(self, String(ids[i]), Vector2(x0 + gap * i, iy), r * (0.7 + 0.3 * ik), a * ik)
-		if ids.size() > shown:
-			var mc := Vector2(x0 + gap * shown, iy)
-			draw_circle(mc, r, Color(th_ink, 0.75 * a))
-			UiKit.text(self, _ui, "+%d" % (ids.size() - shown), mc + Vector2(1.0, 4.0 * u), int(11 * u), Color(th_paper, a))
-	var lab := "MES POUVOIRS  ·  %d" % ids.size()
-	var lfs := int(11 * u)
-	var ltw := UiKit.text(self, _ui, lab, Vector2(pr.get_center().x - 6.0 * u, pr.position.y + 70.0 * u), lfs, Color(th_ink, 0.8 * a))
-	# kunai pointé vers la droite : la rangée s'ouvre
-	var chx := pr.get_center().x - 6.0 * u + ltw / 2.0 + 16.0 * u
-	var chy := pr.position.y + 70.0 * u - lfs * 0.36
-	UiKit.kunai(self, Vector2(chx, chy), Vector2.RIGHT, 18.0 * u, Color(Toon.VERMILION, a))
-	# confirmation attendue (RECOMMENCER, QUITTER)
-	if _confirm != "":
-		var what := "RECOMMENCER" if _confirm == "restart" else "QUITTER"
-		UiKit.text(self, _ui, "TOUCHE ENCORE POUR %s  ·  PARTIE PERDUE" % what, Vector2(card.get_center().x, card.position.y + 400.0 * u), int(9 * u), Color(Toon.VERMILION, a))
+	var ms := 34.0 * u
+	var step := ms + 8.0 * u
+	var mx0 := pr.position.x + 14.0 * u
+	var cap := maxi(1, int((lx - 8.0 * u - mx0 + 8.0 * u) / step))
+	var shown := ids.size() if ids.size() <= cap else cap - 1
+	for i in shown:
+		var id := String(ids[i])
+		var ik := UiKit.ease_out(clampf((_t - 0.15 - 0.04 * float(i)) / 0.25, 0.0, 1.0))
+		var mc := Vector2(mx0 + ms / 2.0 + step * float(i), pr.get_center().y + 4.0 * u * (1.0 - ik))
+		UiKit.power_medal(self, id, mc, ms / 60.0, UIColors.element(UiKit.power_school(id)), 27.0, 4.0, UiKit.NONE, 4.0, a * ik)
+	if ids.size() > shown:
+		var mc2 := Vector2(mx0 + ms / 2.0 + step * float(shown), pr.get_center().y)
+		draw_arc(mc2, ms * 0.45, 0.0, TAU, 40, Color(UIColors.WASHI, 0.5 * a), maxf(1.0, 1.5 * u), true)
+		UiKit.text(self, nf, "+%d" % (ids.size() - shown), mc2 + Vector2(0, 5.0 * u), int(13 * u), Color(UIColors.WASHI, a))
+
+
+## Taille d'un chiffre (<= fs) qui tient dans maxw.
+func _fit_num(txt: String, fs: int, maxw: float) -> int:
+	var f := fs
+	while f > 8 and UiKit.num_font().get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
+		f -= 1
+	return f

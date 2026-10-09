@@ -17,7 +17,7 @@ var text := "":
 		if v != text:
 			text = v
 			queue_redraw()
-var style := "primary":  # primary | ghost | round | brush | text | icon | bare | area
+var style := "primary":  # primary | ghost | round | brush | text | icon | bare | area | label
 	set(v):
 		if v != style:
 			style = v
@@ -57,6 +57,11 @@ var font_size := 34:
 			font_size = v
 			queue_redraw()
 var shimmer := false  # brush : reflet d'encre humide qui passe sur le trait au repos (JOUER de l'accueil)
+var danger := false:  # label : action qui fait perdre la partie (QUITTER) : contour et puce vermillon
+	set(v):
+		if v != danger:
+			danger = v
+			queue_redraw()
 var _down := false
 var _appear := APPEAR_T  # temps réel depuis l'apparition (le pinceau se pose, puis la légende)
 var _splash := -1.0  # temps réel depuis l'appui (éclaboussure d'encre), -1 : aucune
@@ -181,7 +186,105 @@ func _draw() -> void:
 				_box.set_corner_radius_all(int(minf(r.size.y * 0.3, 18.0)))
 				_box.bg_color = Color(Toon.ui_ink, 0.08 * _press)
 				draw_style_box(_box, r)
+		"label":
+			_draw_label_tag(r)
 	_draw_splash()
+
+
+# étiquette papier du bouton secondaire (UI v2, Pause : OPTIONS / QUITTER), gabarit 162 × 46 : courbes de Bézier
+const LABEL_PATH := [Vector2(10, 5), Vector2(50, 1), Vector2(110, 2), Vector2(150, 5), Vector2(158, 6), Vector2(161, 13),
+	Vector2(160, 23), Vector2(159, 34), Vector2(157, 41), Vector2(149, 42), Vector2(100, 45), Vector2(50, 44),
+	Vector2(12, 42), Vector2(4, 41), Vector2(1, 34), Vector2(2, 23), Vector2(2, 13), Vector2(4, 6), Vector2(10, 5)]
+# sortie (QUITTER), gabarit 32 : porte ouverte et flèche
+const EXIT_PATH := "M13 5 H6 V27 H13 M19 10 L25 16 L19 22 M25 16 H12"
+
+
+## Contour de l'étiquette (LABEL_PATH) étiré dans r.
+func _label_points(r: Rect2) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var sc := Vector2(r.size.x / 162.0, r.size.y / 46.0)
+	var p0: Vector2 = LABEL_PATH[0]
+	pts.append(r.position + p0 * sc)
+	var i := 1
+	while i + 2 < LABEL_PATH.size():
+		var a: Vector2 = LABEL_PATH[i - 1]
+		var b: Vector2 = LABEL_PATH[i]
+		var c: Vector2 = LABEL_PATH[i + 1]
+		var d: Vector2 = LABEL_PATH[i + 2]
+		for k in range(1, 9):
+			var t := float(k) / 8.0
+			var mt := 1.0 - t
+			var q := a * mt * mt * mt + b * 3.0 * mt * mt * t + c * 3.0 * mt * t * t + d * t * t * t
+			pts.append(r.position + q * sc)
+		i += 3
+	pts.remove_at(pts.size() - 1)  # le dernier point refait le premier : pas de sommet en double
+	return pts
+
+
+## Bouton secondaire « étiquette » (planche Boutons) : papier au bord de pinceau, puce ronde à pictogramme à gauche,
+## mot en capitales. danger : contour, puce et mot vermillon (QUITTER) ; appui : étiquette d'encre, puce vermillon ;
+## accent (armée : confirmation attendue) : étiquette pleine de vermillon, coche dans une puce d'encre.
+func _draw_label_tag(r: Rect2) -> void:
+	var k := r.size.y / 46.0
+	var ink: Color = Toon.ui_ink
+	var pressed := _press > 0.05 and not accent
+	var line: Color = Toon.VERMILION if danger else ink
+	var paper: Color = Toon.ui_paper.lightened(0.06) if Toon.ui_dark else Toon.PAPER
+	var fill: Color = paper
+	if accent:
+		fill = Toon.VERMILION
+		line = Toon.SUMI
+	elif pressed:
+		fill = Toon.SUMI
+		line = Toon.SUMI
+	var pts := _label_points(r)
+	draw_colored_polygon(pts, fill)
+	var loop := pts.duplicate()
+	loop.append(pts[0])
+	draw_polyline(loop, line, maxf(1.5, 2.5 * k), true)
+	# puce : disque d'encre (vermillon si danger ou à l'appui), pictogramme papier ; coche quand l'étiquette est armée
+	var dc := Vector2(r.position.x + 8.0 * k + 15.0 * k, r.get_center().y)
+	var disc: Color = Toon.SUMI
+	if pressed or (danger and not accent):
+		disc = Toon.VERMILION
+	var glyph_col: Color = Toon.WASHI
+	draw_circle(dc, 15.0 * k, disc)
+	var isz := 16.0 * k
+	if accent:
+		UiKit.draw_path(self, "M8 16 L14 22 L24 10", 32, dc, isz, glyph_col, 3.2)
+		_label_tag_text(r, dc, k, Toon.WASHI)
+		return
+	match icon:
+		"gear":
+			UiKit.draw_icon(self, "interface/reglages", dc, isz, 1.0, glyph_col)
+		"replay":
+			UiKit.draw_icon(self, "interface/relancer", dc, isz, 1.0, glyph_col)
+		"home":
+			UiKit.draw_icon(self, "interface/maison", dc, isz, 1.0, glyph_col)
+		"quit":
+			UiKit.draw_path(self, EXIT_PATH, 32, dc, isz, glyph_col, 3.0)
+		_:
+			_icon(icon, dc, isz * 0.45, glyph_col)
+	var tc: Color = ink
+	if pressed:
+		tc = Toon.WASHI
+	elif danger:
+		tc = Toon.VERMILION.darkened(0.15)
+	_label_tag_text(r, dc, k, tc)
+
+
+## Mot de l'étiquette, à droite de sa puce (rétréci s'il déborde).
+func _label_tag_text(r: Rect2, dc: Vector2, k: float, tc: Color) -> void:
+	if text == "" or font == null or font_size <= 0:
+		return
+	var x := dc.x + 15.0 * k + 10.0 * k
+	var room := r.end.x - 8.0 * k - x
+	var fs := font_size
+	while fs > 6 and font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
+		fs -= 1
+	var asc := font.get_ascent(fs)
+	var desc := font.get_descent(fs)
+	draw_string(font, Vector2(x, r.get_center().y + (asc - desc) / 2.0), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(tc, tc.a * _k_label()))
 
 
 ## Apparition : le trait se pose vite (_k_stroke), la légende suit (_k_label), de 0 à 1.

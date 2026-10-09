@@ -1,12 +1,14 @@
 extends Control
-## Récapitulatif « MES POUVOIRS » (depuis la pause), à lire d'un coup d'œil comme les cartes
-## de rouleau : grille de médaillons (pictogramme sur la couleur d'élément, anneau de rareté, crans de niveau, nom court) ;
-## un toucher lève la tuile et ouvre sa bulle de détail. Dessous, les cinq écoles en pastilles à anneau de progression
-## (paliers 2 et 4), une bulle donne leurs bonus. Carte de papier sur voile d'encre ; le contenu glisse au doigt
+## Récapitulatif « POUVOIRS » (depuis la pause), UI v2 (planche MesPouvoirs) : écran de papier plein, bouton retour
+## d'encre, grille de tuiles (médaillon : disque washi cerné de la couleur d'élément, glyphe sumi ; nom ; étiquette
+## d'élément picto + NOM ; crans de niveau ; la rareté se lit à la bordure seule). Un toucher lève la tuile et ouvre
+## sa bulle d'encre (nom japonais, déclencheur en pictogrammes, phrase, tickets d'effet). Dessous, HARMONIES : une tuile
+## par école à anneau (4 arcs, paliers 2 et 4 en losanges) ; une bulle donne leurs bonus. Le contenu glisse au doigt
 ## (ou à la molette). Marche jeu figé : tout est compté en temps réel (UiKit.real_delta). main : open(powers), signal closed.
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
 const Data = preload("res://scripts/power_data.gd")
 
 signal closed
@@ -14,13 +16,14 @@ signal closed
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert la carte ne doit rien faire
 const NO_TARGET := -2
 const BACK_TARGET := -1
-const SCHOOL_BASE := 1000  # cible « pastille d'école k » = SCHOOL_BASE + k (les tuiles : leur index)
+const SCHOOL_BASE := 1000  # cible « tuile d'école k » = SCHOOL_BASE + k (les tuiles de pouvoir : leur index)
 const DRAG_START := 8.0  # glissé minimal (× u) avant de faire défiler
 const OPEN_DUR := 0.18  # ouverture de la bulle (s)
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
 const GOLD_HI := Color("#E2A93B")
-const BUB_BODY := Color("#1C1A21")  # bulle d'encre
-const STAT_TXT := Color("#FF9A85")  # valeur chiffrée sur la bulle d'encre
+const BUB_BODY := Color("#1B1A1E")  # bulle d'encre (sumi)
+const TILE_H := 112.0  # tuile de pouvoir (× u)
+const SCHOOL_H := 82.0  # tuile d'harmonie (× u)
 const GLUE := [":", ";", "!", "?", "%", "→", "·"]  # jamais en début de ligne
 
 var _powers = null  # nœud des pouvoirs (powers.gd)
@@ -36,8 +39,9 @@ var _scroll := 0.0
 var _vel := 0.0
 var _content_h := 0.0
 var _back := Rect2()
-var _card := Rect2()
+var _card := Rect2()  # l'écran entier (papier plein)
 var _view := Rect2()  # zone qui défile (coordonnées de l'écran)
+var _head_y := 0.0  # centre vertical de l'en-tête (bouton retour, titre)
 var _infos: Array = []  # pouvoirs possédés (recap_info), rangés par école puis par rareté
 var _schools: Array = []  # écoles à bonus : {"school", "st"}
 var _count := 0
@@ -49,17 +53,17 @@ var _ensure := false  # faire défiler pour montrer la bulle
 # mise en page, en coordonnées du contenu (avant défilement)
 var _cols := 3
 var _tile_rects: Array = []
-var _med_r := 30.0
 var _empty_h := 0.0
 var _sec_y := 0.0
-var _school_c: Array = []
-var _school_r := 18.0
+var _school_rects: Array = []
 var _bub := Rect2()
 var _bub_tip := 0.0
 var _bub_row_top := 0.0
 var _list: Control
 var _ui := FontVariation.new()
 var _title := FontVariation.new()
+var _caps := FontVariation.new()  # nom japonais de la bulle : Shippori espacée (2 u)
+var _sec_font := FontVariation.new()  # titre HARMONIES : Shippori espacée (4 u)
 var _sb := StyleBoxFlat.new()
 
 
@@ -71,6 +75,10 @@ func _ready() -> void:
 	_ui.spacing_glyph = UiKit.CAPS_SPACING
 	_title.base_font = UiKit.TITLE_FONT
 	_title.spacing_glyph = UiKit.TITLE_SPACING
+	_caps.base_font = UiKit.TITLE_FONT
+	_caps.spacing_glyph = 2
+	_sec_font.base_font = UiKit.TITLE_FONT
+	_sec_font.spacing_glyph = 4
 	# le contenu se dessine dans un enfant qui découpe ce qui dépasse
 	_list = Control.new()
 	_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -168,9 +176,9 @@ func _target_at(p: Vector2) -> int:
 		var r: Rect2 = _tile_rects[i]
 		if r.has_point(lp):
 			return i
-	for k in _school_c.size():
-		var c: Vector2 = _school_c[k]
-		if c.distance_to(lp) <= _school_r + 12.0 * _u:
+	for k in _school_rects.size():
+		var sr: Rect2 = _school_rects[k]
+		if sr.grow(3.0 * _u).has_point(lp):
 			return SCHOOL_BASE + k
 	return NO_TARGET
 
@@ -318,31 +326,32 @@ func _process(_delta: float) -> void:
 
 # ------------------------------------------------------------------ mise en page
 
-## Carte (qui glisse un peu à l'ouverture), bouton retour et zone qui défile.
+## Écran plein (qui glisse un peu à l'ouverture) : bouton retour et titre sous l'encoche, zone qui défile dessous.
 func _layout() -> void:
 	var w := size.x
 	var h := size.y
 	_u = minf(w / 400.0, h / 760.0)
 	var u := _u
-	var ch := minf(h - 40.0 * u, 720.0 * u)
-	_card = Rect2(Vector2(w * 0.05, h * 0.5 - ch / 2.0 + 14 * u * (1.0 - UiKit.ease_out(_t / 0.3))), Vector2(w * 0.9, ch))
-	var bc := _card.position + Vector2(UiKit.HEAD_X, UiKit.HEAD_Y) * u
-	_back = UiKit.back_rect(bc, u)
-	_view = Rect2(Vector2(_card.position.x + 10 * u, _card.position.y + 92 * u), Vector2(_card.size.x - 20 * u, _card.size.y - 102 * u))
+	var ins := UiKit.safe_insets(size)
+	var slide := 14.0 * u * (1.0 - UiKit.ease_out(_t / 0.3))
+	_card = Rect2(Vector2.ZERO, size)
+	_head_y = ins.x + 58.0 * u + slide
+	_back = UiKit.back_rect(Vector2(36.0 * u, _head_y), u)
+	var top := ins.x + 100.0 * u + slide
+	_view = Rect2(Vector2(14.0 * u, top), Vector2(w - 28.0 * u, maxf(40.0 * u, h - ins.y - 8.0 * u - top)))
 	_list.position = _view.position
 	_list.size = _view.size
 	_list.modulate.a = clampf(_t / 0.25, 0.0, 1.0)
 
 
-## Grille des tuiles, bulle insérée sous la rangée touchée, rangée des écoles (coordonnées du contenu).
+## Grille des tuiles, bulle insérée sous la rangée touchée, HARMONIES (coordonnées du contenu).
 func _layout_list() -> void:
 	var u := _u
 	var W := _view.size.x
-	_cols = clampi(int(W / (104.0 * u)), 3, 6)
-	var gap := 8.0 * u
+	_cols = clampi(int(W / (110.0 * u)), 3, 6)
+	var gap := 10.0 * u
 	var tw := (W - gap * float(_cols - 1)) / float(_cols)
-	_med_r = minf(tw * 0.29, 32.0 * u)
-	var th := _med_r * 2.0 + 58.0 * u
+	var th := TILE_H * u
 	var bw := W - 4.0 * u
 	var bk := UiKit.ease_out(_open_k)
 	var bub_h := 0.0
@@ -350,7 +359,7 @@ func _layout_list() -> void:
 		bub_h = _bubble(_shown, Vector2.ZERO, bw, false, 1.0)
 	_bub = Rect2()
 	_tile_rects.clear()
-	var y := 6.0 * u
+	var y := 8.0 * u  # place pour la tuile levée
 	_empty_h = 0.0
 	var n := _infos.size()
 	if n == 0:
@@ -360,34 +369,32 @@ func _layout_list() -> void:
 	for row in rows:
 		var first: int = row * _cols
 		var in_row := mini(_cols, n - first)
-		# rangée incomplète : centrée
-		var x0 := (W - (tw * float(in_row) + gap * float(in_row - 1))) / 2.0
+		# rangée incomplète : alignée à gauche, comme la grille de la planche
 		for c in in_row:
-			_tile_rects.append(Rect2(Vector2(x0 + float(c) * (tw + gap), y), Vector2(tw, th)))
+			_tile_rects.append(Rect2(Vector2(float(c) * (tw + gap), y), Vector2(tw, th)))
 		y += th
 		if _shown != NO_TARGET and _shown < SCHOOL_BASE and _shown >= first and _shown < first + in_row:
 			var tr: Rect2 = _tile_rects[_shown]
 			_bub_row_top = tr.position.y
 			_bub_tip = tr.get_center().x
-			_bub = Rect2(Vector2(2.0 * u, y + 10.0 * u), Vector2(bw, bub_h))
-			y += (bub_h + 18.0 * u) * bk
+			_bub = Rect2(Vector2(2.0 * u, y + 14.0 * u), Vector2(bw, bub_h))
+			y += (bub_h + 22.0 * u) * bk
 		y += gap
-	# bonus d'école : titre, puis une rangée de pastilles
-	y += 8.0 * u
+	# HARMONIES : titre, puis une rangée de tuiles d'école
+	y += 14.0 * u
 	_sec_y = y
-	y += 46.0 * u
+	y += 30.0 * u
 	var ns := _schools.size()
-	var slot := W / float(maxi(ns, 1))
-	_school_r = minf(18.0 * u, slot * 0.26)
-	_school_c.clear()
-	var cy := y + _school_r + 8.0 * u
+	var sgap := 6.0 * u
+	var sw := (W - sgap * float(maxi(ns, 1) - 1)) / float(maxi(ns, 1))
+	_school_rects.clear()
 	for k in ns:
-		_school_c.append(Vector2(slot * (float(k) + 0.5), cy))
-	y = cy + _school_r + 30.0 * u
+		_school_rects.append(Rect2(Vector2(float(k) * (sw + sgap), y), Vector2(sw, SCHOOL_H * u)))
+	y += SCHOOL_H * u + 10.0 * u
 	if _shown >= SCHOOL_BASE and _shown - SCHOOL_BASE < ns:
-		var sc: Vector2 = _school_c[_shown - SCHOOL_BASE]
-		_bub_row_top = sc.y - _school_r - 12.0 * u
-		_bub_tip = sc.x
+		var sr: Rect2 = _school_rects[_shown - SCHOOL_BASE]
+		_bub_row_top = sr.position.y - 12.0 * u
+		_bub_tip = sr.get_center().x
 		_bub = Rect2(Vector2(2.0 * u, y + 4.0 * u), Vector2(bw, bub_h))
 		y += (bub_h + 12.0 * u) * bk
 	_content_h = y + 12.0 * u
@@ -400,18 +407,17 @@ func _draw() -> void:
 		return
 	var u := _u
 	var a := clampf(_t / 0.25, 0.0, 1.0)
-	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.85 * a))
-	var card := _card
-	# feuille de washi (comme les options et la pause), vagues seigaiha dans l'en-tête
-	UiKit.sheet(self, card, Toon.ui_paper, Toon.ui_ink, a, u, 5.0, 74.0)
-	# titre souligné de vermillon, sceau 巻 (rouleaux), nombre de pouvoirs dessous
-	var cxc := card.get_center().x
-	var tmax: float = card.size.x - 2.0 * (UiKit.HEAD_X + 26.0) * u
-	UiKit.screen_title(self, _title, "MES POUVOIRS", Vector2(cxc, card.position.y + UiKit.HEAD_BASE * u), u, Toon.ui_ink, a, "巻", tmax, UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0)))
-	var sub: String = "%d POUVOIR%s" % [_count, "S" if _count > 1 else ""] if _count > 0 else "AUCUN POUVOIR"
-	UiKit.text(self, _ui, sub, Vector2(cxc, card.position.y + 78 * u), int(UiKit.FS_CAPTION * u), Color(Toon.ui_ink, UiKit.A_CAPTION * a))
-	# retour en haut à gauche de la carte (même bouton que les options)
-	UiKit.back_button(self, _back.get_center(), u, a, 1.0 if _pressed == BACK_TARGET else 0.0)
+	# papier plein (planche MesPouvoirs : écran entier, pas de voile)
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.ui_paper, a))
+	# titre souligné de vermillon, centré sur la ligne du bouton retour
+	var tmax: float = size.x - 2.0 * 80.0 * u
+	UiKit.screen_title(self, _title, "POUVOIRS", Vector2(size.x / 2.0, _head_y + 8.0 * u), u, Toon.ui_ink, a, "", tmax,
+		UiKit.ease_out(clampf((_t - 0.1) / 0.4, 0.0, 1.0)))
+	# retour : disque d'encre, chevron de papier
+	var bc := _back.get_center()
+	var br := 22.0 * u * (0.94 if _pressed == BACK_TARGET else 1.0)
+	draw_circle(bc, br, Color(UIColors.SUMI, a))
+	UiKit.draw_path(self, "M20 6 L10 16 L20 26", 32, bc, 20.0 * u, UIColors.WASHI, 3.2, UiKit.NONE, a)
 
 
 func _draw_list() -> void:
@@ -429,27 +435,27 @@ func _draw_list() -> void:
 		var r: Rect2 = _tile_rects[i]
 		if r.end.y + oy < -20.0 * u or r.position.y + oy > _list.size.y + 20.0 * u:
 			continue
-		var a: float = lerpf(1.0, 0.55, bk) if tile_open and i != _sel else 1.0
+		var a: float = lerpf(1.0, 0.6, bk) if tile_open and i != _sel else 1.0
 		_draw_tile(i, Rect2(r.position + Vector2(0.0, oy), r.size), u, a)
-	# bonus d'école
+	# HARMONIES : titre (Shippori espacée) et filet jusqu'au bord
 	var sy := _sec_y + oy
-	# titre de section commun (sceau 流 : l'école, trait de pinceau, shuriken), puis la règle en légende
-	UiKit.section(_list, _ui, UiKit.plain("HARMONIES"), 6.0 * u, W - 6.0 * u, sy + 18.0 * u, u, Toon.ui_ink, 1.0, "流")
-	UiKit.text(_list, _ui, "2 ou 4 pouvoirs d'une école : un bonus", Vector2(W / 2.0, sy + 38 * u), int(UiKit.FS_CAPTION * u), Color(Toon.ui_ink, UiKit.A_CAPTION))
-	for k in _school_c.size():
-		var c: Vector2 = _school_c[k]
-		_draw_school(k, c + Vector2(0.0, oy), u)
+	var hsp := maxi(1, int(4.0 * u))
+	if _sec_font.spacing_glyph != hsp:
+		_sec_font.spacing_glyph = hsp
+	var hfs := int(13 * u)
+	var hw := _sec_font.get_string_size("HARMONIES", HORIZONTAL_ALIGNMENT_LEFT, -1, hfs).x
+	_list.draw_string(_sec_font, Vector2(0.0, sy + 16.0 * u), "HARMONIES", HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Toon.ui_ink)
+	_list.draw_line(Vector2(hw + 6.0 * u, sy + 11.0 * u), Vector2(W, sy + 11.0 * u), Color(Toon.ui_ink, 0.25), maxf(1.0, 1.5 * u))
+	for k in _school_rects.size():
+		var sr: Rect2 = _school_rects[k]
+		_draw_school(k, Rect2(sr.position + Vector2(0.0, oy), sr.size), u)
 	# bulle de détail, devant le reste
 	if _shown != NO_TARGET and _bub.size.y > 0.0 and bk > 0.01:
 		var box := Rect2(_bub.position + Vector2(0.0, oy - 6.0 * u * (1.0 - bk)), _bub.size)
 		var tipx := clampf(_bub_tip, box.position.x + 22.0 * u, box.end.x - 22.0 * u)
-		_list.draw_colored_polygon(PackedVector2Array([Vector2(tipx, box.position.y - 9.0 * u), Vector2(tipx + 9.0 * u, box.position.y + 1.0),
-			Vector2(tipx - 9.0 * u, box.position.y + 1.0)]), Color(BUB_BODY, 0.97 * bk))
-		UiKit.box(_sb, Color(BUB_BODY, 0.97 * bk), int(12 * u))
-		_sb.shadow_color = Color(0, 0, 0, 0.3 * bk)
-		_sb.shadow_size = int(8 * u)
-		_sb.shadow_offset = Vector2(0, 3 * u)
-		_list.draw_style_box(_sb, box)
+		_list.draw_colored_polygon(PackedVector2Array([Vector2(tipx, box.position.y - 9.0 * u), Vector2(tipx + 10.0 * u, box.position.y + 1.0),
+			Vector2(tipx - 10.0 * u, box.position.y + 1.0)]), Color(BUB_BODY, bk))
+		_list.draw_style_box(UiKit.box(_sb, Color(BUB_BODY, bk), int(12 * u)), box)
 		_bubble(_shown, box.position, box.size.x, true, bk)
 	# fondus du papier en haut et en bas quand il reste à faire défiler
 	var vh := _list.size.y
@@ -498,114 +504,152 @@ func _gold_ink() -> Color:
 	return GOLD_HI if Toon.ui_dark else GOLD_INK
 
 
-## Une tuile : médaillon (halo d'élément, anneau de rareté, pictogramme), déclencheur en badge, crans de niveau, nom court.
-func _draw_tile(i: int, r: Rect2, u: float, a: float) -> void:
+## Papier d'une tuile : washi clair (planche), un ton au-dessus du papier sur un thème sombre.
+func _tile_paper() -> Color:
+	return Toon.ui_paper.lightened(0.08) if Toon.ui_dark else UIColors.WASHI_LIGHT
+
+
+## Bordure de rareté d'un rectangle (couleur et épaisseur de UIColors.RARITY, filet intérieur, contour sumi).
+func _rarity_border(r: Rect2, rank: int, radius: float, u: float, a: float) -> void:
+	var rd := UIColors.rarity(rank)
+	var bc: Color = rd["color"]
+	var bw := float(rd["w"]) * u
+	if bool(rd["outer"]):
+		_list.draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(radius + 2.0 * u), Color(UIColors.SUMI, a), maxi(1, int(2.0 * u))), r.grow(2.0 * u))
+	_list.draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(radius), Color(bc, a), maxi(1, int(bw))), r)
+	if bool(rd["inner"]):
+		var inner := r.grow(-(bw + 2.0 * u))
+		_list.draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), maxi(1, int(radius - bw - 2.0 * u)), Color(bc, a), maxi(1, int(1.5 * u))), inner)
+
+
+## Une tuile (planche MesPouvoirs) : papier à bordure de rareté, médaillon (cerne de l'élément, glyphe sumi),
+## nom, étiquette d'élément (picto + NOM) et crans de niveau. Tuile ouverte : levée, cerclée d'encre.
+func _draw_tile(i: int, r0: Rect2, u: float, a: float) -> void:
 	var info: Dictionary = _infos[i]
 	var id := String(info.get("id", ""))
 	var rank := int(info.get("rarity_rank", 0))
-	var leg := rank >= 3
-	var rc: Color = info.get("rarity_color", Toon.SUMI)
-	var col := UiKit.power_color(id)
+	var school := UiKit.power_school(id)
 	var sel := i == _sel
-	var pulse := 0.5 + 0.5 * sin(_t * 3.0 + float(i) * 1.1)
-	var k: float = 0.94 if _pressed == i else 1.0
-	var big := _med_r * k
-	var mc := Vector2(r.get_center().x, r.position.y + 14.0 * u + _med_r)
-	var radius := int(14 * u)
-	# fond : papier doré (légendaire), liseré vermillon (tuile ouverte)
-	if leg:
-		_list.draw_style_box(UiKit.box(_sb, Color(GOLD_HI, (0.10 + 0.05 * pulse) * a), radius), r)
+	var r := r0
 	if sel:
-		_list.draw_style_box(UiKit.box(_sb, Color(Toon.ui_ink, 0.05 * a), radius, Color(Toon.VERMILION, a), maxi(1, int(2.5 * u))), r)
-	# lueurs : or (légendaire), couleur de rareté (épique), halo de l'élément
-	if leg:
-		_list.draw_circle(mc, big * (1.45 + 0.06 * pulse), Color(GOLD_HI, 0.18 * a))
-		for ray in 10:
-			var ang := _t * 0.5 + TAU * float(ray) / 10.0
-			var d := Vector2(cos(ang), sin(ang))
-			_list.draw_line(mc + d * (big + 7.0 * u), mc + d * (big + 12.0 * u), Color(GOLD_HI, 0.5 * a), 2.0 * u)
-	elif rank == 2:
-		_list.draw_circle(mc, big + 9.0 * u, Color(rc, (0.14 + 0.10 * pulse) * a))
-	for h in 3:
-		_list.draw_circle(mc, big * (1.36 - 0.12 * float(h)), Color(col, (0.04 + 0.03 * float(h)) * a))
-	# médaillon : anneau de rareté, disque d'élément, reflet, pictogramme
-	var ring: Color = GOLD_HI if leg else rc
-	_list.draw_circle(mc, big + 4.0 * u, Color(ring, a))
-	_list.draw_circle(mc, big + 1.2 * u, Color(Toon.SUMI, 0.6 * a))
-	_list.draw_circle(mc, big, Color(col, a))
-	_list.draw_circle(mc + Vector2(0, -big * 0.2), big * 0.78, Color(col.lightened(0.14), 0.55 * a))
-	_list.draw_arc(mc, big * 0.86, PI * 1.1, PI * 1.55, 12, Color(1, 1, 1, 0.22 * a), 2.0 * u, true)
-	UiKit.glyph(_list, UiKit.icon_of(id), mc, big * 0.62, GOLD_HI if leg else Toon.WASHI, col, a)
-	# déclencheur : petit badge en haut à gauche du médaillon
-	var tc := mc + Vector2(-big * 0.82, -big * 0.82)
-	var tr := 8.5 * u
-	_list.draw_circle(tc, tr + 1.5 * u, Color(Toon.ui_paper, a))
-	_list.draw_circle(tc, tr, Color(GOLD_HI if leg else Toon.ui_ink, a))
-	UiKit.trigger_icon(_list, id, tc, tr * 0.62, BUB_BODY if leg else Toon.ui_wash, GOLD_HI if leg else Toon.ui_ink, a)
-	# crans de niveau sur le bas du médaillon (en or quand le pouvoir est au maximum)
-	var mx := int(info.get("max_level", 1))
-	if mx > 1:
-		var lv := int(info.get("level", 1))
-		var full := lv >= mx
-		for kk in mx:
-			var dc := mc + Vector2.from_angle(PI / 2.0 + (float(kk) - float(mx - 1) / 2.0) * 0.4) * (big + 3.0 * u)
-			var pr := 3.8 * u
-			_list.draw_circle(dc, pr + 1.5 * u, Color(Toon.SUMI, a))
-			if kk < lv:
-				_list.draw_circle(dc, pr, Color(GOLD_HI if full else Toon.WASHI, a))
-			else:
-				_list.draw_circle(dc, pr * 0.55, Color(Toon.WASHI, 0.25 * a))
-	# nom court, une ou deux lignes
+		r.position.y -= 4.0 * u * UiKit.ease_out(_open_k)
+	if _pressed == i:
+		r = r.grow(-2.0 * u)
+	var radius := 12.0 * u
+	if sel:
+		_list.draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(radius + 3.0 * u), Color(UIColors.SUMI, a), maxi(1, int(3.0 * u))), r.grow(3.0 * u))
+	_list.draw_style_box(UiKit.box(_sb, Color(_tile_paper(), a), int(radius)), r)
+	_rarity_border(r, rank, radius, u, a)
+	# médaillon 58 : disque washi, cerne de la couleur d'élément, glyphe sumi
+	var mc := Vector2(r.get_center().x, r.position.y + 36.0 * u)
+	UiKit.power_medal(_list, id, mc, 58.0 * u / 60.0, UIColors.element(school), 27.0, 4.0, UiKit.NONE, 3.6, a)
+	# nom (Shippori 13,5), rétréci s'il déborde
 	var nm := UiKit.power_label(id)
-	var nfs := int(12.5 * u)
-	var lines := _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 6.0 * u)
-	if lines.size() > 2:
-		nfs = int(11 * u)
-		lines = _wrap(UiKit.TITLE_FONT, nm, nfs, r.size.x - 6.0 * u)
-	var ny := mc.y + _med_r + 20.0 * u
-	var ncol: Color = _gold_ink() if leg else Toon.ui_ink
-	for kk in mini(lines.size(), 2):
-		UiKit.text(_list, UiKit.TITLE_FONT, lines[kk], Vector2(r.get_center().x, ny + float(kk) * 13.0 * u), nfs, Color(ncol, a))
+	var nfs := int(13.5 * u)
+	while nfs > 8 and UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x > r.size.x - 8.0 * u:
+		nfs -= 1
+	UiKit.text(_list, UiKit.TITLE_FONT, nm, Vector2(r.get_center().x, r.position.y + 81.0 * u), nfs, Color(Toon.ui_ink, a))
+	# étiquette d'élément (pictogramme + NOM sur la couleur d'élément), puis les crans
+	var word := UiKit.caps(UIColors.element_word(school), UiKit.num_font())
+	var wfs := int(8.0 * u)
+	var nf := UiKit.num_font()
+	var ww := nf.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x + float(word.length()) * 1.0 * u
+	var pill_w := 5.0 * u + 11.0 * u + 3.0 * u + ww + 7.0 * u
+	var mx := int(info.get("max_level", 1))
+	var lv := int(info.get("level", 1))
+	var cr_w := 11.0 * u
+	var crans_w := 0.0
+	if mx > 1:
+		crans_w = float(mx) * cr_w + float(mx - 1) * 2.0 * u
+	var row_w := pill_w + (6.0 * u + crans_w if mx > 1 else 0.0)
+	var rx := r.get_center().x - row_w / 2.0
+	var ry := r.position.y + 97.0 * u
+	var pill := Rect2(Vector2(rx, ry - 9.0 * u), Vector2(pill_w, 18.0 * u))
+	var ec := UIColors.element(school)
+	_list.draw_style_box(UiKit.box(_sb, Color(ec, a), int(9.0 * u)), pill)
+	UiKit.element_icon(_list, school, Vector2(pill.position.x + 5.0 * u + 5.5 * u, ry), 11.0 * u, a, UIColors.WASHI)
+	var wx := pill.position.x + 5.0 * u + 11.0 * u + 3.0 * u
+	for ch_i in word.length():
+		var ch := word.substr(ch_i, 1)
+		_list.draw_string(nf, Vector2(wx, ry + float(wfs) * 0.36), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs, Color(UIColors.WASHI, a))
+		wx += nf.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x + 1.0 * u
+	if mx > 1:
+		var cx0 := pill.end.x + 6.0 * u
+		for kk in mx:
+			var cr := Rect2(Vector2(cx0 + float(kk) * (cr_w + 2.0 * u), ry - 2.5 * u), Vector2(cr_w, 5.0 * u))
+			if kk < lv:
+				_list.draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD_DARK, a), int(2.5 * u)), cr)
+			else:
+				_list.draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(2.5 * u), Color(UIColors.LINE_MUTED, a), maxi(1, int(1.5 * u))), cr)
 
 
-## Une école : pastille, anneau de progression (n/4, crans à 2 et 4), lueur d'or quand un bonus est actif.
-func _draw_school(k: int, c: Vector2, u: float) -> void:
+## Une école (planche MesPouvoirs, HARMONIES) : tuile (sumi bordée d'or quand un bonus est actif, papier sinon,
+## pointillés tant qu'aucun pouvoir n'y compte), anneau de 4 arcs et pictogramme de l'élément, paliers 2 et 4 en losanges.
+func _draw_school(k: int, r0: Rect2, u: float) -> void:
 	var sd: Dictionary = _schools[k]
 	var school := String(sd["school"])
 	var st: Dictionary = sd["st"]
 	var n := int(st.get("count", 0))
-	var tier := int(st.get("tier", 0))
 	var tiers: Array = Data.AFF_TIERS
-	var top := int(tiers[tiers.size() - 1])
-	var col := UiKit.school_color(school)
-	var press: float = 0.92 if _pressed == SCHOOL_BASE + k else 1.0
-	var sr := _school_r * press
-	var rr := sr + 6.0 * u
-	var pulse := 0.5 + 0.5 * sin(_t * 2.6 + float(k))
-	var done := tier >= tiers.size()
-	if tier > 0:
-		_list.draw_circle(c, rr + (9.0 + 2.0 * pulse) * u, Color(GOLD_HI, (0.10 + 0.05 * float(tier)) * (0.6 + 0.4 * pulse)))
-		_list.draw_circle(c, rr + 4.0 * u, Color(GOLD_HI, 0.12 * float(tier)))
+	var on := n >= int(tiers[0])
+	var r := r0
+	if _pressed == SCHOOL_BASE + k:
+		r = r.grow(-2.0 * u)
+	var radius := int(10.0 * u)
+	var ec := UIColors.element(school)
 	if _sel == SCHOOL_BASE + k:
-		_list.draw_arc(c, rr + 8.0 * u, 0.0, TAU, 40, Toon.VERMILION, 2.0 * u, true)
-	# anneau : fond pâle, progression de la couleur d'école (or quand l'école est complète)
-	_list.draw_arc(c, rr, 0.0, TAU, 48, Color(Toon.ui_ink, 0.12), 4.0 * u, true)
-	var f := float(mini(n, top)) / float(maxi(top, 1))
-	if f > 0.0:
-		_list.draw_arc(c, rr, -PI / 2.0, -PI / 2.0 + TAU * f, maxi(8, int(48.0 * f)), GOLD_HI if done else col, 4.0 * u, true)
-	for th in tiers:
-		var d := Vector2.from_angle(-PI / 2.0 + TAU * float(th) / float(maxi(top, 1)))
-		_list.draw_circle(c + d * rr, 3.8 * u, Toon.ui_paper)
-		_list.draw_circle(c + d * rr, 2.7 * u, GOLD_HI if n >= int(th) else Color(Toon.ui_ink, 0.35))
-	# pastille de l'école (pâle tant qu'aucun pouvoir n'y compte)
-	var al: float = 1.0 if n > 0 else 0.4
-	_list.draw_circle(c, sr, Color(col, al))
-	_list.draw_circle(c + Vector2(0, -sr * 0.2), sr * 0.78, Color(col.lightened(0.14), 0.5 * al))
-	UiKit.school_icon(_list, school, c, sr * 0.6, Toon.WASHI, al, Color(col, al))
-	if done:
-		UiKit.glyph(_list, "star", c + Vector2(rr * 0.74, -rr * 0.74), 6.5 * u, GOLD_HI)
-	var cnt := "%d/%d" % [mini(n, top), top]
-	UiKit.text(_list, _ui, cnt, Vector2(c.x, c.y + rr + 15.0 * u), int(10 * u), _gold_ink() if tier > 0 else Color(Toon.ui_ink, 0.55))
+		_list.draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(3.0 * u), Color(Toon.VERMILION, 1.0), maxi(1, int(2.0 * u))), r.grow(3.0 * u))
+	if on:
+		_list.draw_style_box(UiKit.box(_sb, UIColors.SUMI, radius, UIColors.GOLD, maxi(1, int(2.0 * u))), r)
+	elif n > 0:
+		_list.draw_style_box(UiKit.box(_sb, _tile_paper(), radius, UIColors.LINE_MUTED, maxi(1, int(1.5 * u))), r)
+	else:
+		_dashed_rect(r, 10.0 * u, UIColors.LINE_MUTED, maxf(1.0, 1.5 * u), 4.0 * u, 3.0 * u)
+	# anneau (gabarit 38 affiché à 48) et pictogramme au centre (papier sur sumi, pâle sans pouvoir)
+	var rc := Vector2(r.get_center().x, r.position.y + 32.0 * u)
+	var rr := 16.0 * 48.0 / 38.0 * u
+	UiKit.harmony_ring(_list, rc, rr, mini(n, 4), 0, ec, UIColors.LINE_MUTED, 1.0, false, true)
+	var ic: Color = UIColors.WASHI if on else ec
+	UiKit.element_icon(_list, school, rc, 19.0 * u, 1.0 if n > 0 else 0.35, ic)
+	# paliers 2 et 4 : losanges (or cerné d'encre une fois atteints)
+	var dy := r.position.y + 68.0 * u
+	for t in mini(tiers.size(), 2):
+		var dc := Vector2(r.get_center().x + (float(t) - 0.5) * 16.0 * u, dy)
+		if n >= int(tiers[t]):
+			UiKit.diamond(_list, dc, 5.0 * u, UIColors.GOLD, UIColors.SUMI, maxf(1.0, 1.5 * u))
+		else:
+			UiKit.diamond(_list, dc, 5.0 * u, UiKit.NONE, UIColors.LINE_MUTED, maxf(1.0, 1.5 * u))
+	# bonus actif : petit sceau d'or penché en haut à droite
+	if on:
+		var bc := Vector2(r.end.x - 5.0 * u, r.position.y + 3.0 * u)
+		var hs := 10.0 * u
+		var sq := PackedVector2Array()
+		for j in 4:
+			sq.append(bc + Vector2(-hs, -hs).rotated(deg_to_rad(8.0) + PI * 0.5 * float(j)))
+		_list.draw_colored_polygon(sq, UIColors.GOLD)
+		sq.append(sq[0])
+		_list.draw_polyline(sq, UIColors.SUMI, maxf(1.0, 1.5 * u), true)
+		UiKit.diamond(_list, bc, 3.5 * u, UIColors.SUMI)
+
+
+## Contour en pointillés d'un rectangle aux coins arrondis (tuile d'école vide).
+func _dashed_rect(r: Rect2, rad: float, col: Color, w: float, dash: float, gap: float) -> void:
+	var pts := UiKit.rrect_points(r, rad)
+	pts.append(pts[0])
+	var carry := 0.0  # longueur déjà parcourue dans le motif tiret + espace
+	for i in pts.size() - 1:
+		var p0 := pts[i]
+		var p1 := pts[i + 1]
+		var seg := p0.distance_to(p1)
+		var d := 0.0
+		while d < seg:
+			var pos := fmod(carry + d, dash + gap)
+			var left := (dash - pos) if pos < dash else (dash + gap - pos)
+			var step := minf(left, seg - d)
+			if pos < dash and step > 0.01:
+				_list.draw_line(p0.lerp(p1, d / seg), p0.lerp(p1, (d + step) / seg), col, w, true)
+			d += maxf(step, 0.01)
+		carry += seg
 
 
 # ------------------------------------------------------------------ bulles
@@ -619,58 +663,41 @@ func _bubble(key: int, pos: Vector2, bw: float, paint: bool, a: float) -> float:
 	var u := _u
 	var info: Dictionary = _infos[key]
 	var id := String(info.get("id", ""))
-	var rank := int(info.get("rarity_rank", 0))
-	var leg := rank >= 3
-	var rc: Color = info.get("rarity_color", Toon.SUMI)
-	var pad := 12.0 * u
-	var x := pos.x + pad
-	var tw := bw - pad * 2.0
-	var y := pos.y + pad
-	# déclencheur : pictogramme (sceau de la figure) et 1-2 mots
-	var chip := 20.0 * u
+	var px := 16.0 * u
+	var py := 12.0 * u
+	var x := pos.x + px
+	var tw := bw - px * 2.0
+	var y := pos.y + py
+	# en-tête : nom japonais en capitales d'or espacées ; à droite, la figure et le déclencheur en pictogrammes
+	var hfs := int(12 * u)
+	y += 13.0 * u
 	if paint:
-		var tc := Vector2(x + chip * 0.5, y + chip * 0.5)
+		var sp := maxi(1, int(2.0 * u))
+		if _caps.spacing_glyph != sp:
+			_caps.spacing_glyph = sp
+		var nm := UiKit.caps(_p(String(info.get("name", ""))), UiKit.TITLE_FONT)
+		var ic := Vector2(x + tw - 9.0 * u, y - 4.5 * u)
+		var room := tw - 52.0 * u
+		var f := hfs
+		while f > 8 and _caps.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > room:
+			f -= 1
+		_list.draw_string(_caps, Vector2(x, y), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f, Color(GOLD_HI, a))
+		UiKit.trig_icon(_list, id, ic, 18.0 * u, UIColors.WASHI, a)
 		var fig := UiKit.trigger_figure(id)
 		if fig != "":
-			UiKit.figure(_list, fig, tc, chip * 0.42, a)
-		else:
-			var tcol: Color = GOLD_HI if leg else Toon.VERMILION
-			_list.draw_circle(tc, chip * 0.5, Color(tcol, a))
-			UiKit.trigger_icon(_list, id, tc, 6.2 * u, BUB_BODY if leg else Toon.WASHI, tcol, a)
-		_fit(UiKit.fx_when(id), Vector2(x + chip + 7.0 * u, tc.y + 4.0 * u), tw - chip - 7.0 * u, int(11 * u), Color(Toon.WASHI, 0.92 * a))
-	y += chip + 4.0 * u
-	# nom japonais et sous-titre
-	var nfs := int(15 * u)
-	y += 15.0 * u
-	if paint:
-		var nm := _p(String(info.get("name", "")))
-		_list.draw_string(UiKit.TITLE_FONT, Vector2(x, y), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(GOLD_HI if leg else Toon.WASHI, a))
-		var sub := _p(String(info.get("sub", "")))
-		var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-		if sub != "" and tw - nw - 8.0 * u > 30.0 * u:
-			_fit("— " + sub, Vector2(x + nw + 8.0 * u, y), tw - nw - 8.0 * u, int(10 * u), Color(Toon.WASHI, 0.5 * a))
-	# rareté et niveau
-	y += 14.0 * u
-	if paint:
-		var lv := int(info.get("level", 1))
-		var mx := int(info.get("max_level", 1))
-		var tag := String(info.get("rarity_name", ""))
-		if mx > 1:
-			tag += "  ·  NIVEAU %d/%d" % [lv, mx]
-		else:
-			tag += "  ·  UNIQUE"
-		_fit(tag, Vector2(x, y), tw, int(8.5 * u), Color(GOLD_HI if leg else rc.lightened(0.35), a))
-	# l'effet au niveau actuel en pastilles (pictogramme, chiffre, libellé), puis une phrase courte
+			UiKit.figure_icon(_list, fig, ic - Vector2(24.0 * u, 0.0), 18.0 * u, a)
+	# la phrase, en gras
+	y = _lines(UiKit.fx_line(id), x, y + 4.0 * u, tw, int(13.5 * u), 17.5 * u, 3, Color(UIColors.WASHI, a), paint, false)
+	# tickets d'effet au niveau actuel
 	var rows: Array = info.get("fx", [])
 	if rows.is_empty():
 		rows = UiKit.fx_rows(id, 0, int(info.get("level", 1)))
-	y = _fx_chips(rows, x, y + 8.0 * u, tw, UiKit.power_color(id).lerp(Toon.WASHI, 0.4), paint, a)
-	y = _lines(UiKit.fx_line(id), x, y + 1.0 * u, tw, int(11 * u), 14.5 * u, 2, Color(Toon.WASHI, 0.8 * a), paint, false)
+	y = _fx_chips(rows, x, y + 9.0 * u, tw, paint, a)
 	# synergie active
 	var syn := _p(String(info.get("synergy", "")))
 	if syn != "":
-		y = _lines("+ " + syn, x, y + 3.0 * u, tw, int(9.5 * u), 13.0 * u, 2, Color(GOLD_HI, a), paint, false)
-	return y - pos.y + pad * 0.8
+		y = _lines("+ " + syn, x, y + 2.0 * u, tw, int(10 * u), 13.0 * u, 2, Color(GOLD_HI, a), paint, false)
+	return y - pos.y + py
 
 
 ## Bulle d'une école : nom, compte, bonus à 2 et à 4 (actifs en or), Sceau maître s'il compte.
@@ -686,103 +713,97 @@ func _bubble_school(k: int, pos: Vector2, bw: float, paint: bool, a: float) -> f
 	var tiers: Array = Data.AFF_TIERS
 	var top := int(tiers[tiers.size() - 1])
 	var bonus: Array = Data.AFFINITY.get(school, [])
-	var col := UiKit.school_color(school).lightened(0.1)
-	var pad := 12.0 * u
+	var col := UIColors.element(school, true)
+	var pad := 14.0 * u
 	var x := pos.x + pad
 	var tw := bw - pad * 2.0
-	var y := pos.y + pad
-	# en-tête : pastille, nom de l'école, compte
+	var y := pos.y + pad * 0.85
+	# en-tête : anneau miniature, nom de l'école, compte
 	var hr := 10.0 * u
 	if paint:
 		var hc := Vector2(x + hr, y + hr)
-		_list.draw_circle(hc, hr, Color(col, a))
-		UiKit.school_icon(_list, school, hc, hr * 0.62, Toon.WASHI, a, col)
+		UiKit.harmony_ring(_list, hc, hr, mini(n, 4), 0, col, UIColors.LINE_MUTED_DARK, a, false, false, 3.0, 2.4)
+		UiKit.element_icon(_list, school, hc, hr * 1.1, a, col)
 		var info_s: Dictionary = Data.SCHOOLS[school]
-		_list.draw_string(_title, Vector2(x + hr * 2.0 + 8.0 * u, y + hr + 5.0 * u), String(info_s["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Color(Toon.WASHI, a))
+		_list.draw_string(_title, Vector2(x + hr * 2.0 + 8.0 * u, y + hr + 5.0 * u), String(info_s["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(14 * u), Color(UIColors.WASHI, a))
 		var cnt := "%d/%d" % [mini(n, top), top]
-		if tier >= tiers.size():
-			cnt = "COMPLÈTE  " + cnt
-		var cfs := int(10 * u)
-		var cw := _ui.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
-		_list.draw_string(_ui, Vector2(x + tw - cw, y + hr + 4.0 * u), cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(GOLD_HI, a) if tier > 0 else Color(Toon.WASHI, 0.6 * a))
+		var cfs := int(12 * u)
+		var nf := UiKit.num_font()
+		var cw := nf.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+		_list.draw_string(nf, Vector2(x + tw - cw, y + hr + 4.0 * u), cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(GOLD_HI, a) if tier > 0 else Color(UIColors.WASHI, 0.6 * a))
 	y += hr * 2.0 + 2.0 * u
-	# paliers : coche d'or si actif, rond vide sinon
+	# paliers : losange d'or si actif, losange vide sinon
 	var lh := 14.5 * u
 	for t in mini(tiers.size(), bonus.size()):
 		var on: bool = tier > t
-		var txt := "À %d : %s" % [int(tiers[t]), _p(String(bonus[t]))]
-		var c: Color = Color(GOLD_HI, a) if on else Color(Toon.WASHI, 0.55 * a)
+		var txt := "%d : %s" % [int(tiers[t]), _p(String(bonus[t]))]
+		var c: Color = Color(GOLD_HI, a) if on else Color(UIColors.WASHI, 0.6 * a)
 		var y0 := y
 		y = _lines(txt, x + 18.0 * u, y, tw - 18.0 * u, int(10.5 * u), lh, 3, c, paint, on)
 		if paint:
 			var mc := Vector2(x + 6.0 * u, y0 + lh - 4.0 * u)
 			if on:
-				UiKit.glyph(_list, "check", mc, 5.5 * u, GOLD_HI, UiKit.NONE, a)
+				UiKit.diamond(_list, mc, 4.5 * u, Color(GOLD_HI, a))
 			else:
-				_list.draw_arc(mc, 4.5 * u, 0.0, TAU, 16, Color(Toon.WASHI, 0.4 * a), 1.4 * u, true)
+				UiKit.diamond(_list, mc, 4.5 * u, UiKit.NONE, Color(UIColors.WASHI, 0.4 * a), maxf(1.0, 1.2 * u))
 		y += 3.0 * u
 	if _rakkan:
 		var note := UiKit.power_label("ink_rakkan") + " : +1 dans chaque école commencée."
-		y = _lines(note, x, y + 2.0 * u, tw, int(9 * u), 13.0 * u, 2, Color(Toon.WASHI, 0.5 * a), paint, false)
+		y = _lines(note, x, y + 2.0 * u, tw, int(9 * u), 13.0 * u, 2, Color(UIColors.WASHI, 0.5 * a), paint, false)
 	return y - pos.y + pad * 0.8
 
 
-## Pastilles d'effet côte à côte (jusqu'à 3) sur la bulle d'encre : pictogramme et chiffre (en gras, « avant → »
-## plus petit), libellé dessous. Renvoie le bas de la rangée ; ne dessine que si `paint`.
-func _fx_chips(rows: Array, x: float, y: float, tw: float, icol: Color, paint: bool, a: float) -> float:
+## Tickets d'effet sur la bulle d'encre (planche MesPouvoirs), à la suite et à la ligne s'il le faut : fond vert d'encre,
+## pictogramme papier, chiffre en Zen Kaku (vert de jade ; « avant → » pâle), unité, libellé court.
+## Renvoie le bas des tickets ; ne dessine que si `paint`.
+func _fx_chips(rows: Array, x: float, y: float, tw: float, paint: bool, a: float) -> float:
 	var n := mini(rows.size(), 3)
 	if n == 0:
 		return y
 	var u := _u
-	var gap := 6.0 * u
-	var cwd := (tw - gap * float(n - 1)) / float(n)
-	var vfs0 := maxi(10, int(15.0 * u))
-	var lfs0 := maxi(8, int(10.0 * u))
-	var hh := float(vfs0) + float(lfs0) + 9.0 * u
-	if not paint:
-		return y + hh
-	var ir := 6.0 * u
+	var nf := UiKit.num_font()
+	var h := 30.0 * u
+	var gap := 8.0 * u
+	var vfs := int(15 * u)
+	var sfs := int(10 * u)
+	var cx := x
+	var cy := y
 	for k in n:
 		var rw: Array = rows[k]
-		var v := String(rw[1])
+		var parts := UiKit.split_value(String(rw[1]))
+		var head := String(parts[0])
+		var num := String(parts[1])
+		var unit := String(parts[2])
 		var lab := String(rw[2])
-		if v == "":
-			v = lab
-			lab = ""
-		var r := Rect2(Vector2(x + float(k) * (cwd + gap), y), Vector2(cwd, hh))
-		_list.draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, 0.07 * a), int(6 * u)), r)
-		# chiffre : « avant → » plus petit et pâle, la valeur en gras ; rétréci s'il déborde
-		var head := ""
-		var tail := v
-		var arrow := v.find(" → ")
-		if arrow >= 0:
-			head = v.substr(0, arrow + 3)
-			tail = v.substr(arrow + 3)
-		var vfs := vfs0
-		var room := cwd - 2.0 * ir - 12.0 * u
-		var hw := 0.0
-		var vw := 0.0
-		while true:
-			var sfs := maxi(7, int(float(vfs) * 0.72))
-			hw = _ui.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x if head != "" else 0.0
-			vw = hw + _ui.get_string_size(tail, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs).x
-			if vw <= room or vfs <= 8:
-				break
-			vfs -= 1
-		var cy := r.position.y + 4.0 * u + float(vfs0) * 0.5
-		var x0 := r.get_center().x - (2.0 * ir + 4.0 * u + vw) / 2.0
-		UiKit.glyph(_list, String(rw[0]), Vector2(x0 + ir, cy), ir, icol, BUB_BODY, a)
-		var vx := x0 + 2.0 * ir + 4.0 * u
-		if head != "":
-			_list.draw_string(_ui, Vector2(vx, cy + float(vfs) * 0.36), head, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(7, int(float(vfs) * 0.72)), Color(Toon.WASHI, 0.55 * a))
-		_list.draw_string(_ui, Vector2(vx + hw, cy + float(vfs) * 0.36), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(STAT_TXT, a))
-		_list.draw_string(_ui, Vector2(vx + hw + 0.7, cy + float(vfs) * 0.36), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(STAT_TXT, a))
-		if lab != "":
-			var lf := lfs0
-			while lf > 7 and _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lf).x > cwd - 8.0 * u:
-				lf -= 1
-			UiKit.text(_list, _ui, lab, Vector2(r.get_center().x, r.position.y + 5.0 * u + float(vfs0) + float(lfs0) * 0.8), lf, Color(Toon.WASHI, 0.62 * a))
-	return y + hh
+		var hw := nf.get_string_size(head + " ", HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x if head != "" else 0.0
+		var nw := nf.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs).x if num != "" else 0.0
+		var uw := _ui.get_string_size(unit, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x + 2.0 * u if unit != "" else 0.0
+		var lw := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x if lab != "" else 0.0
+		var cw := 10.0 * u + 14.0 * u + 6.0 * u + hw + nw + uw + (6.0 * u + lw if lab != "" else 0.0) + 10.0 * u
+		cw = minf(cw, tw)
+		if cx + cw > x + tw + 0.5 and cx > x:
+			cx = x
+			cy += h + 6.0 * u
+		if paint:
+			var r := Rect2(Vector2(cx, cy), Vector2(cw, h))
+			_list.draw_style_box(UiKit.box(_sb, Color(UIColors.CHIP_ON_DARK, a), int(8 * u)), r)
+			var mid := r.get_center().y
+			UiKit.fx_icon(_list, String(rw[0]), Vector2(r.position.x + 10.0 * u + 7.0 * u, mid), 14.0 * u, UIColors.WASHI, a)
+			var tx := r.position.x + 30.0 * u
+			if head != "":
+				_list.draw_string(nf, Vector2(tx, mid + float(sfs) * 0.36), head, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(UIColors.WASHI, 0.55 * a))
+				tx += hw
+			if num != "":
+				_list.draw_string(nf, Vector2(tx, mid + float(vfs) * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(UIColors.JADE_UP_ON_DARK, a))
+				tx += nw
+			if unit != "":
+				_list.draw_string(_ui, Vector2(tx + 2.0 * u, mid + float(sfs) * 0.36), unit, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(UIColors.WASHI, 0.6 * a))
+				tx += uw
+			if lab != "":
+				var room := r.end.x - 10.0 * u - (tx + 6.0 * u)
+				_fit(lab, Vector2(tx + 6.0 * u, mid + float(sfs) * 0.36), room, sfs, Color(UIColors.WASHI, a))
+		cx += cw + gap
+	return cy + h
 
 
 # ------------------------------------------------------------------ texte
