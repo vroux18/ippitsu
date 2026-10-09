@@ -18,7 +18,7 @@ boot_splash/bg_color=Color(0.937, 0.902, 0.824, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
 config/quit_on_go_back=false
-run/max_fps=60
+run/max_fps=120
 
 [display]
 
@@ -29,6 +29,10 @@ window/size/window_height_override=800
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=1
+
+[physics]
+
+common/physics_ticks_per_second=120
 
 [input_devices]
 
