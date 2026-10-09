@@ -229,9 +229,8 @@ func _build() -> void:
 	for s in [-1.0, 1.0]:
 		a.stick(Vector3(float(s) * 0.3, 0.26, Yokai.MASK_Z + 0.04), Vector3(0.014, 0.4, 0.014), Toon.GOLD, Vector3(PI, 0, float(s) * 0.1))
 		a.ball(Vector3(float(s) * 0.34, -0.14, Yokai.MASK_Z + 0.04), Vector3.ONE * 0.03, Toon.GOLD, Vector3.ZERO, 6)
-	piece(_head, a, f)
+	var hm := piece(_head, a, f)
 	# moitié décharnée : demi-plaque grise posée juste au-dessus de la plaque pâle (surface à part)
-	var hm: MeshInstance3D = _head.get_child(_head.get_child_count() - 1)
 	var hi := half_surface(hm.mesh, Vector3(0, 0, Yokai.MASK_Z), Vector3(0.306, 0.366, 0.106), MASK_DEAD, U)
 	hm.set_surface_override_material(hi, ink_mat())
 	# longue chevelure noire : nappe dans le dos jusqu'à la taille, deux mèches devant les épaules
