@@ -426,8 +426,7 @@ func _ready() -> void:
 			_windup = 0.75 if mini else 0.9
 			_walk = "Idle_Combat"
 			var h := 0.95 if mini else 1.35
-			ch.setup(MAGE, h, [["", TEX_GOLD]], ["Skeleton_Mage_Hat"], FOX_FIRE)
-			_tint(FOX_PALE, 0.85)
+			ch.setup(kind, h)  # masque de renard à grandes oreilles, queues en éventail (yokai_ink_w2)
 			_glow_a = 0.45
 			_glow_c = FOX_FIRE
 			ch.attach("handslot.r", _orb(0.1 if mini else 0.15, FOX_FIRE))
@@ -441,8 +440,7 @@ func _ready() -> void:
 			radius = 0.45
 			_walk = "Walking_B"
 			var hy := 1.85
-			ch.setup(MAGE, hy, [], ["Skeleton_Mage_Hat"], Color("#7FD8FF"))
-			_tint(Color("#E8F4FF"), 0.7)
+			ch.setup(kind, hy)  # châle de neige, chevelure noire, couronne de glace (yokai_ink_w3)
 			_glow_a = 0.3
 			_glow_c = ICE_C
 			_timer = randf_range(1.5, 2.5)
@@ -581,9 +579,7 @@ func _setup_extra() -> void:
 			radius = 0.38
 			_walk = "Walking_A"
 			_h = 1.25
-			_rogue = true
-			ch.setup(ROGUE, _h, [], _gear_except(["Knife", "Knife_Offhand"]), Toon.GOLD)
-			_tint(Color("#C99A62"), 1.0)
+			ch.setup(kind, _h)  # oreilles rondes, griffes d'acier, queue-faucille (yokai_ink_w2)
 			_timer = randf_range(1.2, 2.0)
 		"tanuki", "tanuki_d":
 			# tanuki : ventru, chapeau de paille ; le leurre n'a pas de queue (le seul indice)
@@ -593,9 +589,11 @@ func _setup_extra() -> void:
 			radius = 0.55
 			_walk = "Walking_A"
 			_h = 1.45
-			ch.setup(WARRIOR, _h, [["", TEX_GOLD]])
-			_tint(Color("#A07850"), 1.0)
-			_belly = Toon.part(_deco, _sph(0.36), _pm(Color("#E8D2A8")), Vector3(0, 0.45 * _h, -0.12 * _h), Vector3(1, 1, 0.7))
+			ch.setup(kind, _h)  # chapeau de paille, loup sombre, queue annelée (yokai_ink_w2)
+			# ventre-tambour clair devant le corps d'encre (il suit le corps du rig et bat pendant l'annonce)
+			var belly_at := Node3D.new()
+			ch.attach("body", belly_at)
+			_belly = Toon.part(belly_at, _sph(0.36), _pm(Color("#E8D2A8")), Vector3(0, 0.42 * _h, -0.24 * _h), Vector3(1, 1, 0.7))
 			if decoy:
 				_life = 7.0
 			_doron_cd = 1.5
@@ -606,8 +604,7 @@ func _setup_extra() -> void:
 			radius = 0.45
 			_walk = "Walking_B"
 			_h = 1.75
-			ch.setup(MAGE, _h, [["Body", TEX_RED]], ["Skeleton_Mage_Hat"], FOX_FIRE)
-			_tint(Color("#F0E2CC"), 0.9)
+			ch.setup(kind, _h)  # masque de renard relevé sur le front, ofuda, perche de lanterne (yokai_ink_w2)
 			_glow_a = 0.2
 			_glow_c = FOX_FIRE
 			ch.attach("handslot.r", _lantern_glow())
@@ -618,8 +615,7 @@ func _setup_extra() -> void:
 			speed = 2.9
 			radius = 0.38
 			_h = 1.1
-			ch.setup(MINION, _h, [], [], ICE_C)
-			_tint(Color("#EEF6FF"), 0.8)
+			ch.setup(kind, _h)  # tout petit sous un chapeau rond, mino, écharpe rouge (yokai_ink_w3)
 			_glow_a = 0.25
 			_glow_c = ICE_C
 		"tsurara":
@@ -628,9 +624,11 @@ func _setup_extra() -> void:
 			speed = 0.0
 			radius = 0.5
 			_h = 1.5
-			_custom = true
-			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
-			Toon.part(body, _sph(0.09), main.vfx.glow_mat(ICE_C, 2.5), Vector3(0, 0.55, -0.24))
+			ch.setup(kind, _h)  # bouquet de stalagmites sur son tertre, bloc de glace au visage creux (yokai_ink_w3)
+			# cœur de lueur froide devant la grande pointe (il suit le corps du rig)
+			var cold := Node3D.new()
+			ch.attach("body", cold)
+			Toon.part(cold, _sph(0.09), main.vfx.glow_mat(ICE_C, 2.5), Vector3(0, 0.55, -0.24))
 			_timer = randf_range(1.5, 2.5)
 		"hinotama":
 			# boule de feu : cœur ardent, yeux noirs, flammes
@@ -677,8 +675,7 @@ func _setup_extra() -> void:
 			radius = 0.45
 			_walk = "Walking_B"
 			_h = 1.8
-			ch.setup(MAGE, _h, [], ["Skeleton_Mage_Hat"], Color("#C9B8FF"))
-			_tint(Color("#E4E8F2"), 0.7)
+			ch.setup(kind, _h)  # masque pâle voilé de mèches noires, triangle des morts, col washi (yokai_ink_w3)
 			_glow_a = 0.3
 			_glow_c = Color("#B9A8E8")
 			_timer = randf_range(1.8, 2.6)
@@ -1607,7 +1604,8 @@ func _process(delta: float) -> void:
 		_update_cloud(delta)
 	if kind == "kagebo":
 		_record()
-	if _custom:
+	if _custom or kind == "tsurara":
+		# corps modelés (et la stalactite d'encre, qui frémit pendant son annonce) : retour à l'échelle normale
 		body.scale = body.scale.lerp(Vector3.ONE, minf(1.0, delta * 8.0))
 	if not _wings.is_empty():
 		_flap()

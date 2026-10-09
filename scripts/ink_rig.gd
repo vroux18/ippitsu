@@ -74,6 +74,19 @@ const REST_ARMS := {
 	"kappa_yumi": [Vector3(0.5, 0, 0.3), Vector3(0.9, 0, -0.4)],
 	"ika": [Vector3(0.5, 0, 0.4), Vector3(0.5, 0, -0.4)],
 	"umi_nyobo": [Vector3(1.2, 0, 0.3), Vector3(0.6, 0, -0.3)],
+	# monde 2 (yokai_ink_w2.gd) : feu levé en main droite ; griffes basses en avant ; mains sur le ventre ; lanterne levée
+	"kitsunebi": [Vector3(2.4, 0, 0.35), Vector3(0.6, 0, -0.4)],
+	"kitsunebi_s": [Vector3(2.4, 0, 0.35), Vector3(0.6, 0, -0.4)],
+	"kamaitachi": [Vector3(0.6, 0, 0.5), Vector3(0.6, 0, -0.5)],
+	"tanuki": [Vector3(1.3, 0, 0.3), Vector3(1.3, 0, -0.3)],
+	"tanuki_d": [Vector3(1.3, 0, 0.3), Vector3(1.3, 0, -0.3)],
+	"kitsune_tsukai": [Vector3(2.75, 0, 0.3), Vector3(0.5, 0, -0.3)],
+	# monde 3 (yokai_ink_w3.gd) : souffle des deux mains ; bras tendus de l'enfant qui court ; mains molles du spectre ;
+	# glaçons écartés de la stalactite (immobile)
+	"yukionna": [Vector3(1.5, 0, 0.35), Vector3(1.5, 0, -0.35)],
+	"yuki_warashi": [Vector3(1.6, 0, 0.5), Vector3(1.6, 0, -0.5)],
+	"onryo": [Vector3(1.7, 0, 0.25), Vector3(1.7, 0, -0.25)],
+	"tsurara": [Vector3(0.0, 0, 0.5), Vector3(0.0, 0, -0.5)],
 }
 
 var model: Node3D  # racine mise à l'échelle
