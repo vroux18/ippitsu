@@ -2,10 +2,11 @@ extends Control
 ## Coach : le tutoriel se fait en jouant. Petites bulles d'encre posées sur le jeu, près du héros,
 ## au moment où chaque geste sert : tracer, trancher, esquiver, l'encre, une figure, l'ultime, la course.
 ## Chaque bulle ne vient qu'une fois (meta.coach_seen) et part dès que le geste est fait (ou au bout
-## de quelques secondes). Chaque bulle arrive en arrêt sur image : le jeu se fige, voile d'encre, texte
-## en grand, geste fantôme animé, puis « TOUCHE POUR CONTINUER » ; ce toucher relance le jeu (jamais un
-## trait) et la bulle reste en petit rappel. La première garde ensuite le temps ralenti jusqu'au trait.
-## Leçon des figures (« figures ») : au 2e combat, une planche des six figures, puis « essaie un zigzag ».
+## de quelques secondes). Chaque bulle arrive en arrêt sur image : le jeu se fige, voile d'encre, bulle
+## en grand, geste fantôme animé, puis un doigt qui pulse (invite à toucher) ; ce toucher relance le jeu
+## (jamais un trait) et la bulle reste en petit rappel. La première garde ensuite le temps ralenti jusqu'au trait.
+## Leçon des figures (« figures ») : au 2e combat, une planche des six figures, puis « Un zigzag ».
+## Moins de texte, plus de visuel : chaque bulle tient en quelques mots, le geste fantôme porte la consigne.
 ## main appelle on_launch, on_event, on_pick, slows, frozen, freeze_tap, is_over_ui et skip ;
 ## le coach lit l'état de main.
 
@@ -13,38 +14,38 @@ const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 
+# une bulle = quelques mots ; le geste fantôme (main, trait, taps) montre le reste
 const TEXTS := {
-	"stroke": "Trace un trait : le rōnin le suit",
-	"cut": "Traverse-le pour trancher",
-	"dodge": "Glisse vite ou touche pour esquiver",
-	"ink": "L'encre se recharge quand tu ne traces pas",
+	"stroke": "Trace un trait",
+	"cut": "Traverse-le",
+	"dodge": "Touche : esquive",
+	"ink": "L'encre revient",
 	"ult": "Double tap : ultime",
-	"run": "Maintiens pour courir",
-	"figures": "Essaie : trace un zigzag",
+	"run": "Maintiens : cours",
+	"figures": "Un zigzag",
 }
 # mode pad (option) : le geste se fait dans le pad du bas, pas sur le terrain
 const TEXTS_PAD := {
-	"stroke": "Trace dans le pad : le rōnin suit ton geste",
-	"dodge": "Glisse vite ou touche : il bondit loin du danger",
-	"figures": "Essaie : un zigzag dans le pad",
+	"stroke": "Trace dans le pad",
+	"dodge": "Touche : esquive",
+	"figures": "Un zigzag dans le pad",
 }
 # leçon des figures (planche en arrêt sur image) : une figure reconnue donne d'elle-même +15 % de dégâts
 # à sa ruée et +1 chaîne si elle touche (powers.figure_launch, main._on_dash_finished) ; son rouleau
-# (PowerData.FIG_UNLOCK) débloque sa technique
-# (une seule ligne : les six figures et leur technique se lisent sur la planche)
+# (PowerData.FIG_UNLOCK) débloque sa technique. Une seule ligne, sans chiffre : la planche montre le reste.
 const LESSON := [
-	"Trace une forme : la ruée frappe plus fort",
+	"Une forme frappe plus fort",
 ]
 # technique de chaque figure (celle de son rouleau), en petit sous la figure
 const TECH := {"loop": "toupie", "zigzag": "éclair", "straight": "iaï", "return": "garde", "enso": "ensō", "hook": "estoc"}
 const GLUE := [":", ";", "!", "?", "%", "=", "»", "..."]
 const FIG_TEXT := {
-	"loop": "Dessine une boucle : la toupie",
-	"zigzag": "Trace un zigzag : l'éclair",
-	"straight": "Un long trait droit : l'iaï",
-	"return": "Un aller-retour : la garde",
-	"enso": "Un grand cercle : l'ensō",
-	"hook": "Un trait en crochet : l'estoc",
+	"loop": "Une boucle",
+	"zigzag": "Un zigzag",
+	"straight": "Un trait droit",
+	"return": "Un aller-retour",
+	"enso": "Un grand cercle",
+	"hook": "Un crochet",
 }
 # durée de vie (s réelles, arrêt sur image non compté) ; 0 : jusqu'au geste
 const LIFE := {"stroke": 0.0, "cut": 7.0, "dodge": 5.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0}
@@ -52,7 +53,7 @@ const ORDER := ["stroke", "dodge", "cut", "figures", "ult", "figure", "ink", "ru
 var _lesson_bottom := -1.0  # bas de la planche des figures à cette image (< 0 : pas de planche)
 const GAP := 0.8  # silence entre deux bulles
 const SLOW := 0.3  # temps ralenti tant que le premier trait n'est pas tracé
-const FREEZE_HINT := 0.8  # arrêt sur image : « TOUCHE POUR CONTINUER » après ce délai (s réelles)
+const FREEZE_HINT := 0.8  # arrêt sur image : le doigt qui pulse (invite à toucher) après ce délai (s réelles)
 const FREEZE_MAX := 12.0  # garde-fou : l'arrêt sur image se lève seul (s réelles)
 const FREEZE_MAX_BOT := 3.0  # robot (CI) : jamais bloqué longtemps
 const FREEZE_HARD_MS := 60000  # garde-fou absolu (horloge murale), même si le coach ne tournait plus
@@ -72,6 +73,7 @@ var _froze := {}  # bulles déjà montrées en arrêt sur image (une seule fois,
 var _veil := 0.0  # opacité du voile (suit l'arrêt sur image)
 var _big := 1.0  # échelle de la bulle (suit l'arrêt sur image)
 var _skip_rect := Rect2()
+var _force := ""  # bulle à montrer dès que possible, sans condition (captures : `?coach=figures`)
 var _ui := FontVariation.new()
 var _sb := StyleBoxFlat.new()
 
@@ -114,7 +116,7 @@ func frozen() -> bool:
 	return _fz >= 0.0 and mark != "" and active() and _in_play() and Time.get_ticks_msec() - _fz_ms < FREEZE_HARD_MS
 
 
-## Invite « TOUCHE POUR CONTINUER » affichée (le prochain toucher relance le jeu).
+## Invite affichée (doigt qui pulse) : le prochain toucher relance le jeu.
 func hint_shown() -> bool:
 	return frozen() and _fz >= FREEZE_HINT
 
@@ -127,6 +129,12 @@ func freeze_tap(_sp: Vector2) -> bool:
 	if _fz >= FREEZE_HINT:
 		_unfreeze()
 	return true
+
+
+## Captures : la bulle `id` se montre dès que le jeu tourne, sans attendre son moment.
+func force(id: String) -> void:
+	if TEXTS.has(id) or id == "figure":
+		_force = id
 
 
 ## Nouvelle partie, retour à l'accueil : rien d'affiché.
@@ -297,7 +305,10 @@ func _process(_delta: float) -> void:
 	var real := UiKit.real_delta()
 	if mark == "":
 		_gap -= real
-		if _gap <= 0.0:
+		if _force != "":
+			_show(_force)
+			_force = ""
+		elif _gap <= 0.0:
 			for id in ORDER:
 				var sid := String(id)
 				if not seen(sid) and _wanted(sid):
@@ -433,25 +444,26 @@ func _draw() -> void:
 		_draw_hint(u, insets)
 
 
-## « TOUCHE POUR CONTINUER » : pastille en bas, un instant après l'arrêt sur image.
+## Invite à toucher (arrêt sur image) : un doigt fantôme qui pulse en bas, sans un mot, un instant après l'arrêt.
 func _draw_hint(u: float, insets: Vector2) -> void:
 	var k := clampf((_fz - FREEZE_HINT) / 0.3, 0.0, 1.0)
 	if k <= 0.0:
 		return
-	var fs := int(12.0 * u)
-	var txt := UiKit.plain("TOUCHE POUR CONTINUER")
-	var tw := _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var y := size.y - insets.y - 96.0 * u
 	var pr := _pad()
 	if pr.size.x >= 10.0:
-		y = minf(y, pr.position.y - 72.0 * u)  # au-dessus du pad (et de PASSER)
+		y = minf(y, pr.position.y - 72.0 * u)  # au-dessus du pad (et du bouton passer)
 	if _lesson_bottom > 0.0:
-		y = _lesson_bottom + 24.0 * u  # leçon des figures : juste sous la planche, jamais dessus
-	var r := Rect2(Vector2(size.x * 0.5 - tw * 0.5 - 16.0 * u, y - 15.0 * u), Vector2(tw + 32.0 * u, 30.0 * u))
-	UiKit.box(_sb, Color(Toon.ui_paper, 0.92 * k), int(15.0 * u), Color(Toon.ui_ink, 0.5 * k), int(maxf(1.0, 1.2 * u)))
-	draw_style_box(_sb, r)
-	var al := k * (0.7 + 0.3 * sin(_t * 4.0))
-	UiKit.text(self, _ui, txt, Vector2(size.x * 0.5, y + fs * 0.36), fs, Color(Toon.ui_ink, al))
+		y = _lesson_bottom + 30.0 * u  # leçon des figures : juste sous la planche, jamais dessus
+	var c := Vector2(size.x * 0.5, y)
+	var t := fmod(_t, 1.2)
+	# onde qui part du doigt, puis le doigt qui s'enfonce
+	if t < 0.7:
+		draw_arc(c, (12.0 + 30.0 * t) * u, 0, TAU, 28, Color(Toon.WASHI, (0.7 - t) * k), 2.0 * u, true)
+	var press := 1.0 if t < 0.15 else 0.0
+	draw_circle(c, 14.0 * u, Color(Toon.ui_paper, 0.9 * k))
+	draw_arc(c, 14.0 * u, 0, TAU, 28, Color(Toon.ui_ink, 0.5 * k), maxf(1.0, 1.2 * u), true)
+	_finger(c, u * 0.9, k, 1.0 - press)
 
 
 ## Leçon des figures (arrêt sur image) : planche de papier, une ligne, puis les six figures qui se
@@ -514,16 +526,25 @@ func _draw_lesson(u: float, a: float) -> void:
 		UiKit.text(self, _ui, UiKit.plain(String(TECH.get(kind, ""))), Vector2(cx, cy + tile + float(lfs) * 1.5 + float(sfs) * 1.3), sfs, Color(Toon.ui_ink, 0.6 * a))
 
 
-## Petit « PASSER » dans le coin bas gauche (mode pad : juste au-dessus du pad, qui garde ses touchers).
+## Passer le tutoriel : bouton rond sumi dans le coin bas gauche, picto « sauter » (double chevron et barre),
+## sans un mot (mode pad : juste au-dessus du pad, qui garde ses touchers).
 func _draw_skip(u: float, insets: Vector2) -> void:
-	_skip_rect = Rect2(Vector2(14.0 * u, size.y - insets.y - 44.0 * u), Vector2(76.0 * u, 28.0 * u))
+	var d := 36.0 * u
+	_skip_rect = Rect2(Vector2(14.0 * u, size.y - insets.y - 14.0 * u - d), Vector2(d, d))
 	var pr := _pad()
 	if pr.size.x >= 10.0:
-		_skip_rect.position.y = minf(_skip_rect.position.y, pr.position.y - 36.0 * u)
-	UiKit.box(_sb, Color(Toon.ui_paper, 0.8), int(14.0 * u), Color(Toon.ui_ink, 0.35), int(maxf(1.0, 1.2 * u)))
-	draw_style_box(_sb, _skip_rect)
-	var fs := int(11.0 * u)
-	UiKit.text(self, _ui, "PASSER", Vector2(_skip_rect.get_center().x, _skip_rect.get_center().y + fs * 0.36), fs, Color(Toon.ui_ink, 0.8))
+		_skip_rect.position.y = minf(_skip_rect.position.y, pr.position.y - 8.0 * u - d)
+	var c := _skip_rect.get_center()
+	draw_circle(c + Vector2(0, 2.0 * u), d * 0.5, Color(0, 0, 0, 0.2))
+	draw_circle(c, d * 0.5, Color(Toon.SUMI, 0.82))
+	draw_arc(c, d * 0.5, 0, TAU, 32, Color(Toon.WASHI, 0.5), maxf(1.0, 1.2 * u), true)
+	# deux chevrons vers la droite, puis la barre d'arrêt
+	var col := Color(Toon.WASHI, 0.9)
+	var wdt := maxf(1.0, 2.0 * u)
+	for i in 2:
+		var x := c.x - 8.0 * u + 6.5 * u * float(i)
+		draw_polyline(PackedVector2Array([Vector2(x, c.y - 5.0 * u), Vector2(x + 4.5 * u, c.y), Vector2(x, c.y + 5.0 * u)]), col, wdt, true)
+	draw_line(Vector2(c.x + 7.0 * u, c.y - 5.5 * u), Vector2(c.x + 7.0 * u, c.y + 5.5 * u), col, wdt, true)
 
 
 ## Bulle d'encre (papier, liseré d'encre, queue vers `anchor`). side : à gauche de l'ancre (sinon au-dessus).

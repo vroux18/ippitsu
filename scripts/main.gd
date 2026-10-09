@@ -548,6 +548,10 @@ func _ready() -> void:
 		# `?tuto` (web) : première partie du tutoriel en jeu
 		meta.coach_reset()
 		_start_first_run()
+	# `?tuto&coach=figures` (captures) : cette bulle du coach dès que le jeu tourne (figures, dodge, ult…)
+	var cf := wsearch.find("coach=")
+	if cf >= 0:
+		coach.force(wsearch.substr(cf + 6).get_slice("&", 0))
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
 	if "intro" in wsearch:
 		_open_intro(false)
@@ -557,6 +561,29 @@ func _ready() -> void:
 	# `?bestiaire` (captures) : ouvre l'encyclopédie des yōkai depuis l'accueil (avec `unlockall` : complète)
 	if "bestiaire" in wsearch:
 		_open_bestiary()
+	# `?carnet` (captures) : le dojo, carnet des figures ouvert
+	if "carnet" in wsearch:
+		_start_dojo()
+		tuto.dojo.call("_toggle_book")
+	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
+	if "garderobe" in wsearch:
+		_open_wardrobe()
+	if "options" in wsearch:
+		_open_options()
+	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée (étape 5, chiffres de démo)
+	if "victoire" in wsearch or "defaite" in wsearch:
+		_start(false)
+		room = 5
+		stage_i = 2
+		kills = 23
+		max_chain = 14
+		run_time = 312.0
+		score.points = 61280 if "victoire" in wsearch else 18420
+		shape_counts = {"loop": 12, "zigzag": 7, "straight": 31, "return": 4, "enso": 2}
+		_ending_victory = "victoire" in wsearch
+		_finish_run()
+		if not _ending_victory:
+			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)
