@@ -212,13 +212,14 @@ func _on_buy() -> void:
 	if cost < 0 or bool(meta.cosmetic_owned(c, id)):
 		return
 	if int(meta.sumi) < cost:
-		_msg = "IL TE MANQUE %d ENCRE" % (cost - int(meta.sumi))
+		# pas assez d'encre : les chiffres suffisent (ce qu'on a, sur le prix)
+		_msg = "%d / %d" % [int(meta.sumi), cost]
 		_msg_t = 1.8
 		return
 	if bool(meta.buy_cosmetic(c, id)):
 		_bump = 1.0
 		_bump_key = "item:" + id
-		_msg = "ACHETÉ  ·  PORTÉ"
+		_msg = "PORTÉ"
 		_msg_t = 1.5
 		if c == "theme":
 			_read_theme()
@@ -278,10 +279,10 @@ func _draw() -> void:
 	var vh := _safe.x + 100.0 * u
 	var top := PackedColorArray([Color(_wash, 0.9 * a), Color(_wash, 0.9 * a), Color(_wash, 0.0), Color(_wash, 0.0)])
 	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, vh), Vector2(0, vh)]), top)
-	# en-tête commun : retour à gauche (InkButton rond), titre souligné de vermillon et sceau 衣 (le vêtement)
+	# en-tête commun : retour à gauche (InkButton rond), titre souligné de vermillon
 	var hy := _safe.x
 	var tmax: float = w - 2.0 * 96.0 * u
-	UiKit.screen_title(self, _title, "GARDE-ROBE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a, "衣", tmax, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
+	UiKit.screen_title(self, _title, "GARDE-ROBE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a, "", tmax, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
 	# compteur d'encre (en haut à droite, sur la ligne de l'en-tête)
 	var ifs: int = int(UiKit.FS_NUMBER * 0.9 * u)
 	var itxt := str(int(meta.sumi))
@@ -344,18 +345,17 @@ func _draw() -> void:
 			draw_arc(cc, rad + 4 * u, 0.0, TAU, 40, Color(_ink, 0.6 * ka), 1.6 * u, true)
 		if not owned:
 			UiKit.glyph(self, "at_lock", cc + Vector2(rad * 0.66, -rad * 0.66), 8.5 * u, Color(Toon.WASHI, 0.95 * ka), Toon.SUMI)
-		# nom court, ou prix pour ce qui s'achète
-		var lab := UiKit.plain(String(meta.cosmetic_name(c, id)))
-		var lc := Color(_ink, (0.85 if owned else 0.5) * ka)
+		# prix de ce qui s'achète : pastille sumi, goutte d'encre et chiffre (le nom se lit en bas, pour l'élément affiché)
 		var cost := int(meta.cosmetic_cost(c, id))
 		if not owned and cost >= 0:
-			lab = "%d ENCRE" % cost
-			lc = Color(GOLD_INK if _paper.v > 0.5 else Toon.GOLD, ka)
-		var fs2 := int(UiKit.FS_CAPTION * u)
-		var lw2 := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
-		if lw2 > cw - 6 * u and lw2 > 0.0:
-			fs2 = maxi(1, int(float(fs2) * (cw - 6 * u) / lw2))
-		UiKit.text(self, _ui, lab, cc + Vector2(0, 41 * u), fs2, lc)
+			var nf := UiKit.num_font()
+			var pfs := int(UiKit.FS_CAPTION * u)
+			var ptxt := str(cost)
+			var pw := nf.get_string_size(ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 22.0 * u
+			var pr2 := Rect2(Vector2(cc.x - pw / 2.0, cc.y + 30.0 * u), Vector2(pw, 16.0 * u))
+			draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.9 * ka), int(8 * u)), pr2)
+			UiKit.glyph(self, "at_drop", Vector2(pr2.position.x + 9.0 * u, pr2.get_center().y), 4.5 * u, Toon.WASHI, UiKit.NONE, ka)
+			draw_string(nf, Vector2(pr2.position.x + 16.0 * u, pr2.get_center().y + pfs * 0.36), ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs, Color(Toon.WASHI, ka))
 		_hits.append([Rect2(cc - Vector2(cw * 0.5, 30 * u), Vector2(cw, rh - 2 * u)), key])
 	# détail de l'élément affiché, sous un filet au pinceau (shuriken au milieu)
 	var rows := int(ceil(float(ids.size()) / float(COLS)))
@@ -364,21 +364,25 @@ func _draw() -> void:
 	var dy := ry + 16 * u
 	var nm := UiKit.plain(String(meta.cosmetic_name(c, shown)))
 	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(w / 2.0, dy + 8 * u), int(UiKit.FS_HEADING * u), Color(_ink, a))
+	# dessous : PORTÉ (coche), ou le message d'achat ; pour ce qui n'est pas acquis, comment l'obtenir (une ligne)
 	var sub := ""
 	var sc := Color(_ink, 0.6 * a)
+	var check := false
 	if _msg_t > 0.0:
 		sub = _msg
 		sc = Color(_accent, a)
+		check = _msg == "PORTÉ"
 	elif bool(meta.cosmetic_worn(c, shown)):
 		sub = "PORTÉ"
-	elif bool(meta.cosmetic_owned(c, shown)):
-		sub = "TOUCHE POUR PORTER"
-	else:
+		check = true
+	elif not bool(meta.cosmetic_owned(c, shown)):
 		sub = UiKit.plain(String(meta.cosmetic_how(c, shown)))
 	var bfs: int = int(UiKit.FS_BODY * u)
 	var lines := UiKit.wrap(_ui, sub, bfs, w - 60 * u, ["·", ":", "»"])
 	for li in mini(lines.size(), 2):
-		UiKit.text(self, _ui, lines[li], Vector2(w / 2.0, dy + 27 * u + 15 * u * li), bfs, sc)
+		var lw3 := UiKit.text(self, _ui, lines[li], Vector2(w / 2.0, dy + 27 * u + 15 * u * li), bfs, sc)
+		if check and li == 0:
+			UiKit.glyph(self, "check", Vector2(w / 2.0 - lw3 / 2.0 - 10.0 * u, dy + 27 * u - bfs * 0.36), 4.5 * u, Color(_accent, a), UiKit.NONE, a)
 	# échantillon pour le sillage et l'encre (invisibles sur le héros immobile)
 	if c == "trail" or c == "ink":
 		var sp := Vector2(w - 58 * u, dy)
