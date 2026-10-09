@@ -5,8 +5,9 @@ extends Control
 ## puis le défi en cours ou la figure ciblée. Le HUD de partie est réduit (hud.dojo : encre et ultime).
 ## Chaque trait a son verdict, dans une pastille sous l'en-tête : la figure reconnue et sa technique,
 ## sinon ce qui a manqué (StrokeShapes.near_miss / describe).
-## Le carnet (page déroulante) explique les six figures : geste animé, tracé, technique, encre ;
-## toucher une figure en fait la cible de l'entraînement. Il compte aussi esquives, zones, ultimes et défis.
+## Le carnet (page déroulante, planche Carnet v2) : les six figures en tuiles (geste animé, nom, picto de la
+## technique, compte), sans texte d'explication ; toucher une figure en fait la cible de l'entraînement, et
+## son geste fantôme se trace en grand sous l'en-tête. Il compte aussi esquives, zones, ultimes et défis.
 ## Mode offensif : trois mannequins (au plus) poursuivent le héros et frappent avec leurs annonces, comme en
 ## combat (le héros reste intouchable, ils reviennent quand on les abat) ; l'un d'eux annonce aussi
 ## régulièrement une zone rouge sous le héros, pour s'exercer au bond.
@@ -33,27 +34,11 @@ const VERDICT_LEN := 2.0
 const HEAD_H := 50.0        # rangée du titre et des boutons (× u)
 const TASK_H := 26.0        # rangée du défi en cours, ou de la figure ciblée (× u)
 const PAGE_HEAD := 50.0     # titre fixe du carnet, au-dessus de la partie qui défile (× u)
-const GLUE := [":", ";", "!", "?", "%", "=", "»", "..."]
 # technique que débloque le rouleau de chaque figure (power_data : fig_loop, fig_zigzag…)
 const TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "return": "GARDE", "enso": "ONDE DE CHOC", "hook": "ESTOC"}
-# comment la tracer : d'après les seuils de stroke_shapes.gd (ENSO_*, LOOP_*, RET_*, ZZ_*, ST_*, HK_*)
-const HOW := {
-	"straight": "Un trait bien droit d'au moins 7 m, sans onduler.",
-	"return": "Un aller d'au moins 3 m, puis repars sur tes pas jusqu'au départ.",
-	"zigzag": "Un Z ou un N : 2 virages nets (plus de 85 degrés) dans un sens puis dans l'autre.",
-	"loop": "Une boucle qui recoupe ton trait : presque un tour complet, 6 m de large au plus.",
-	"enso": "Un grand cercle presque fermé : plus de 3 m de large, deux tiers de tour ou plus.",
-	"hook": "Un trait, puis un angle vif à la fin : repars en biais vers l'arrière sur 1,5 m.",
-}
-# ce que fait la technique (niveau 1, power_data)
-const EFFECT := {
-	"straight": "Course ×1,4 qui perce les gardes, puis une coupe tombe sur toute la ligne.",
-	"return": "Tu te mets en garde 0,5 s : rien ne te touche.",
-	"zigzag": "Course ×1,4, et la foudre saute sur 3 ennemis.",
-	"loop": "Tu tournes sur toi 0,8 s : tu aspires et lacères tout autour.",
-	"enso": "Tu bondis au centre du cercle et l'onde de choc frappe autour.",
-	"hook": "Demi-tour : tu transperces l'ennemi le plus proche.",
-}
+# picto de la technique de chaque figure (SVG techniques/*) ; le geste animé de la tuile montre comment la tracer
+const TECH_ICON := {"loop": "techniques/toupie", "zigzag": "techniques/eclair", "straight": "techniques/iai",
+	"return": "techniques/garde", "enso": "techniques/onde_de_choc", "hook": "techniques/estoc"}
 const CHALLENGES := [
 	{"id": "loop_zz", "text": "Boucle puis zigzag d'affilée"},
 	{"id": "enso3", "text": "3 ensō de suite"},
@@ -90,6 +75,7 @@ var _verdict_sub := ""
 var _verdict_shape := ""
 var _verdict_miss := false
 var _verdict_t := -1.0
+var _ghost_t := -1.0     # geste fantôme de la cible (s depuis le choix ; < 0 : aucun)
 var _open_k := 0.0
 var _t := 0.0
 var _home: Control
@@ -269,7 +255,8 @@ func _set_target(kind: String) -> void:
 	if open:
 		_toggle_book()
 	if target != "":
-		_show_verdict("CIBLE · " + String(UiKit.FIG_WORD.get(kind, kind)), "à toi de la tracer", kind, false)
+		_show_verdict(String(UiKit.FIG_WORD.get(kind, kind)), "", kind, false)
+		_ghost_t = 0.0  # le geste fantôme se trace en grand sous l'en-tête
 
 
 # ------------------------------------------------------------------ événements transmis par main (via le tutoriel)
@@ -315,16 +302,12 @@ func on_dash_end(_pos: Vector3, kills: int, shape: String) -> void:
 			_complete("all6")
 		# verdict sous l'en-tête (les sceaux du HUD sont masqués au dojo) : figure, technique, compte ou cible
 		var word := String(UiKit.FIG_WORD.get(shape, shape))
-		var big := word + " · " + String(TECH.get(shape, ""))
 		var sub := "×%d" % int(counts[shape])
 		var wrong := false
-		if target != "":
-			if shape == target:
-				sub = "CIBLE ATTEINTE  ×%d" % int(counts[shape])
-			else:
-				sub = "CIBLE : " + String(UiKit.FIG_WORD.get(target, target))
-				wrong = true
-		_show_verdict(big, sub, shape, wrong)
+		if target != "" and shape != target:
+			sub = "×%d  ·  %s ?" % [int(counts[shape]), String(UiKit.FIG_WORD.get(target, target))]
+			wrong = true
+		_show_verdict(word, sub, shape, wrong)
 	else:
 		_enso_run = 0
 		_explain()
@@ -344,13 +327,13 @@ func _touched(kills: int) -> int:
 ## Trait non reconnu : la figure la plus proche et ce qui lui a manqué.
 func _explain() -> void:
 	if _pts.size() < 2 or StrokeShapes.length(_pts) < FIG_MIN_LEN:
-		_show_verdict("Trait trop court", "une figure demande un long trait", "", true)
+		_show_verdict("Trait trop court", "", "", true)
 		return
 	var m: Dictionary = StrokeShapes.near_miss(_pts)
 	var txt: String = StrokeShapes.describe(m)
 	if txt == "":
 		# reconnu ici mais pas par main (trait enchaîné, coupé par le bord…)
-		_show_verdict("Pas de figure", "trace-la d'un seul geste", "", true)
+		_show_verdict("Pas de figure", "", "", true)
 		return
 	var parts := txt.split(" : ", true, 1)
 	var sub := ""
@@ -460,15 +443,19 @@ func _update_zone(dt: float) -> void:
 	if safe:
 		zones_ok += 1
 		if done.has("zone"):
-			main.hud.banner("BIEN !", "ESQUIVÉ", Toon.GOLD, 0.8)
+			main.hud.banner("ESQUIVÉ", "", Toon.GOLD, 0.8)
 		_complete("zone")
 	else:
-		main.hud.banner("RATÉ", "SORS DU CERCLE : UN BOND OU UN TRAIT", Toon.VERMILION, 0.9)
+		main.hud.banner("RATÉ", "", Toon.VERMILION, 0.9)
 
 
 # ------------------------------------------------------------------ boucle et mise en page
 
 func _process(_delta: float) -> void:
+	if _ghost_t >= 0.0:
+		_ghost_t += UiKit.real_delta()
+		if _ghost_t > 5.0 or target == "":
+			_ghost_t = -1.0
 	if not active or not visible:
 		return
 	size = get_viewport_rect().size
@@ -643,6 +630,7 @@ func _draw() -> void:
 		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.3 * k), int(16 * u)), Rect2(pr.position + Vector2(0, 4 * u), pr.size))
 	else:
 		_draw_verdict(card, u)
+		_draw_ghost(card, u)
 
 
 ## Seconde rangée de l'en-tête : la figure ciblée, ou le prochain défi ; vide quand le carnet est ouvert.
@@ -665,7 +653,7 @@ func _draw_task(card: Rect2, u: float, a: float) -> void:
 		var ch := _next_challenge()
 		if ch.is_empty():
 			label = "BRAVO"
-			txt = "Tous les défis sont relevés"
+			txt = "%d / %d" % [done.size(), CHALLENGES.size()]
 		else:
 			txt = String(ch["text"])
 	txt = UiKit.plain(txt)
@@ -730,11 +718,25 @@ func _draw_verdict(card: Rect2, u: float) -> void:
 		draw_string(_ui, Vector2(tx, cy + 13.0 * u), _verdict_sub, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, scol)
 
 
+## Cible choisie dans le carnet : son geste fantôme se trace en grand sous l'en-tête (deux passages), puis s'efface.
+func _draw_ghost(card: Rect2, u: float) -> void:
+	if _ghost_t < 0.0 or target == "":
+		return
+	var a := clampf(minf(_ghost_t / 0.2, (4.6 - _ghost_t) / 0.4), 0.0, 1.0)
+	if a <= 0.0:
+		return
+	var s := 120.0 * u
+	var box := Rect2(Vector2(size.x / 2.0 - s / 2.0, card.end.y + 48.0 * u), Vector2(s, s))
+	var col: Color = InkStroke.FIG_INK.get(target, Toon.GOLD)
+	UiKit.draw_gesture(self, _sb, target, box, u * 1.6, a, _ghost_t, col, true, true)
+
+
 # ------------------------------------------------------------------ dessin : page du carnet
 
-## Carnet : les six figures (geste animé, tracé, technique, compte ; vignettes monotones : papier assombri,
-## liseré sumi, trait sumi, départ vermillon ; la cible seule est cernée de vermillon),
-## puis l'entraînement et les défis. Le contenu défile sous le titre fixe ; la page est découpée à son cadre.
+## Carnet (planche Carnet v2) : les six figures en tuiles sur deux colonnes (geste animé en grand, nom, picto de
+## la technique et compte ; la cible cernée de vermillon), puis l'entraînement et les défis.
+## Le contenu défile sous le titre fixe ; la page est découpée à son cadre. Aucun texte d'explication :
+## le geste qui se trace montre comment faire.
 func _draw_page() -> void:
 	var ci: Control = _page
 	var u := size.x / 400.0
@@ -750,64 +752,57 @@ func _draw_page() -> void:
 	var y := top + 12.0 * u
 	var x0 := pad
 	var x1 := w - pad
-	var tile := 64.0 * u
-	var nfs := int(15 * u)
-	var hfs := int(10 * u)
-	var tfs := int(8.5 * u)
-	var efs := int(9.5 * u)
-	var tx := x0 + 10.0 * u + tile + 12.0 * u
-	var tw := x1 - 10.0 * u - tx
+	var demo := main != null and main.powers != null and bool(main.powers.demo)
+	if demo:
+		# une seule phrase sur la page : les techniques sont prêtées au dojo
+		var br := Rect2(Vector2(x0, y), Vector2(x1 - x0, 30.0 * u))
+		ci.draw_style_box(UiKit.box(_psb, Color(Toon.VERMILION, 0.85), int(10 * u)), br)
+		UiKit.draw_icon(ci, "elements/figure", Vector2(br.position.x + 18.0 * u, br.get_center().y), 16.0 * u, 1.0, Toon.WASHI)
+		var dfs := int(9.5 * u)
+		ci.draw_string(_ui, Vector2(br.position.x + 34.0 * u, br.get_center().y + dfs * 0.36), UiKit.plain("TECHNIQUES PRÊTÉES AU DOJO"), HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Toon.WASHI)
+		y += 40.0 * u
+	var gap := 10.0 * u
+	var tw := (x1 - x0 - gap) / 2.0
+	var th := tw * 0.92
+	var nf := UiKit.num_font()
 	for i in UiKit.FIGURES.size():
 		var kind := String(UiKit.FIGURES[i])
-		var col: Color = Toon.VERMILION if kind == target else ink
-		var how := UiKit.wrap(UiKit.UI_FONT, UiKit.plain(String(HOW.get(kind, ""))), hfs, tw, GLUE)
-		var eff := UiKit.wrap(UiKit.UI_FONT, UiKit.plain(String(EFFECT.get(kind, ""))), efs, tw, GLUE)
-		var text_h := float(nfs) * 1.2 + float(how.size()) * float(hfs) * 1.4 + 6.0 * u + float(tfs) * 1.5 + float(eff.size()) * float(efs) * 1.4
-		var rh := maxf(tile + 20.0 * u, text_h + 20.0 * u)
-		var rr := Rect2(Vector2(x0, y), Vector2(x1 - x0, rh))
-		hits.append([Rect2(Vector2(rr.position.x, rr.position.y - top), rr.size), kind])
 		var is_t := kind == target
+		var col: Color = Toon.VERMILION if is_t else ink
+		var rr := Rect2(Vector2(x0 + float(i % 2) * (tw + gap), y + float(int(i / 2.0)) * (th + gap)), Vector2(tw, th))
+		hits.append([Rect2(Vector2(rr.position.x, rr.position.y - top), rr.size), kind])
 		var n := int(counts.get(kind, 0))
 		if rr.end.y > 0.0 and rr.position.y < h:
 			ci.draw_style_box(UiKit.box(_psb, Color(ink, 0.05), int(12 * u), Color(col, 0.95 if is_t else 0.35), maxi(1, int((2.2 if is_t else 1.2) * u))), rr)
-			var tr := Rect2(Vector2(x0 + 10.0 * u, y + (rh - tile) / 2.0), Vector2(tile, tile))
-			UiKit.draw_gesture(ci, _psb, kind, tr, u, 1.0, _t + float(i) * 0.37, ink, true, true)
-			# nom, compte à droite (et « CIBLE » quand c'est elle)
-			var ty := y + 10.0 * u + float(nfs) * 0.85
-			ci.draw_string(UiKit.TITLE_FONT, Vector2(tx, ty), UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind))), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, ink)
-			var ct := "×%d" % n
-			var cfs := int(13 * u)
-			var ctw := UiKit.TITLE_FONT.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
-			ci.draw_string(UiKit.TITLE_FONT, Vector2(x1 - 10.0 * u - ctw, ty), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(Toon.VERMILION, 1.0) if n > 0 else Color(ink, 0.3))
-			if is_t:
-				var gfs := int(7.5 * u)
-				var gw := _ui.get_string_size("CIBLE", HORIZONTAL_ALIGNMENT_LEFT, -1, gfs).x
-				var gr := Rect2(Vector2(x1 - 10.0 * u - ctw - 8.0 * u - gw - 12.0 * u, ty - float(gfs) - 4.0 * u), Vector2(gw + 12.0 * u, float(gfs) + 8.0 * u))
-				ci.draw_style_box(UiKit.box(_psb, Toon.VERMILION, 999), gr)
-				ci.draw_string(_ui, Vector2(gr.position.x + 6.0 * u, gr.end.y - 4.0 * u), "CIBLE", HORIZONTAL_ALIGNMENT_LEFT, -1, gfs, Toon.WASHI)
-			ty += float(nfs) * 0.35
-			# comment la tracer
-			for l in how:
-				ty += float(hfs) * 1.4
-				ci.draw_string(UiKit.UI_FONT, Vector2(tx, ty), String(l), HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Color(ink, 0.9))
-			# technique et son état, puis son effet
-			ty += 6.0 * u + float(tfs) * 1.4
-			ci.draw_string(_ui, Vector2(tx, ty), UiKit.plain("TECHNIQUE · %s%s" % [String(TECH.get(kind, "")), _tech_state(kind)]), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(ink, 0.8))
-			for l in eff:
-				ty += float(efs) * 1.4
-				ci.draw_string(UiKit.UI_FONT, Vector2(tx, ty), String(l), HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(ink, 0.7))
-		y += rh + 8.0 * u
+			# le geste, en grand (trait sumi, départ vermillon)
+			var gs := tw - 36.0 * u
+			var gr := Rect2(Vector2(rr.get_center().x - gs / 2.0, rr.position.y + 10.0 * u), Vector2(gs, gs * 0.82))
+			UiKit.draw_gesture(ci, _psb, kind, gr, u, 1.0, _t + float(i) * 0.37, ink, true, true)
+			# nom à gauche, picto de la technique et compte à droite
+			var ty := rr.end.y - 12.0 * u
+			var nfs := int(13 * u)
+			ci.draw_string(UiKit.TITLE_FONT, Vector2(rr.position.x + 10.0 * u, ty), UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind)).capitalize()), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(ink, 1.0 if n > 0 else 0.6))
+			var ct := str(n)
+			var cfs := int(12 * u)
+			var ctw := nf.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+			ci.draw_string(nf, Vector2(rr.end.x - 10.0 * u - ctw, ty), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(Toon.VERMILION, 1.0) if n > 0 else Color(ink, 0.35))
+			var tc := Vector2(rr.end.x - 10.0 * u - ctw - 16.0 * u, ty - cfs * 0.36)
+			var on := demo or (main != null and main.powers != null and bool(main.powers.fig_on(kind)))
+			var fcol: Color = InkStroke.FIG_INK.get(kind, Toon.GOLD)
+			ci.draw_circle(tc, 10.0 * u, Color(fcol, 1.0 if on else 0.25))
+			UiKit.draw_icon(ci, String(TECH_ICON.get(kind, "elements/figure")), tc, 13.0 * u, 1.0 if on else 0.5, Toon.WASHI)
+	y += 3.0 * (th + gap)
 	_row_hits = hits
-	# entraînement : esquives, zones, ultimes
-	y += 6.0 * u
-	_psection(ci, "TON ENTRAÎNEMENT", x0, x1, y + 9.0 * u, u)
+	# entraînement : figures, esquives, zones, ultimes (chiffres et un mot)
+	y += 4.0 * u
+	_psection(ci, "ENTRAÎNEMENT", x0, x1, y + 9.0 * u, u)
 	y += 30.0 * u
 	var cols := [["FIGURES", total_figures()], ["ESQUIVES", dodges], ["ZONES", zones_ok], ["ULTIMES", ults]]
 	var sw := (x1 - x0) / float(cols.size())
 	for i in cols.size():
 		var col_s: Array = cols[i]
 		var cx := x0 + sw * (float(i) + 0.5)
-		UiKit.text(ci, UiKit.TITLE_FONT, str(int(col_s[1])), Vector2(cx, y), int(16 * u), Color(ink, 0.9))
+		UiKit.text(ci, nf, str(int(col_s[1])), Vector2(cx, y), int(16 * u), Color(ink, 0.9))
 		UiKit.text(ci, _ui, String(col_s[0]), Vector2(cx, y + 14.0 * u), int(7.5 * u), Color(ink, 0.55))
 		if i > 0:
 			ci.draw_line(Vector2(x0 + sw * float(i), y - 14.0 * u), Vector2(x0 + sw * float(i), y + 14.0 * u), Color(ink, 0.12), maxf(1.0, 1.2 * u))
@@ -846,8 +841,10 @@ func _draw_page() -> void:
 	_psb.corner_radius_bottom_right = 0
 	ci.draw_style_box(_psb, Rect2(Vector2.ZERO, Vector2(w, ph)))
 	ci.draw_line(Vector2(pad, ph), Vector2(w - pad, ph), Color(ink, 0.15), maxf(1.0, 1.5 * u))
-	ci.draw_string(UiKit.TITLE_FONT, Vector2(pad, 25.0 * u), "Carnet des figures", HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), ink)
-	ci.draw_string(_ui, Vector2(pad, 40.0 * u), UiKit.plain("TOUCHE UNE FIGURE POUR T'Y EXERCER"), HORIZONTAL_ALIGNMENT_LEFT, -1, int(7.5 * u), Color(Toon.VERMILION, 0.9))
+	var tfs := int(17 * u)
+	ci.draw_string(UiKit.TITLE_FONT, Vector2(pad, 31.0 * u), "Carnet", HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, ink)
+	var tw2 := UiKit.TITLE_FONT.get_string_size("Carnet", HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+	ci.draw_rect(Rect2(Vector2(pad + tw2 * 0.2, 36.0 * u), Vector2(tw2 * 0.6, 2.5 * u)), Toon.VERMILION)
 	var cc := Vector2(w - pad - 13.0 * u, ph * 0.5)
 	_close_rect = Rect2(cc - Vector2(15, 15) * u, Vector2(30, 30) * u)
 	ci.draw_circle(cc, 14.0 * u, Color(Toon.ui_wash, 1.0))
@@ -855,17 +852,6 @@ func _draw_page() -> void:
 	UiKit.glyph(ci, "cross", cc, 5.5 * u, ink, UiKit.NONE, 1.0)
 	# liseré par-dessus le contenu
 	ci.draw_style_box(UiKit.box(_psb, Color(0, 0, 0, 0), rad, Color(ink, 0.45), maxi(1, int(1.4 * u))), Rect2(Vector2.ZERO, _page.size))
-
-
-## État de la technique : prêtée au dojo, débloquée par son rouleau dans la partie, ou à débloquer.
-func _tech_state(kind: String) -> String:
-	if main == null or main.powers == null:
-		return ""
-	if bool(main.powers.demo):
-		return " · PRÊTÉE AU DOJO"
-	if bool(main.powers.fig_on(kind)):
-		return " · DÉBLOQUÉE"
-	return " · ROULEAU À TROUVER"
 
 
 ## Titre de section de la page : petit mot puis filet jusqu'au bord.
