@@ -556,7 +556,10 @@ func _vpill_pts(r: Rect2) -> PackedVector2Array:
 	for k in 9:
 		pts.append(ct + Vector2.from_angle(PI + PI * float(k) / 8.0) * rad)
 	for k in 9:
-		pts.append(cb + Vector2.from_angle(PI * float(k) / 8.0) * rad)
+		var q := cb + Vector2.from_angle(PI * float(k) / 8.0) * rad
+		# pilule presque ronde : pas de sommets confondus (la triangulation échouerait)
+		if pts[pts.size() - 1].distance_to(q) > 0.25 and (k < 8 or pts[0].distance_to(q) > 0.25):
+			pts.append(q)
 	return pts
 
 
@@ -675,7 +678,7 @@ func _draw_xp(u: float) -> void:
 	draw_style_box(UiKit.box(_sb, Color(0.06, 0.06, 0.09, 0.62), rf, xrim, maxi(1, int(1.5 * u))), frame)
 	var fh := bar.size.y * _xp_shown
 	if fh > 0.5 * u:
-		var fhh := maxf(fh, bar.size.x + 1.0)
+		var fhh := maxf(fh, bar.size.x + 3.0)
 		var fill := Rect2(Vector2(bar.position.x, bar.end.y - fhh), Vector2(bar.size.x, fhh))
 		var pts := _vpill_pts(fill)
 		var cols := PackedColorArray()
@@ -686,7 +689,7 @@ func _draw_xp(u: float) -> void:
 		draw_polygon(pts, cols)
 		if fill.size.y > 10.0 * u:
 			draw_line(Vector2(fill.position.x + 2.0 * u, fill.position.y + 4.0 * u), Vector2(fill.position.x + 2.0 * u, fill.end.y - 4.0 * u), Color(1, 1, 1, 0.4), 1.2 * u)
-		if _xp_sheen > 0.01:
+		if _xp_sheen > 0.01 and fill.size.y > 18.0 * u:
 			# reflet en biais qui balaie la partie remplie, du bas vers le haut
 			var ph := fmod(_t * 1.6, 1.0)
 			var sy := lerpf(fill.end.y + 8.0 * u, fill.position.y - 8.0 * u, ph)
@@ -694,7 +697,7 @@ func _draw_xp(u: float) -> void:
 			for piece in Geometry2D.intersect_polygons(band, pts):
 				var pp: PackedVector2Array = piece
 				# morceaux trop fins (bas de la jauge) : la triangulation échoue, on les saute
-				if pp.size() >= 3 and UiKit.poly_area(pp) > 2.0:
+				if pp.size() >= 3 and UiKit.poly_area(pp) > 12.0:
 					draw_colored_polygon(pp, Color(1, 1, 1, 0.6 * _xp_sheen))
 	# quarts gravés : on lit d'un coup d'œil où en est le niveau
 	for q in 3:

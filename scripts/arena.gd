@@ -1,8 +1,9 @@
 extends Node3D
 ## Terrain de jeu, en trois formes : étape longue (build_stage : tronçons empilés vers le fond, zones de combat
 ## fermées par des haies sacrées, recoins), arène unique (build_room : gardien et boss, formes LAYOUTS)
-## et sanctuaire de départ (build_hub : place, dojo, torii). Chaque forme jouable est une union de rectangles,
-## avec son sol selon le monde, son décor et le torii de sortie qui s'allume quand le combat est fini.
+## et sanctuaire de départ (build_hub : arrivée propre à chaque monde, chemin jusqu'au torii, HUBS).
+## Chaque forme jouable est une union de rectangles, avec son sol selon le monde, son décor et le torii de
+## sortie qui s'allume quand le combat est fini.
 ## Le vide (eau, lave, encre…) se comporte comme un trou : on peut tracer au-dessus, pas y finir.
 ## Les tronçons d'étape mêlent les formes fixes et des formes générées (GEN : places octogonales, L, T,
 ## escaliers, îles, chemins qui se séparent, pont cassé…) ; des pièces de décor du monde (bateaux, bosquets,

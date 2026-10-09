@@ -1164,11 +1164,6 @@ static func _hp(xs: float, ys: float, z: float) -> Vector3:
 	return Vector3(HOME_EYE.x + (xs - 0.712) * d / 1.477, HOME_EYE.y + (0.376 - ys) * d / 0.677, z)
 
 
-## Taille (m) à la profondeur `z` d'une fraction `f` de la largeur de l'écran d'accueil.
-static func _hw(f: float, z: float) -> float:
-	return f * (HOME_EYE.z - z) / 1.477
-
-
 ## Le lointain du monde : vu surtout depuis la caméra d'accueil (basse, vers -Z ; voir HOME_EYE)
 ## et en haut de la vue de jeu. Tout est hors de |x| < 9 et |z| < 12.
 static func build_backdrop(world_id: int, parent: Node3D) -> void:
@@ -1631,8 +1626,9 @@ static func _backdrop_ink(root: Node3D) -> void:
 		_sil_boat(st, Vector3(rng.randf_range(-55.0, 55.0), VOID_Y, z), rng.randf_range(0.9, 1.4) * (1.0 - z / 260.0), Color("#1B1A1E"), Color("#F1E8D6"), face)
 	_vc_end(st, root)
 	# grandes vagues noires
-	var w1: Node3D = Decor.great_wave(root, Vector3(-22, VOID_Y, -46), 2.8, 5)
-	w1.rotation.y = 0.55
+	# la première au bord gauche de l'accueil, la lèvre vers le donjon (de profil, sans le cacher)
+	var w1: Node3D = Decor.great_wave(root, Vector3(_hp(0.05, 0.0, -50.0).x, VOID_Y, -50.0), 2.2, 5)
+	w1.rotation.y = 1.35
 	_ink_wave(w1)
 	var w2: Node3D = Decor.great_wave(root, Vector3(30, VOID_Y, -78), 3.8, 6)
 	w2.rotation.y = -0.45
@@ -1654,7 +1650,7 @@ static func _backdrop_ink(root: Node3D) -> void:
 	for i in 22:
 		var p := Vector3.ZERO
 		if rng.randf() < 0.65:
-			p = Vector3(rng.randf_range(-25.0, 25.0), rng.randf_range(1.0, 14.0), rng.randf_range(-60.0, -14.0))
+			p = Vector3(rng.randf_range(-25.0, 25.0), rng.randf_range(1.0, 8.0), rng.randf_range(-60.0, -14.0))
 		else:
 			var sx: float = -1.0 if rng.randf() < 0.5 else 1.0
 			p = Vector3(sx * rng.randf_range(10.0, 18.0), rng.randf_range(2.0, 8.0), rng.randf_range(-10.0, 4.0))
@@ -6166,7 +6162,7 @@ static func _hub_tanabata(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 		_hub_pad(ctx, Vector2(sx * 3.55, -6.2), Vector2(1.5, 0.9), STONE_DARK)
 		_hub_piece(ctx, "fox_pair", Vector2(sx * 3.55, -6.2), 1.4, 0.8, false, 0.0)
 	# bambous de Tanabata chargés de vœux, sur leurs îlots de mousse
-	var wishes: Array[Vector2] = [Vector2(-3.3, 1.6), Vector2(-2.4, -4.3), Vector2(2.45, -1.3), Vector2(2.8, -3.9)]
+	var wishes: Array[Vector2] = [Vector2(-3.3, 1.6), Vector2(-2.75, -4.0), Vector2(2.45, -1.3), Vector2(2.8, -3.9)]
 	for p in wishes:
 		_add(bs, moss, _ball(0.5, 0.36, 10, 4), _at(Vector3(p.x, VOID_Y + 0.05, p.y)))
 		_tanzaku_into(bs, _at(Vector3(p.x, VOID_Y + 0.15, p.y)), rng)
@@ -6183,7 +6179,7 @@ static func _hub_tanabata(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 		_take(ctx, Vector2(ls.x, ls.y))
 	_light(ctx, Vector3(-1.55, 1.47, -4.6), Color(1.0, 0.75, 0.45), 0.8, 3.6)
 	# bosquets de bambous aux coins du haut et sur le flanc gauche
-	var groves: Array[Vector2] = [Vector2(-3.95, -7.7), Vector2(3.95, -7.9), Vector2(-4.05, -3.4)]
+	var groves: Array[Vector2] = [Vector2(-3.95, -7.7), Vector2(3.95, -7.9), Vector2(-4.1, -3.95)]
 	for i in groves.size():
 		var g: Vector2 = groves[i]
 		_add(bs, moss, _ball(0.75, 0.4, 10, 4), _at(Vector3(g.x, VOID_Y + 0.02, g.y)))
