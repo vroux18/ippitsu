@@ -1258,8 +1258,12 @@ func tele_fan(parent: Node3D, half_angle: float, length: float) -> Node3D:
 
 
 ## Avance une annonce : remplissage k (0..1) jusqu'au contour, pulsation, flash final.
-func tele_update(zone: Node3D, k: float, t_left: float) -> void:
-	if zone == null or not is_instance_valid(zone) or not zone.has_meta("fill"):
+func tele_update(zone_v: Variant, k: float, t_left: float) -> void:
+	# argument non typé : un repère déjà libéré ne doit pas faire planter l'appel
+	if zone_v == null or not is_instance_valid(zone_v):
+		return
+	var zone: Node3D = zone_v
+	if not zone.has_meta("fill"):
 		return
 	var kk := clampf(k, 0.01, 1.0)
 	var fill: MeshInstance3D = zone.get_meta("fill")

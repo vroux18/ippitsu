@@ -1437,7 +1437,8 @@ func _process(delta: float) -> void:
 		if _blast_t > 0.0:
 			# Explosif : le disque se remplit, puis éclate
 			_blast_t -= delta
-			main.vfx.tele_update(_tele, 1.0 - _blast_t / BLAST_T, _blast_t)
+			if is_instance_valid(_tele):
+				main.vfx.tele_update(_tele, 1.0 - _blast_t / BLAST_T, _blast_t)
 			if _blast_t <= 0.0:
 				_blast_t = 0.0
 				main.enemy_strike(_target, _zone_r)
