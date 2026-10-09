@@ -99,6 +99,18 @@ const REST_ARMS := {
 	"gaki": [Vector3(1.1, 0, 0.3), Vector3(1.0, 0, -0.35)],
 	"gokusotsu": [Vector3(0.35, 0, 0.45), Vector3(0.4, 0, -0.4)],
 	"shiryo": [Vector3(0.9, 0, 0.5), Vector3(0.9, 0, -0.5)],
+	# monde 4 (yokai_ink_w4.gd)
+	"kasha": [Vector3(0.9, 0, 0.4), Vector3(0.9, 0, -0.4)],  # griffes en avant
+	"hinotama": [Vector3(0.7, 0, 0.7), Vector3(0.7, 0, -0.7)],
+	"teppo": [Vector3(2.9, 0, 0.25), Vector3(0.45, 0, -0.3)],  # arquebuse dressée au-dessus de la tête
+	"tengu": [Vector3(0.6, 0, 0.55), Vector3(0.6, 0, -0.55)],
+	"kanabo": [Vector3(2.5, 0, 0.45), Vector3(0.3, 0, -0.4)],
+	"moryo": [Vector3(1.35, 0, 0.3), Vector3(0.5, 0, -0.3)],  # orbe tendue devant
+	# monde 5 (yokai_ink_w5.gd)
+	"kagebo": [Vector3(0.35, 0, 0.3), Vector3(0.3, 0, -0.3)],  # katana bas
+	"sumidama": [Vector3(0.4, 0, 0.75), Vector3(0.4, 0, -0.75)],
+	"sumidama_s": [Vector3(0.4, 0, 0.75), Vector3(0.4, 0, -0.75)],
+	"kasa": [Vector3(0.5, 0, 0.5), Vector3(0.5, 0, -0.5)],
 }
 
 var model: Node3D  # racine mise à l'échelle
