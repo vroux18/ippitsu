@@ -732,7 +732,8 @@ func _draw_verdict(card: Rect2, u: float) -> void:
 
 # ------------------------------------------------------------------ dessin : page du carnet
 
-## Carnet : les six figures (geste animé, tracé, technique, compte ; chaque carte à la couleur de son encre),
+## Carnet : les six figures (geste animé, tracé, technique, compte ; vignettes monotones : papier assombri,
+## liseré sumi, trait sumi, départ vermillon ; la cible seule est cernée de vermillon),
 ## puis l'entraînement et les défis. Le contenu défile sous le titre fixe ; la page est découpée à son cadre.
 func _draw_page() -> void:
 	var ci: Control = _page
@@ -758,7 +759,7 @@ func _draw_page() -> void:
 	var tw := x1 - 10.0 * u - tx
 	for i in UiKit.FIGURES.size():
 		var kind := String(UiKit.FIGURES[i])
-		var col: Color = InkStroke.FIG_INK.get(kind, Toon.GOLD)
+		var col: Color = Toon.VERMILION if kind == target else ink
 		var how := UiKit.wrap(UiKit.UI_FONT, UiKit.plain(String(HOW.get(kind, ""))), hfs, tw, GLUE)
 		var eff := UiKit.wrap(UiKit.UI_FONT, UiKit.plain(String(EFFECT.get(kind, ""))), efs, tw, GLUE)
 		var text_h := float(nfs) * 1.2 + float(how.size()) * float(hfs) * 1.4 + 6.0 * u + float(tfs) * 1.5 + float(eff.size()) * float(efs) * 1.4
@@ -768,12 +769,12 @@ func _draw_page() -> void:
 		var is_t := kind == target
 		var n := int(counts.get(kind, 0))
 		if rr.end.y > 0.0 and rr.position.y < h:
-			ci.draw_style_box(UiKit.box(_psb, Color(col, 0.16 if is_t else 0.07), int(12 * u), Color(col, 0.95 if is_t else 0.35), maxi(1, int((2.2 if is_t else 1.2) * u))), rr)
+			ci.draw_style_box(UiKit.box(_psb, Color(ink, 0.05), int(12 * u), Color(col, 0.95 if is_t else 0.35), maxi(1, int((2.2 if is_t else 1.2) * u))), rr)
 			var tr := Rect2(Vector2(x0 + 10.0 * u, y + (rh - tile) / 2.0), Vector2(tile, tile))
-			UiKit.draw_gesture(ci, _psb, kind, tr, u, 1.0, _t + float(i) * 0.37, col, true, true)
+			UiKit.draw_gesture(ci, _psb, kind, tr, u, 1.0, _t + float(i) * 0.37, ink, true, true)
 			# nom, compte à droite (et « CIBLE » quand c'est elle)
 			var ty := y + 10.0 * u + float(nfs) * 0.85
-			ci.draw_string(UiKit.TITLE_FONT, Vector2(tx, ty), UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind))), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, ink.lerp(col, 0.55))
+			ci.draw_string(UiKit.TITLE_FONT, Vector2(tx, ty), UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind))), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, ink)
 			var ct := "×%d" % n
 			var cfs := int(13 * u)
 			var ctw := UiKit.TITLE_FONT.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
@@ -791,7 +792,7 @@ func _draw_page() -> void:
 				ci.draw_string(UiKit.UI_FONT, Vector2(tx, ty), String(l), HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Color(ink, 0.9))
 			# technique et son état, puis son effet
 			ty += 6.0 * u + float(tfs) * 1.4
-			ci.draw_string(_ui, Vector2(tx, ty), UiKit.plain("TECHNIQUE · %s%s" % [String(TECH.get(kind, "")), _tech_state(kind)]), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, ink.lerp(col, 0.75))
+			ci.draw_string(_ui, Vector2(tx, ty), UiKit.plain("TECHNIQUE · %s%s" % [String(TECH.get(kind, "")), _tech_state(kind)]), HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(ink, 0.8))
 			for l in eff:
 				ty += float(efs) * 1.4
 				ci.draw_string(UiKit.UI_FONT, Vector2(tx, ty), String(l), HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(ink, 0.7))

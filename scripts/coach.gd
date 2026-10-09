@@ -12,7 +12,6 @@ extends Control
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const PowerData = preload("res://scripts/power_data.gd")
-const InkStroke = preload("res://scripts/ink_stroke.gd")
 
 const TEXTS := {
 	"stroke": "Trace un trait : le rōnin le suit",
@@ -417,11 +416,10 @@ func _draw() -> void:
 			if _fz >= 0.0:
 				_draw_lesson(u, a)  # planche des six figures
 			else:
-				# rappel : le zigzag fantôme, à l'encre de sa figure
+				# rappel : le zigzag fantôme (encre sumi, comme la planche)
 				var r := _bubble(txt, head, u, a, false, 64.0 * u, big)
 				var demo := Rect2(Vector2(r.end.x - 60.0 * u, r.position.y + 4.0 * u), Vector2(56.0 * u, r.size.y - 8.0 * u))
-				var zc: Color = InkStroke.FIG_INK.get("zigzag", Toon.GOLD)
-				_draw_figure("zigzag", demo, u, a, zc)
+				_draw_figure("zigzag", demo, u, a)
 		"ult":
 			_ghost_double_tap(feet, u, a)
 			_bubble(txt, head, u, a, false, 0.0, big)
@@ -456,8 +454,9 @@ func _draw_hint(u: float, insets: Vector2) -> void:
 	UiKit.text(self, _ui, txt, Vector2(size.x * 0.5, y + fs * 0.36), fs, Color(Toon.ui_ink, al))
 
 
-## Leçon des figures (arrêt sur image) : planche de papier, quelques lignes, puis les six figures qui se
-## tracent en boucle, chacune à l'encre de sa couleur (ink_stroke FIG_INK), son nom et sa technique.
+## Leçon des figures (arrêt sur image) : planche de papier, une ligne, puis les six figures qui se
+## tracent en boucle. Vignettes monotones : même papier assombri, liseré sumi fin, trait à l'encre sumi,
+## point de départ vermillon (seul accent) ; nom et technique à l'encre.
 func _draw_lesson(u: float, a: float) -> void:
 	var w := minf(size.x - 32.0 * u, 372.0 * u)
 	var pad := 16.0 * u
@@ -507,13 +506,11 @@ func _draw_lesson(u: float, a: float) -> void:
 	var gx := r.position.x + (w - 3.0 * cell) * 0.5
 	for i in UiKit.FIGURES.size():
 		var kind := String(UiKit.FIGURES[i])
-		var col: Color = InkStroke.FIG_INK.get(kind, Toon.GOLD)
 		var cx := gx + cell * (float(i % 3) + 0.5)
 		var cy := y + cell_h * floorf(float(i) / 3.0)
 		var box := Rect2(Vector2(cx - tile * 0.5, cy), Vector2(tile, tile))
-		_draw_figure(kind, box, u, a, col, true, float(i) * 0.37)
-		var lc := Color(Toon.ui_ink).lerp(col, 0.65)
-		UiKit.text(self, _ui, UiKit.plain(String(UiKit.FIG_WORD.get(kind, "FIGURE"))), Vector2(cx, cy + tile + float(lfs) * 1.3), lfs, Color(lc, a))
+		_draw_figure(kind, box, u, a, Toon.ui_ink, true, float(i) * 0.37, true)
+		UiKit.text(self, _ui, UiKit.plain(String(UiKit.FIG_WORD.get(kind, "FIGURE"))), Vector2(cx, cy + tile + float(lfs) * 1.3), lfs, Color(Toon.ui_ink, a))
 		UiKit.text(self, _ui, UiKit.plain(String(TECH.get(kind, ""))), Vector2(cx, cy + tile + float(lfs) * 1.5 + float(sfs) * 1.3), sfs, Color(Toon.ui_ink, 0.6 * a))
 
 
@@ -684,6 +681,7 @@ func _ghost_hold(c: Vector2, hp: Vector3, u: float, a: float) -> void:
 
 
 ## La figure se trace en boucle dans un petit cadre d'encre. col : encre du tracé (alpha 0 : papier clair) ;
-## light : cadre clair teinté de col (planche des figures) ; phase : décalage de l'animation (s).
-func _draw_figure(kind: String, box: Rect2, u: float, a: float, col := Color(0, 0, 0, 0), light := false, phase := 0.0) -> void:
-	UiKit.draw_gesture(self, _sb, kind, box, u, a, _t + phase, col, light)
+## light : cadre clair teinté de col (planche des figures) ; phase : décalage de l'animation (s) ;
+## start : point de départ vermillon.
+func _draw_figure(kind: String, box: Rect2, u: float, a: float, col := Color(0, 0, 0, 0), light := false, phase := 0.0, start := false) -> void:
+	UiKit.draw_gesture(self, _sb, kind, box, u, a, _t + phase, col, light, start)

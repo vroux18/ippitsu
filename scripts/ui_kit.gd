@@ -234,7 +234,8 @@ static func draw_gesture(ci: CanvasItem, sb: StyleBoxFlat, kind: String, frame: 
 		mapped.append(inner.position + p * inner.size)
 	ci.draw_polyline(mapped, Color(c, 0.2 * a), 2.0 * u, true)
 	if start:
-		ci.draw_arc(mapped[0], 3.5 * u, 0.0, TAU, 16, Color(c, 0.75 * a), 1.5 * u, true)
+		# point de départ : seul accent, toujours vermillon (planches monotones du coach et du carnet)
+		ci.draw_circle(mapped[0], 3.5 * u, Color(Toon.VERMILION, 0.9 * a))
 	if n >= 1:
 		ci.draw_polyline(mapped.slice(0, n + 1), Color(c, a), 2.5 * u, true)
 	ci.draw_circle(mapped[n], 4.0 * u, Color(Toon.VERMILION, 0.9 * a))
