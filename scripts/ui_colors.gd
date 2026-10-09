@@ -68,6 +68,11 @@ const RARITY := {
 }
 const PACT_BORDER := Color("#D7372B")  # pacte : vermillon, pas de crans
 
+# ------------------------------------------------------------------ mondes
+# clé du monde (worlds.gd « kanji », jamais affichée) -> picto du monde (HUD, pause, accueil)
+const WORLD_ICON := {"波": "hud/vague", "竹": "hud/bambou", "雪": "hud/neige", "火": "elements/feu", "墨": "hud/pinceau",
+	"天": "hud/etoile", "龍": "hud/couronne", "冥": "elements/ombre"}
+
 # ------------------------------------------------------------------ puces de multiplicateur (HUD)
 const MULT_CHIP := {"x1.5": Color("#3E9C8C"), "x2": Color("#E2A93B"), "x3": Color("#E25A3F"), "x4": Color("#C2668F")}
 
