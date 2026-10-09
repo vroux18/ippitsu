@@ -1205,6 +1205,24 @@ static func trigger_word(id: String) -> String:
 	return plain(String(TRIG_WORD.get(String(d.get("trig", "always")), "PERMANENT")))
 
 
+# sens des déclencheurs qui ne parlent pas d'eux-mêmes (explication des rouleaux)
+const TRIG_HINT := {"back": "frappe de dos", "arrive": "fin de ton trait", "multi": "plusieurs ennemis d'un trait",
+	"timer": "à intervalle régulier"}
+
+
+## Déclencheur et son sens, en une courte ligne (« DANS LE DOS = frappe de dos », « ENSO = trace la figure ») ;
+## "" si le mot se comprend seul.
+static func trigger_hint(id: String) -> String:
+	var f := trigger_figure(id)
+	if f != "":
+		return "%s = trace la figure" % String(FIG_WORD.get(f, "FIGURE"))
+	var d: Dictionary = Data.POWERS.get(id, {})
+	var trig := String(d.get("trig", ""))
+	if not TRIG_HINT.has(trig):
+		return ""
+	return plain("%s = %s" % [String(TRIG_WORD.get(trig, "")), String(TRIG_HINT[trig])])
+
+
 ## Pictogramme d'une ligne de valeur (« Explosion : 3 dégâts », « Garde : 1,2 s »…), d'après ses mots.
 static func stat_icon(txt: String) -> String:
 	var t := txt.to_lower()

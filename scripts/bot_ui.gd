@@ -395,6 +395,16 @@ func _option_applied(key: String, val: String) -> bool:
 			return bool(main.sfx.haptics) == (val == "on")
 		"tuto":
 			return val == "replay" and not bool(main.meta.tuto_done) and main.meta.coach_seen.is_empty()
+		"control":
+			# choix enregistré pour le prochain lancement : le mode de la session ne bouge pas,
+			# la note « redémarre » n'apparaît que si le choix diffère
+			var opt = main.options
+			return String(main.ctrl_pref) == val and String(main.ctrl_mode) == "screen" \
+				and bool(opt.restart_pending()) == (val != String(main.ctrl_mode))
+		"pad_size":
+			return String(main.pad_size) == val
+		"pad_show":
+			return String(main.pad_show) == val
 	return false
 
 
@@ -425,17 +435,32 @@ func _step_options(from: String) -> bool:
 	if not await _until(func(): return float(opt._t) >= 0.35 and opt._hits.size() > 0, "options prêtes"):
 		return false
 	var orig: Dictionary = opt.values.duplicate()
-	# plus de pad : restent son, vibrations et « revoir le tutoriel »
-	_check(Options.ROWS.size() == 3 and not opt.values.has("control"), "options (%s) : sans réglages de pad" % from, "lignes de pad encore présentes")
+	# son, vibrations, contrôles (sur l'écran par défaut), taille et affichage du pad, revoir le tutoriel
+	var keys: Array = []
+	for row in Options.ROWS:
+		keys.append(String(row["key"]))
+	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "tuto"] and String(opt.values.get("control", "")) == "screen"
+		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
+		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
+	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable
+	var dim_ok := true
+	for h in opt._hits:
+		if String(h[1]) in Options.PAD_KEYS:
+			dim_ok = false
+	_check(dim_ok, "options (%s) : réglages du pad grisés sur l'écran" % from, "cases du pad touchables")
+	# les lignes dans l'ordre : CONTRÔLES finit sur PAD EN BAS, ce qui ouvre la taille et l'affichage du pad
 	for row in Options.ROWS:
 		if String(row["key"]) == "tuto":
 			continue  # à part : elle remet le tutoriel à zéro
 		for o in row["opts"]:
 			await _option(String(row["key"]), String(o[0]), from == "accueil")
-	# valeurs de départ
+	# valeurs de départ (le contrôle en dernier : les réglages du pad se regrisent ensuite)
 	for key in orig.keys():
-		if String(key) != "tuto":
+		if String(key) != "tuto" and String(key) != "control":
 			await _option(String(key), String(orig[key]), false)
+	await _option("control", String(orig["control"]), true)
+	_check(String(main.ctrl_mode) == "screen" and String(main.ctrl_pref) == "screen" and not bool(opt.restart_pending()),
+		"options (%s) : PAD EN BAS annulé sans redémarrer" % from, "contrôle %s / choix %s" % [String(main.ctrl_mode), String(main.ctrl_pref)])
 	# « revoir le tutoriel » : bulles du coach remises à zéro, puis état d'avant rétabli (suite du parcours)
 	var seen0: Dictionary = main.meta.coach_seen.duplicate()
 	var done0 := bool(main.meta.tuto_done)

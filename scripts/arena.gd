@@ -57,7 +57,7 @@ const BOSS_LAYOUT := "full"  # les boss supposent toute l'arène (HALF)
 const FIRST_LAYOUTS := ["court", "court_wide"]  # salle 1 : une cour simple, ouverte, d'un seul tenant
 # saveur par monde : ces formes sortent deux fois plus souvent (formes fixes et générées)
 const FLAVOR := {
-	1: ["islands", "twin", "spine", "terraces", "g_isles", "g_broken", "g_alcove"],  # quais, jetées, pontons
+	1: ["g_oct", "g_tee", "cross", "court_wide"],  # quais larges et plats (premier monde : rien de morcelé)
 	2: ["quad", "diamond", "stairs", "g_isles", "g_plus", "g_oct"],  # îlots de la bambouseraie
 	3: ["moat", "ring", "ell", "g_oct", "g_ell", "g_split"],  # places enneigées, berges de la Sumida
 	4: ["zigzag", "stairs", "hourglass", "islands", "g_diag", "g_broken", "g_terrace"],  # coulées, gradins de basalte
@@ -66,6 +66,8 @@ const FLAVOR := {
 	7: ["pond", "moat", "ring", "islands", "g_twin_oct", "g_isles", "g_split"],  # cours du palais, récifs
 	8: ["hourglass", "cross", "zigzag", "spine", "g_alcove", "g_broken", "g_tee"],  # allées de tombes, pente de Yomi
 }
+# monde 1 : seulement des places larges d'un seul tenant (on découvre le jeu, pas de vide partout)
+const W1_SHAPES := ["full", "court", "court_wide", "g_oct", "g_tee", "cross"]
 const MAX_USES := 2  # une forme au plus deux fois par partie
 const MAX_USES_GEN := 3  # forme générée : tirée au hasard à chaque fois, elle peut revenir un peu plus
 # formes générées des étapes : famille (jamais deux fois de suite) et palier (0 simple -> 2 morcelée)
@@ -1393,13 +1395,19 @@ func _pick_chunk(rng: RandomNumberGenerator, i: int, fams: Dictionary, last_fam:
 	for pass_i in 2:
 		for k in keys:
 			var key := String(k)
-			if key == BOSS_LAYOUT or key == _last:
+			if world_id == 1:
+				if not (key in W1_SHAPES) or (key == _last and pass_i == 0):
+					continue
+			elif key == BOSS_LAYOUT or key == _last:
 				continue
 			var fam := _family(key)
 			var tier := _tier(key)
+			# montée douce : monde 2 sans formes morcelées, monde 3 seulement après sa 3e étape
+			if tier >= _max_tier():
+				continue
 			if pass_i == 0:
 				var cap: int = MAX_USES_GEN if GEN.has(key) else MAX_USES
-				if fam == last_fam or int(_used.get(key, 0)) >= cap:
+				if (fam == last_fam and world_id != 1) or int(_used.get(key, 0)) >= cap:
 					continue
 				# première étape du monde : rien que des formes simples (la variété vient ensuite)
 				if _stage_n == 0 and tier > 0:
@@ -1430,6 +1438,17 @@ func _pick_chunk(rng: RandomNumberGenerator, i: int, fams: Dictionary, last_fam:
 			pick = String(cands[c])
 			break
 	return pick
+
+
+## Palier de forme interdit (exclu) selon le monde et l'étape.
+func _max_tier() -> int:
+	if world_id <= 1:
+		return 1
+	if world_id == 2:
+		return 1 if _stage_n < 3 else 2
+	if world_id == 3 and _stage_n < 3:
+		return 2
+	return 3
 
 
 ## Passage d'arrivée : le plus large au nord du tronçon précédent (x0, x1) ; Vector2(1, -1) : aucun.

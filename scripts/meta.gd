@@ -156,6 +156,7 @@ var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passée
 const COACH_MARKS := ["stroke", "cut", "dodge", "ink", "figure", "ult", "run"]  # bulles du coach (coach.gd)
 var coach_seen := {}  # id de bulle -> true : déjà montrée
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
+var scroll_tip_done := false  # explication des rouleaux (picker.gd) déjà vue
 var world_best := {}  # monde -> meilleure salle atteinte
 var world_score := {}  # monde -> meilleur score (score.gd)
 var world_chain := {}  # monde -> plus longue chaîne atteinte
@@ -193,6 +194,7 @@ func load_data() -> void:
 			coach_seen[id] = true
 	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
 	intro_done = bool(cf.get_value("meta", "intro_done", tuto_done))
+	scroll_tip_done = bool(cf.get_value("meta", "scroll_tip", false))
 	start_power_id = String(cf.get_value("meta", "start_power", ""))
 	for wid in range(1, WORLD_COUNT + 1):
 		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
@@ -264,6 +266,7 @@ func save_data() -> void:
 	for id in COACH_MARKS:
 		cf.set_value("coach", id, coach_seen.has(id))
 	cf.set_value("meta", "intro_done", intro_done)
+	cf.set_value("meta", "scroll_tip", scroll_tip_done)
 	cf.set_value("meta", "start_power", start_power_id)
 	for wid in world_best.keys():
 		cf.set_value("worlds", str(wid), int(world_best[wid]))
@@ -307,6 +310,7 @@ func coach_skip() -> void:
 func coach_reset() -> void:
 	coach_seen = {}
 	tuto_done = false
+	scroll_tip_done = false
 
 
 ## Tout premier lancement (ou tutoriel à revoir) : JOUER mène droit au monde 1, avec le coach.

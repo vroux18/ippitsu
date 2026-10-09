@@ -1,6 +1,8 @@
 extends Control
-## Options : son, vibrations, revoir le tutoriel (on trace toujours directement sur l'écran).
-## Carte de papier sur voile d'encre, choix en boutons segmentés. main lit/écrit `values`.
+## Options : son, vibrations, contrôles (tracer sur l'écran, ou pad en bas), taille et affichage du pad,
+## revoir le tutoriel. Carte de papier sur voile d'encre, choix en boutons segmentés. main lit/écrit `values`.
+## Le mode de contrôle ne change qu'au prochain lancement (cadrage de l'arène) : main pose `active_control`,
+## une note le rappelle tant que le choix diffère.
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -11,6 +13,10 @@ signal closed
 const ROWS := [
 	{"key": "sound", "label": "SON", "opts": [["on", "OUI"], ["off", "NON"]]},
 	{"key": "vibration", "label": "VIBRATIONS", "opts": [["on", "OUI"], ["off", "NON"]]},
+	{"key": "control", "label": "CONTRÔLES", "opts": [["screen", "SUR L'ÉCRAN"], ["pad", "PAD EN BAS"]]},
+	# réglages du pad : grisés (et sans effet) quand on trace sur l'écran
+	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "PETIT"], ["m", "MOYEN"], ["l", "GRAND"]]},
+	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "AU DÉBUT"], ["never", "JAMAIS"]]},
 	# une seule case : cochée tant que le tutoriel en jeu (coach) est à faire
 	{"key": "tuto", "label": "TUTORIEL", "opts": [["replay", "REVOIR LE TUTORIEL"]]},
 ]
@@ -18,7 +24,11 @@ const INPUT_DELAY := 0.3  # le toucher qui a ouvert la carte ne doit rien choisi
 const NO_TARGET := -2
 const BACK_TARGET := -1
 
-var values := {"sound": "on", "vibration": "on"}
+const PAD_KEYS := ["pad_size", "pad_show"]
+const RESTART_NOTE := "Redémarre le jeu pour appliquer"
+
+var values := {"sound": "on", "vibration": "on", "control": "screen", "pad_size": "m", "pad_show": "start"}
+var active_control := "screen"  # mode de contrôle de la session en cours (lu par main au lancement)
 
 var _t := 0.0
 var _hits: Array = []  # [Rect2, clé, valeur]
@@ -43,6 +53,11 @@ func open() -> void:
 	_t = 0.0
 	_pressed = NO_TARGET
 	visible = true
+
+
+## Le mode de contrôle choisi n'est pas celui de la session : il faut relancer le jeu.
+func restart_pending() -> bool:
+	return String(values.get("control", "screen")) != active_control
 
 
 func _target_at(p: Vector2) -> int:
@@ -121,7 +136,8 @@ func _draw() -> void:
 	var y := card.position.y + 104 * u
 	for row in ROWS:
 		var key := String(row.key)
-		draw_string(_ui, Vector2(card.position.x + 22 * u, y), String(row.label), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.ui_ink, 0.6 * a))
+		var dim: bool = key in PAD_KEYS and String(values.get("control", "screen")) != "pad"
+		draw_string(_ui, Vector2(card.position.x + 22 * u, y), String(row.label), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.ui_ink, (0.3 if dim else 0.6) * a))
 		var opts: Array = row.opts
 		var x0 := card.position.x + 18 * u
 		var bw := (card.size.x - 36 * u - (opts.size() - 1) * 6 * u) / opts.size()
@@ -130,14 +146,19 @@ func _draw() -> void:
 			var r := Rect2(Vector2(x0 + i * (bw + 6 * u), y + 10 * u), Vector2(bw, 42 * u))
 			var on := String(values.get(key, "")) == String(o[0])
 			if on:
-				UiKit.box(_sb, Color(Toon.ui_ink, a), int(10 * u))
+				UiKit.box(_sb, Color(Toon.ui_ink, a * (0.4 if dim else 1.0)), int(10 * u))
 			else:
 				UiKit.box(_sb, Color(0, 0, 0, 0), int(10 * u), Color(Toon.ui_ink, 0.35 * a), int(1.5 * u))
 			draw_style_box(_sb, r)
-			if on:
+			if on and not dim:
 				draw_rect(Rect2(r.position + Vector2(8 * u, r.size.y * 0.3), Vector2(3 * u, r.size.y * 0.4)), Color(Toon.VERMILION, a))
 			var fs := int(12 * u)
 			UiKit.text(self, _ui, String(o[1]), Vector2(r.get_center().x, r.get_center().y + fs * 0.36), fs,
-				Color(Toon.ui_wash if on else Toon.ui_ink, a))
-			_hits.append([r, key, String(o[0])])
+				Color(Toon.ui_wash if on else Toon.ui_ink, a * (0.5 if dim else 1.0)))
+			if not dim:
+				_hits.append([r, key, String(o[0])])
+		if key == "control" and restart_pending():
+			# choix pris en compte au prochain lancement : petite note sous les boutons
+			var nfs := int(10 * u)
+			UiKit.text(self, _ui, UiKit.plain(RESTART_NOTE), Vector2(card.get_center().x, y + 68 * u), nfs, Color(Toon.VERMILION, 0.9 * a))
 		y += 92 * u

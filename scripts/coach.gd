@@ -17,6 +17,11 @@ const TEXTS := {
 	"ult": "Double tap : ultime",
 	"run": "Maintiens pour courir",
 }
+# mode pad (option) : le geste se fait dans le pad du bas, pas sur le terrain
+const TEXTS_PAD := {
+	"stroke": "Trace dans le pad : le rōnin suit ton geste",
+	"dodge": "Glisse vite ou touche : il bondit loin du danger",
+}
 const FIG_TEXT := {
 	"loop": "Dessine une boucle : la toupie",
 	"zigzag": "Trace un zigzag : l'éclair",
@@ -54,6 +59,14 @@ func active() -> bool:
 
 func _in_play() -> bool:
 	return String(main.state) == "play" and not bool(main.game_over) and is_instance_valid(main.hero)
+
+
+## Pad tactile de main (mode pad), vide en mode « sur l'écran ».
+func _pad() -> Rect2:
+	if String(main.ctrl_mode) != "pad":
+		return Rect2()
+	var pr: Rect2 = main.hud.pad
+	return pr
 
 
 func seen(id: String) -> bool:
@@ -236,15 +249,24 @@ func _draw() -> void:
 	var head := _screen(hp + Vector3(0, 2.3, 0))
 	var feet := _screen(hp)
 	var txt := String(TEXTS.get(mark, ""))
+	# mode pad : les gestes fantômes se font dans le pad (le terrain montre seulement la bulle)
+	var pr := _pad()
+	var in_pad := pr.size.x >= 10.0
+	if in_pad:
+		txt = String(TEXTS_PAD.get(mark, txt))
+		feet = pr.get_center()
 	match mark:
 		"stroke":
-			_ghost_path(hp, u, a)
+			if in_pad:
+				_ghost_pad_path(pr, u, a)
+			else:
+				_ghost_path(hp, u, a)
 			_bubble(txt, head, u, a, false)
 		"cut":
 			var e := _first_enemy()
 			if e != null:
 				var ep := _screen(e.position)
-				_ghost_line(feet, ep, u, a)
+				_ghost_line(_screen(hp), ep, u, a)  # chemin du rōnin sur le terrain (aussi en mode pad)
 				_bubble(txt, _screen(e.position + Vector3(0, 2.2, 0)), u, a, false)
 			else:
 				_bubble(txt, head, u, a, false)
@@ -252,9 +274,9 @@ func _draw() -> void:
 			_ghost_flick(feet, u, a)
 			_bubble(txt, head, u, a, false)
 		"ink":
-			# la jauge d'encre du HUD : bord droit, de 0,3 à 0,6 de la hauteur
-			var gx := size.x - 16.0 * u - 12.0 * u
-			var gr := Rect2(Vector2(gx - 3.0 * u, size.y * 0.3 - 3.0 * u), Vector2(22.0 * u, size.y * 0.3 + 6.0 * u))
+			# la jauge d'encre du HUD (bord droit), avec son cadre : géométrie lue dans le HUD (raccourcie au-dessus du pad)
+			var ir: Rect2 = main.hud.ink_rect()
+			var gr := ir.grow(3.0 * u)
 			var pulse := 0.5 + 0.5 * sin(_t * 6.0)
 			_sb.bg_color = Color(0, 0, 0, 0)
 			_sb.set_corner_radius_all(int(14.0 * u))
@@ -272,13 +294,19 @@ func _draw() -> void:
 			_ghost_double_tap(feet, u, a)
 			_bubble(txt, head, u, a, false)
 		"run":
-			_ghost_hold(feet, hp, u, a)
+			if in_pad:
+				_ghost_pad_hold(feet, u, a)
+			else:
+				_ghost_hold(feet, hp, u, a)
 			_bubble(txt, head, u, a, false)
 
 
-## Petit « PASSER » dans le coin bas gauche.
+## Petit « PASSER » dans le coin bas gauche (mode pad : juste au-dessus du pad, qui garde ses touchers).
 func _draw_skip(u: float, insets: Vector2) -> void:
 	_skip_rect = Rect2(Vector2(14.0 * u, size.y - insets.y - 44.0 * u), Vector2(76.0 * u, 28.0 * u))
+	var pr := _pad()
+	if pr.size.x >= 10.0:
+		_skip_rect.position.y = minf(_skip_rect.position.y, pr.position.y - 36.0 * u)
 	UiKit.box(_sb, Color(Toon.ui_paper, 0.8), int(14.0 * u), Color(Toon.ui_ink, 0.35), int(maxf(1.0, 1.2 * u)))
 	draw_style_box(_sb, _skip_rect)
 	var fs := int(11.0 * u)
@@ -300,7 +328,8 @@ func _bubble(txt: String, anchor: Vector2, u: float, a: float, side: bool, extra
 	var anc := anchor
 	if anc.x < -9000.0:
 		anc = Vector2(size.x * 0.5, size.y * 0.4)
-	var top_min := 70.0 * u
+	var top_clear: float = main.hud.top_clear()
+	var top_min := top_clear + 6.0 * u  # sous les pastilles du haut (et la barre du boss)
 	var pos := Vector2.ZERO
 	var tail := PackedVector2Array()
 	if side:
@@ -359,6 +388,29 @@ func _ghost_path(hp: Vector3, u: float, a: float) -> void:
 	if n >= 1:
 		draw_polyline(pts.slice(0, n + 1), Color(Toon.SUMI, 0.75 * a), 5.0 * u, true)
 	_finger(pts[n], u, a)
+
+
+## Mode pad : le même trait fantôme, tracé dans le pad (le geste du doigt, que le rōnin reproduit).
+func _ghost_pad_path(pr: Rect2, u: float, a: float) -> void:
+	var c := pr.get_center()
+	var hgt := pr.size.y * 0.6
+	var pts := PackedVector2Array()
+	for i in 13:
+		var k := float(i) / 12.0
+		pts.append(c + Vector2(sin(k * PI) * hgt * 0.25, hgt * (0.5 - k)))
+	draw_polyline(pts, Color(Toon.WASHI, 0.25 * a), 5.0 * u, true)
+	var k2 := clampf(fmod(_t, 2.0) / 1.3, 0.0, 1.0)
+	var n := int(k2 * float(pts.size() - 1))
+	if n >= 1:
+		draw_polyline(pts.slice(0, n + 1), Color(Toon.SUMI, 0.75 * a), 5.0 * u, true)
+	_finger(pts[n], u, a)
+
+
+## Mode pad : doigt posé qui se remplit (maintenir), puis qui s'oriente autour du point d'appui.
+func _ghost_pad_hold(c: Vector2, u: float, a: float) -> void:
+	var k := clampf(fmod(_t, 1.6) / 1.0, 0.0, 1.0)
+	draw_arc(c, 16.0 * u, -PI / 2.0, -PI / 2.0 + TAU * k, 28, Color(Toon.GOLD, 0.9 * a), 3.0 * u, true)
+	_finger(c, u, a)
 
 
 ## Trait fantôme à travers l'ennemi.

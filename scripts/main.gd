@@ -99,6 +99,9 @@ const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fin
 const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
 const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du héros)
 const CAM_LEAD := 0.6  # la caméra regarde à peine devant le héros (il reste au centre de l'écran)
+const CAM_LEAD_PAD := 2.4  # mode pad : l'arène est cadrée au-dessus du pad, on voit plus loin devant
+const SETTINGS_V := 1  # version des réglages : 1 = contrôle « sur l'écran » par défaut (anciens « pad » remis à zéro)
+const PAD_STROKES := 12  # pad « au début » : il s'efface après ces premiers traits de la session
 const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
 	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3,
 	"kappa_yumi": 2, "ika": 2, "umi_nyobo": 3, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 3,
@@ -157,6 +160,7 @@ var game_over := false
 var _ticks := 0
 var _cam_base := Transform3D()
 var _cam_full := Transform3D()
+var _cam_pad := Transform3D()  # mode pad : arène cadrée au-dessus du pad
 
 var state := "menu"  # menu | worlds | intro | play | boss_intro | pick | transit | paused | dying | over | tuto
 var menu: Control
@@ -222,6 +226,14 @@ var tuto: Control  # dojo (état « tuto »)
 var coach: Control  # tutoriel en jeu (coach.gd)
 var gentle := false  # première partie du tutoriel : les deux premiers combats du monde 1 adoucis
 var _launch_dodge := false  # la ruée lancée est un bond d'esquive (pour le coach)
+# contrôles : ctrl_mode est lu une fois au lancement (cadrage, entrée) ; ctrl_pref est le choix des options,
+# appliqué au prochain lancement
+var ctrl_mode := "screen"  # screen | pad
+var ctrl_pref := "screen"
+var pad_size := "m"  # s | m | l
+var pad_show := "start"  # always | start | never
+var _strokes_done := 0
+var _run_anchor := Vector2.ZERO  # mode pad : point où le doigt s'est posé pendant la course (manette)
 var intro: Control  # planches illustrées : premier JOUER, ou bouton « ? » de l'accueil
 var vfx: Node3D
 var options: Control
@@ -501,6 +513,24 @@ func _boot_async(t_ready: int) -> void:
 	await _warmup()
 
 
+## Les pièces accrochées aux os (cornes, masques, armes) ne suivent pas l'échelle miniature du préchauffage :
+## on les cache et on en pose une copie libre, minuscule, à côté (même maillage, même matière : shader prêt).
+func _warm_bones(e: Node3D, w: Node3D, at: Vector3) -> void:
+	for ba in e.find_children("*", "BoneAttachment3D", true, false):
+		var bn := ba as Node3D
+		bn.visible = false
+		for n in bn.find_children("*", "MeshInstance3D", true, false):
+			var mi := n as MeshInstance3D
+			if mi == null or mi.mesh == null:
+				continue
+			var c := MeshInstance3D.new()
+			c.mesh = mi.mesh
+			c.material_override = mi.material_override
+			c.position = at
+			c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			w.add_child(c)
+
+
 ## Script du boss `k` (compilé une seule fois, gardé).
 func _boss_script(k: String) -> GDScript:
 	var path: String = BOSS_PATHS.get(k, BOSS_BASE)
@@ -539,6 +569,7 @@ func _warmup() -> void:
 		e.position = Vector3(x, 0, 0)
 		w.add_child(e)
 		e.process_mode = Node.PROCESS_MODE_DISABLED
+		_warm_bones(e, w, Vector3(x, 0.4, 0))
 		x += 0.35
 		var spent := Time.get_ticks_usec() - t0
 		if spent >= WARM_BUDGET_US:
@@ -594,6 +625,21 @@ func _load() -> void:
 		record = int(cfg.get_value("game", "best", 0))
 		menu.muted = bool(cfg.get_value("game", "muted", false))
 		sfx.haptics = String(cfg.get_value("settings", "vibration", "on")) == "on"
+		# avant la version 1, le pad était le contrôle par défaut : on repasse une fois « sur l'écran »
+		if int(cfg.get_value("settings", "version", 0)) >= SETTINGS_V:
+			ctrl_pref = String(cfg.get_value("settings", "control", "screen"))
+		pad_size = String(cfg.get_value("settings", "pad_size", "m"))
+		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
+	if not ctrl_pref in ["screen", "pad"]:
+		ctrl_pref = "screen"
+	if not pad_size in ["s", "m", "l"]:
+		pad_size = "m"
+	if not pad_show in ["always", "start", "never"]:
+		pad_show = "start"
+	ctrl_mode = ctrl_pref  # le seul moment où le mode change : au lancement
+	if "--bot" in OS.get_cmdline_user_args():
+		ctrl_mode = "screen"  # le robot du CI joue toujours au doigt sur l'écran (sans toucher au choix enregistré)
+	hud.pad_alpha = 0.0 if pad_show == "never" else 1.0
 	menu.best = stage_of(record)
 	menu.sumi = meta.sumi
 	AudioServer.set_bus_mute(0, menu.muted)
@@ -604,6 +650,10 @@ func _save() -> void:
 	cfg.set_value("game", "best", record)
 	cfg.set_value("game", "muted", menu.muted)
 	cfg.set_value("settings", "vibration", "on" if sfx.haptics else "off")
+	cfg.set_value("settings", "version", SETTINGS_V)
+	cfg.set_value("settings", "control", ctrl_pref)
+	cfg.set_value("settings", "pad_size", pad_size)
+	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.save(SAVE_PATH)
 
 
@@ -860,7 +910,9 @@ func _on_home() -> void:
 
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
-	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off"}
+	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show}
+	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
 	menu.show_mode("hidden")
@@ -874,6 +926,14 @@ func _on_option(key: String, value: String) -> void:
 			AudioServer.set_bus_mute(0, menu.muted)
 		"vibration":
 			sfx.haptics = value == "on"
+		"control":
+			ctrl_pref = value  # au prochain lancement (la carte d'options le rappelle)
+		"pad_size":
+			pad_size = value
+			if ctrl_mode == "pad":
+				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
+		"pad_show":
+			pad_show = value
 		"tuto":
 			# « Revoir le tutoriel » : les bulles du coach reviendront (JOUER mène droit au monde 1)
 			meta.coach_reset()
@@ -1560,13 +1620,78 @@ func apply_world(id: int) -> void:
 
 
 ## Cadrage de l'arène : son centre (là où se tient le héros) au centre de l'écran.
+## Mode pad : un second cadrage, l'arène au-dessus du pad ; le jeu glisse de l'un à l'autre selon la
+## visibilité du pad (_cam_mix).
 func _fit_camera() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	if vs.x <= 0 or vs.y <= 0:
 		return
 	_cam_full = _frame(vs)
 	_cam_base = _cam_full
+	if ctrl_mode == "pad":
+		_cam_pad = _frame_pad(vs, pad_rect().position.y / vs.y)
+		_cam_base = _cam_mix()
 	cam.global_transform = _cam_base
+
+
+## Cadrage de jeu : en mode pad, mélange des deux cadrages selon la visibilité du pad (l'arène descend
+## quand il s'efface).
+func _cam_mix() -> Transform3D:
+	if ctrl_mode != "pad" or hud == null:
+		return _cam_full
+	var kp: float = clampf(float(hud.pad_alpha), 0.0, 1.0)
+	return _cam_full.interpolate_with(_cam_pad, kp * kp * (3.0 - 2.0 * kp))
+
+
+## Mode pad : caméra la plus proche qui montre toute l'arène entre le bandeau du haut et `bottom_k`
+## (haut du pad, en fraction de hauteur), arène centrée dans cette bande (cadrage d'avant le tracé sur l'écran).
+func _frame_pad(vs: Vector2, bottom_k: float) -> Transform3D:
+	var key := "%.2fx%.2f_p%.3f" % [vs.x, vs.y, bottom_k]
+	if _frame_cache.has(key):
+		var cached: Transform3D = _frame_cache[key]
+		return cached
+	var tilt := deg_to_rad(54.0)
+	var corners := [Vector3(-HALF.x - 0.15, 0, -HALF.y - 0.2), Vector3(HALF.x + 0.15, 0, -HALF.y - 0.2),
+		Vector3(-HALF.x - 0.15, 0, HALF.y + 0.2), Vector3(HALF.x + 0.15, 0, HALF.y + 0.2),
+		Vector3(0, 2.2, -HALF.y - 0.4)]
+	var top := vs.y * 0.085
+	var bottom := vs.y * bottom_k
+	var best := Transform3D()
+	var found := false
+	var dist := 12.0
+	while dist < 70.0 and not found:
+		# à cette distance, garde le cadrage qui centre l'arène verticalement dans la bande
+		var best_gap := INF
+		for zi in 41:
+			var zc := -4.0 + zi * 0.2
+			var focus := Vector3(0, 0, zc)
+			var pos := focus + Vector3(0, sin(tilt), cos(tilt)) * dist
+			var tr := Transform3D(Basis(), pos).looking_at(focus, Vector3.UP)
+			cam.global_transform = tr
+			var ok := true
+			var min_y := INF
+			var max_y := -INF
+			for c in corners:
+				var p := cam.unproject_position(c)
+				min_y = minf(min_y, p.y)
+				max_y = maxf(max_y, p.y)
+				if p.x < -vs.x * 0.01 or p.x > vs.x * 1.01 or p.y < top or p.y > bottom:
+					ok = false
+					break
+			if ok:
+				var gap := absf((min_y - top) - (bottom - max_y))
+				if gap < best_gap:
+					best_gap = gap
+					best = tr
+				found = true
+		dist += 0.25
+	if not found:
+		best = Transform3D(Basis(), Vector3(0, 30, 18)).looking_at(Vector3.ZERO, Vector3.UP)
+	if _frame_cache.size() >= FRAMES_MAX:
+		_frame_cache.clear()
+	_frame_cache[key] = best
+	_save_frames()
+	return best
 
 
 ## Caméra la plus proche qui vise le centre de l'arène (à hauteur du héros) au centre de l'écran et montre
@@ -2469,7 +2594,10 @@ func _cam_target() -> float:
 		return 0.0
 	var lo: float = arena.stage_rect.position.y + HALF.y
 	var hi: float = arena.stage_rect.end.y - HALF.y
-	var t: float = hero.position.z - CAM_LEAD
+	var lead := CAM_LEAD
+	if ctrl_mode == "pad" and hud != null:
+		lead = lerpf(CAM_LEAD, CAM_LEAD_PAD, clampf(float(hud.pad_alpha), 0.0, 1.0))  # arène au-dessus du pad
+	var t: float = hero.position.z - lead
 	if _enc >= 0 and _enc < arena.zones.size():
 		var z: Rect2 = arena.zones[_enc]
 		t = z.get_center().y
@@ -2699,11 +2827,6 @@ func _puzzle_node(pk: Dictionary) -> Node3D:
 			_ribbon(n, _glyph_pts(shape, Vector3(0, 0, 1.15), 0.75), 0.09, gm)
 			pk["gmat"] = gm
 			pk["label"] = _puzzle_label(n, String(SHAPE_KANJI.get(shape, "円")), Vector3(0, 1.95, 0), Toon.SUMI)
-			# consigne en clair sous le kanji : on comprend sans lire le bandeau
-			var how := _puzzle_label(n, UiKit.plain("TRACE " + String(StrokeShapes.FIG_NAMES.get(shape, "")).to_upper()), Vector3(0, 1.58, 0), Toon.SUMI)
-			how.font_size = 44
-			how.outline_size = 14
-			pk["how"] = how
 		"lanterns":
 			var mats: Array = []
 			var spots: Array = pk["lanterns"]
@@ -2725,6 +2848,9 @@ func _puzzle_node(pk: Dictionary) -> Node3D:
 				_puzzle_label(ln, str(i + 1), Vector3(0, 1.3, 0), Toon.VERMILION)
 				mats.append(lamp)
 			pk["mats"] = mats
+			var how3 := _puzzle_label(n, UiKit.plain("D'UN SEUL TRAIT : 1 → %d" % spots.size()), Vector3(0, 1.9, 0), Toon.VERMILION)
+			how3.font_size = 40
+			how3.outline_size = 14
 		"spirit":
 			var rm := Toon.flat(Color("#7FD3E0", 0.5))
 			for k in 10:
@@ -2742,6 +2868,10 @@ func _puzzle_node(pk: Dictionary) -> Node3D:
 			Toon.part(sp, Toon.sphere(0.11), Toon.flat(Color(1, 1, 1, 0.95)), Vector3(0, 0.02, 0.06))
 			Toon.part(sp, Toon.sphere(0.12), Toon.flat(Color("#9FE6F2", 0.6)), Vector3(0, 0.2, 0), Vector3(0.8, 1.6, 0.8))
 			_puzzle_label(sp, "円", Vector3(0, 0.75, 0), Color("#2E8FA3"))
+			# consigne en clair : sans elle, l'esprit ressemble à un simple bonus
+			var how2 := _puzzle_label(n, UiKit.plain("ENTOURE L'ESPRIT D'UNE BOUCLE"), Vector3(0, 2.25, 0), Color("#2E8FA3"))
+			how2.font_size = 40
+			how2.outline_size = 14
 			var sh := _disc(n, 0.25, Toon.flat(Color(Toon.SUMI, 0.15)), 0.012)
 			sh.name = "Shadow"
 	return n
@@ -3523,16 +3653,37 @@ func _touch_down(sp: Vector2) -> void:
 	if game_over:
 		return
 	# on trace n'importe où sur l'écran (hors boutons du HUD) : le trait part du héros et suit le doigt au sol
+	# mode pad : le geste du doigt est reproduit depuis le héros, en plus grand ; le doigt peut se poser
+	# n'importe où (le cadre du pad n'est qu'un repère visuel)
+	_strokes_done += 1
 	touching = true
 	_running = false
 	_hold_t = 0.0
 	_hold_sp = sp
 	_touch_sp = sp
 	_touch_ms = Time.get_ticks_msec()
+	if ctrl_mode == "pad":
+		hud.pad_trail = PackedVector2Array([sp])
 	origin = hero.dash_end()
 	stroke_layer += 1
 	stroke = InkStroke.new(origin, stroke_layer)
 	add_child(stroke)
+
+
+## Zone du pad tactile, en bas de l'écran (coordonnées de la vue). Vide hors mode pad.
+func pad_rect() -> Rect2:
+	if ctrl_mode != "pad":
+		return Rect2()
+	var vs := get_viewport().get_visible_rect().size
+	var hk := 0.2 if pad_size == "s" else (0.27 if pad_size == "m" else 0.34)
+	var wk := 0.8 if pad_size == "s" else (0.92 if pad_size == "m" else 0.96)
+	return Rect2(Vector2(vs.x * (1.0 - wk) / 2.0, vs.y * (0.955 - hk)), Vector2(vs.x * wk, vs.y * hk))
+
+
+## Geste dans le pad -> déplacement au sol : la largeur du pad couvre ~15 m (haut de l'écran = vers le fond).
+func _pad_to_world(d: Vector2) -> Vector3:
+	var k := 15.0 / maxf(pad_rect().size.x, 1.0)
+	return Vector3(d.x, 0, d.y) * k
 
 
 func _touch_move(sp: Vector2) -> void:
@@ -3546,11 +3697,18 @@ func _touch_move(sp: Vector2) -> void:
 		_hold_sp = sp
 		_hold_t = 0.0
 	var target := _clamp_point(_ground(sp))
+	if ctrl_mode == "pad":
+		target = _clamp_point(origin + _pad_to_world(sp - _touch_sp))
+		var tr: PackedVector2Array = hud.pad_trail
+		if tr.size() == 0 or tr[tr.size() - 1].distance_to(sp) > 4.0:
+			tr.append(sp)
+			hud.pad_trail = tr
 	var was_empty: bool = stroke.exhausted
 	# hors combat : encre illimitée, trait deux fois plus long
 	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan
 	var used: float = stroke.extend_to(target, budget)
-	if stroke.lead_n < 0 and used > 0.0:
+	if stroke.lead_n < 0 and used > 0.0 and ctrl_mode != "pad":
+		# (mode pad : pas d'amorce, le geste part du héros ; lead_n reste à -1, tout le trait est lu)
 		stroke.lead_n = stroke.points.size() - 1  # fin de l'amorce héros -> doigt
 	if not _explore:
 		elan -= used
@@ -3567,6 +3725,7 @@ func _touch_up(sp: Vector2) -> void:
 	if not touching:
 		return
 	touching = false
+	hud.pad_trail = PackedVector2Array()
 	if _running:
 		_stop_run()
 		return
@@ -3577,7 +3736,7 @@ func _touch_up(sp: Vector2) -> void:
 	else:
 		# petit coup de doigt (direction choisie) ou simple tap (loin du danger) : bond d'esquive gratuit
 		var now := Time.get_ticks_msec()
-		var flick := _ground(sp) - _ground(_touch_sp)
+		var flick := _pad_to_world(sp - _touch_sp) if ctrl_mode == "pad" else _ground(sp) - _ground(_touch_sp)
 		flick.y = 0
 		var is_tap := flick.length() <= 0.12 and now - _touch_ms < 260
 		# double tap : l'ultime, si la jauge est pleine
@@ -3629,7 +3788,8 @@ func exploring() -> bool:
 
 
 ## Course au doigt posé (hors combat) : après un trait, le doigt immobile lance la ruée puis le héros
-## continue au trot tant que le doigt reste posé (il suit le doigt). Il s'arrête aux bords et aux trous.
+## continue au trot tant que le doigt reste posé (écran : il suit le doigt ; pad : on l'oriente en glissant
+## autour du point d'appui, comme une manette). Il s'arrête aux bords et aux trous.
 func _update_run(real: float, dt: float) -> void:
 	if _running:
 		if not touching or not _explore or state != "play":
@@ -3637,13 +3797,15 @@ func _update_run(real: float, dt: float) -> void:
 			return
 		if hero.dashing or float(hero._leap_t) >= 0.0:
 			return  # la ruée du trait d'abord
-		var g := _ground(_run_sp) - hero.position
-		g.y = 0
-		if g.length() < 0.35:
-			hero.ch.play(hero.ch.idle)
-			return
-		var dir := g.normalized()
-		_run_dir = dir
+		var dir := _run_dir
+		if ctrl_mode != "pad":
+			var g := _ground(_run_sp) - hero.position
+			g.y = 0
+			if g.length() < 0.35:
+				hero.ch.play(hero.ch.idle)
+				return
+			dir = g.normalized()
+			_run_dir = dir
 		var step := RUN_SPEED * dt
 		var nxt := Vector3.INF
 		# tout droit, sinon on glisse le long du bord
@@ -3676,35 +3838,46 @@ func _update_run(real: float, dt: float) -> void:
 		return
 	_run_dir = d.normalized()
 	_run_sp = _hold_sp
+	_run_anchor = _hold_sp
 	_running = true
 	run_dist = 0.0
 	coach.on_event("run")
 	var s: MeshInstance3D = stroke
 	stroke = null
 	_launch(s)
+	hud.pad_trail = PackedVector2Array([_run_anchor]) if ctrl_mode == "pad" else PackedVector2Array()
 
 
-## Doigt qui bouge pendant la course : la direction suit le doigt à chaque image (_update_run).
+## Doigt qui bouge pendant la course : écran, la direction suit le doigt à chaque image (_update_run) ;
+## pad, nouvelle direction autour du point d'appui.
 func _steer_run(sp: Vector2) -> void:
 	_run_sp = sp
+	if ctrl_mode != "pad":
+		return
+	var off := sp - _run_anchor
+	if off.length() > 14.0:
+		_run_dir = Vector3(off.x, 0, off.y).normalized()
+	hud.pad_trail = PackedVector2Array([_run_anchor, sp])
 
 
 func _stop_run() -> void:
 	_running = false
 	touching = false
+	hud.pad_trail = PackedVector2Array()
 	if hero != null and not hero.dashing and not hero.dead:
 		hero.ch.play(hero.ch.idle)
 
 
-## Direction d'un bond d'esquive au tap : vers le doigt, sinon (tap sur le héros) loin du danger le plus proche
-## (zone annoncée, boule, ennemi), en restant sur la terre ferme et hors des zones.
+## Direction d'un bond d'esquive au tap : vers le doigt (sur l'écran), sinon (tap sur le héros, ou mode pad)
+## loin du danger le plus proche (zone annoncée, boule, ennemi), en restant sur la terre ferme et hors des zones.
 func _dodge_dir(sp: Vector2) -> Vector3:
 	var o: Vector3 = hero.dash_end()
 	var want := Vector3.ZERO
-	var g := _ground(sp) - o
-	g.y = 0
-	if g.length() > 0.3:
-		want = g.normalized()
+	if ctrl_mode != "pad":
+		var g := _ground(sp) - o
+		g.y = 0
+		if g.length() > 0.3:
+			want = g.normalized()
 	if want == Vector3.ZERO:
 		var threat := Vector3.INF
 		var best := 4.5
@@ -3881,6 +4054,7 @@ func _cancel_stroke() -> void:
 	stroke = null
 	touching = false
 	_running = false
+	hud.pad_trail = PackedVector2Array()
 
 
 ## Oublie la ruée finie : touches et forme reconnue. `all` annule aussi la coupe iai en attente.
@@ -4474,9 +4648,14 @@ func _process(_delta: float) -> void:
 	else:
 		cam.global_transform = cb
 
+	if ctrl_mode == "pad":
+		hud.pad = pad_rect()
+		hud.pad_active = touching
+		var show_pad := pad_show == "always" or (pad_show == "start" and (state == "tuto" or _strokes_done < PAD_STROKES))
+		hud.pad_alpha = move_toward(float(hud.pad_alpha), 1.0 if show_pad else 0.0, real * 1.5)
 	if state in ["play", "transit", "pick", "tuto", "paused", "boss_intro"]:
-		# cadrage de jeu (efface le rapproché de la mort)
-		_cam_base = _cam_full
+		# cadrage de jeu (efface le rapproché de la mort) ; mode pad : l'arène descend quand le pad s'efface
+		_cam_base = _cam_mix()
 	hud.in_play = state in IN_PLAY_STATES
 	if is_instance_valid(hero) and not cam.is_position_behind(hero.position):
 		hud.hero_screen = cam.unproject_position(hero.position + Vector3(0, 3.6, 0))

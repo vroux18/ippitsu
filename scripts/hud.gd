@@ -1,9 +1,11 @@
 extends Control
 ## Interface de jeu dessinée à la main.
-## En haut, une bande de washi : à gauche la vie (grand cœur + gélule épaisse) et le niveau (hexagone + barre d'XP),
-## au centre le sceau du monde + « ÉTAPE x / 8 », à droite l'or puis la pause ; la barre du boss se glisse dessous,
-## le badge de chaîne sous le bandeau ; sous l'or, le score de la partie et son multiplicateur de chaîne.
-## Bord droit : jauge d'encre verticale et sceau de l'ultime ; à gauche, la colonne de progression de l'étape.
+## En haut, pas de bande : un voile d'encre léger et des pastilles sombres sur la carte — à gauche le sceau
+## du monde + « ÉTAPE x / 8 », à droite l'or puis la pause, sous l'or le score et son multiplicateur de chaîne ;
+## la barre du boss (sur un cartouche sombre) se glisse dessous, le badge de chaîne en haut à gauche.
+## Bord droit : jauge d'encre verticale et sceau de l'ultime. Bord gauche, en miroir : jauge de vie segmentée
+## (cœur au-dessus) et jauge d'expérience plus fine (hexagone de niveau dessous) ; à côté, la colonne de progression.
+## En bas, en mode pad (option) : le pad tactile et le geste en cours.
 ## Par-dessus : bandeaux d'annonce, compteur de combo, sceaux de figure, barres de vie des ennemis,
 ## voile de mort, rideau de transition et lavis du torii.
 
@@ -70,6 +72,11 @@ var _toast_t := -1.0
 var screen_flash := 0.0  # éclair blanc bref à la mise à mort
 var show_fps := false  # `?fps` dans l'adresse web
 var hero_screen := Vector2(-9999, -9999)  # position du héros à l'écran (main), pour les sceaux de figure
+# mode pad (option, au lancement) : zone du bas où l'on trace ; vide en mode « sur l'écran »
+var pad := Rect2()
+var pad_active := false
+var pad_alpha := 1.0  # le pad s'efface après les premiers traits (option)
+var pad_trail := PackedVector2Array()  # geste en cours dans le pad (coordonnées écran)
 var _shapes: Array = []  # figures enchaînées : [forme, âge]
 var shape_name := ""
 var _shape_t := 9.0
@@ -115,9 +122,12 @@ var _mult_shown := 1.0
 var _mult_pop := 0.0  # le multiplicateur monte d'un palier (1 -> 0)
 var _mult_lost := 1.0  # multiplicateur perdu (chaîne brisée ou éteinte), barré quelques instants
 var _mult_lost_t := 0.0  # 1 -> 0
-var _score_pops: Array = []  # primes annoncées sous le bandeau : [libellé, points, âge]
-var _band_k := 80.0  # hauteur de la bande du haut (en u, sous la marge) : s'allonge sous la barre du boss
-const BOSS_Y := 100.0  # haut de la barre de vie du boss (en u, sous la marge)
+var _score_pops: Array = []  # primes annoncées sous les pastilles du haut : [libellé, points, âge]
+var _band_k := 72.0  # bas des pastilles du haut (en u, sous la marge), lissé : s'allonge sous la barre du boss
+const BOSS_Y := 104.0  # haut de la barre de vie du boss (en u, sous la marge)
+const TOP_K := 72.0  # bas des pastilles du haut sans boss (en u, sous la marge)
+const HP_W := 16.0  # largeur de la jauge de vie (en u), celle de la jauge d'encre
+const XP_W := 8.0  # largeur de la jauge d'expérience (en u), plus fine, côté terrain
 
 
 func _ready() -> void:
@@ -236,14 +246,11 @@ func _process(_delta: float) -> void:
 		_card_t += real
 		if _card_t > _card_len:
 			_card_t = -1.0
-	var band_goal := 80.0
-	if boss_name != "":
-		band_goal = BOSS_Y + 20.0
-	_band_k = lerpf(_band_k, band_goal, 1.0 - exp(-real * 9.0))
+	_band_k = lerpf(_band_k, _below_k(), 1.0 - exp(-real * 9.0))
 	var u := size.x / 400.0
 	_pause.visible = in_play and pause_enabled and dying <= 0.0
-	_pause.size = Vector2(40, 40) * u
-	_pause.position = Vector2(size.x - 54 * u, 16 * u + top_off)
+	_pause.size = Vector2(36, 36) * u
+	_pause.position = Vector2(size.x - 48 * u, 4 * u + top_off)
 	queue_redraw()
 
 
@@ -279,7 +286,10 @@ func _draw() -> void:
 			draw_colored_polygon(PackedVector2Array([c + Vector2(0, -d), c + Vector2(d, 0), c + Vector2(0, d), c + Vector2(-d, 0)]), ELITE_MARK)
 
 	if in_play:
-		_draw_band(sz, u)
+		_draw_pad(u)
+		_draw_top_shade(sz, u)
+		_draw_hearts(u)
+		_draw_xp(u)
 		draw_set_transform(Vector2(0, top_off))
 		_draw_status(sz, u)
 		# pouvoirs : plus affichés en jeu (lisibilité) — rangée sur la carte de pause et bilan de fin
@@ -313,7 +323,7 @@ func _draw() -> void:
 		var ta := clampf(minf(_toast_t / 0.15, (1.4 - _toast_t) / 0.3), 0.0, 1.0)
 		var tfs := int(14 * u)
 		var tw := UiKit.TITLE_FONT.get_string_size(_toast, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-		# sous le bandeau (et sous le badge de chaîne quand il est là)
+		# sous les pastilles du haut (et sous le badge de chaîne quand il est là)
 		var ty := top_off + (_below_k() + (34.0 if chain >= 2 else 0.0) + 26.0) * u
 		var tp := Vector2(sz.x / 2.0 - tw / 2.0, ty - 6 * u * (1.0 - ta))
 		draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.75 * ta), 999), Rect2(tp + Vector2(-14 * u, -tfs - 4 * u), Vector2(tw + 28 * u, tfs + 14 * u)))
@@ -449,28 +459,94 @@ func _tick_status(real: float) -> void:
 	_score_pops = _score_pops.filter(func(sp): return float(sp[2]) < 1.6)
 
 
-## Gélule : contour d'un rectangle aux bouts ronds (pour les remplissages en dégradé).
-func _pill_pts(r: Rect2) -> PackedVector2Array:
+## Bas des pastilles du haut (en u, sous la marge du haut) : sous l'or et le score, ou sous la barre du boss et son point faible.
+func _below_k() -> float:
+	if boss_name == "":
+		return TOP_K
+	return BOSS_Y + (44.0 if boss_hint != "" else 22.0)
+
+
+## Bas de la zone du haut, en pixels écran (pastilles, ou barre du boss) : le coach pose ses bulles dessous.
+func top_clear() -> float:
+	return top_off + _band_k * size.x / 400.0
+
+
+## Rail commun des jauges verticales (encre à droite, vie et expérience à gauche) : (haut, hauteur) en pixels.
+## De 0,3 à 0,6 de la hauteur ; en mode pad, il s'arrête au-dessus du pad, avec la place de la goutte
+## d'encre et du sceau de niveau (qu'on garde même quand le pad s'efface : pas de saut).
+func _gauge_span(sz: Vector2, u: float) -> Vector2:
+	var gy := sz.y * 0.3
+	var bot := sz.y * 0.6
+	if pad.size.x >= 10.0:
+		bot = minf(bot, pad.position.y - 42.0 * u)
+	return Vector2(gy, maxf(bot - gy, 60.0 * u))
+
+
+## Piste de la jauge d'encre (bord droit), sans son cadre : le coach la montre.
+func ink_rect() -> Rect2:
+	var u := size.x / 400.0
+	var sp := _gauge_span(size, u)
+	var gw := HP_W * u
+	return Rect2(Vector2(size.x - gw - 12.0 * u, sp.x), Vector2(gw, sp.y))
+
+
+## Piste de la jauge de vie (bord gauche, en miroir de l'encre), sans son cadre.
+## Même rail que l'encre ; le haut descend si le badge de chaîne (sous les pastilles ou le boss) l'exige.
+func life_rect() -> Rect2:
+	var u := size.x / 400.0
+	var sp := _gauge_span(size, u)
+	var bot := sp.x + sp.y
+	var top := maxf(sp.x, top_off + (_band_k + 82.0) * u)  # badge de chaîne (~40u) + le cœur au-dessus
+	top = minf(top, bot - 60.0 * u)
+	return Rect2(Vector2(12.0 * u, top), Vector2(HP_W * u, bot - top))
+
+
+## Piste de la jauge d'expérience : plus fine, collée à la vie côté terrain, même hauteur.
+func xp_rect() -> Rect2:
+	var u := size.x / 400.0
+	var lr := life_rect()
+	return Rect2(Vector2(lr.end.x + 8.0 * u, lr.position.y), Vector2(XP_W * u, lr.size.y))
+
+
+## Plus de bande de papier : un voile d'encre très léger en haut de l'écran, pour lire les pastilles,
+## la carte reste visible dessous.
+func _draw_top_shade(sz: Vector2, u: float) -> void:
+	var h := top_off + (_band_k + 14.0) * u
+	var c0 := Color(0.03, 0.03, 0.05, 0.4)
+	var c1 := Color(0.03, 0.03, 0.05, 0.18)
+	var c2 := Color(0.03, 0.03, 0.05, 0.0)
+	var mid := h * 0.45
+	draw_polygon(PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0), Vector2(sz.x, mid), Vector2(0, mid)]), PackedColorArray([c0, c0, c1, c1]))
+	draw_polygon(PackedVector2Array([Vector2(0, mid), Vector2(sz.x, mid), Vector2(sz.x, h), Vector2(0, h)]), PackedColorArray([c1, c1, c2, c2]))
+
+
+## Pastilles du haut à droite : l'or près de la pause (le score est dessiné à part, dessous).
+func _draw_status(sz: Vector2, u: float) -> void:
+	_draw_gold(sz, u)
+
+
+## Gélule verticale : contour d'un rectangle aux bouts ronds en haut et en bas (remplissages en dégradé).
+func _vpill_pts(r: Rect2) -> PackedVector2Array:
 	var pts := PackedVector2Array()
-	var rad := minf(r.size.y, r.size.x - 1.0) / 2.0
-	var cl := Vector2(r.position.x + rad, r.position.y + r.size.y / 2.0)
-	var cr := Vector2(r.end.x - rad, cl.y)
+	var rad := minf(r.size.x, r.size.y - 1.0) / 2.0
+	var ct := Vector2(r.get_center().x, r.position.y + rad)
+	var cb := Vector2(ct.x, r.end.y - rad)
 	for k in 9:
-		pts.append(cr + Vector2.from_angle(PI / 2.0 - PI * float(k) / 8.0) * rad)
+		pts.append(ct + Vector2.from_angle(PI + PI * float(k) / 8.0) * rad)
 	for k in 9:
-		pts.append(cl + Vector2.from_angle(-PI / 2.0 - PI * float(k) / 8.0) * rad)
+		pts.append(cb + Vector2.from_angle(PI * float(k) / 8.0) * rad)
 	return pts
 
 
-## Boîte d'un segment : coins ronds seulement aux deux bouts de la barre.
-func _seg_box(c: Color, first: bool, last: bool, rad: int, small: int) -> StyleBoxFlat:
+## Boîte d'un segment vertical : coins ronds seulement aux deux bouts de la jauge (bas = premier, haut = dernier).
+func _vseg_box(c: Color, first: bool, last: bool, rad: int, small: int) -> StyleBoxFlat:
 	UiKit.box(_sb, c, small)
 	if first:
-		_sb.corner_radius_top_left = rad
 		_sb.corner_radius_bottom_left = rad
-	if last:
-		_sb.corner_radius_top_right = rad
 		_sb.corner_radius_bottom_right = rad
+	if last:
+		_sb.corner_radius_top_left = rad
+		_sb.corner_radius_top_right = rad
 	return _sb
 
 
@@ -480,82 +556,35 @@ func _ink_text(font: Font, pos: Vector2, txt: String, fs: int, c: Color, u: floa
 	draw_string(font, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
 
 
-## Bas du bandeau (en u, sous la marge du haut) : sous le bloc d'état, ou sous la barre du boss et son point faible.
-func _below_k() -> float:
-	if boss_name == "":
-		return 84.0
-	return BOSS_Y + (44.0 if boss_hint != "" else 22.0)
-
-
-## Bande du haut : feuille de washi (lavis en haut, papier en bas) au bord inférieur barbé,
-## filet d'encre et ombre douce dessous — les pastilles d'encre se lisent sur la neige comme sur la mer.
-func _draw_band(sz: Vector2, u: float) -> void:
-	var bot := top_off + _band_k * u
-	var top_c := Color(Toon.ui_wash, 0.95)
-	var bot_c := Color(Toon.ui_paper, 0.92)
-	# bord bas irrégulier (sans aléatoire : même dessin à chaque image), de droite à gauche
-	var n := 20
-	var edge := PackedVector2Array()
-	for i in n + 1:
-		var x := sz.x * float(n - i) / float(n)
-		var j := (sin(float(i) * 2.3) * 1.4 + sin(float(i) * 0.9 + 1.0) * 1.1) * u
-		edge.append(Vector2(x, bot + j))
-	# ombre portée : bandelettes qui s'effacent vers le bas
-	var sh_c := Color(0, 0, 0, 0.16)
-	var sh_0 := Color(0, 0, 0, 0.0)
-	var drop := Vector2(0, 12.0 * u)
-	for i in n:
-		draw_polygon(PackedVector2Array([edge[i], edge[i + 1], edge[i + 1] + drop, edge[i] + drop]),
-			PackedColorArray([sh_c, sh_c, sh_0, sh_0]))
-	# la feuille : coin haut gauche, coin haut droit, puis le bord barbé
-	var pts := PackedVector2Array([Vector2.ZERO, Vector2(sz.x, 0)])
-	var cols := PackedColorArray([top_c, top_c])
-	pts.append_array(edge)
-	for i in n + 1:
-		cols.append(bot_c)
-	draw_polygon(pts, cols)
-	# fibres du papier, très légères
-	for i in 9:
-		var fx := sz.x * (0.06 + 0.11 * float(i)) + sin(float(i) * 3.3) * 9.0 * u
-		var fy := bot * (0.25 + 0.5 * absf(sin(float(i) * 1.7)))
-		var dv := Vector2.from_angle(sin(float(i) * 2.1) * 0.6) * (7.0 + 4.0 * absf(sin(float(i)))) * u
-		draw_line(Vector2(fx, fy), Vector2(fx, fy) + dv, Color(Toon.ui_ink, 0.05), maxf(1.0, 0.8 * u), true)
-	# filet d'encre le long du bord
-	draw_polyline(edge, Color(Toon.ui_ink, 0.3), maxf(1.0, 1.4 * u), true)
-
-
-## Bloc d'état : vie (rangée du haut) et niveau + expérience (rangée du bas) à gauche, or à droite près de la pause.
-## Grille : colonne d'icônes centrée sur x = 20u, barres de x = 26..146u ; rangées centrées sur y = 18u et 54u.
-func _draw_status(sz: Vector2, u: float) -> void:
-	_draw_hearts(u)
-	_draw_xp(u)
-	_draw_gold(sz, u)
-
-
-## Vie : grand cœur au pinceau en tête d'une gélule épaisse, un segment vermillon par point de vie,
-## valeur « 3/5 » lisible au centre. Coup reçu : la gélule tremble et se cerne de blanc, le segment perdu
-## flashe, se fend et s'écrase. Vie basse : halo rouge, la barre et le cœur battent.
+## Vie : jauge verticale au bord gauche, en miroir de la jauge d'encre (pilule sombre cerclée de blanc),
+## un segment vermillon par point de vie, empilés du bas vers le haut, grand cœur au pinceau au-dessus.
+## Coup reçu : la jauge tremble et se cerne de blanc, le segment perdu flashe, se fend et s'écrase.
+## Vie basse : halo rouge, la jauge et le cœur battent.
 func _draw_hearts(u: float) -> void:
 	var n := maxi(max_hp, 1)
 	var hf := clampf(hurt_flash, 0.0, 1.0)
 	var shake := Vector2(sin(_t * 70.0) * 2.5 * u * hf, 0.0)
 	var low := hp > 0 and (hp == 1 or float(hp) <= float(n) * 0.25)
 	var beat: float = (0.5 + 0.5 * sin(_t * 7.0)) if low else 0.0
-	var track := Rect2(Vector2(26, 5) * u + shake, Vector2(120, 26) * u)
+	var tr := life_rect()
+	tr.position += shake
+	var frame := tr.grow(3.0 * u)
+	var rf := int(frame.size.x / 2.0)
 	if low:
-		draw_style_box(UiKit.box(_sb, Color(HUD_HOT, 0.16 + 0.22 * beat), 999), track.grow((3.0 + 2.5 * beat) * u))
-	# ombre douce, gélule d'encre cernée de papier (blanc vif au coup reçu)
-	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25), 999), Rect2(track.position + Vector2(0, 2.5 * u), track.size))
-	var rim: Color = Color(HUD_HOT, 0.6 + 0.4 * beat) if low else Color(Toon.WASHI, 0.4)
+		var halo := frame.grow((3.0 + 2.5 * beat) * u)
+		draw_style_box(UiKit.box(_sb, Color(HUD_HOT, 0.16 + 0.22 * beat), int(halo.size.x / 2.0)), halo)
+	# ombre douce, pilule sombre translucide cernée de blanc (blanc vif au coup reçu), comme l'encre
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.3), rf), Rect2(frame.position + Vector2(0, 2.5 * u), frame.size))
+	var rim: Color = Color(HUD_HOT, 0.6 + 0.4 * beat) if low else Color(1, 1, 1, 0.75)
 	rim = rim.lerp(Color(1, 1, 1, 1), hf)
-	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92), 999, rim, maxi(1, int((1.5 + beat + hf) * u))), track)
-	var inner := Rect2(track.position + Vector2(15.0 * u, 4.0 * u), Vector2(track.size.x - 19.0 * u, track.size.y - 8.0 * u))
+	draw_style_box(UiKit.box(_sb, Color(0.06, 0.06, 0.09, 0.62), rf, rim, maxi(1, int((1.5 + beat + hf) * u))), frame)
 	var g := (2.5 if n <= 8 else 1.5) * u
-	var sw := maxf(1.0, (inner.size.x - g * float(n - 1)) / float(n))
-	var rad := int(inner.size.y / 2.0)
+	var sh := maxf(1.0, (tr.size.y - g * float(n - 1)) / float(n))
+	var sw := tr.size.x
+	var rad := int(sw / 2.0)
 	var small := int(2.5 * u)
 	for i in n:
-		var seg := Rect2(Vector2(inner.position.x + float(i) * (sw + g), inner.position.y), Vector2(sw, inner.size.y))
+		var seg := Rect2(Vector2(tr.position.x, tr.end.y - float(i + 1) * sh - float(i) * g), Vector2(sw, sh))
 		var first := i == 0
 		var last := i == n - 1
 		var lost_t := -1.0
@@ -563,31 +592,32 @@ func _draw_hearts(u: float) -> void:
 			if int(l[0]) == i:
 				lost_t = float(l[1])
 		if i < hp:
-			# segment plein : vermillon, moitié haute plus claire, liseré de lumière
+			# segment plein : vermillon, moitié gauche plus claire, reflet clair le long du bord (comme l'encre)
 			var base := Toon.VERMILION.lerp(HUD_HOT, 0.5 * beat)
-			draw_style_box(_seg_box(base.darkened(0.18), first, last, rad, small), seg)
-			draw_style_box(_seg_box(base.lightened(0.12), first, last, rad, small), Rect2(seg.position, Vector2(sw, seg.size.y * 0.55)))
-			draw_line(seg.position + Vector2(2.5 * u, 2.0 * u), Vector2(seg.end.x - 2.5 * u, seg.position.y + 2.0 * u), Color(1, 1, 1, 0.45), 1.5 * u)
+			draw_style_box(_vseg_box(base.darkened(0.18), first, last, rad, small), seg)
+			draw_style_box(_vseg_box(base.lightened(0.12), first, last, rad, small), Rect2(seg.position, Vector2(sw * 0.55, sh)))
+			if sh > 8.0 * u:
+				draw_line(seg.position + Vector2(3.5 * u, 4.0 * u), Vector2(seg.position.x + 3.5 * u, seg.end.y - 4.0 * u), Color(1, 1, 1, 0.4), 1.5 * u)
 			if _gain_t > 0.0 and i >= _gain_from:
 				# soin : le segment regagné s'allume
-				draw_style_box(_seg_box(Color(1, 1, 1, 0.75 * _gain_t / 0.6), first, last, rad, small), seg.grow(1.5 * u * _gain_t / 0.6))
+				draw_style_box(_vseg_box(Color(1, 1, 1, 0.75 * _gain_t / 0.6), first, last, rad, small), seg.grow(1.5 * u * _gain_t / 0.6))
 		elif lost_t >= 0.0:
 			var k := lost_t / 0.7
 			if lost_t < 0.12:
 				# éclair blanc
-				draw_style_box(_seg_box(Color(1, 0.97, 0.92), first, last, rad, small), seg.grow(2.0 * u))
+				draw_style_box(_vseg_box(Color(1, 0.97, 0.92), first, last, rad, small), seg.grow(2.0 * u))
 			else:
-				# il s'écrase vers son milieu et pâlit, fendu d'un trait d'encre
+				# il s'écrase vers son axe et pâlit, fendu d'un trait d'encre en travers
 				var kk := (lost_t - 0.12) / 0.58
-				var sh := seg.size.y * (1.0 - UiKit.ease_out(kk))
+				var ww := sw * (1.0 - UiKit.ease_out(kk))
 				var col := Toon.VERMILION.lerp(Toon.WASHI, kk)
-				if sh > 1.0:
-					draw_style_box(_seg_box(Color(col, 1.0 - kk), first, last, rad, small), Rect2(Vector2(seg.position.x, seg.get_center().y - sh / 2.0), Vector2(sw, sh)))
+				if ww > 1.0:
+					draw_style_box(_vseg_box(Color(col, 1.0 - kk), first, last, rad, small), Rect2(Vector2(seg.get_center().x - ww / 2.0, seg.position.y), Vector2(ww, sh)))
 				var cc := seg.get_center()
-				draw_polyline(PackedVector2Array([cc + Vector2(-2, -8) * u, cc + Vector2(2, -1.5) * u, cc + Vector2(-1.5, 2.5) * u, cc + Vector2(2, 8) * u]), Color(Toon.SUMI, 1.0 - kk), 1.8 * u, true)
-			# éclats qui sautent puis retombent
+				draw_polyline(PackedVector2Array([cc + Vector2(-7, -2) * u, cc + Vector2(-1.5, 2) * u, cc + Vector2(2.5, -1.5) * u, cc + Vector2(7, 2) * u]), Color(Toon.SUMI, 1.0 - kk), 1.8 * u, true)
+			# éclats qui sautent vers le terrain puis retombent
 			for j in 3:
-				var dir := Vector2(-1.0 + float(j), -1.0 - 0.4 * float(j % 2))
+				var dir := Vector2(0.6 + 0.4 * float(j), -1.0 - 0.4 * float(j % 2))
 				var pc := seg.get_center() + dir * 18.0 * u * k + Vector2(0, 38.0 * u * k * k)
 				var ps := 3.2 * u * (1.0 - k)
 				if ps > 0.3:
@@ -595,16 +625,10 @@ func _draw_hearts(u: float) -> void:
 		else:
 			# segment vide : creux sombre (rougeoie quand la vie est basse)
 			var ec: Color = Color(HUD_HOT, 0.1 + 0.14 * beat) if low else Color(Toon.WASHI, 0.09)
-			draw_style_box(_seg_box(ec, first, last, rad, small), seg)
-	# valeur au centre de la barre, cernée d'encre
-	var txt := "%d/%d" % [maxi(hp, 0), max_hp]
-	var fs := int(15 * u)
-	var tw := UiKit.UI_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var tc: Color = Color(1, 0.86, 0.8).lerp(Color(1, 1, 1), 1.0 - beat) if low else Toon.WASHI
-	_ink_text(UiKit.UI_FONT, Vector2(inner.get_center().x - tw / 2.0, inner.get_center().y + fs * 0.36), txt, fs, tc, u)
-	# grand cœur au pinceau en tête de barre
-	var c := Vector2(19.0 * u, 16.0 * u) + shake
-	var s := 13.0 * u * (1.0 + 0.12 * beat + 0.2 * hf)
+			draw_style_box(_vseg_box(ec, first, last, rad, small), seg)
+	# grand cœur au pinceau au-dessus de la jauge (comme le sceau 筆 au-dessus de l'encre)
+	var c := Vector2(tr.get_center().x, tr.position.y - 24.0 * u)
+	var s := 12.0 * u * (1.0 + 0.12 * beat + 0.2 * hf)
 	draw_colored_polygon(_heart_pts(c + Vector2(0, 2.5 * u), s + 1.0 * u), Color(0, 0, 0, 0.25))
 	draw_colored_polygon(_heart_pts(c + Vector2(0, -0.6 * u), s + 2.8 * u), Toon.SUMI)
 	var hc: Color = Toon.VERMILION.lerp(HUD_HOT, beat) if hp > 0 else Color("#5A5560")
@@ -615,44 +639,51 @@ func _draw_hearts(u: float) -> void:
 	draw_line(c + Vector2(-0.62, -0.28) * s, c + Vector2(-0.3, -0.55) * s, Color(1, 1, 1, 0.7), 0.16 * s, true)
 
 
-## Niveau : hexagone cerclé d'or (« NIV » + numéro bien lisible) en tête d'une barre d'expérience épaisse
-## (dégradé jade → or, quarts gravés, reflet qui court quand elle monte) ;
-## passage de niveau : la puce gonfle dans un éclat d'or et la barre s'illumine.
+## Expérience : jauge fine à côté de la vie (côté terrain), remplissage jade → or qui monte du bas,
+## quarts gravés, reflet qui court vers le haut quand elle monte. Niveau : hexagone cerclé d'or
+## (« NIV » + numéro) sous les deux jauges, comme la goutte sous l'encre ; passage de niveau :
+## la puce gonfle dans un éclat d'or et la jauge s'illumine.
 func _draw_xp(u: float) -> void:
 	var fl := _lv_flash
-	var bar := Rect2(Vector2(40.0 * u, 48.5 * u), Vector2(106.0 * u, 11.0 * u))
-	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.22), 999), Rect2(bar.position + Vector2(0, 2.0 * u), bar.size).grow(2.0 * u))
-	var xrim := Color(Toon.WASHI, 0.35).lerp(Color(1, 0.92, 0.6), fl)
-	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92), 999, xrim, maxi(1, int(1.5 * u))), bar.grow(2.0 * u))
-	var fw := bar.size.x * _xp_shown
-	if fw > 0.5 * u:
-		var fill := Rect2(bar.position, Vector2(maxf(fw, bar.size.y + 1.0), bar.size.y))
-		var pts := _pill_pts(fill)
+	var bar := xp_rect()
+	var frame := bar.grow(2.0 * u)
+	var rf := int(frame.size.x / 2.0)
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25), rf), Rect2(frame.position + Vector2(0, 2.0 * u), frame.size))
+	var xrim := Color(1, 1, 1, 0.6).lerp(Color(1, 0.92, 0.6), fl)
+	draw_style_box(UiKit.box(_sb, Color(0.06, 0.06, 0.09, 0.62), rf, xrim, maxi(1, int(1.5 * u))), frame)
+	var fh := bar.size.y * _xp_shown
+	if fh > 0.5 * u:
+		var fhh := maxf(fh, bar.size.x + 1.0)
+		var fill := Rect2(Vector2(bar.position.x, bar.end.y - fhh), Vector2(bar.size.x, fhh))
+		var pts := _vpill_pts(fill)
 		var cols := PackedColorArray()
-		var mid := fill.get_center().y
+		var mid := fill.get_center().x
 		for p in pts:
-			var gc := HUD_JADE.lerp(HUD_GOLD, clampf((p.x - bar.position.x) / bar.size.x, 0.0, 1.0))
-			cols.append(gc.lightened(0.25) if p.y < mid else gc.darkened(0.1))
+			var gc := HUD_JADE.lerp(HUD_GOLD, clampf((bar.end.y - p.y) / bar.size.y, 0.0, 1.0))
+			cols.append(gc.lightened(0.25) if p.x < mid else gc.darkened(0.1))
 		draw_polygon(pts, cols)
-		draw_line(Vector2(fill.position.x + 4.0 * u, fill.position.y + 2.0 * u), Vector2(fill.end.x - 4.0 * u, fill.position.y + 2.0 * u), Color(1, 1, 1, 0.4), 1.4 * u)
+		if fill.size.y > 10.0 * u:
+			draw_line(Vector2(fill.position.x + 2.0 * u, fill.position.y + 4.0 * u), Vector2(fill.position.x + 2.0 * u, fill.end.y - 4.0 * u), Color(1, 1, 1, 0.4), 1.2 * u)
 		if _xp_sheen > 0.01:
-			# reflet en biais qui balaie la partie remplie
+			# reflet en biais qui balaie la partie remplie, du bas vers le haut
 			var ph := fmod(_t * 1.6, 1.0)
-			var sx := lerpf(fill.position.x - 8.0 * u, fill.end.x + 8.0 * u, ph)
-			var band := PackedVector2Array([Vector2(sx, fill.position.y - 1.0), Vector2(sx + 7.0 * u, fill.position.y - 1.0), Vector2(sx + 2.0 * u, fill.end.y + 1.0), Vector2(sx - 5.0 * u, fill.end.y + 1.0)])
+			var sy := lerpf(fill.end.y + 8.0 * u, fill.position.y - 8.0 * u, ph)
+			var band := PackedVector2Array([Vector2(fill.position.x - 1.0, sy), Vector2(fill.position.x - 1.0, sy - 7.0 * u), Vector2(fill.end.x + 1.0, sy - 12.0 * u), Vector2(fill.end.x + 1.0, sy - 5.0 * u)])
 			for piece in Geometry2D.intersect_polygons(band, pts):
 				var pp: PackedVector2Array = piece
-				# morceaux trop fins (début de barre) : la triangulation échoue, on les saute
+				# morceaux trop fins (bas de la jauge) : la triangulation échoue, on les saute
 				if pp.size() >= 3 and UiKit.poly_area(pp) > 2.0:
 					draw_colored_polygon(pp, Color(1, 1, 1, 0.6 * _xp_sheen))
 	# quarts gravés : on lit d'un coup d'œil où en est le niveau
 	for q in 3:
-		var qx := bar.position.x + bar.size.x * 0.25 * float(q + 1)
-		draw_line(Vector2(qx, bar.position.y + 2.0 * u), Vector2(qx, bar.end.y - 2.0 * u), Color(Toon.SUMI, 0.35), maxf(1.0, 1.2 * u))
+		var qy := bar.end.y - bar.size.y * 0.25 * float(q + 1)
+		draw_line(Vector2(bar.position.x + 1.5 * u, qy), Vector2(bar.end.x - 1.5 * u, qy), Color(Toon.SUMI, 0.45), maxf(1.0, 1.2 * u))
 	if fl > 0.0:
-		draw_style_box(UiKit.box(_sb, Color(1, 0.95, 0.75, 0.65 * fl), 999), bar.grow(2.0 * u + 2.0 * u * fl))
-	# puce de niveau
-	var lc := Vector2(20.0 * u, 54.0 * u)
+		var glow := frame.grow(2.0 * u * fl)
+		draw_style_box(UiKit.box(_sb, Color(1, 0.95, 0.75, 0.65 * fl), int(glow.size.x / 2.0)), glow)
+	# puce de niveau : sous les deux jauges, centrée sur le groupe
+	var lr := life_rect()
+	var lc := Vector2((lr.position.x - 3.0 * u + frame.end.x) / 2.0, bar.end.y + 22.0 * u)
 	var R := 14.0 * u * (1.0 + 0.3 * UiKit.ease_out(fl) * fl)
 	if fl > 0.0:
 		var e := 1.0 - fl
@@ -681,7 +712,7 @@ func _hex(c: Vector2, r: float) -> PackedVector2Array:
 	return pts
 
 
-## Or : pastille d'encre cerclée d'or à droite, juste avant la pause (pièce percée + montant) ;
+## Or : pastille d'encre cerclée d'or en haut à droite, juste avant la pause (pièce percée + montant) ;
 ## elle bondit et s'éclaire à chaque gain.
 func _draw_gold(sz: Vector2, u: float) -> void:
 	var pop := _gold_pop * _gold_pop
@@ -690,8 +721,8 @@ func _draw_gold(sz: Vector2, u: float) -> void:
 	var tw := UiKit.UI_FONT.get_string_size(gtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, gfs).x
 	var h := 28.0 * u
 	var w := 30.0 * u + tw + 12.0 * u
-	var right := sz.x - 62.0 * u  # la pause commence à 54u du bord
-	var pill := Rect2(Vector2(right - w, 36.0 * u - h / 2.0), Vector2(w, h))
+	var right := sz.x - 54.0 * u  # la pause commence à 48u du bord
+	var pill := Rect2(Vector2(right - w, 22.0 * u - h / 2.0), Vector2(w, h))  # alignée sur la pause (y = 22u)
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25), 999), Rect2(pill.position + Vector2(0, 2.5 * u), pill.size))
 	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92), 999, Color(Toon.GOLD, 0.55 + 0.45 * pop), maxi(1, int(1.5 * u))), pill)
 	if pop > 0.01:
@@ -729,8 +760,8 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 	var r := 10.0 * u
 	var gap := 2.0 * r + 5.0 * u
 	var anchor := hero_screen if hero_screen.x > -9000.0 else Vector2(sz.x / 2.0, 150.0 * u)
-	var y := clampf(anchor.y - 34.0 * u, (_below_k() + 20.0) * u, sz.y - 120.0 * u)  # bien au-dessus de la tête, sous le bandeau
-	var x0 := clampf(anchor.x - (n - 1) * gap / 2.0, 14.0 * u, sz.x - 14.0 * u - (n - 1) * gap)
+	var y := clampf(anchor.y - 34.0 * u, (_below_k() + 20.0) * u, sz.y - 120.0 * u)  # bien au-dessus de la tête, sous les pastilles
+	var x0 := clampf(anchor.x - (n - 1) * gap / 2.0, 54.0 * u, sz.x - 44.0 * u - (n - 1) * gap)  # entre les jauges des bords
 	for i in n:
 		var sh: Array = _shapes[i]
 		sh[1] = float(sh[1]) + _real_dt
@@ -792,11 +823,11 @@ func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
 
 
-## Chaîne : pastille d'encre sous le bandeau (même famille que la vie et l'or), seulement à partir de 2 —
+## Chaîne : pastille d'encre en haut à gauche, sous les pastilles (au-dessus de la jauge de vie), seulement à partir de 2 —
 ## flamme à la couleur du palier, « ×n » en grand, bonus dessous, temps restant en filet ;
 ## elle bondit à chaque ruée, éclate en se brisant.
 func _draw_chain(u: float) -> void:
-	var p := Vector2(8.0 * u, _below_k() * u)  # sous le bandeau, ou sous la barre du boss quand il y en a une
+	var p := Vector2(8.0 * u, _below_k() * u)  # sous les pastilles, ou sous la barre du boss ; life_rect() descend la vie d'autant
 	if chain >= 2:
 		var tier_col := Color("#F2B544")
 		if chain >= 20:
@@ -861,7 +892,7 @@ func _draw_chain(u: float) -> void:
 			draw_rect(Rect2(p + Vector2(40, 14) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.VERMILION, chain_break))
 
 
-## Prime de points annoncée sous le bandeau, à droite (« SANS DÉGÂT  +500 ») ;
+## Prime de points annoncée sous les pastilles du haut, à droite (« SANS DÉGÂT  +500 ») ;
 ## la même prime répétée de près se cumule au lieu de s'empiler.
 func score_pop(label: String, pts: int) -> void:
 	if pts <= 0 or score < 0:
@@ -879,7 +910,7 @@ func score_pop(label: String, pts: int) -> void:
 
 ## Score : pastille d'encre sous l'or et la pause (« SCORE » + chiffres qui montent) ;
 ## à sa gauche, le multiplicateur de la chaîne dès ×1,5, qui bondit à chaque palier
-## et reste barré un instant quand la chaîne se perd. Primes de points dessous, sous le bandeau.
+## et reste barré un instant quand la chaîne se perd. Primes de points dessous, sous les pastilles du haut.
 func _draw_score(sz: Vector2, u: float) -> void:
 	if score < 0:
 		return
@@ -891,8 +922,8 @@ func _draw_score(sz: Vector2, u: float) -> void:
 	var lw := UiKit.UI_FONT.get_string_size("SCORE", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
 	var h := 20.0 * u
 	var w := 10.0 * u + lw + 6.0 * u + nw + 10.0 * u
-	var right := sz.x - 14.0 * u
-	var pill := Rect2(Vector2(right - w, 57.0 * u), Vector2(w, h))
+	var right := sz.x - 12.0 * u
+	var pill := Rect2(Vector2(right - w, 44.0 * u), Vector2(w, h))
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.22), 999), Rect2(pill.position + Vector2(0, 2.0 * u), pill.size))
 	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92), 999, Color(Toon.WASHI, 0.35 + 0.5 * pop), maxi(1, int(1.2 * u))), pill)
 	var cy := pill.get_center().y
@@ -923,9 +954,9 @@ func _draw_score(sz: Vector2, u: float) -> void:
 		var lfs2 := int(13 * u)
 		var ltw := UiKit.TITLE_FONT.get_string_size(ltxt, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2).x
 		var lp := Vector2(mx - ltw - 4.0 * u, cy + lfs2 * 0.36 + 6.0 * u * (1.0 - _mult_lost_t))
-		draw_string(UiKit.TITLE_FONT, lp, ltxt, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2, Color(Toon.ui_ink, 0.55 * la))
+		_ink_text(UiKit.TITLE_FONT, lp, ltxt, lfs2, Color(Toon.WASHI, 0.6 * la), u)  # sur la carte : cerné d'encre
 		draw_line(lp + Vector2(-2.0 * u, -lfs2 * 0.3), lp + Vector2(ltw + 2.0 * u, -lfs2 * 0.42), Color(Toon.VERMILION, la), 2.0 * u, true)
-	# primes : sous le bandeau et l'annonce, à droite (en deçà de la jauge d'encre), elles montent et s'effacent
+	# primes : sous les pastilles et l'annonce, à droite (en deçà de la jauge d'encre), elles montent et s'effacent
 	var py := (_below_k() + 64.0) * u
 	var pr := sz.x - 48.0 * u
 	for i in _score_pops.size():
@@ -960,39 +991,70 @@ func _flame(c: Vector2, r: float, ph: float) -> PackedVector2Array:
 	return pts
 
 
-## Étape, au centre du bandeau : sceau du monde (hanko aux bords usés) puis « ÉTAPE » et « 3 / 8 » en grand,
-## le bloc entier centré sur l'écran et aligné sur la pause (y = 36u).
-func _draw_room(sz: Vector2, u: float) -> void:
-	var cy := 36.0 * u
-	var ss := 36.0 * u
+## Étape : pastille sombre en haut à gauche (lisible sur toute carte), sceau du monde (hanko aux bords usés)
+## puis « ÉTAPE » et « 3 / 8 », alignée sur la pause et l'or (y = 22u).
+func _draw_room(_sz: Vector2, u: float) -> void:
+	var cy := 22.0 * u
+	var h := 34.0 * u
+	var ss := 26.0 * u
 	var lab := "ÉTAPE"
-	var lfs := int(9 * u)
-	var nfs := int(24 * u)
-	var dfs := int(15 * u)
+	var lfs := int(8 * u)
+	var nfs := int(19 * u)
+	var dfs := int(12 * u)
 	var ntxt := str(wave)
 	var dtxt := " / %d" % rooms_total
 	var nw := UiKit.TITLE_FONT.get_string_size(ntxt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	var dw := UiKit.UI_FONT.get_string_size(dtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, dfs).x
 	var lw := UiKit.UI_FONT.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
-	var gap := 8.0 * u
-	var bw := ss + gap + maxf(lw, nw + dw)
-	var x0 := sz.x / 2.0 - bw / 2.0
-	var seal := Rect2(Vector2(x0, cy - ss / 2.0), Vector2(ss, ss))
-	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.2), int(4 * u)), Rect2(seal.position + Vector2(0, 2.5 * u), seal.size))
+	var gap := 7.0 * u
+	var chip := Rect2(Vector2(12.0 * u, cy - h / 2.0), Vector2(4.0 * u + ss + gap + maxf(lw, nw + dw) + 11.0 * u, h))
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25), int(10 * u)), Rect2(chip.position + Vector2(0, 2.5 * u), chip.size))
+	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.88), int(10 * u), Color(Toon.WASHI, 0.3), maxi(1, int(1.2 * u))), chip)
+	var seal := Rect2(Vector2(chip.position.x + 4.0 * u, cy - ss / 2.0), Vector2(ss, ss))
 	UiKit.hanko(self, seal, world_kanji, world_color, Toon.WASHI, 1.0, u, 3.0)
 	var tx := seal.end.x + gap
-	draw_string(UiKit.UI_FONT, Vector2(tx, cy - 6.0 * u), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.ui_ink, 0.6))
-	draw_string(UiKit.TITLE_FONT, Vector2(tx, cy + 15.0 * u), ntxt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.ui_ink)
-	draw_string(UiKit.UI_FONT, Vector2(tx + nw, cy + 15.0 * u), dtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(Toon.ui_ink, 0.6))
+	draw_string(UiKit.UI_FONT, Vector2(tx, cy - 5.0 * u), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.WASHI, 0.6))
+	draw_string(UiKit.TITLE_FONT, Vector2(tx, cy + 12.0 * u), ntxt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.WASHI)
+	draw_string(UiKit.UI_FONT, Vector2(tx + nw, cy + 12.0 * u), dtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(Toon.WASHI, 0.6))
+
+
+## Pad tactile (mode pad) : zone où l'on trace, avec le geste en cours en miniature.
+func _draw_pad(u: float) -> void:
+	if pad.size.x < 10.0:
+		return
+	var pa := maxf(pad_alpha, 0.35 if pad_active else 0.0)
+	if pa > 0.01:
+		_draw_pad_frame(u, pa)
+	if pad_active and pad_trail.size() > 0:
+		draw_circle(pad_trail[0], 6 * u, Color(Toon.VERMILION, 0.8))
+		if pad_trail.size() > 1:
+			draw_polyline(pad_trail, Color(Toon.WASHI, 0.75), 4 * u, true)
+		draw_circle(pad_trail[pad_trail.size() - 1], 9 * u, Color(Toon.WASHI, 0.3))
+
+
+func _draw_pad_frame(u: float, pa: float) -> void:
+	draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, 0.06 * pa), int(18 * u), Color(Toon.WASHI, 0.22 * pa), int(1.5 * u)), pad)
+	if not pad_active:
+		# invitation : un doigt qui trace un petit trait vers le haut
+		var c := pad.get_center()
+		var k := fmod(_t, 1.6) / 1.6
+		var p0 := c + Vector2(0, 18 * u)
+		var p1 := p0 + Vector2(0, -36 * u * minf(k * 1.4, 1.0))
+		draw_line(p0, p1, Color(Toon.WASHI, 0.35 * pa), 3 * u, true)
+		draw_circle(p1, 7 * u, Color(Toon.WASHI, 0.4 * pa))
+		var hint := UiKit.plain("TRACE ICI")
+		var hf := int(10 * u)
+		UiKit.text(self, UiKit.UI_FONT, hint, Vector2(c.x, pad.end.y - 10 * u), hf, Color(Toon.WASHI, 0.45 * pa))
 
 
 ## Jauge d'encre : verticale sur le bord droit, encre bleue vive cerclée de blanc (lisible sur tous les mondes).
-## Le sceau de l'ultime est posé juste au-dessus.
-func _draw_gauge(sz: Vector2, u: float) -> void:
-	var gw := 16.0 * u
-	var gh := sz.y * 0.3
-	var gx := sz.x - gw - 12.0 * u
-	var gy := sz.y * 0.3  # haut placé : bien visible, à côté du héros (centre de l'écran)
+## Le sceau de l'ultime est posé juste au-dessus. Même rail que la vie à gauche (ink_rect, _gauge_span).
+func _draw_gauge(_sz: Vector2, u: float) -> void:
+	var ir := ink_rect()  # haut placé : bien visible, à côté du héros ; au-dessus du pad en mode pad
+	var gw := ir.size.x
+	var gh := ir.size.y
+	var gx := ir.position.x
+	var gy := ir.position.y
 	# couleur de l'encre choisie à l'Atelier (éclaircie si trop sombre pour rester lisible)
 	var ink: Color = InkStroke.ink
 	if ink.get_luminance() < 0.3:
@@ -1057,14 +1119,17 @@ func _draw_ult(c: Vector2, u: float) -> void:
 func _draw_boss(sz: Vector2, u: float) -> void:
 	var bw := sz.x * 0.72
 	var bx := (sz.x - bw) / 2.0
-	var by := BOSS_Y * u  # sous le bloc d'état, dans la bande du haut (qui s'allonge)
+	var by := BOSS_Y * u  # sous les pastilles du haut, sur un cartouche sombre
 	var vuln := boss_vuln > 0.0
 	var pulse := 0.5 + 0.5 * sin(_t * 10.0)
 	var bfs := int(16 * u)
 	var bn := plain(boss_name)
 	var nw := UiKit.TITLE_FONT.get_string_size(bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
 	var name_y := by - (18.0 if boss_has_shield else 8.0) * u
-	draw_string(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, name_y), bn, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Toon.ui_ink)
+	# plus de bande de papier : cartouche d'encre translucide sous le nom, le bouclier et la barre
+	var plate := Rect2(Vector2(bx - 30.0 * u, name_y - bfs - 2.0 * u), Vector2(bw + 60.0 * u, by + 19.0 * u - (name_y - bfs - 2.0 * u)))
+	draw_style_box(UiKit.box(_sb, Color(0.06, 0.05, 0.07, 0.6), int(12 * u)), plate)
+	_ink_text(UiKit.TITLE_FONT, Vector2(sz.x / 2.0 - nw / 2.0, name_y), bn, bfs, Toon.WASHI, u)
 	if boss_has_shield:
 		_draw_boss_shield(Vector2(bx, by - 12.0 * u), bw, u, vuln, pulse)
 	# rouleau : deux baguettes et la barre d'encre vermillon (dorée et pulsante quand il est vulnérable)
@@ -1138,7 +1203,7 @@ func _draw_boss_shield(pos: Vector2, w: float, u: float, vuln: bool, pulse: floa
 	var ls := int(8 * u)
 	var lt := plain("BOUCLIER")
 	var lw := UiKit.UI_FONT.get_string_size(lt, HORIZONTAL_ALIGNMENT_LEFT, -1, ls).x
-	draw_string(UiKit.UI_FONT, Vector2(pos.x + w - lw, pos.y - 1.5 * u), lt, HORIZONTAL_ALIGNMENT_LEFT, -1, ls, Toon.PRUSSIAN)
+	draw_string(UiKit.UI_FONT, Vector2(pos.x + w - lw, pos.y - 1.5 * u), lt, HORIZONTAL_ALIGNMENT_LEFT, -1, ls, SHIELD_BAR)  # sur le cartouche sombre
 
 
 func _draw_gate_hint(sz: Vector2, u: float) -> void:
@@ -1175,7 +1240,7 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 	var has_sub := _banner_small != ""
 	var bw := minf(sz.x - 28.0 * u, 352.0 * u)
 	var h := 62.0 * u if has_sub else 48.0 * u
-	var cy := top_off + maxf(118.0, _below_k() + 40.0) * u  # en haut au centre, sous le bandeau
+	var cy := top_off + maxf(118.0, _below_k() + 40.0) * u  # en haut au centre, sous les pastilles
 	var x0 := (sz.x - bw) / 2.0 + (1.0 - k_out) * 26.0 * u
 	var reach := bw * (0.15 + 0.85 * ein)
 	var acc := _banner_col
@@ -1326,7 +1391,7 @@ func _update_safe_top() -> void:
 	top_off = clampf(inset, 0.0, 80.0 * u) + 12.0 * u
 
 
-## Progression de l'étape : colonne à gauche (bas = arrivée, haut = torii), zones de combat
+## Progression de l'étape : colonne à gauche, contre les jauges de vie et d'XP (bas = arrivée, haut = torii), zones de combat
 ## (grises à venir, vermillon en cours, or nettoyées), le héros en point, et le compte des combats.
 func _draw_stage_bar(_sz: Vector2, u: float) -> void:
 	if stage_k < 0.0:
@@ -1340,7 +1405,7 @@ func _draw_stage_bar(_sz: Vector2, u: float) -> void:
 		return
 	var sa := clampf(_stage_vis_t / 0.5, 0.0, 1.0) * clampf((3.2 - _stage_vis_t) / 0.25, 0.0, 1.0)
 	draw_set_transform(Vector2(-30.0 * u * (1.0 - sa), 0.0))
-	var x := 18.0 * u
+	var x := 66.0 * u  # à droite des jauges de vie et d'expérience (qui finissent à ~46u)
 	var y0 := top_off + 236.0 * u
 	var y1 := y0 + 200.0 * u
 	# fond : pilule sombre translucide pour rester lisible partout

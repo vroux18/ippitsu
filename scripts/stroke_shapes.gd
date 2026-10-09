@@ -65,6 +65,8 @@ static func detect(points: PackedVector3Array) -> Dictionary:
 		return r
 	var s := simplify(p, SIMPLIFY_TOL)
 	r = _detect_zigzag(s)
+	if r.is_empty():
+		r = _detect_zigzag_soft(p)
 	if not r.is_empty():
 		return r
 	r = _detect_straight(p)
@@ -229,6 +231,77 @@ static func _detect_zigzag(s: PackedVector3Array) -> Dictionary:
 	if corners.size() < ZZ_COUNT:
 		return {}
 	return {"shape": "zigzag", "corners": corners}
+
+
+## Zigzag à main levée : les coins tracés vite sont arrondis, RDP les coupe en deux demi-virages trop doux.
+## On mesure le virage sur une fenêtre glissante (≈ 0,6 m avant / après), on garde les pics, et il faut
+## au moins deux coins de sens alterné (un Z, un N, un W) séparés de vraies branches.
+const ZZ_STEP := 0.2
+const ZZ_WIN := 3
+const ZZ_SOFT_ANGLE := 85.0
+const ZZ_BRANCH := 0.7
+
+
+static func _detect_zigzag_soft(p: PackedVector3Array) -> Dictionary:
+	if length(p) < 2.5:
+		return {}
+	var q := _resample_step(p, ZZ_STEP)
+	var n := q.size()
+	if n < ZZ_WIN * 2 + 3:
+		return {}
+	# virage signé de chaque point sur la fenêtre
+	var turn := PackedFloat32Array()
+	turn.resize(n)
+	turn.fill(0.0)
+	for i in range(ZZ_WIN, n - ZZ_WIN):
+		var a := Vector2(q[i].x - q[i - ZZ_WIN].x, q[i].z - q[i - ZZ_WIN].z)
+		var b := Vector2(q[i + ZZ_WIN].x - q[i].x, q[i + ZZ_WIN].z - q[i].z)
+		if a.length_squared() < EPS or b.length_squared() < EPS:
+			continue
+		turn[i] = rad_to_deg(atan2(a.cross(b), a.dot(b)))
+	# pics : un coin par série de points qui tournent fort dans le même sens
+	var idx: Array = []
+	var sgn: Array = []
+	var i := 0
+	while i < n:
+		if absf(turn[i]) <= ZZ_SOFT_ANGLE:
+			i += 1
+			continue
+		var sg := signf(turn[i])
+		var best := i
+		while i < n and absf(turn[i]) > ZZ_SOFT_ANGLE * 0.6 and signf(turn[i]) == sg:
+			if absf(turn[i]) > absf(turn[best]):
+				best = i
+			i += 1
+		idx.append(best)
+		sgn.append(sg)
+	# plus longue suite de coins alternés, branches assez longues entre eux
+	var corners: Array = []
+	var run: Array = []
+	for k in idx.size():
+		var ci: int = idx[k]
+		if not run.is_empty():
+			var pi: int = run[run.size() - 1]
+			var psg: float = sgn[idx.find(pi)]
+			var branch := q[ci].distance_to(q[pi])
+			if float(sgn[k]) == psg or branch < ZZ_BRANCH or branch > ZZ_SEG_MAX:
+				if run.size() > corners.size():
+					corners = run.duplicate()
+				run = []
+		run.append(ci)
+	if run.size() > corners.size():
+		corners = run
+	if corners.size() < ZZ_COUNT:
+		return {}
+	# les deux bouts aussi doivent être de vraies branches
+	var c0: int = corners[0]
+	var c1: int = corners[corners.size() - 1]
+	if q[0].distance_to(q[c0]) < ZZ_BRANCH * 0.7 or q[n - 1].distance_to(q[c1]) < ZZ_BRANCH * 0.7:
+		return {}
+	var pts: Array = []
+	for c in corners:
+		pts.append(q[int(c)])
+	return {"shape": "zigzag", "corners": pts}
 
 
 static func _detect_straight(p: PackedVector3Array) -> Dictionary:
@@ -650,6 +723,16 @@ static func self_test() -> Array:
 	var rl := detect_lead(lead, nl)
 	if String(rl.get("shape", "")) != "enso":
 		fails.append("enso avec amorce : attendu 'enso', obtenu '%s'" % String(rl.get("shape", "")))
+	# éclair tracé vite au doigt : coins arrondis (deux lissages de Chaikin), virages d'environ 120°
+	var zr := _poly(PackedVector2Array([Vector2(0, 0), Vector2(3, 1.6), Vector2(0.6, 3.0), Vector2(3.6, 4.6)]))
+	for _it in 2:
+		var sm := PackedVector3Array([zr[0]])
+		for k in range(zr.size() - 1):
+			sm.append(zr[k].lerp(zr[k + 1], 0.25))
+			sm.append(zr[k].lerp(zr[k + 1], 0.75))
+		sm.append(zr[zr.size() - 1])
+		zr = sm
+	_check(fails, "zigzag arrondi", _resample_step(zr, step), "zigzag")
 	# gribouillis court
 	var scr := PackedVector3Array()
 	for k in range(18):

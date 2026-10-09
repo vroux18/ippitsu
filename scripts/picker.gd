@@ -6,6 +6,9 @@ extends Control
 ## médaillon et rareté en clair, niveau en texte et barre à crans, nom, valeur expliquée, élément et bonus d'élément.
 ## Premier toucher : la carte se lève et son détail s'ouvre dans une bulle ; second toucher (ou CHOISIR) : choisie.
 ## Légendaire : carte noire et or, arrive face cachée (ensō doré) puis se retourne dans une gerbe d'or.
+## Chaque carte est un kakemono : roulé sous sa baguette, il se déroule (en décalé, carte après carte) ;
+## un toucher pendant le déroulé l'achève d'un coup. Au choix, les autres se réenroulent vite, puis la choisie.
+## Toute première ouverture : une petite feuille au-dessus des cartes explique les rouleaux (COMPRIS, ou un choix).
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -21,6 +24,13 @@ const UP_COL := Color("#3FA88E")  # amélioration d'un pouvoir déjà pris
 const REVEAL_AT := 0.6  # le légendaire se retourne à cet instant (s)
 const REVEAL_DUR := 0.34
 const CONFIRM := 100  # cible « bouton CHOISIR »
+const TIP := 101  # cible « explication des rouleaux » (COMPRIS)
+const UNROLL_AT := 0.08  # premier rouleau qui se déroule (s, temps réel)
+const UNROLL_GAP := 0.12  # décalage d'une carte à la suivante
+const UNROLL_DUR := 0.5  # durée d'un déroulé (rebond compris)
+const WOOD := Color("#5A3F2C")  # baguettes
+const WOOD_CAP := Color("#2A1E17")  # embouts (jiku)
+const NO_CUT := 1.0e9  # pas de bord de papier : tout le contenu se voit
 const GLUE := [":", ";", "!", "?", "%", "→", "·"]  # jamais en début de ligne
 
 signal picked(id: String)
@@ -52,6 +62,14 @@ var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 var _big := 36.0  # rayon du médaillon, commun aux cartes (fixé par la mise en page)
 var _title_text := ""  # titre imposé (rouleau « sans une égratignure »), vide : titre ordinaire
 var _sub_text := ""
+var _cut := NO_CUT  # bord bas du papier déroulé de la carte en cours de dessin (y écran)
+var _band := 12.0  # un élément apparaît sur cette distance, une fois passé au-dessus du rouleau
+var _swallow := false  # relâché à ignorer (l'appui a achevé le déroulé)
+var _tip_on := false  # explication des rouleaux : place réservée dans la mise en page (première ouverture)
+var _tip_gone := false  # explication fermée (COMPRIS ou choix)
+var _tip_a := 0.0
+var _tip_rect := Rect2()
+var _tip_ex: Array = []  # exemples de déclencheurs (« DANS LE DOS = frappe de dos »…), cartes montrées d'abord
 
 
 func _ready() -> void:
@@ -95,7 +113,66 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	for i in ids.size():
 		_links.append(_relations(String(ids[i])))
 	_owned_pos.clear()
+	_swallow = false
+	_cut = NO_CUT
+	# toute première ouverture d'un vrai rouleau (pas le sanctuaire) : l'explication s'affiche
+	_tip_gone = false
+	_tip_a = 0.0
+	_tip_rect = Rect2()
+	_tip_on = not _curse_mode and _tip_due()
+	_tip_ex = _tip_examples() if _tip_on else []
 	visible = true
+
+
+## Méta (sauvegarde), lue sur le nœud de jeu parent qui porte « meta » ; null hors du jeu.
+func _meta() -> Object:
+	var n: Node = get_parent()
+	while n != null:
+		if "meta" in n:
+			var cand = n.get("meta")
+			if cand is Object and is_instance_valid(cand) and "scroll_tip_done" in cand:
+				return cand
+		n = n.get_parent()
+	return null
+
+
+## L'explication des rouleaux reste-t-elle à montrer ?
+func _tip_due() -> bool:
+	var m: Object = _meta()
+	return m != null and not bool(m.get("scroll_tip_done"))
+
+
+## Explication lue (COMPRIS, ou un rouleau choisi) : elle s'efface et ne reviendra plus.
+func _tip_close() -> void:
+	if not _tip_on or _tip_gone:
+		return
+	_tip_gone = true
+	var m: Object = _meta()
+	if m != null:
+		m.set("scroll_tip_done", true)
+		if m.has_method("save_data"):
+			m.call("save_data")
+
+
+## Déclencheurs à expliquer : ceux des cartes montrées, puis des exemples connus (dos, arrivée, figure).
+func _tip_examples() -> Array:
+	var out: Array = []
+	var cands: Array = _ids.duplicate()
+	cands.append("shadow_back")
+	cands.append(String(Data.FIG_UNLOCK.get("enso", "")))
+	cands.append("water_tide")
+	var fig_done := false  # une seule figure en exemple
+	for c in cands:
+		var cid := String(c)
+		var line := UiKit.trigger_hint(cid)
+		if line == "" or out.has(line):
+			continue
+		var is_fig := UiKit.trigger_figure(cid) != ""
+		if is_fig and fig_done:
+			continue
+		fig_done = fig_done or is_fig
+		out.append(line)
+	return out
 
 
 ## Pouvoirs déjà pris, lus sur le nœud de jeu parent qui porte « powers » : [id, niveau, niveau max], par école.
@@ -175,20 +252,47 @@ func _syn_of(id: String) -> Array:
 	return best
 
 
-## Instant où l'on peut choisir (après l'arrivée des cartes et le retournement du légendaire).
+## Instant où l'on peut choisir (après le déroulé des rouleaux et le retournement du légendaire).
 func _ready_time() -> float:
 	if _leg_index >= 0:
-		return _reveal_start(_leg_last) + REVEAL_DUR + 0.15
-	return 0.5
+		return maxf(_reveal_start(_leg_last) + REVEAL_DUR + 0.15, _unroll_start(_ids.size() - 1) + UNROLL_DUR)
+	return _unroll_start(_ids.size() - 1) + UNROLL_DUR
 
 
+## Le légendaire se retourne juste après son déroulé (REVEAL_AT ≈ UNROLL_AT + UNROLL_DUR).
 func _reveal_start(i: int) -> float:
-	return REVEAL_AT + 0.12 * float(i)
+	return REVEAL_AT + UNROLL_GAP * float(i)
+
+
+func _unroll_start(i: int) -> float:
+	return UNROLL_AT + UNROLL_GAP * float(maxi(i, 0))
+
+
+## Déroulé de la carte i : 0 roulé, 1 déroulé ; dépasse un peu puis se pose (petit rebond).
+func _unroll(i: int) -> float:
+	var k := clampf((_t - _unroll_start(i)) / UNROLL_DUR, 0.0, 1.0)
+	if k < 0.8:
+		return 1.035 * UiKit.ease_out(k / 0.8)
+	var s := (k - 0.8) / 0.2
+	return 1.035 - 0.035 * s * s * (3.0 - 2.0 * s)
 
 
 func _gui_input(event: InputEvent) -> void:
-	if _chosen >= 0 or _t < _ready_time():
+	if _chosen >= 0:
 		return
+	if _t < _ready_time():
+		# un appui pendant le déroulé l'achève d'un coup (son relâché ne choisit rien)
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			_t = _ready_time()
+			_down = -1
+			_swallow = true
+			accept_event()
+		return
+	if _swallow and event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		_swallow = false
+		if not event.pressed:
+			accept_event()
+			return
 	if event is InputEventMouseMotion:
 		# survol (souris) : les liens de la carte s'allument dans TES POUVOIRS
 		var hv := _hit(event.position)
@@ -206,7 +310,9 @@ func _gui_input(event: InputEvent) -> void:
 		if event.pressed:
 			_down = i
 		elif _down != -1 and i == _down:
-			if i == CONFIRM:
+			if i == TIP:
+				_tip_close()
+			elif i == CONFIRM:
 				_choose(_sel)
 			elif i == _sel:
 				_choose(i)
@@ -226,11 +332,14 @@ func _choose(i: int) -> void:
 	_sel = i
 	_chosen = i
 	_t = 0.0
+	_tip_close()
 
 
 func _hit(p: Vector2) -> int:
 	if _sel >= 0 and _confirm_rect.has_point(p):
 		return CONFIRM
+	if _tip_on and not _tip_gone and _tip_a > 0.3 and _tip_rect.has_point(p):
+		return TIP
 	for i in _rects.size():
 		var r: Rect2 = _rects[i]
 		if r.has_point(p):
@@ -245,6 +354,9 @@ func _process(_delta: float) -> void:
 	var real := UiKit.real_delta()
 	_t += real
 	_sel_t += real
+	# explication des rouleaux : arrive avec les cartes, s'efface une fois lue
+	var tip_to := 1.0 if _tip_on and not _tip_gone and _t > 0.15 else 0.0
+	_tip_a = move_toward(_tip_a, tip_to, real * 5.0)
 	if _chosen >= 0 and _t > 0.55:
 		visible = false
 		picked.emit(String(_ids[_chosen]))
@@ -300,6 +412,8 @@ func _draw() -> void:
 		bub_h = maxf(bub_h, _bubble_h(_infos[i], _id(i), w - 28.0 * u, u))
 	var strip_h := _strip_h(w, u)
 	var head := 62.0 * u + strip_h + 18.0 * u
+	if _tip_on:
+		head += _tip_h(u) + 10.0 * u  # place gardée jusqu'à la fermeture : les cartes ne sautent pas
 	var conf_h := 50.0 * u
 	var tail := 16.0 * u + bub_h + 12.0 * u + conf_h
 	if rerolls > 0:
@@ -348,24 +462,29 @@ func _draw() -> void:
 		_rects.append(Rect2(Vector2(x0 + float(i) * (cw + gap), top), Vector2(cw, ch)))
 	_draw_links(u, fade)  # positions des icônes de l'image précédente : les traits passent sous la bande
 	_draw_strip(gt + 62.0 * u, w, u, fade)
+	_draw_tip(gt + 62.0 * u + strip_h + 6.0 * u, w, u, fade)
 
-	# cartes côte à côte
+	# cartes côte à côte : chaque rouleau se déroule sous sa baguette, en décalé
 	for i in n:
 		var info: Dictionary = _infos[i]
-		var k := UiKit.ease_out((_t - 0.07 * i) / 0.42)
-		var a := k * fade
+		var arrive := UiKit.ease_out((_t - _unroll_start(i) + 0.16) / 0.16)  # le rouleau fermé apparaît, puis se déroule
+		var a := arrive * fade
 		var grow := 1.0
-		var dy := (1.0 - k) * h * 0.25
+		var dy := -(1.0 - arrive) * 12.0 * u
+		var op := _unroll(i)
 		var base: Rect2 = _rects[i]
 		if _chosen >= 0:
 			if i == _chosen:
-				a = 1.0
+				# la choisie s'élève et brille, puis se réenroule juste avant la fermeture
+				a = 1.0 - UiKit.ease_out((_t - 0.45) / 0.1)
 				dy = -10.0 * u
 				grow = 1.0 + 0.06 * UiKit.ease_out(_t / 0.2)
+				op = 1.0 - UiKit.ease_out((_t - 0.28) / 0.22)
 			else:
-				var out := UiKit.ease_out(_t / 0.3)
-				a = 1.0 - out
-				dy = out * h * 0.2
+				# les autres se réenroulent vite et s'effacent
+				op = 1.0 - UiKit.ease_out(_t / 0.2)
+				a = 1.0 - UiKit.ease_out((_t - 0.1) / 0.2)
+				dy = 0.0
 		elif _sel >= 0:
 			if i == _sel:
 				dy = -10.0 * u * UiKit.ease_out(_sel_t / 0.15)
@@ -376,7 +495,8 @@ func _draw() -> void:
 			grow *= 0.97
 		var r := Rect2(base.position + Vector2(0, dy), base.size)
 		r = Rect2(r.get_center() - r.size * grow / 2.0, r.size * grow)
-		_card(r, info, _id(i), u, a, i)
+		_card(r, info, _id(i), u, a, i, op)
+	_cut = NO_CUT
 
 	# bulle de détail juste sous les cartes, bouton CHOISIR collé sous la bulle
 	var bub := Rect2(Vector2(14.0 * u, top + ch + 16.0 * u), Vector2(w - 28.0 * u, bub_h))
@@ -410,6 +530,63 @@ func _draw_motes(w: float, h: float, u: float, a: float) -> void:
 		var y := h - fmod(_t * float(m[1]) * h + float(m[2]) * h, h)
 		var tw := 0.5 + 0.5 * sin(_t * 3.0 + float(m[2]) * 11.0)
 		draw_circle(Vector2(x, y), float(m[3]) * u, Color(GOLD_HI, 0.45 * a * tw))
+
+
+# ------------------------------------------------------------------ explication des rouleaux (première fois)
+
+## Hauteur de l'explication : quatre lignes courtes.
+func _tip_h(u: float) -> float:
+	return 20.0 * u + 4.0 * float(_fs(11.5, u)) * 1.45
+
+
+## Feuille de washi au-dessus des cartes : un rouleau = un pouvoir, le bandeau dit quand, l'élément, le niveau.
+## Onglet COMPRIS sur le bord haut ; toute la feuille se touche pour la fermer.
+func _draw_tip(y0: float, w: float, u: float, fade: float) -> void:
+	var a := _tip_a * fade
+	if not _tip_on or a <= 0.01:
+		_tip_rect = Rect2()
+		return
+	var fs := _fs(11.5, u)
+	var lh := float(fs) * 1.45
+	var pad := 10.0 * u
+	var box := Rect2(Vector2(14.0 * u, y0 - 6.0 * u * (1.0 - _tip_a)), Vector2(w - 28.0 * u, _tip_h(u)))
+	UiKit.box(_sb, Color(Toon.ui_paper, 0.97 * a), int(10 * u), Color(GOLD_HI, 0.85 * a), maxi(1, int(1.5 * u)))
+	_sb.shadow_color = Color(0, 0, 0, 0.35 * a)
+	_sb.shadow_size = int(10 * u)
+	_sb.shadow_offset = Vector2(0, 4 * u)
+	draw_style_box(_sb, box)
+	var ink: Color = Toon.ui_ink
+	var accent: Color = GOLD_HI if Toon.ui_dark else Toon.VERMILION
+	var x := box.position.x + pad + 10.0 * u
+	var tw := box.end.x - pad - x
+	# exemples de déclencheurs : autant qu'il en tient sur la ligne (au moins un)
+	var when := "En haut = QUAND il agit : "
+	var ex := ""
+	for e in _tip_ex:
+		var cand: String = String(e) if ex == "" else ex + " · " + String(e)
+		if ex == "" or _ui.get_string_size(when + cand, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= tw:
+			ex = cand
+	var lines: Array = [
+		"Un rouleau = un pouvoir, gardé toute la partie",
+		when + ex if ex != "" else "En haut = QUAND le pouvoir agit",
+		"2 pouvoirs du même élément = bonus d'élément",
+		"NIV 1/3 : reprends-le plus tard pour le monter",
+	]
+	for k in lines.size():
+		var by := box.position.y + pad + lh * float(k) + float(fs)
+		draw_circle(Vector2(x - 8.0 * u, by - float(fs) * 0.35), 2.5 * u, Color(accent, a))
+		var lf := fs
+		var txt := _p(String(lines[k]))
+		while lf > maxi(10, int(float(fs) * 0.8)) and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, lf).x > tw:
+			lf -= 1
+		draw_string(_ui, Vector2(x, by), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, lf, Color(ink, 0.9 * a))
+	# onglet COMPRIS, posé sur le bord haut à droite
+	var cfs := _fs(11.0, u)
+	var cw := _ui.get_string_size("COMPRIS", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x + 18.0 * u
+	var tab := Rect2(Vector2(box.end.x - cw - 12.0 * u, box.position.y - 10.0 * u), Vector2(cw, 20.0 * u))
+	draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, a), 999, Color(Toon.SUMI, 0.5 * a), maxi(1, int(1.2 * u))), tab)
+	UiKit.text(self, _ui, "COMPRIS", Vector2(tab.get_center().x, tab.get_center().y + float(cfs) * 0.36), cfs, Color(Toon.WASHI, a))
+	_tip_rect = box.merge(tab).grow(6.0 * u)
 
 
 # ------------------------------------------------------------------ TES POUVOIRS
@@ -559,12 +736,19 @@ func _draw_links(u: float, a: float) -> void:
 
 # ------------------------------------------------------------------ cartes
 
-func _card(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -> void:
+## Une carte-rouleau : op = déroulé (0 roulé sous la baguette du haut, 1 déroulé, un peu plus au rebond).
+func _card(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int, op: float) -> void:
 	if a <= 0.01:
 		return
+	_cut = r.position.y + r.size.y * maxf(op, 0.0)
+	_band = 12.0 * u
+	var rr := lerpf(7.0 * u, 2.6 * u, clampf(op, 0.0, 1.0))  # papier encore roulé : le rouleau maigrit en se déroulant
+	var paper := _body_col(info)
 	var leg := String(info.get("rarity", "")) == "legendary"
 	if not leg:
 		_face(r, info, id, u, a, i)
+		_roller(r, u, a, rr, paper, op)
+		_cut = NO_CUT
 		return
 	# légendaire : dos (ensō doré), retournement, puis face et gerbe d'or
 	var kf := 1.0 if _chosen >= 0 else (_t - _reveal_start(i)) / REVEAL_DUR
@@ -573,12 +757,16 @@ func _card(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 		var sx := 1.0 if kf <= 0.0 else 1.0 - kf * 2.0
 		draw_set_transform_matrix(_squash(c, sx))
 		_back(r, u, a)
+		_roller(r, u, a, rr, LEG_BODY, op)
 		draw_set_transform_matrix(Transform2D.IDENTITY)
+		_cut = NO_CUT
 		return
 	var sx2 := 1.0 if kf >= 1.0 else (kf - 0.5) * 2.0
 	draw_set_transform_matrix(_squash(c, maxf(sx2, 0.02)))
 	_face(r, info, id, u, a, i)
+	_roller(r, u, a, rr, paper, op)
 	draw_set_transform_matrix(Transform2D.IDENTITY)
+	_cut = NO_CUT
 	# gerbe d'or juste après le retournement
 	var tr := _t - _reveal_start(i) - REVEAL_DUR
 	if _chosen < 0 and tr > 0.0 and tr < 0.9:
@@ -595,6 +783,58 @@ func _card(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 			draw_line(c + d * r0, c + d * r1, Color(GOLD_HI, 0.7 * ea), 2.0 * u)
 
 
+## Papier déroulé de la carte en cours de dessin (du haut jusqu'au rouleau).
+func _paper(r: Rect2) -> Rect2:
+	return Rect2(r.position, Vector2(r.size.x, clampf(_cut - r.position.y, 0.0, r.size.y * 1.1)))
+
+
+## Visibilité d'un élément de carte dont le bas est en y : il n'apparaît qu'une fois sorti du rouleau.
+func _rv(y: float) -> float:
+	return clampf((_cut - y) / _band, 0.0, 1.0)
+
+
+## Couleur du papier d'une carte (washi, noir du légendaire, sanctuaire, « Passer »).
+func _body_col(info: Dictionary) -> Color:
+	var rank := int(info.get("rarity_rank", -1))
+	if rank == 3:
+		return LEG_BODY
+	if String(info.get("kanji", "")) == "鬼":
+		return CURSE_BODY
+	if rank < 0:
+		return PASS_BODY
+	return Toon.ui_paper
+
+
+## Baguette de bois sombre et ses embouts (jiku), de x0 à x1 à la hauteur y.
+func _rod(x0: float, x1: float, y: float, u: float, a: float) -> void:
+	var rh := 2.3 * u
+	draw_rect(Rect2(Vector2(x0, y - rh), Vector2(x1 - x0, rh * 2.0)), Color(WOOD, a))
+	draw_line(Vector2(x0, y - rh * 0.45), Vector2(x1, y - rh * 0.45), Color(WOOD.lightened(0.35), 0.7 * a), maxf(1.0, 0.8 * u))
+	for ex in [x0, x1]:
+		var cap := Rect2(Vector2(float(ex) - 3.0 * u, y - 4.2 * u), Vector2(6.0 * u, 8.4 * u))
+		draw_style_box(UiKit.box(_sb, Color(WOOD_CAP, a), maxi(1, int(2.0 * u)), Color(GOLD_HI, 0.6 * a), maxi(1, int(1.0 * u))), cap)
+
+
+## Rouleau du bas, posé au bord du papier déroulé : ombre sur le papier et dessous, papier encore roulé, baguette.
+func _roller(r: Rect2, u: float, a: float, rr: float, paper: Color, op: float) -> void:
+	var y := _cut
+	var x0 := r.position.x
+	var x1 := r.end.x
+	if _cut - r.position.y > 6.0 * u:
+		# ombre douce du rouleau sur le papier, juste au-dessus de lui
+		for k in 3:
+			var hk := (3.0 + 3.0 * float(k)) * u
+			draw_rect(Rect2(Vector2(x0 + 2.0 * u, y - hk), Vector2(r.size.x - 4.0 * u, hk)), Color(0, 0, 0, 0.05 * a))
+	draw_rect(Rect2(Vector2(x0 + 4.0 * u, y + rr * 0.5), Vector2(r.size.x - 8.0 * u, rr + 2.0 * u)), Color(0, 0, 0, 0.18 * a))
+	if op < 0.999:
+		# papier encore roulé : un cylindre (reflet en haut, spire en bas)
+		var cyl := Rect2(Vector2(x0 + 1.0 * u, y - rr), Vector2(r.size.x - 2.0 * u, rr * 2.0))
+		draw_style_box(UiKit.box(_sb, Color(paper.darkened(0.06), a), maxi(1, int(rr)), Color(Toon.SUMI, 0.4 * a), maxi(1, int(1.0 * u))), cyl)
+		draw_line(Vector2(x0 + 6.0 * u, y - rr * 0.45), Vector2(x1 - 6.0 * u, y - rr * 0.45), Color(1, 1, 1, 0.3 * a), maxf(1.0, rr * 0.25))
+		draw_line(Vector2(x0 + 6.0 * u, y + rr * 0.45), Vector2(x1 - 6.0 * u, y + rr * 0.45), Color(0, 0, 0, 0.15 * a), maxf(1.0, rr * 0.2))
+	_rod(x0, x1, y, u, a)
+
+
 ## Écrase horizontalement autour du centre (retournement de carte).
 func _squash(c: Vector2, sx: float) -> Transform2D:
 	return Transform2D(Vector2(sx, 0), Vector2(0, 1), Vector2(c.x * (1.0 - sx), 0))
@@ -603,13 +843,19 @@ func _squash(c: Vector2, sx: float) -> Transform2D:
 ## Dos du légendaire : papier noir, liseré d'or, ensō doré qui se trace.
 func _back(r: Rect2, u: float, a: float) -> void:
 	var radius := int(14 * u)
-	UiKit.box(_sb, Color(LEG_BODY, a), radius, Color(GOLD_HI, a), int(2.5 * u))
-	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
-	_sb.shadow_size = int(14 * u)
-	_sb.shadow_offset = Vector2(0, 6 * u)
-	draw_style_box(_sb, r)
+	var pr := _paper(r)
+	if pr.size.y > 1.0:
+		UiKit.box(_sb, Color(LEG_BODY, a), radius, Color(GOLD_HI, a), int(2.5 * u))
+		_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
+		_sb.shadow_size = int(14 * u)
+		_sb.shadow_offset = Vector2(0, 6 * u)
+		draw_style_box(_sb, pr)
+	_rod(r.position.x, r.end.x, r.position.y + 1.0 * u, u, a)
 	var c := r.get_center()
 	var dim := minf(r.size.x, r.size.y)
+	a *= _rv(c.y + dim * 0.5)  # l'ensō paraît une fois déroulé
+	if a <= 0.01:
+		return
 	var pulse := 0.5 + 0.5 * sin(_t * 8.0)
 	draw_circle(c, dim * 0.44, Color(GOLD_HI, (0.06 + 0.06 * pulse) * a))
 	var k := clampf(_t / REVEAL_AT, 0.0, 1.0)
@@ -636,26 +882,31 @@ func _face(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -
 	var ink: Color = Toon.WASHI if dark else Toon.ui_ink
 	var radius := int(14 * u)
 	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
+	var pr := _paper(r)  # seul le papier déroulé se voit
+	var shown := pr.size.y > 4.0 * u
 	# lueur extérieure (épique, légendaire), halo de la carte levée
-	if rank >= 2:
+	if rank >= 2 and shown:
 		for k in 3:
 			var g := (4.0 + 4.0 * k) * u
 			var ga := (0.26 - 0.07 * k) * a * (0.55 + 0.45 * pulse)
-			draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(g), Color(rc, ga), int(3 * u)), r.grow(g))
-	if i == _sel:
+			draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(g), Color(rc, ga), int(3 * u)), pr.grow(g))
+	if i == _sel and shown:
 		var hc: Color = Toon.VERMILION if rank < 0 else GOLD_HI
-		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(6 * u), Color(hc, 0.95 * a), int(3 * u)), r.grow(6 * u))
+		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), radius + int(6 * u), Color(hc, 0.95 * a), int(3 * u)), pr.grow(6 * u))
 	# corps, cadre de rareté, ombre
-	var frame: Color = rc if rank >= 1 else (Color(ink, 0.25) if rank == 0 else (CURSE_COL.lightened(0.2) if is_curse else Color(ink, 0.3)))
-	UiKit.box(_sb, Color(body, a), radius, Color(frame, a), maxi(1, int((3.0 if rank >= 1 else 2.0) * u)))
-	_sb.shadow_color = Color(0, 0, 0, 0.45 * a)
-	_sb.shadow_size = int(14 * u)
-	_sb.shadow_offset = Vector2(0, 6 * u)
-	draw_style_box(_sb, r)
+	if pr.size.y > 1.0:
+		var frame: Color = rc if rank >= 1 else (Color(ink, 0.25) if rank == 0 else (CURSE_COL.lightened(0.2) if is_curse else Color(ink, 0.3)))
+		UiKit.box(_sb, Color(body, a), radius, Color(frame, a), maxi(1, int((3.0 if rank >= 1 else 2.0) * u)))
+		_sb.shadow_color = Color(0, 0, 0, 0.45 * a)
+		_sb.shadow_size = int(14 * u)
+		_sb.shadow_offset = Vector2(0, 6 * u)
+		draw_style_box(_sb, pr)
+	# baguette du haut (le ruban NOUVEAU s'y accroche, dessiné par-dessus)
+	_rod(r.position.x, r.end.x, r.position.y + 1.0 * u, u, a)
 	_content(r, info, id, u, a, i, true)
 	# reflet qui traverse la carte (épique, légendaire)
-	if rank >= 2:
-		_shine(r, u, a, i, Color(GOLD_HI, 0.2) if leg else Color(1, 1, 1, 0.16))
+	if rank >= 2 and shown:
+		_shine(pr, u, a, i, Color(GOLD_HI, 0.2) if leg else Color(1, 1, 1, 0.16))
 
 
 ## Hauteur utile d'une carte (le contenu mesuré sans être dessiné) : la carte s'arrête sous son contenu.
@@ -691,8 +942,9 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 			rf -= 1
 		var rw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x + 16.0 * s
 		var rib := Rect2(Vector2(cx - rw / 2.0, r.position.y - 9.0 * s), Vector2(rw, 18.0 * s))
-		draw_style_box(UiKit.box(_sb, Color(rbg, a), int(4 * s), Color(Toon.SUMI, 0.5 * a), maxi(1, int(1.2 * s))), rib)
-		UiKit.text(self, _ui, rt, Vector2(cx, rib.get_center().y + float(rf) * 0.36), rf, Color(LEG_BODY if leg else Toon.WASHI, a))
+		var ka := a * _rv(rib.end.y)  # chaque élément paraît une fois sorti du rouleau
+		draw_style_box(UiKit.box(_sb, Color(rbg, ka), int(4 * s), Color(Toon.SUMI, 0.5 * ka), maxi(1, int(1.2 * s))), rib)
+		UiKit.text(self, _ui, rt, Vector2(cx, rib.get_center().y + float(rf) * 0.36), rf, Color(LEG_BODY if leg else Toon.WASHI, ka))
 
 	# déclencheur en clair : la figure à tracer (ou son pictogramme) et son nom
 	if rank >= 0:
@@ -702,16 +954,17 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		var pw := minf(tw0 + 32.0 * s, r.size.x - 8.0 * s)
 		var pill := Rect2(Vector2(cx - pw / 2.0, y), Vector2(pw, 21.0 * s))
 		if really:
+			var ka := a * _rv(pill.end.y)
 			var pc: Color = GOLD_HI if leg else Toon.ui_ink
 			var tc: Color = LEG_BODY if leg else Toon.ui_wash
-			draw_style_box(UiKit.box(_sb, Color(pc, a), 999), pill)
+			draw_style_box(UiKit.box(_sb, Color(pc, ka), 999), pill)
 			var ic := Vector2(pill.position.x + 12.0 * s, pill.get_center().y)
 			var fig := UiKit.trigger_figure(id)
 			if fig != "":
-				UiKit.figure(self, fig, ic, 7.5 * s, a)
+				UiKit.figure(self, fig, ic, 7.5 * s, ka)
 			else:
-				UiKit.trigger_icon(self, id, ic, 6.5 * s, tc, pc, a)
-			draw_string(_ui, Vector2(pill.position.x + 24.0 * s, pill.get_center().y + float(cap) * 0.36), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(tc, a))
+				UiKit.trigger_icon(self, id, ic, 6.5 * s, tc, pc, ka)
+			draw_string(_ui, Vector2(pill.position.x + 24.0 * s, pill.get_center().y + float(cap) * 0.36), ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(tc, ka))
 		y = pill.end.y + 8.0 * s
 	else:
 		y += 6.0 * s
@@ -720,25 +973,26 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	var big := _big
 	var mc := Vector2(cx, y + big + 4.0 * u)
 	if really:
+		var ka := a * _rv(mc.y + big + 4.0 * u)
 		var mcol: Color = CURSE_COL if is_curse else (Color("#8C8FA8") if is_pass else col)
 		var frame: Color = rc if rank >= 1 else (Color(ink, 0.25) if rank == 0 else (CURSE_COL.lightened(0.2) if is_curse else Color(ink, 0.3)))
 		for k in 3:
-			draw_circle(mc, big * (1.55 - 0.18 * float(k)), Color(mcol, (0.05 + 0.03 * float(k)) * a))
+			draw_circle(mc, big * (1.55 - 0.18 * float(k)), Color(mcol, (0.05 + 0.03 * float(k)) * ka))
 		var ring: Color = GOLD_HI if leg else (rc if rank >= 1 else (Color("#C9BFA8") if rank == 0 else frame))
-		draw_circle(mc, big + 4.0 * u, Color(ring, a))
-		draw_circle(mc, big + 1.2 * u, Color(Toon.SUMI, 0.6 * a))
-		draw_circle(mc, big, Color(mcol, a))
-		draw_circle(mc + Vector2(0, -big * 0.2), big * 0.78, Color(mcol.lightened(0.14), 0.55 * a))
-		draw_arc(mc, big * 0.86, PI * 1.1, PI * 1.55, 12, Color(1, 1, 1, 0.22 * a), 2.0 * u, true)
-		draw_arc(mc + Vector2(big * 0.1, big * 0.05), big * 0.72, PI * 0.15, PI * 0.5, 10, Color(0, 0, 0, 0.12 * a), 3.0 * u, true)
+		draw_circle(mc, big + 4.0 * u, Color(ring, ka))
+		draw_circle(mc, big + 1.2 * u, Color(Toon.SUMI, 0.6 * ka))
+		draw_circle(mc, big, Color(mcol, ka))
+		draw_circle(mc + Vector2(0, -big * 0.2), big * 0.78, Color(mcol.lightened(0.14), 0.55 * ka))
+		draw_arc(mc, big * 0.86, PI * 1.1, PI * 1.55, 12, Color(1, 1, 1, 0.22 * ka), 2.0 * u, true)
+		draw_arc(mc + Vector2(big * 0.1, big * 0.05), big * 0.72, PI * 0.15, PI * 0.5, 10, Color(0, 0, 0, 0.12 * ka), 3.0 * u, true)
 		if leg:
 			for ray in 10:
 				var ang := _t * 0.5 + TAU * float(ray) / 10.0
 				var d := Vector2(cos(ang), sin(ang))
-				draw_line(mc + d * (big + 7.0 * u), mc + d * (big + 13.0 * u), Color(GOLD_HI, 0.45 * a), 2.0 * u)
+				draw_line(mc + d * (big + 7.0 * u), mc + d * (big + 13.0 * u), Color(GOLD_HI, 0.45 * ka), 2.0 * u)
 		# chaque malédiction a son pictogramme (encre sèche, œil d'oni, pas lourd, hâte des morts)
 		var gname := String(info.get("icon", "oni")) if is_curse else ("path" if is_pass else UiKit.icon_of(id))
-		UiKit.glyph(self, gname, mc, big * 0.62, GOLD_HI if leg else Toon.WASHI, mcol, a)
+		UiKit.glyph(self, gname, mc, big * 0.62, GOLD_HI if leg else Toon.WASHI, mcol, ka)
 	y = mc.y + big
 
 	if rank >= 0:
@@ -748,8 +1002,9 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		var tag := Rect2(Vector2(cx - rw2 / 2.0, y - 6.0 * s), Vector2(rw2, 18.0 * s))
 		if really:
 			var tb: Color = GOLD_HI if leg else rc
-			draw_style_box(UiKit.box(_sb, Color(tb, a), 999, Color(Toon.SUMI, 0.55 * a), maxi(1, int(1.5 * s))), tag)
-			UiKit.text(self, _ui, rn, Vector2(cx, tag.get_center().y + float(cap) * 0.36), cap, Color(LEG_BODY if leg else Toon.WASHI, a))
+			var ka := a * _rv(tag.end.y)
+			draw_style_box(UiKit.box(_sb, Color(tb, ka), 999, Color(Toon.SUMI, 0.55 * ka), maxi(1, int(1.5 * s))), tag)
+			UiKit.text(self, _ui, rn, Vector2(cx, tag.get_center().y + float(cap) * 0.36), cap, Color(LEG_BODY if leg else Toon.WASHI, ka))
 		y = tag.end.y + 4.0 * s
 		# niveau : texte, puis barre à crans (pris, gagné maintenant en or, à venir)
 		var mx := int(info.get("max_level", 1))
@@ -762,7 +1017,7 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 			lt = "NIV %d → %d" % [cur, lv]
 		y += float(cap)
 		if really:
-			UiKit.text(self, _ui, lt, Vector2(cx, y), cap, Color(ink, 0.8 * a))
+			UiKit.text(self, _ui, lt, Vector2(cx, y), cap, Color(ink, 0.8 * a * _rv(y + 3.0 * s)))
 		if mx > 1:
 			y += 5.0 * s
 			var bw := minf(r.size.x - 28.0 * s, 22.0 * s * float(mx))
@@ -776,7 +1031,7 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 						fc = Color(ink, 0.75)
 					elif k < lv:
 						fc = GOLD_HI.lerp(GOLD_HI.lightened(0.35), pulse)
-					draw_style_box(UiKit.box(_sb, Color(fc, fc.a * a), maxi(1, int(2 * s))), sr)
+					draw_style_box(UiKit.box(_sb, Color(fc, fc.a * a * _rv(sr.end.y)), maxi(1, int(2 * s))), sr)
 			y += 6.0 * s
 		y += 8.0 * s
 	else:
@@ -793,10 +1048,10 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	for k in mini(nlines.size(), 2):
 		y += float(nfs) * (0.95 if k == 0 else 1.05)
 		if really:
-			UiKit.text(self, UiKit.TITLE_FONT, nlines[k], Vector2(cx, y), nfs, Color(name_col, a))
+			UiKit.text(self, UiKit.TITLE_FONT, nlines[k], Vector2(cx, y), nfs, Color(name_col, a * _rv(y + float(nfs) * 0.3)))
 	# filet sous le nom
 	if really:
-		draw_line(Vector2(cx - 14 * s, y + 7 * s), Vector2(cx + 14 * s, y + 7 * s), Color(GOLD_HI if dark else Toon.VERMILION, 0.8 * a), 2.0 * s)
+		draw_line(Vector2(cx - 14 * s, y + 7 * s), Vector2(cx + 14 * s, y + 7 * s), Color(GOLD_HI if dark else Toon.VERMILION, 0.8 * a * _rv(y + 8.0 * s)), 2.0 * s)
 	y += 24.0 * s
 	var tw := r.size.x - 12.0 * s
 	if rank < 0:
@@ -815,7 +1070,8 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	var nl := mini(lines.size(), 4)
 	for k in nl:
 		if really:
-			_rich(lines[k], cx, y + float(k) * lh, efs, Color(ink, 0.92 * a), Color(accent, a))
+			var ka := a * _rv(y + float(k) * lh + float(efs) * 0.3)
+			_rich(lines[k], cx, y + float(k) * lh, efs, Color(ink, 0.92 * ka), Color(accent, ka))
 	y += float(maxi(nl - 1, 0)) * lh + 10.0 * s
 
 	# pied : élément (pictogramme et nom), bonus d'élément, synergie
@@ -823,13 +1079,14 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	if school == "":
 		return y - r.position.y + 4.0 * s
 	if really:
-		draw_line(Vector2(r.position.x + 10.0 * s, y), Vector2(r.end.x - 10.0 * s, y), Color(ink, 0.18 * a), 1.0)
+		draw_line(Vector2(r.position.x + 10.0 * s, y), Vector2(r.end.x - 10.0 * s, y), Color(ink, 0.18 * a * _rv(y + 2.0 * s)), 1.0)
 	y += 4.0 * s
 	var sd: Dictionary = Data.SCHOOLS.get(school, {})
 	var el := "Technique" if school == "fig" else ("Encre" if school == "ink" else "Élément " + String(sd.get("word", "")))
 	if really:
 		var scol := UiKit.school_color(school)
-		_icon_line(el, school, scol, cx, y + 9.0 * s, r.size.x - 12.0 * s, cap, s, Color(ink, 0.88 * a), a, dark)
+		var ka2 := a * _rv(y + 15.0 * s)
+		_icon_line(el, school, scol, cx, y + 9.0 * s, r.size.x - 12.0 * s, cap, s, Color(ink, 0.88 * ka2), ka2, dark)
 	y += 18.0 * s
 	var goal := int(info.get("aff_goal", 0))
 	if goal > 0 and school != "ink" and school != "fig":
@@ -847,17 +1104,18 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 			if really:
 				var bw2 := _ui.get_string_size(bonus, HORIZONTAL_ALIGNMENT_LEFT, -1, bf).x + 12.0 * s
 				var pl := Rect2(Vector2(cx - bw2 / 2.0, y), Vector2(bw2, 17.0 * s))
-				draw_style_box(UiKit.box(_sb, Color(GOLD_HI, a * (0.85 + 0.15 * pulse)), 999), pl)
-				UiKit.text(self, _ui, bonus, Vector2(cx, pl.get_center().y + float(bf) * 0.36), bf, Color(LEG_BODY, a))
+				var kb := a * _rv(pl.end.y)
+				draw_style_box(UiKit.box(_sb, Color(GOLD_HI, kb * (0.85 + 0.15 * pulse)), 999), pl)
+				UiKit.text(self, _ui, bonus, Vector2(cx, pl.get_center().y + float(bf) * 0.36), bf, Color(LEG_BODY, kb))
 			y += 20.0 * s
 		else:
 			var at := "Bonus d'élément : max" if bool(info.get("aff_done", false)) else "Bonus d'élément %d/%d" % [mini(int(info.get("aff_next", 0)), goal), goal]
 			if really:
-				_fit_center(at, cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(ink, 0.7 * a))
+				_fit_center(at, cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(ink, 0.7 * a * _rv(y + 15.0 * s)))
 			y += 17.0 * s
 	if bool(info.get("synergy_on", false)) or _has_link(i, "syn"):
 		if really:
-			_fit_center("+ Élément actif" if school == "fig" else "+ Synergie active", cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(GOLD_HI if dark or Toon.ui_dark else Color("#9A6B12"), a))
+			_fit_center("+ Élément actif" if school == "fig" else "+ Synergie active", cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(GOLD_HI if dark or Toon.ui_dark else Color("#9A6B12"), a * _rv(y + 15.0 * s)))
 		y += 17.0 * s
 	return y - r.position.y + 6.0 * s
 
@@ -978,13 +1236,13 @@ func _curse_lines(text: String, cx: float, y: float, width: float, fs: int, lh: 
 			var ls := _wrap(_ui, _lead(k, is_curse) + String(parts[k]).strip_edges(), fs, width)
 			for line in ls.slice(0, 2):
 				if really:
-					UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(c, a))
+					UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(c, a * _rv(yy + float(fs) * 0.3)))
 				yy += lh
 			yy += lh * 0.4
 	else:
 		for line in _wrap(_ui, t, fs, width).slice(0, 3):
 			if really:
-				UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(Toon.WASHI, (0.85 if is_curse else 0.7) * a))
+				UiKit.text(self, _ui, String(line), Vector2(cx, yy), fs, Color(Toon.WASHI, (0.85 if is_curse else 0.7) * a * _rv(yy + float(fs) * 0.3)))
 			yy += lh
 	return yy
 
