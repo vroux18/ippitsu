@@ -396,7 +396,7 @@ func end_stroke(_stroke_id: int) -> void:
 		main.float_text(at + Vector3(0, 0.8, 0), "%d / %d" % [lis, VERTS], SHIELD_C)
 		main.big_hit(at)
 		main.splash(at + Vector3(0, 0.6, 0), ICE, 30)
-		main.shake = maxf(float(main.shake), 0.6)
+		main.shake = maxf(float(main.shake), 1.23)
 		_flash = 0.3
 		_shield_dmg(shield_max)
 	else:
@@ -759,7 +759,7 @@ func _shield_break() -> void:
 	main.sfx.play("strike", 1.4, -3.0)
 	main.sfx.play("torii", 1.25, -6.0)
 	main.feel("heavy")
-	main.shake = maxf(float(main.shake), 0.5)
+	main.shake = maxf(float(main.shake), 0.86)
 	if _state == "down":
 		# déjà effondré : il reste au sol le temps de la fenêtre
 		_timer = maxf(_timer, vulnerable_t + 0.3)
@@ -898,7 +898,7 @@ func _impact() -> void:
 	_apply_pose()
 	_state = "down"
 	_timer = maxf(DOWN_TIME, vulnerable_t + 0.3)
-	main.shake = maxf(float(main.shake), 0.7)
+	main.shake = maxf(float(main.shake), 1.68)
 	_lit.clear()
 	for i in VERTS:
 		var lamp: Node3D = _vert_lamps[i]
@@ -959,7 +959,7 @@ func _update_state(delta: float) -> void:
 			var k := clampf(_timer / RISE_TIME, 0.0, 1.0)
 			_torso.position.y = lerpf(-7.5, -0.3, 1.0 - pow(1.0 - k, 3.0))
 			if k < 1.0:
-				main.shake = maxf(float(main.shake), 0.12)
+				main.shake = maxf(float(main.shake), 0.08)
 				_puff(delta, Toon.FOAM)
 			for h in _hands:
 				h["grow"] = clampf((_timer - RISE_TIME) / 0.7, 0.0, 1.0)
@@ -975,7 +975,7 @@ func _update_state(delta: float) -> void:
 				# la main s'abat (les dégâts viennent de la zone qui expire en même temps)
 				_state = "slam_down"
 				_timer = SLAM_STAY
-				main.shake = maxf(float(main.shake), 0.35)
+				main.shake = maxf(float(main.shake), 0.42)
 				main.splash(_slam_target + Vector3(0, 0.2, 0), Toon.FOAM, 16)
 		"slam_down":
 			_timer -= delta

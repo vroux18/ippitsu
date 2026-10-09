@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Tutoriel en jeu sans texte</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #2B4A6E; font-family: 'Zen Kaku Gothic New', sans-serif; color: #EFE6D2">
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<defs>
+<mask id="spot"><rect width="400" height="860" fill="white"></rect><ellipse cx="205" cy="470" rx="120" ry="190" fill="black"></ellipse></mask>
+</defs>
+<polygon points="10,860 390,860 300,0 100,0" fill="#E8CC97"></polygon>
+<g stroke="#CFAF77" stroke-width="2"><line x1="150" y1="0" x2="105" y2="860"></line><line x1="200" y1="0" x2="200" y2="860"></line><line x1="250" y1="0" x2="295" y2="860"></line><line x1="70" y1="560" x2="330" y2="560"></line></g>
+<polygon points="10,860 390,860 300,0 100,0" fill="none" stroke="#1B1A1E" stroke-width="3"></polygon>
+<circle cx="205" cy="330" r="15" fill="#3E7A57" stroke="#1B1A1E" stroke-width="2.5"></circle>
+<polygon points="195,318 191,304 201,315" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></polygon>
+<polygon points="215,318 219,304 209,315" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></polygon>
+<rect width="400" height="860" fill="#110E11" fill-opacity="0.62" mask="url(#spot)"></rect>
+<ellipse cx="205" cy="470" rx="120" ry="190" fill="none" stroke="#EFE6D2" stroke-opacity="0.5" stroke-width="1.5" stroke-dasharray="4 8"></ellipse>
+<path d="M205 590 C 200 520, 215 420, 205 345" fill="none" stroke="#1B1A1E" stroke-opacity="0.35" stroke-width="12" stroke-linecap="round"></path>
+<path d="M205 590 C 200 520, 215 420, 205 345" fill="none" stroke="#EFE6D2" stroke-width="5" stroke-linecap="round" stroke-dasharray="2 12"></path>
+<ellipse cx="205" cy="612" rx="26" ry="10" fill="none" stroke="#1B1A1E" stroke-width="4"></ellipse>
+<ellipse cx="205" cy="612" rx="26" ry="10" fill="none" stroke="#EFE6D2" stroke-width="1.5"></ellipse>
+<circle cx="205" cy="600" r="13" fill="#232838" stroke="#1B1A1E" stroke-width="2"></circle>
+<rect x="193" y="594" width="24" height="4" fill="#D7372B"></rect>
+<circle cx="207" cy="430" r="22" fill="#EFE6D2" fill-opacity="0.25"></circle>
+<circle cx="207" cy="430" r="13" fill="#EFE6D2" fill-opacity="0.5"></circle>
+<path d="M207 432 L207 452 Q207 458 213 458 L226 458 Q233 458 233 451 L233 438 Q233 433 228 433 Q224 433 224 437 L224 435 Q224 430 219 430 Q215 430 215 434 L215 412 Q215 406 211 406 Q207 406 207 412 Z" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="2" transform="translate(-4 4)"></path>
+</svg>
+
+<div style="position: absolute; left: 50%; top: 40px; transform: translateX(-50%); display: flex; gap: 8px" aria-label="Étape 1 sur 3">
+<span style="width: 22px; height: 6px; border-radius: 3px; background: #E2A93B"></span>
+<span style="width: 6px; height: 6px; border-radius: 3px; background: rgba(239,230,210,0.5)"></span>
+<span style="width: 6px; height: 6px; border-radius: 3px; background: rgba(239,230,210,0.5)"></span>
+</div>
+
+<button aria-label="Passer le tutoriel" style="position: absolute; right: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: rgba(27,26,30,0.92); border: 1.5px solid rgba(239,230,210,0.55); display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer">
+<svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 8 L14 16 L6 24 M15 8 L23 16 L15 24 M26 8 V24" fill="none" stroke="#EFE6D2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</button>
+
+<div style="position: absolute; left: 30px; top: 96px; width: 340px; height: 76px">
+<svg width="340" height="76" viewBox="0 0 340 76" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<path d="M8 12 C 80 3, 240 4, 334 9 L 328 38 L 336 64 C 230 74, 100 74, 4 68 L 12 40 Z" fill="#1B1A1E" fill-opacity="0.94"></path>
+<path d="M40 68 C 130 74, 230 72, 300 66" fill="none" stroke="#D7372B" stroke-width="2.5" stroke-linecap="round"></path>
+</svg>
+<div style="position: absolute; inset: 0; display: flex; align-items: center; gap: 14px; padding: 0 22px">
+<span style="flex: none; width: 40px; height: 40px; border-radius: 5px; background: #D7372B; color: #EFE6D2; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 22px; transform: rotate(-5deg)"><svg width="23.1" height="23.1" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M6 22 L20 6 M10 26 L25 9 M16 28 L27 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 17px; letter-spacing: 3px">TRACE UN TRAIT</span>
+<span style="font-size: 12.5px; font-weight: 700; opacity: 0.85">Le ronin suit ton doigt et tranche.</span>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

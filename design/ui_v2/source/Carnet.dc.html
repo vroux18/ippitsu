@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Carnet des figures</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+.draw{stroke-dasharray:100;stroke-dashoffset:100;animation:draw 2.4s ease-in-out infinite}
+@keyframes draw{0%{stroke-dashoffset:100}60%,100%{stroke-dashoffset:0}}
+.bar{width:0;animation:bar 4s linear infinite}
+@keyframes bar{to{width:100%}}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #EFE6D2; font-family: 'Zen Kaku Gothic New', sans-serif; color: #1B1A1E">
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<defs><pattern id="ki" width="24" height="28" patternUnits="userSpaceOnUse"><polygon points="12,1 23,7.5 23,20.5 12,27 1,20.5 1,7.5" fill="none" stroke="#3A3846" stroke-width="0.9" stroke-opacity="0.12"></polygon></pattern></defs>
+<rect width="400" height="860" fill="url(#ki)"></rect>
+</svg>
+<a href="Dojo.dc.html" aria-label="Retour" style="position: absolute; left: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: #1B1A1E; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M20 6 L10 16 L20 26" fill="none" stroke="#EFE6D2" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</a>
+<div style="position: absolute; left: 0; right: 0; top: 38px; display: flex; flex-direction: column; align-items: center">
+<div style="display: flex; align-items: center; gap: 8px"><h1 class="sh" style="margin: 0; font-size: 22px; letter-spacing: 5px">CARNET</h1></div>
+<svg width="120" height="8" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 98px; height: 40px; border-radius: 10px; background: #A8436B; color: #EFE6D2; display: flex; align-items: center; justify-content: center; gap: 8px">
+<span class="sh" style="width: 24px; height: 24px; border-radius: 4px; background: #EFE6D2; color: #A8436B; display: flex; align-items: center; justify-content: center; font-size: 14px"><svg width="14.7" height="14.7" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<span style="font-weight: 700; font-size: 12px; letter-spacing: 1px">Toutes les techniques prêtées au Dojo</span>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 152px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{figs}}" as="f" hint-placeholder-count="6">
+<button style="{{f.box}}" onClick="{{f.open}}" aria-label="Voir {{f.n}} en jeu"><span style="position: absolute; right: 10px; top: 10px; width: 24px; height: 24px; border-radius: 12px; background: #1B1A1E; display: flex; align-items: center; justify-content: center"><svg width="10" height="10" viewBox="0 0 32 32" aria-hidden="true"><path d="M9 5 L27 16 L9 27 Z" fill="#F5EEDD"></path></svg></span>
+<div style="flex: 1; width: 100%; display: flex; align-items: center; justify-content: center"><svg width="96" height="84" viewBox="{{f.vb}}" aria-hidden="true"><path d="{{f.d}}" fill="none" stroke="#1B1A1E" stroke-opacity="0.15" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></path><path d="{{f.d}}" fill="none" stroke="{{f.c}}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="{{f.dash}}"></path><circle cx="{{f.sx}}" cy="{{f.sy}}" r="1.8" fill="#1B1A1E"></circle></svg></div>
+<div style="width: 100%; display: flex; align-items: center; justify-content: space-between">
+<b class="sh" style="font-size: 15px">{{f.n}}</b>
+<span style="display: flex; align-items: center; gap: 6px">
+<span style="width: 26px; height: 26px; border-radius: 13px; background: #A8436B; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="{{f.t}}" fill="none" stroke="#EFE6D2" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span>
+<b class="sh" style="font-size: 14px; color: #5A5148">{{f.cnt}}</b>
+</span>
+</div>
+</button>
+</sc-for>
+</div>
+<sc-if value="{{isOpen}}" hint-placeholder-val="{{false}}">
+<div style="position: absolute; inset: 0; background: rgba(17,14,17,0.88)"></div>
+<div style="position: absolute; left: 18px; right: 18px; top: 84px; bottom: 60px; border-radius: 18px; background: #EFE6D2; overflow: hidden; display: flex; flex-direction: column">
+<div style="position: relative; height: 380px; background: #1B1A1E; overflow: hidden">
+<svg width="364" height="380" viewBox="0 0 364 380" style="position: absolute; left: 0; top: 0" aria-hidden="true"><polygon points="40,380 324,380 270,0 94,0" fill="#E8CC97"></polygon><g stroke="#CFAF77" stroke-width="2"><line x1="182" y1="0" x2="182" y2="380"></line><line x1="138" y1="0" x2="110" y2="380"></line><line x1="226" y1="0" x2="254" y2="380"></line></g><circle cx="182" cy="120" r="14" fill="#3E7A57" stroke="#1B1A1E" stroke-width="2.5"></circle><circle cx="230" cy="170" r="14" fill="#B9452F" stroke="#1B1A1E" stroke-width="2.5"></circle></svg>
+<svg width="220" height="220" viewBox="{{oVb}}" style="position: absolute; left: 72px; top: 90px" aria-hidden="true"><path d="{{oD}}" pathLength="100" fill="none" stroke="#1B1A1E" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round" class="draw"></path><path d="{{oD}}" pathLength="100" fill="none" stroke="{{oCol}}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="draw"></path></svg>
+<span style="position: absolute; left: 12px; top: 12px; height: 24px; padding: 0 10px; border-radius: 12px; background: #D7372B; color: #F5EEDD; display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; letter-spacing: 2px"><span style="width: 7px; height: 7px; border-radius: 4px; background: #F5EEDD"></span>CLIP</span>
+<span style="position: absolute; right: 12px; bottom: 12px; font-size: 10px; color: rgba(245,238,221,0.7); font-weight: 700">[capture vidéo du jeu, 4 s en boucle]</span>
+<div style="position: absolute; left: 12px; right: 12px; bottom: 34px; height: 3px; border-radius: 2px; background: rgba(245,238,221,0.25)"><div class="bar" style="height: 3px; border-radius: 2px; background: #D7372B"></div></div>
+</div>
+<div style="padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px"><b class="sh" style="font-size: 22px">{{oName}}</b><span style="margin-left: auto; display: flex; align-items: center; gap: 6px"><span style="width: 30px; height: 30px; border-radius: 15px; background: #A8436B; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="{{oT}}" fill="none" stroke="#EFE6D2" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><b class="sh" style="font-size: 15px">{{oTech}}</b></span></div>
+<div style="display: flex; gap: 10px"><span style="flex: 1; height: 44px; border-radius: 10px; background: #E4D9C2; display: flex; align-items: center; justify-content: center; gap: 6px"><b style="font-weight: 900; font-size: 18px">{{oCnt}}</b><span style="font-size: 10px; font-weight: 700; letter-spacing: 1px; color: #7A6F60">RÉUSSIES</span></span>
+<button style="flex: 1; height: 44px; border-radius: 10px; background: #1B1A1E; color: #F5EEDD; border: none; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 26 L22 10 M18 6 L26 14" fill="none" stroke="#D7372B" stroke-width="3.4" stroke-linecap="round"></path></svg><span class="sh" style="font-size: 12px; letter-spacing: 2px">S'EXERCER</span></button></div>
+</div>
+</div>
+<button onClick="{{close}}" aria-label="Fermer" style="position: absolute; right: 26px; top: 92px; width: 36px; height: 36px; border-radius: 18px; background: #F5EEDD; border: 2px solid #1B1A1E; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0"><svg width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><path d="M8 8 L24 24 M24 8 L8 24" fill="none" stroke="#1B1A1E" stroke-width="4" stroke-linecap="round"></path></svg></button>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const F = [
+      ['Boucle', '#3E9C8C', 'M5 26 C 5 12, 24 6, 22 17 C 20 27, 7 20, 15 12 C 21 7, 27 12, 28 5', 'M16 6 A10 10 0 1 1 6 16 M6 16 L3 11 M6 16 L11 14', 12, 5, 26],
+      ['Zigzag', '#D9A93A', 'M4 24 L11 8 L17 24 L23 8 L28 22', 'M18 3 L8 18 L15 18 L12 29 L24 12 L17 12 Z', 7, 4, 24, true],
+      ['Trait droit', '#C8463A', 'M5 27 L27 5', 'M4 28 L24 8 M21 5 L27 11 M7 21 L11 25', 31, 5, 27],
+      ['Aller-retour', '#3D7EC4', 'M5 12 L27 12 M23 8 L27 12 L23 16 M27 20 L5 20 M9 16 L5 20 L9 24', 'M16 4 L26 8 C26 18 22 24 16 28 C10 24 6 18 6 8 Z', 4, 5, 12],
+      ['Enso', '#C2668F', 'M24 7 A11 11 0 1 0 27 14', 'M13 16 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0 M8 16 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0', 2, 24, 7],
+      ['Crochet', '#8A5BB0', 'M5 8 L23 8 Q27 8 26 12 L19 27', 'M4 16 L26 16 M20 10 L27 16 L20 22 M4 11 L4 21', 0, 5, 8]
+    ];
+    const VB = { 'Boucle': '3 3 27 26', 'Zigzag': '2 4 28 24', 'Trait droit': '3 3 26 26', 'Aller-retour': '3 4 26 24', 'Enso': '3 3 26 26', 'Crochet': '1 5 30 25' };
+    const TN = { 'Boucle': 'Toupie', 'Zigzag': 'Éclair', 'Trait droit': 'Iaï', 'Aller-retour': 'Garde', 'Enso': 'Onde de choc', 'Crochet': 'Estoc' };
+    const open = this.state.open;
+    const figs = F.map((f, i) => ({
+      vb: VB[f[0]], open: () => this.setState({ open: i }),
+      n: f[0], c: f[1], d: f[2], t: f[3], cnt: f[4], sx: f[5], sy: f[6], dash: f[4] === 0 ? '2 3' : 'none',
+      box: 'position: relative; height: 172px; border-radius: 14px; background: #F5EEDD; padding: 10px 12px; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: space-between; cursor: pointer; color: #1B1A1E; ' + (f[7] ? 'border: 3px solid #D9A93A; box-shadow: 0 0 0 3px #1B1A1E' : 'border: 1.5px solid #CFC4AE') + (f[4] === 0 ? '; opacity: 0.75' : '')
+    }));
+    const o = open == null ? null : F[open];
+    return { figs, isOpen: open != null, close: () => this.setState({ open: null }),
+      oName: o ? o[0] : '', oCol: o ? o[1] : '#1B1A1E', oD: o ? o[2] : '', oT: o ? o[3] : '', oTech: o ? TN[o[0]] : '', oVb: o ? VB[o[0]] : '0 0 32 32', oCnt: o ? o[4] : 0 };
+  }
+}
+</script>
+</body>
+</html>

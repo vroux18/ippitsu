@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Mes pouvoirs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #EFE6D2; font-family: 'Zen Kaku Gothic New', sans-serif; color: #1B1A1E">
+
+<a href="Pause.dc.html" aria-label="Retour" style="position: absolute; left: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: #1B1A1E; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M20 6 L10 16 L20 26" fill="none" stroke="#EFE6D2" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</a>
+<div style="position: absolute; left: 0; right: 0; top: 38px; display: flex; flex-direction: column; align-items: center">
+<div style="display: flex; align-items: center; gap: 8px"><h1 class="sh" style="margin: 0; font-size: 22px; letter-spacing: 5px">POUVOIRS</h1></div>
+<svg width="150" height="8" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 110px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{powers}}" as="p" hint-placeholder-count="5">
+<div style="{{p.box}}">
+<svg width="58" height="58" viewBox="0 0 60 60" aria-hidden="true"><circle cx="30" cy="30" r="27" fill="#F5EEDD" stroke="{{p.c}}" stroke-width="4"></circle><path d="{{p.d}}" fill="{{p.f}}" stroke="#1B1A1E" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<b class="sh" style="font-size: 13.5px">{{p.name}}</b>
+<div style="display: flex; align-items: center; gap: 6px">
+<span style="{{p.seal}}"><svg width="11" height="11" viewBox="0 0 32 32" aria-hidden="true"><path d="{{p.kd}}" fill="{{p.kf}}" stroke="{{p.ks}}" fill-rule="{{p.kr}}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path></svg>{{p.elab}}</span>
+<span style="display: flex; gap: 2px"><span style="{{p.c1}}"></span><span style="{{p.c2}}"></span><span style="{{p.c3}}"></span></span>
+</div>
+</div>
+</sc-for>
+</div>
+
+<div style="position: absolute; left: 28px; right: 28px; top: 362px">
+<svg width="20" height="10" viewBox="0 0 20 10" style="position: absolute; left: 162px; top: -9px" aria-hidden="true"><path d="M0 10 L10 0 L20 10 Z" fill="#1B1A1E"></path></svg>
+<div style="box-sizing: border-box; padding: 12px 16px; border-radius: 12px; background: #1B1A1E; color: #EFE6D2; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px"><span class="sh" style="font-size: 12px; color: #E2A93B; letter-spacing: 2px">NIDAN-ZUKI</span>
+<span style="margin-left: auto; display: flex; gap: 6px; align-items: center"><svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 8 L23 8 Q27 8 26 12 L19 27" fill="none" stroke="#8A5BB0" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg><svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 16 L26 16 M20 10 L27 16 L20 22 M4 11 L4 21" fill="none" stroke="#EFE6D2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></span></div>
+<div style="font-size: 13.5px; font-weight: 700">Ton estoc transperce aussi les ennemis voisins de ta cible.</div>
+<div style="display: flex; gap: 8px">
+<span style="height: 30px; padding: 0 10px; border-radius: 8px; background: #26302A; display: flex; align-items: center; gap: 6px"><svg width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16 a10 10 0 1 0 20 0 a10 10 0 1 0 -20 0 M11 16 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0" fill="none" stroke="#EFE6D2" stroke-width="2.6"></path></svg><b class="sh" style="font-size: 15px; color: #8FD6A8">+1</b><span style="font-size: 10px; font-weight: 700">transpercé</span></span>
+</div>
+</div>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 580px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px"><span class="sh" style="font-size: 13px; letter-spacing: 4px">HARMONIES</span><div style="flex: 1; height: 1.5px; background: #1B1A1E; opacity: 0.25"></div></div>
+<div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px">
+<sc-for list="{{harm}}" as="h" hint-placeholder-count="6">
+<div style="{{h.tile}}">
+<sc-if value="{{h.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -5px; top: -7px; width: 20px; height: 20px; border-radius: 4px; background: #E2A93B; color: #1B1A1E; border: 1.5px solid #1B1A1E; box-sizing: border-box; display: flex; align-items: center; justify-content: center; transform: rotate(8deg)"><span style="width: 6px; height: 6px; background: currentColor; transform: rotate(45deg)"></span></span></sc-if>
+<svg width="48" height="48" viewBox="0 0 38 38" role="img" aria-label="{{h.lab}}">
+<path d="M20.39 3.06 A16 16 0 0 1 34.94 17.61" fill="none" stroke="{{h.s0}}" stroke-width="2.6" stroke-linecap="round"></path>
+<path d="M34.94 20.39 A16 16 0 0 1 20.39 34.94" fill="none" stroke="{{h.s1}}" stroke-width="2.6" stroke-linecap="round"></path>
+<path d="M17.61 34.94 A16 16 0 0 1 3.06 20.39" fill="none" stroke="{{h.s2}}" stroke-width="2.6" stroke-linecap="round"></path>
+<path d="M3.06 17.61 A16 16 0 0 1 17.61 3.06" fill="none" stroke="{{h.s3}}" stroke-width="2.6" stroke-linecap="round"></path>
+<path d="M19 32.6 L21.6 35.2 L19 37.8 L16.4 35.2 Z" fill="#E2A93B" stroke="#1B1A1E" stroke-width="0.8"></path>
+<g transform="translate(12 12) scale(0.4375)" color="{{h.tc}}" opacity="{{h.op}}"><path d="{{h.kd}}" fill="{{h.kf}}" stroke="{{h.ks}}" fill-rule="{{h.kr}}" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"></path></g>
+</svg>
+<div style="display: flex; gap: 8px; align-items: center"><span style="{{h.p2}}"></span><span style="{{h.p4}}"></span></div>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const ICO = {"火": ["M16 3 C20 10 26 13 25 21 A9 9 0 0 1 7 21 C7 15 12 13 12 8 C14 11 15 12 16 3 Z", "F"], "水": ["M16 3 C21 11 25.5 15.5 25.5 20 A9.5 9.5 0 0 1 6.5 20 C6.5 15.5 11 11 16 3 Z", "F"], "雷": ["M18.5 2 L7.5 18 H15 L12 30 L24.5 13 H17 Z", "F"], "風": ["M4 12 H19 C25 12 26 5 21.5 5 C18.5 5 17.5 8.5 20 10 M4 19 H23 C29 19 29 27 24 27 C21 27 20.5 23.5 23 22.5", "S"], "影": ["M19 3 A13 13 0 1 0 29 21 A10.5 10.5 0 1 1 19 3 Z", "F"], "無": ["M23 6.5 A11 11 0 1 0 27 13.5", "S"], "法": ["M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5", "S"], "波": ["M3 12 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 M3 21 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0", "S"], "竹": ["M10 30 V3 M7.5 12 H12.5 M7.5 21 H12.5 M20 30 V9 M17.5 16 H22.5 M17.5 24 H22.5 M20 12 C 22 7, 26 5, 30 5 C 28 9, 24 11, 20 12", "S"], "梅": ["M11.00 9.00 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M17.66 13.84 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M15.11 21.66 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M6.89 21.66 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M4.34 13.84 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0", "F"], "松": ["M16 3 L25 14 H20 L27 23 H18.5 V29 H13.5 V23 H5 L12 14 H7 Z", "F"], "雪": ["M16 3 V29 M4.7 9.5 L27.3 22.5 M4.7 22.5 L27.3 9.5 M12.5 5 L16 8.5 L19.5 5 M12.5 27 L16 23.5 L19.5 27", "S"], "鬼": ["M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z", "E"], "妖": ["M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z", "E"], "王": ["M4 23 L6 8 L12 15 L16 5 L20 15 L26 8 L28 23 Z M5 25 H27 V28.5 H5 Z", "F"], "筆": ["M21 3 L29 11 L16 24 L8 16 Z M7 17.5 L14.5 25 C12 29.5 6 30.5 2 30 C2.5 26 3 20.5 7 17.5 Z", "F"], "道": ["M3 7 C11 9.5 21 9.5 29 7 M6 13.5 H26 M9.5 9 V29 M22.5 9 V29", "S"], "新": ["M16 2 L19.5 12.5 L30 16 L19.5 19.5 L16 30 L12.5 19.5 L2 16 L12.5 12.5 Z", "F"], "斬": ["M6 22 L20 6 M10 26 L25 9 M16 28 L27 16", "S"], "巻": ["M9 5 H23 V27 H9 Z M5 5 H12 M20 27 H27 M13 11 H19 M13 16 H19 M13 21 H17", "S"], "形": ["M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5", "S"], "鎖": ["M6 20 a5 5 0 0 1 0 -7 l3 -3 a5 5 0 0 1 7 7 M26 12 a5 5 0 0 1 0 7 l-3 3 a5 5 0 0 1 -7 -7 M12.5 19.5 L19.5 12.5", "S"], "金": ["M4 16 a12 12 0 1 0 24 0 a12 12 0 1 0 -24 0 M12 12 H20 V20 H12 Z", "S"], "開": ["M8 15 H24 V28 H8 Z M12 15 V10 A4 4 0 0 1 20 9 M16 20 V23", "S"]};
+    const ico = (k) => { const x = ICO[k] || ["", "F"]; return { kd: x[0], kf: x[1] === "S" ? "none" : "currentColor", ks: x[1] === "S" ? "currentColor" : "none", kr: x[1] === "E" ? "evenodd" : "nonzero" }; };
+    const EL = { figure: ['#A8436B', '法'], eau: ['#1F3A5F', '水'], feu: ['#D7372B', '火'], foudre: ['#C49A45', '雷'], vent: ['#5F8F86', '風'], ombre: ['#3A3846', '影'], neutre: ['#6E5A44', '無'] };
+    const RB = { commun: '#8C8273', rare: '#2F5D8A' };
+    const raw = [
+      ['Estoc', 'figure', 2, 'commun', 'none', 'M13 30 H45 M38 23 L46 30 L38 37 M13 25 V35', false],
+      ['Double estoc', 'figure', 1, 'commun', 'none', 'M13 24 H43 M36 18 L44 24 L36 30 M13 36 H43 M36 30 L44 36 L36 42', true],
+      ['Marée', 'eau', 1, 'rare', 'none', 'M18 32 a12 12 0 0 1 24 0 M11 32 a19 19 0 0 1 38 0 M25 32 a5 5 0 0 1 10 0 M18 40 a12 12 0 0 0 24 0', false],
+      ['Braise', 'feu', 1, 'commun', 'none', 'M15 45 L38 22 M34 18 L42 26', false],
+      ['Arc', 'foudre', 1, 'commun', 'none', 'M15 44 L26 30 L34 37 L45 17', false]
+    ];
+    const cr = (on) => 'width: 11px; height: 5px; border-radius: 2.5px; box-sizing: border-box; ' + (on ? 'background: #C49A45' : 'border: 1.5px solid #CFC4AE');
+    const powers = raw.map((r) => {
+      const e = EL[r[1]];
+      const sel = r[6];
+      return {
+        name: r[0], c: e[0], k: e[1], ...ico(e[1]), d: r[5], f: r[4],
+        box: 'height: 112px; border-radius: 12px; background: #F5EEDD; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; box-sizing: border-box; border: ' + (r[3] === 'rare' ? '3px' : '2px') + ' solid ' + RB[r[3]] + (sel ? '; box-shadow: 0 0 0 3px #1B1A1E; transform: translateY(-4px)' : ''),
+        seal: 'height: 18px; box-sizing: border-box; padding: 0 7px 0 5px; border-radius: 9px; display: flex; align-items: center; gap: 3px; font-weight: 900; font-size: 8px; letter-spacing: 1px; line-height: 1; color: #EFE6D2; background: ' + e[0], elab: { figure: 'FIGURE', eau: 'EAU', feu: 'FEU', foudre: 'FOUDRE', vent: 'VENT', ombre: 'OMBRE', neutre: 'NEUTRE' }[r[1]],
+        c1: cr(r[2] >= 1), c2: cr(r[2] >= 2), c3: r[0] === 'Double estoc' ? 'display: none' : cr(r[2] >= 3)
+      };
+    });
+    const counts = { figure: 2, eau: 1, feu: 1, foudre: 1, vent: 0, ombre: 0 };
+    const harm = Object.keys(counts).map((k) => {
+      const n = counts[k], e = EL[k];
+      const s = [0, 1, 2, 3].map((i) => (i < n ? e[0] : '#CFC4AE'));
+      const dia = (lit) => 'width: 8px; height: 8px; transform: rotate(45deg); box-sizing: border-box; ' + (lit ? 'background: #E2A93B; box-shadow: 0 0 0 1.5px #1B1A1E' : 'border: 1.5px solid #CFC4AE');
+      return { ...ico(e[1]), k: e[1], c: e[0], tc: n >= 2 ? '#EFE6D2' : e[0], op: n ? 1 : 0.35, on: n >= 2, lab: k + ' ' + n + ' sur 4', s0: s[0], s1: s[1], s2: s[2], s3: s[3], p2: dia(n >= 2), p4: dia(n >= 4),
+        tile: 'position: relative; height: 82px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; box-sizing: border-box; ' + (n >= 2 ? 'background: #1B1A1E; border: 2px solid #E2A93B' : (n ? 'background: #F5EEDD; border: 1.5px solid #CFC4AE' : 'background: transparent; border: 1.5px dashed #CFC4AE')) };
+    });
+    return { powers, harm };
+  }
+}
+</script>
+</body>
+</html>

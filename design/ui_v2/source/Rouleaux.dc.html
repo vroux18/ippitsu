@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Choix des rouleaux</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#EFE6D2}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #2B4A6E; font-family: 'Zen Kaku Gothic New', sans-serif; color: #EFE6D2">
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<polygon points="10,860 390,860 300,0 100,0" fill="#E8CC97"></polygon>
+<g stroke="#CFAF77" stroke-width="2"><line x1="150" y1="0" x2="105" y2="860"></line><line x1="200" y1="0" x2="200" y2="860"></line><line x1="250" y1="0" x2="295" y2="860"></line></g>
+<circle cx="150" cy="262" r="15" fill="#3E7A57"></circle><circle cx="215" cy="592" r="13" fill="#232838"></circle>
+<rect width="400" height="860" fill="#110E11" fill-opacity="0.86"></rect>
+</svg>
+
+<div style="position: absolute; left: 0; right: 0; top: 52px; display: flex; flex-direction: column; align-items: center; gap: 2px">
+<div style="display: flex; align-items: center; gap: 10px">
+<h1 class="sh" style="margin: 0; font-size: 26px; letter-spacing: 6px">UN ROULEAU</h1>
+
+</div>
+<svg width="200" height="10" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+
+<div style="position: absolute; left: 0; right: 0; top: 122px; display: flex; justify-content: center; align-items: center; gap: 10px" aria-label="Tes pouvoirs">
+<div style="height: 1px; width: 60px; background: rgba(239,230,210,0.3)"></div>
+<svg width="38" height="38" viewBox="0 0 60 60" role="img" aria-label="Estoc niveau 2"><circle cx="30" cy="30" r="27" fill="#F5EEDD" stroke="#A8436B" stroke-width="4"></circle><path d="M13 30 H45 M38 23 L46 30 L38 37 M13 25 V35" fill="none" stroke="#1B1A1E" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<div style="position: relative; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center">
+<div style="position: absolute; inset: 0; border-radius: 23px; border: 2px dashed #E2A93B"></div>
+<svg width="38" height="38" viewBox="0 0 60 60" role="img" aria-label="Pouvoir Eau, lié"><circle cx="30" cy="30" r="27" fill="#F5EEDD" stroke="#1F3A5F" stroke-width="4"></circle><path d="M14 36 q8 -9 16 0 q8 -9 16 0 M14 26 q8 -9 16 0 q8 -9 16 0" fill="none" stroke="#1B1A1E" stroke-width="4" stroke-linecap="round"></path></svg>
+</div>
+<div style="height: 1px; width: 60px; background: rgba(239,230,210,0.3)"></div>
+</div>
+
+<div style="position: absolute; left: 18px; top: 236px; display: flex; gap: 8px; align-items: flex-start">
+<dc-import name="RouleauCard" item="{{c1}}" hint-size="116px,250px"></dc-import>
+<dc-import name="RouleauCard" item="{{c2}}" hint-size="116px,250px"></dc-import>
+<dc-import name="RouleauCard" item="{{c3}}" hint-size="116px,250px"></dc-import>
+</div>
+
+<div style="position: absolute; left: 40px; top: 508px; width: 320px">
+<svg width="20" height="10" viewBox="0 0 20 10" style="position: absolute; left: 150px; top: -9px" aria-hidden="true"><path d="M0 10 L10 0 L20 10 Z" fill="#1B1A1E" stroke="#EFE6D2" stroke-width="1.5"></path></svg>
+<div style="box-sizing: border-box; padding: 12px 16px; background: #1B1A1E; border: 1.5px solid rgba(239,230,210,0.6); border-radius: 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center; gap: 8px">
+<span class="sh" style="font-size: 12px; color: #E2A93B; letter-spacing: 2px">USHIO</span>
+<span style="margin-left: auto; display: flex; align-items: center; gap: 4px"><svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 24 C 6 12, 22 10, 21 19 C 20 26, 10 22, 15 15" fill="none" stroke="#C2668F" stroke-width="3" stroke-linecap="round"></path></svg><svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 16 a11 11 0 1 0 22 0 a11 11 0 1 0 -22 0 M16 16 L27 16 M23 12 L27 16 L23 20" fill="none" stroke="#EFE6D2" stroke-width="2.4" stroke-linecap="round"></path></svg></span>
+</div>
+<div style="font-size: 13.5px; font-weight: 700; line-height: 1.35">Chaque figure lâche une vague qui repousse tout autour.</div>
+<div style="display: flex; align-items: center; gap: 8px; padding-top: 6px; border-top: 1px solid rgba(239,230,210,0.2)">
+<svg width="26" height="26" viewBox="0 0 38 38" aria-hidden="true"><path d="M20.39 3.06 A16 16 0 0 1 34.94 17.61" fill="none" stroke="#5B8BC9" stroke-width="4"></path><path d="M34.94 20.39 A16 16 0 0 1 20.39 34.94" fill="none" stroke="#E2A93B" stroke-width="4"></path><path d="M17.61 34.94 A16 16 0 0 1 3.06 20.39" fill="none" stroke="#5A5768" stroke-width="3"></path><path d="M3.06 17.61 A16 16 0 0 1 17.61 3.06" fill="none" stroke="#5A5768" stroke-width="3"></path><path transform="translate(12.5 12.5) scale(0.406)" d="M16 3 C21 11 25.5 15.5 25.5 20 A9.5 9.5 0 0 1 6.5 20 C6.5 15.5 11 11 16 3 Z" fill="#5B8BC9"></path></svg>
+<svg width="14" height="14" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16 H24 M18 10 L25 16 L18 22" fill="none" stroke="#E2A93B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span style="height: 22px; box-sizing: border-box; padding: 0 9px 0 7px; border-radius: 11px; background: #E2A93B; color: #1B1A1E; display: flex; align-items: center; gap: 5px; font-weight: 900; font-size: 9px; letter-spacing: 1.5px; line-height: 1" aria-label="Harmonie Eau débloquée"><span style="width: 7px; height: 7px; background: #1B1A1E; transform: rotate(45deg)"></span>HARMONIE</span>
+</div>
+</div>
+</div>
+
+<div style="position: absolute; left: 0; right: 0; top: 700px; display: flex; justify-content: center; align-items: center; gap: 18px">
+<button aria-label="Relancer, 2 restantes" style="position: relative; width: 54px; height: 54px; border-radius: 27px; background: #EFE6D2; border: 2px solid #1B1A1E; display: flex; align-items: center; justify-content: center; padding: 0; cursor: pointer">
+<svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M25 12 A10 10 0 1 0 26 18 M25 5 V12 H18" fill="none" stroke="#1B1A1E" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span class="sh" style="position: absolute; right: -6px; top: -6px; width: 22px; height: 22px; border-radius: 11px; background: #D7372B; color: #EFE6D2; border: 1.5px solid #1B1A1E; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 12px">2</span>
+</button>
+<button style="position: relative; width: 210px; height: 64px; background: none; border: none; padding: 0; cursor: pointer; color: #1B1A1E">
+<svg width="210" height="64" viewBox="0 0 210 64" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<path d="M8 14 C 60 4, 150 6, 204 10 L 198 30 L 206 50 C 140 62, 60 62, 4 54 L 12 34 Z" fill="#EFE6D2"></path>
+<path d="M30 56 C 90 62, 150 60, 186 54" fill="none" stroke="#D7372B" stroke-width="3" stroke-linecap="round"></path>
+</svg>
+<span class="sh" style="position: relative; font-size: 20px; letter-spacing: 6px">CHOISIR</span>
+</button>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      c1: { name: 'Arc', el: 'foudre', rarity: 'commun', glyph: 'arc', trig: 'figure', lvlFrom: 0, hOwned: 0, effects: [{ ico: 'cibles', val: '+1', lab: 'cible' }, { ico: 'degats', val: '50 %', lab: 'dégâts' }] },
+      c2: { name: 'Marée', el: 'eau', rarity: 'rare', glyph: 'maree', trig: 'figure', lvlFrom: 0, hOwned: 1, selected: true, effects: [{ ico: 'vague', val: '80 %', lab: 'vague' }] },
+      c3: { name: 'Braise', el: 'feu', rarity: 'commun', glyph: 'braise', trig: 'figure', lvlFrom: 0, hOwned: 0, effects: [{ ico: 'brulure', val: '50 %/s', lab: 'brûlure' }, { ico: 'duree', val: '3 s', lab: 'durée' }] }
+    };
+  }
+}
+</script>
+</body>
+</html>

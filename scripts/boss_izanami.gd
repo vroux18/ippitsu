@@ -162,7 +162,7 @@ func end_stroke(stroke_id: int) -> void:
 	main.float_text(position + Vector3(0, 2.6, 0), "円", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.8, 0))
 	main.splash(position + Vector3(0, 2.2, 0), BOLT, 26)
-	main.shake = maxf(float(main.shake), 0.5)
+	main.shake = maxf(float(main.shake), 0.86)
 	_shield_dmg(shield_max)
 
 
@@ -195,7 +195,7 @@ func _zone_fire(z: Dictionary) -> void:
 			main.enemy_strike(Vector3(hero.position.x, 0, hero.position.z), 0.4)
 		for k in 5:
 			main.splash(c + d * (1.4 + 1.5 * float(k)) + Vector3(0, 0.4, 0), BOLT, 5)
-		main.shake = maxf(float(main.shake), 0.3)
+		main.shake = maxf(float(main.shake), 0.31)
 
 
 func _on_die() -> void:

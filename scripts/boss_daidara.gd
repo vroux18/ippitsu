@@ -714,7 +714,7 @@ func _shield_break() -> void:
 	main.sfx.play("strike", 1.3, -3.0)
 	main.sfx.play("torii", 1.25, -6.0)
 	main.feel("heavy")
-	main.shake = maxf(float(main.shake), 0.6)
+	main.shake = maxf(float(main.shake), 1.23)
 	_clear_cores()
 	_run = {}
 	_cancel_all()
@@ -851,7 +851,7 @@ func _resolve(z: Dictionary) -> void:
 	match String(z["kind"]):
 		"fist":
 			main.enemy_strike(c, 1.75)
-			main.shake = maxf(float(main.shake), 0.5)
+			main.shake = maxf(float(main.shake), 0.86)
 			main.splash(c + Vector3(0, 0.3, 0), ASH, 16)
 			main.splash(c + Vector3(0, 0.3, 0), LAVA, 8)
 			_scorch(c, 1.5)
@@ -866,7 +866,7 @@ func _resolve(z: Dictionary) -> void:
 				var p := c + dir * (1.2 + 1.3 * float(j)) + Vector3(0, 0.5, 0)
 				main.splash(p, EMBER, 5)
 				main.splash(p, LAVA, 3)
-			main.shake = maxf(float(main.shake), 0.35)
+			main.shake = maxf(float(main.shake), 0.42)
 			_flame(c, dir, float(z["r"]))
 	node.queue_free()
 
@@ -1060,7 +1060,7 @@ func _process(delta: float) -> void:
 			_timer -= delta
 			var k := clampf(1.0 - _timer / 2.4, 0.0, 1.0)
 			rig.position.y = lerpf(-6.5, 0.0, 1.0 - pow(1.0 - k, 3.0))
-			main.shake = maxf(float(main.shake), 0.15)
+			main.shake = maxf(float(main.shake), 0.08)
 			if fmod(_t, 0.3) < delta:
 				main.splash(position + Vector3(randf_range(-2.5, 2.5), 0.3, randf_range(0.5, 2.5)), LAVA, 6)
 			if _timer <= 0.0:

@@ -455,7 +455,7 @@ func _update_zone(dt: float) -> void:
 	_clear_zone()
 	main.vfx.ring(Vector3(_zone_c.x, 0.05, _zone_c.z), Toon.VERMILION, ZONE_R)
 	main.sfx.play("strike", 0.9, -2.0)
-	main.shake = maxf(float(main.shake), 0.3)
+	main.shake = maxf(float(main.shake), 0.31)
 	_zone_wait = ZONE_EVERY
 	if safe:
 		zones_ok += 1

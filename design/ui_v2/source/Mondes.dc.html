@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Carte des mondes</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #EFE6D2; font-family: 'Zen Kaku Gothic New', sans-serif; color: #1B1A1E">
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<defs><pattern id="sgm" width="32" height="16" patternUnits="userSpaceOnUse"><path d="M0 16 a16 16 0 0 1 32 0 M5 16 a11 11 0 0 1 22 0 M10 16 a6 6 0 0 1 12 0" fill="none" stroke="#1F3A5F" stroke-width="1.2" stroke-opacity="0.13"></path></pattern></defs>
+<rect width="400" height="860" fill="url(#sgm)"></rect>
+</svg>
+
+<a href="Accueil.dc.html" aria-label="Accueil" style="position: absolute; left: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: #1B1A1E; display: flex; align-items: center; justify-content: center">
+<svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 15 L16 5 L27 15 M8 13 V27 H24 V13 M14 27 V20 H18 V27" fill="none" stroke="#EFE6D2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</a>
+<div style="position: absolute; left: 0; right: 0; top: 38px; display: flex; flex-direction: column; align-items: center">
+<div style="display: flex; align-items: center; gap: 8px"><h1 class="sh" style="margin: 0; font-size: 22px; letter-spacing: 5px">MONDES</h1></div>
+<svg width="140" height="8" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+
+<div style="position: absolute; left: -250px; top: 120px; width: 280px; height: 560px; border-radius: 16px; background: #2B4A6E; border: 2px solid #1B1A1E; opacity: 0.7"></div>
+<div style="position: absolute; left: 370px; top: 120px; width: 280px; height: 560px; border-radius: 16px; background: #B9B3A6; border: 2px solid #1B1A1E; opacity: 0.8; display: flex; align-items: center; padding-left: 4px; box-sizing: border-box">
+<svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M8 15 H24 V27 H8 Z M12 15 V10 A4 4 0 0 1 20 10 V15" fill="none" stroke="#1B1A1E" stroke-width="2.6"></path></svg>
+</div>
+
+<div style="position: absolute; left: 50px; top: 104px; width: 300px; height: 590px; border-radius: 18px; overflow: hidden; background: #F5EEDD; border: 2.5px solid #1B1A1E; box-shadow: 0 4px 10px rgba(0,0,0,0.3)">
+<svg width="300" height="330" viewBox="0 0 300 330" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<rect width="300" height="330" fill="#1E2740"></rect>
+<circle cx="214" cy="84" r="34" fill="#EFE6D2"></circle>
+<g fill="#EFE6D2" fill-opacity="0.7"><circle cx="40" cy="40" r="1.6"></circle><circle cx="90" cy="70" r="1.2"></circle><circle cx="140" cy="30" r="1.6"></circle><circle cx="260" cy="150" r="1.2"></circle><circle cx="60" cy="120" r="1.2"></circle></g>
+<path d="M0 60 C 80 90, 200 40, 300 80" fill="none" stroke="#C4D3F0" stroke-opacity="0.35" stroke-width="10"></path>
+<g fill="#2F5A3A"><rect x="18" y="80" width="9" height="250"></rect><rect x="44" y="120" width="7" height="210"></rect><rect x="250" y="100" width="9" height="230"></rect><rect x="274" y="60" width="8" height="270"></rect></g>
+<g stroke="#1E2740" stroke-width="2"><line x1="18" y1="140" x2="27" y2="140"></line><line x1="18" y1="210" x2="27" y2="210"></line><line x1="250" y1="170" x2="259" y2="170"></line><line x1="274" y1="130" x2="282" y2="130"></line></g>
+<g fill="#D7372B"><rect x="120" y="200" width="8" height="40"></rect><rect x="140" y="190" width="8" height="46"></rect><rect x="160" y="205" width="8" height="38"></rect></g>
+<line x1="100" y1="196" x2="190" y2="186" stroke="#EFE6D2" stroke-width="1.5"></line>
+<path d="M0 290 C 70 270, 160 300, 300 276 L300 330 L0 330 Z" fill="#141B2D"></path>
+</svg>
+<div style="position: absolute; left: 16px; top: 16px; display: flex; align-items: center; gap: 8px; color: #EFE6D2">
+<div class="sh" style="width: 34px; height: 34px; background: #3F6B45; border: 1.5px solid #EFE6D2; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 19px"><svg width="19.9" height="19.9" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M10 30 V3 M7.5 12 H12.5 M7.5 21 H12.5 M20 30 V9 M17.5 16 H22.5 M17.5 24 H22.5 M20 12 C 22 7, 26 5, 30 5 C 28 9, 24 11, 20 12" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+<span style="font-weight: 700; font-size: 11px; letter-spacing: 3px">MONDE 2</span>
+</div>
+<div style="position: absolute; left: 0; right: 0; top: 340px; display: flex; flex-direction: column; align-items: center; gap: 2px">
+<h2 class="sh" style="margin: 0; font-size: 26px; letter-spacing: 3px">Tanabata</h2>
+<svg width="120" height="8" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+
+<div style="position: absolute; left: 20px; right: 20px; top: 402px; height: 40px" aria-label="Record : étape 5 sur 8">
+<div style="position: absolute; left: 10px; right: 10px; top: 19px; height: 3px; background: #CFC4AE"></div>
+<div style="position: absolute; left: 10px; width: 142px; top: 19px; height: 3px; background: #1B1A1E"></div>
+<div style="position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: center; height: 40px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="8"><div style="{{s.style}}"><sc-if value="{{s.k}}"><svg width="18" height="18" viewBox="0 0 32 32" aria-hidden="true"><path d="{{s.kd}}" fill="currentColor" fill-rule="evenodd"></path></svg></sc-if></div></sc-for>
+</div>
+</div>
+
+<div style="position: absolute; left: 20px; right: 20px; top: 470px; display: flex; gap: 10px">
+<div style="flex: 1 1 0; height: 64px; border-radius: 12px; background: #E4D9C2; display: flex; align-items: center; justify-content: center; gap: 10px">
+<div class="sh" style="width: 36px; height: 36px; background: #5F8F86; color: #EFE6D2; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 20px; transform: rotate(-5deg); box-shadow: 0 0 0 1.5px #1B1A1E"><svg width="21.0" height="21.0" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M10 30 V3 M7.5 12 H12.5 M7.5 21 H12.5 M20 30 V9 M17.5 16 H22.5 M17.5 24 H22.5 M20 12 C 22 7, 26 5, 30 5 C 28 9, 24 11, 20 12" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+<div style="display: flex; flex-direction: column; line-height: 1.1"><b class="sh" style="font-size: 19px">41 900</b><span style="font-size: 10px; font-weight: 700; color: #5A5148">Pin à 60 000</span></div>
+</div>
+<div style="width: 92px; height: 64px; border-radius: 12px; background: #E4D9C2; display: flex; align-items: center; justify-content: center; gap: 6px">
+<svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 7 H27 V25 H5 Z M8 22 L14 14 L18 19 L21 16 L25 22" fill="#C49A45" stroke="#1B1A1E" stroke-width="2.2" stroke-linejoin="round"></path></svg>
+<b class="sh" style="font-size: 18px">1<span style="font-size: 12px; opacity: 0.6">/3</span></b>
+</div>
+</div>
+</div>
+
+<div style="position: absolute; left: 0; right: 0; top: 712px; display: flex; justify-content: center; gap: 7px" aria-label="Monde 2 sur 8">
+<span style="width: 7px; height: 7px; border-radius: 4px; background: #8C8273"></span>
+<span style="width: 22px; height: 7px; border-radius: 4px; background: #D7372B"></span>
+<span style="width: 7px; height: 7px; border-radius: 4px; background: #CFC4AE"></span><span style="width: 7px; height: 7px; border-radius: 4px; background: #CFC4AE"></span><span style="width: 7px; height: 7px; border-radius: 4px; background: #CFC4AE"></span><span style="width: 7px; height: 7px; border-radius: 4px; background: #CFC4AE"></span><span style="width: 7px; height: 7px; border-radius: 4px; background: #CFC4AE"></span><span style="width: 7px; height: 7px; border-radius: 4px; background: #CFC4AE"></span>
+</div>
+
+<button style="position: absolute; left: 60px; top: 742px; width: 280px; height: 72px; background: none; border: none; padding: 0; cursor: pointer; color: #EFE6D2">
+<svg width="280" height="72" viewBox="0 0 280 72" style="position: absolute; left: 0; top: 0" aria-hidden="true"><path d="M8 14 C 80 4, 200 5, 274 10 L 266 34 L 276 58 C 190 70, 80 70, 4 64 L 14 38 Z" fill="#1B1A1E"></path><path d="M40 64 C 110 70, 190 68, 246 62" fill="none" stroke="#D7372B" stroke-width="3" stroke-linecap="round"></path></svg>
+<span class="sh" style="position: relative; font-size: 24px; letter-spacing: 8px">PARTIR</span>
+</button>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+const ICO = {"火": ["M16 3 C20 10 26 13 25 21 A9 9 0 0 1 7 21 C7 15 12 13 12 8 C14 11 15 12 16 3 Z", "F"], "水": ["M16 3 C21 11 25.5 15.5 25.5 20 A9.5 9.5 0 0 1 6.5 20 C6.5 15.5 11 11 16 3 Z", "F"], "雷": ["M18.5 2 L7.5 18 H15 L12 30 L24.5 13 H17 Z", "F"], "風": ["M4 12 H19 C25 12 26 5 21.5 5 C18.5 5 17.5 8.5 20 10 M4 19 H23 C29 19 29 27 24 27 C21 27 20.5 23.5 23 22.5", "S"], "影": ["M19 3 A13 13 0 1 0 29 21 A10.5 10.5 0 1 1 19 3 Z", "F"], "無": ["M23 6.5 A11 11 0 1 0 27 13.5", "S"], "法": ["M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5", "S"], "波": ["M3 12 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 M3 21 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0", "S"], "竹": ["M10 30 V3 M7.5 12 H12.5 M7.5 21 H12.5 M20 30 V9 M17.5 16 H22.5 M17.5 24 H22.5 M20 12 C 22 7, 26 5, 30 5 C 28 9, 24 11, 20 12", "S"], "梅": ["M11.00 9.00 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M17.66 13.84 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M15.11 21.66 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M6.89 21.66 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M4.34 13.84 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0", "F"], "松": ["M16 3 L25 14 H20 L27 23 H18.5 V29 H13.5 V23 H5 L12 14 H7 Z", "F"], "雪": ["M16 3 V29 M4.7 9.5 L27.3 22.5 M4.7 22.5 L27.3 9.5 M12.5 5 L16 8.5 L19.5 5 M12.5 27 L16 23.5 L19.5 27", "S"], "鬼": ["M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z", "E"], "妖": ["M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z", "E"], "王": ["M4 23 L6 8 L12 15 L16 5 L20 15 L26 8 L28 23 Z M5 25 H27 V28.5 H5 Z", "F"], "筆": ["M21 3 L29 11 L16 24 L8 16 Z M7 17.5 L14.5 25 C12 29.5 6 30.5 2 30 C2.5 26 3 20.5 7 17.5 Z", "F"], "道": ["M3 7 C11 9.5 21 9.5 29 7 M6 13.5 H26 M9.5 9 V29 M22.5 9 V29", "S"], "新": ["M16 2 L19.5 12.5 L30 16 L19.5 19.5 L16 30 L12.5 19.5 L2 16 L12.5 12.5 Z", "F"], "斬": ["M6 22 L20 6 M10 26 L25 9 M16 28 L27 16", "S"], "巻": ["M9 5 H23 V27 H9 Z M5 5 H12 M20 27 H27 M13 11 H19 M13 16 H19 M13 21 H17", "S"], "形": ["M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5", "S"], "鎖": ["M6 20 a5 5 0 0 1 0 -7 l3 -3 a5 5 0 0 1 7 7 M26 12 a5 5 0 0 1 0 7 l-3 3 a5 5 0 0 1 -7 -7 M12.5 19.5 L19.5 12.5", "S"], "金": ["M4 16 a12 12 0 1 0 24 0 a12 12 0 1 0 -24 0 M12 12 H20 V20 H12 Z", "S"], "開": ["M8 15 H24 V28 H8 Z M12 15 V10 A4 4 0 0 1 20 9 M16 20 V23", "S"]};
+    const ico = (k) => { const x = ICO[k] || ["", "F"]; return { kd: x[0], kf: x[1] === "S" ? "none" : "currentColor", ks: x[1] === "S" ? "currentColor" : "none", kr: x[1] === "E" ? "evenodd" : "nonzero" }; };
+    const steps = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => {
+      const done = n <= 5;
+      const boss = n === 4, guard = n === 8;
+      const size = boss || guard ? 30 : 18;
+      return {
+        k: boss || guard, kd: boss ? ICO['鬼'][0] : (guard ? ICO['王'][0] : ''),
+        style: "position: relative; width: " + size + "px; height: " + size + "px; border-radius: " + (guard ? '5px' : size / 2 + 'px') + "; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; " +
+          (done ? 'background: #1B1A1E; color: #EFE6D2; border: 2px solid #1B1A1E' : 'background: #F5EEDD; color: #8C8273; border: 2px solid #CFC4AE') +
+          (n === 5 ? '; box-shadow: 0 0 0 3px #E2A93B' : '') + (guard ? '; background: #F5EEDD; color: #D7372B; border-color: #D7372B' : '')
+      };
+    });
+    return { steps };
+  }
+}
+</script>
+</body>
+</html>

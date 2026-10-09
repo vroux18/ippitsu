@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>HUD combat Washi</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #2B4A6E; font-family: 'Zen Kaku Gothic New', sans-serif; color: #EFE6D2">
+
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<g fill="none" stroke="#3D6290" stroke-width="2">
+<path d="M0 120 q20 -14 40 0 q20 -14 40 0"></path><path d="M320 200 q20 -14 40 0 q20 -14 40 0"></path>
+<path d="M0 420 q20 -14 40 0 q20 -14 40 0"></path><path d="M330 470 q20 -14 40 0 q20 -14 40 0"></path>
+</g>
+<polygon points="10,860 390,860 300,0 100,0" fill="#E8CC97"></polygon>
+<g stroke="#CFAF77" stroke-width="2">
+<line x1="125" y1="0" x2="58" y2="860"></line><line x1="150" y1="0" x2="105" y2="860"></line><line x1="175" y1="0" x2="152" y2="860"></line>
+<line x1="200" y1="0" x2="200" y2="860"></line><line x1="225" y1="0" x2="248" y2="860"></line><line x1="250" y1="0" x2="295" y2="860"></line><line x1="275" y1="0" x2="342" y2="860"></line>
+<line x1="100" y1="300" x2="300" y2="300"></line><line x1="70" y1="560" x2="330" y2="560"></line>
+</g>
+<polygon points="10,860 390,860 300,0 100,0" fill="none" stroke="#1B1A1E" stroke-width="3"></polygon>
+<polygon points="200,150 222,176 210,176 210,200 190,200 190,176 178,176" fill="#E2A93B" stroke="#9A6B12" stroke-width="2"></polygon>
+<circle cx="150" cy="262" r="48" fill="#E3242B" fill-opacity="0.42" stroke="#A8121A" stroke-width="3.5"></circle>
+<circle cx="150" cy="262" r="48" fill="none" stroke="#FFFFFF" stroke-width="1.2" stroke-dasharray="6 6" stroke-opacity="0.9"></circle>
+<g>
+<ellipse cx="150" cy="276" rx="16" ry="5" fill="#1B1A1E" fill-opacity="0.25"></ellipse>
+<circle cx="150" cy="258" r="15" fill="#3E7A57" stroke="#1B1A1E" stroke-width="2.5"></circle>
+<polygon points="140,246 136,232 146,243" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></polygon>
+<polygon points="160,246 164,232 154,243" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></polygon>
+</g>
+<g>
+<ellipse cx="262" cy="346" rx="16" ry="5" fill="#1B1A1E" fill-opacity="0.25"></ellipse>
+<circle cx="262" cy="328" r="15" fill="#B9452F" stroke="#1B1A1E" stroke-width="2.5"></circle>
+<polygon points="252,316 248,302 258,313" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></polygon>
+<polygon points="272,316 276,302 266,313" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></polygon>
+</g>
+<path d="M215 582 C 215 520, 255 486, 244 448 C 234 410, 184 418, 192 452 C 200 486, 262 444, 256 392" fill="none" stroke="#1B1A1E" stroke-width="10" stroke-linecap="round"></path>
+<path d="M215 582 C 215 520, 255 486, 244 448 C 234 410, 184 418, 192 452 C 200 486, 262 444, 256 392" fill="none" stroke="#3E9C8C" stroke-width="6" stroke-linecap="round"></path>
+<ellipse cx="215" cy="604" rx="26" ry="10" fill="none" stroke="#1B1A1E" stroke-width="4"></ellipse>
+<ellipse cx="215" cy="604" rx="26" ry="10" fill="none" stroke="#EFE6D2" stroke-width="1.5"></ellipse>
+<circle cx="215" cy="592" r="13" fill="#232838" stroke="#1B1A1E" stroke-width="2"></circle>
+<rect x="203" y="586" width="24" height="4" fill="#D7372B"></rect>
+<circle cx="215" cy="556" r="12" fill="#D7372B" stroke="#1B1A1E" stroke-width="2"></circle>
+<path transform="translate(209 550) scale(0.375)" d="M16 3 C20 10 26 13 25 21 A9 9 0 0 1 7 21 C7 15 12 13 12 8 C14 11 15 12 16 3 Z" fill="#EFE6D2"></path>
+</svg>
+
+<div style="position: absolute; left: 14px; top: 36px; height: 44px; box-sizing: border-box; padding: 0 14px 0 7px; display: flex; align-items: center; gap: 9px; background: rgba(27,26,30,0.92); border: 1.5px solid rgba(239,230,210,0.55); border-radius: 22px">
+<div style="width: 30px; height: 30px; background: #1F3A5F; border: 1.5px solid #EFE6D2; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 18px"><svg width="18.9" height="18.9" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M3 12 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 M3 21 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 3px">
+<div style="font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; font-size: 20px">5<span style="font-size: 13px; opacity: 0.7">/8</span></div>
+<div style="display: flex; gap: 3px" aria-label="Combat 1 sur 3">
+<div style="width: 9px; height: 4px; border-radius: 2px; background: #E2A93B"></div>
+<div style="width: 9px; height: 4px; border-radius: 2px; border: 1px solid rgba(239,230,210,0.7); box-sizing: border-box"></div>
+<div style="width: 9px; height: 4px; border-radius: 2px; border: 1px solid rgba(239,230,210,0.7); box-sizing: border-box"></div>
+</div>
+</div>
+</div>
+
+<div style="position: absolute; right: 66px; top: 36px; height: 44px; box-sizing: border-box; padding: 0 14px 0 5px; display: flex; align-items: center; gap: 10px; background: rgba(27,26,30,0.92); border: 1.5px solid rgba(239,230,210,0.55); border-radius: 22px">
+<div style="height: 32px; min-width: 44px; box-sizing: border-box; padding: 0 8px; border-radius: 16px; background: {{multColor}}; color: #1B1A1E; display: flex; align-items: center; justify-content: center; font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; font-size: 17px">{{multLabel}}</div>
+<div style="font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; font-size: 21px; letter-spacing: 0.5px">23 540</div>
+</div>
+
+<button aria-label="Pause" style="position: absolute; right: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: #EFE6D2; border: 2px solid #1B1A1E; padding: 0; display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer">
+<span style="width: 5px; height: 16px; background: #1B1A1E; border-radius: 1px"></span><span style="width: 5px; height: 16px; background: #1B1A1E; border-radius: 1px"></span>
+</button>
+
+<svg width="32" height="188" viewBox="0 0 32 188" style="position: absolute; left: 8px; top: 434px; overflow: visible" role="img" aria-label="Vie">
+<path d="M7 24 C 12 22, 20 22, 26 25 L 27 100 L 25.5 182 C 19 185, 12 185, 6 182 L 5 100 Z" fill="#1B1A1E" fill-opacity="0.92" stroke="#EFE6D2" stroke-opacity="0.6" stroke-width="1.5" stroke-linejoin="round"></path>
+<sc-for list="{{hp}}" as="c" hint-placeholder-count="5"><polygon points="{{c.pts}}" fill="{{c.fill}}" fill-opacity="{{c.fo}}" stroke="#EFE6D2" stroke-opacity="{{c.so}}" stroke-width="1.2" stroke-dasharray="{{c.dash}}"></polygon><path d="{{c.hl}}" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="2" stroke-linecap="round"></path></sc-for>
+<path transform="translate(0 5)" d="M16 21 C 6 14, 3.5 9.5, 6 5.5 C 8.5 2, 13.5 2.5, 16 6.5 C 18.5 2.5, 23.5 2, 26 5.5 C 28.5 9.5, 26 14, 16 21 Z" fill="#D7372B" stroke="#1B1A1E" stroke-width="2" stroke-linejoin="round"></path>
+<path transform="translate(0 5)" d="M9.5 8 C 10 6, 12 5.5, 13 6.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.6" stroke-width="1.6" stroke-linecap="round"></path>
+</svg>
+<div style="position: absolute; left: 42px; top: 470px; width: 11px; height: 150px; box-sizing: border-box; padding: 1.5px; display: flex; flex-direction: column-reverse; background: rgba(27,26,30,0.92); border: 1.5px solid rgba(239,230,210,0.75); border-radius: 4px">
+<div style="height: 62%; width: 100%; border-radius: 2px; background: #3E9C8C"></div>
+</div>
+<svg width="48" height="48" viewBox="0 0 40 40" style="position: absolute; left: 7px; top: 626px" role="img" aria-label="Niveau 4">
+<polygon points="20,2 36,11 36,29 20,38 4,29 4,11" fill="#1B1A1E" stroke="#E2A93B" stroke-width="2.5"></polygon>
+<text x="20" y="26.5" text-anchor="middle" font-size="18" fill="#EFE6D2" font-family="Zen Kaku Gothic New, sans-serif" font-weight="900">4</text>
+</svg>
+
+<svg width="24" height="29" viewBox="0 0 18 22" style="position: absolute; right: 12px; top: 436px" role="img" aria-label="Encre">
+<path d="M9 2 C 13 8, 16 11, 16 14.5 A 7 7 0 0 1 2 14.5 C 2 11, 5 8, 9 2 Z" fill="#1B1A1E" stroke="#EFE6D2" stroke-width="1.5"></path>
+</svg>
+<div style="position: absolute; right: 10px; top: 470px; width: 28px; height: 150px; box-sizing: border-box; padding: 4px; display: flex; flex-direction: column-reverse; background: #EFE6D2; border: 2px solid #1B1A1E; border-radius: 14px; box-shadow: 0 0 0 1.5px rgba(239,230,210,0.7)">
+<div style="height: 72%; width: 100%; border-radius: 6px; background: #1B1A1E"></div>
+</div>
+
+<div style="position: absolute; right: 6px; top: 624px; width: 56px; height: 56px">
+<svg width="56" height="56" viewBox="0 0 46 46" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<circle cx="23" cy="23" r="21" fill="#E2A93B" fill-opacity="0.35"></circle>
+<circle cx="23" cy="23" r="18" fill="#1B1A1E" stroke="#E2A93B" stroke-width="4"></circle>
+</svg>
+<div style="position: absolute; left: 0; top: 0; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 24px; color: #E2A93B"><svg width="25.2" height="25.2" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M21 3 L29 11 L16 24 L8 16 Z M7 17.5 L14.5 25 C12 29.5 6 30.5 2 30 C2.5 26 3 20.5 7 17.5 Z" fill="currentColor"></path></svg></div>
+<svg width="22" height="22" viewBox="0 0 22 22" style="position: absolute; left: -12px; top: -10px" role="img" aria-label="Double tap">
+<circle cx="11" cy="11" r="10" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="1.5"></circle>
+<circle cx="7.5" cy="12" r="2.2" fill="#1B1A1E"></circle><circle cx="14.5" cy="12" r="2.2" fill="#1B1A1E"></circle><path d="M4.5 8.5 a3.5 3.5 0 0 1 6 0 M11.5 8.5 a3.5 3.5 0 0 1 6 0" fill="none" stroke="#1B1A1E" stroke-width="1.2"></path>
+</svg>
+</div>
+
+<div style="position: absolute; left: 86px; top: 92px; width: 228px; height: 38px">
+<svg width="228" height="38" viewBox="0 0 228 38" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<path d="M6 10 C 40 3, 120 5, 222 7 L 218 16 L 224 22 C 150 34, 70 34, 4 30 L 10 21 Z" fill="#1B1A1E" fill-opacity="0.92"></path>
+<path d="M30 31 C 90 35, 150 34, 200 30" fill="none" stroke="#D7372B" stroke-width="2.5" stroke-linecap="round"></path>
+</svg>
+<div style="position: absolute; left: 0; top: 0; width: 228px; height: 38px; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 4px">VAGUE 2/3</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"hpFull":{"editor":"int","default":3,"min":0,"max":5},"mult":{"editor":"enum","options":["×1,5","×2","×3","×4"],"default":"×2"},"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const full = this.props.hpFull ?? 3;
+    const C = [['8,178.0 24,174.5 24,152.4 8,155.9',178.0,152.4],['8,148.4 24,144.9 24,122.8 8,126.3',148.4,122.8],['8,118.8 24,115.3 24,93.2 8,96.7',118.8,93.2],['8,89.2 24,85.7 24,63.6 8,67.1',89.2,63.6],['8,59.6 24,56.1 24,34.0 8,37.5',59.6,34.0]];
+    const hp = C.map((c, i) => i < full
+      ? { pts: c[0], fill: '#D7372B', fo: 1, so: 0, dash: 'none', hl: 'M10.5 ' + (c[1]-3) + ' V ' + (c[2]+5.5) }
+      : i === full
+        ? { pts: c[0], fill: '#EFE6D2', fo: 0.55, so: 0, dash: 'none', hl: '' }
+        : { pts: c[0], fill: '#EFE6D2', fo: 0.12, so: 0, dash: 'none', hl: '' });
+    const m = this.props.mult ?? '×2';
+    const colors = { '×1,5': '#3E9C8C', '×2': '#E2A93B', '×3': '#E25A3F', '×4': '#C2668F' };
+    return { hp, multLabel: m, multColor: colors[m] || '#E2A93B' };
+  }
+}
+</script>
+</body>
+</html>

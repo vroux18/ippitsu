@@ -226,7 +226,7 @@ func _zone_fire(z: Dictionary) -> void:
 		main.vfx.wind_slash(c + d * 2.0, d, 1.6)
 		main.vfx.wind_slash(c + d * 4.5, d, 1.3)
 		main.vfx.wind_slash(c + d * 6.5, d, 1.0)
-		main.shake = maxf(float(main.shake), 0.3)
+		main.shake = maxf(float(main.shake), 0.31)
 	elif tag == "leaf":
 		var c2: Vector3 = z["c"]
 		main.enemy_strike(c2, LEAF_R)

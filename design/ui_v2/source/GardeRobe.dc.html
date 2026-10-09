@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Garde-robe</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+.tab{flex:1 1 0;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;padding:6px 0;cursor:pointer;color:#1B1A1E;border-radius:10px}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #F1E3C6; font-family: 'Zen Kaku Gothic New', sans-serif; color: #1B1A1E">
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<circle cx="200" cy="250" r="140" fill="#D7372B" fill-opacity="0.9"></circle>
+<path d="M0 380 C 80 360, 160 390, 240 370 C 300 356, 350 380, 400 366 L400 860 L0 860 Z" fill="#2B4A6E"></path>
+<path d="M90 400 L310 400 L290 440 L110 440 Z" fill="#6B4A2E" stroke="#1B1A1E" stroke-width="3"></path>
+<path d="M150 400 C 150 330, 160 300, 200 296 C 240 300, 250 330, 250 400 Z" fill="#232838" stroke="#1B1A1E" stroke-width="3"></path>
+<path d="M170 330 L230 330 L200 372 Z" fill="#2F3546"></path>
+<circle cx="200" cy="262" r="40" fill="#232838" stroke="#1B1A1E" stroke-width="3"></circle>
+<path d="M164 252 C 180 240, 220 240, 236 252 L236 266 L164 266 Z" fill="#E8C9A0"></path>
+<circle cx="186" cy="258" r="3.5" fill="#1B1A1E"></circle><circle cx="214" cy="258" r="3.5" fill="#1B1A1E"></circle>
+<rect x="160" y="240" width="80" height="8" fill="#D7372B" stroke="#1B1A1E" stroke-width="2"></rect>
+<path d="M240 244 C 270 236, 290 254, 320 240 C 300 262, 276 254, 244 252 Z" fill="#D7372B" stroke="#1B1A1E" stroke-width="2"></path>
+<path d="M160 300 C 180 312, 220 312, 240 300 L246 316 C 220 330, 180 330, 154 316 Z" fill="#D7372B" stroke="#1B1A1E" stroke-width="2"></path>
+</svg>
+
+<a href="Accueil.dc.html" aria-label="Accueil" style="position: absolute; left: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: #1B1A1E; display: flex; align-items: center; justify-content: center">
+<svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 15 L16 5 L27 15 M8 13 V27 H24 V13 M14 27 V20 H18 V27" fill="none" stroke="#EFE6D2" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</a>
+<div style="position: absolute; left: 0; right: 0; top: 38px; display: flex; flex-direction: column; align-items: center">
+<div style="display: flex; align-items: center; gap: 8px"><h1 class="sh" style="margin: 0; font-size: 22px; letter-spacing: 5px">GARDE-ROBE</h1></div>
+<svg width="150" height="8" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+<div style="position: absolute; right: 14px; top: 40px; height: 34px; box-sizing: border-box; padding: 0 12px 0 5px; border-radius: 17px; background: #1B1A1E; color: #EFE6D2; display: flex; align-items: center; gap: 6px"><svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="#1F3A5F"></circle><path d="M16 6 C20 12 23 15 23 19 A7 7 0 0 1 9 19 C9 15 12 12 16 6 Z" fill="#EFE6D2"></path></svg><b class="sh" style="font-size: 15px">112</b></div>
+
+<div style="position: absolute; left: 0; right: 0; top: 470px; bottom: 0; background: #EFE6D2; border-radius: 22px 22px 0 0; box-shadow: 0 -3px 0 #1B1A1E">
+<div style="position: absolute; left: 14px; right: 14px; top: 12px; display: flex; gap: 4px" role="tablist">
+<sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+<button class="tab" role="tab" aria-selected="{{t.sel}}" style="{{t.style}}"><svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true"><path d="{{t.d}}" fill="none" stroke="{{t.c}}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg><span class="sh" style="font-size: 9.5px; letter-spacing: 1px">{{t.n}}</span></button>
+</sc-for>
+</div>
+<div style="position: absolute; left: 22px; right: 22px; top: 90px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 16px; justify-items: center">
+<sc-for list="{{items}}" as="i" hint-placeholder-count="8">
+<button aria-label="{{i.lab}}" style="{{i.ring}}">
+<span style="{{i.sw}}"></span>
+<sc-if value="{{i.locked}}" hint-placeholder-val="{{false}}"><span style="position: absolute; left: 50%; bottom: -10px; transform: translateX(-50%); height: 20px; padding: 0 7px; border-radius: 10px; background: #1B1A1E; color: #EFE6D2; display: flex; align-items: center; gap: 3px; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 11px"><svg width="10" height="10" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 C22 12 26 16 26 21 A10 10 0 0 1 6 21 C6 16 10 12 16 3 Z" fill="#EFE6D2"></path></svg>{{i.price}}</span></sc-if>
+<sc-if value="{{i.worn}}" hint-placeholder-val="{{false}}"><span style="position: absolute; right: -4px; top: -4px; width: 22px; height: 22px; border-radius: 11px; background: #D7372B; border: 2px solid #EFE6D2; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16 L13 23 L26 9" fill="none" stroke="#EFE6D2" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"></path></svg></span></sc-if>
+</button>
+</sc-for>
+</div>
+<div style="position: absolute; left: 22px; right: 22px; top: 300px; display: flex; align-items: center; justify-content: space-between">
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 14px; background: #1B1A1E; border: 2px solid #1B1A1E"></span><b class="sh" style="font-size: 22px; letter-spacing: 2px">Sumi</b></div>
+<span class="sh" style="height: 44px; padding: 0 18px; border-radius: 22px; border: 2px solid #1B1A1E; display: flex; align-items: center; gap: 8px; font-size: 13px; letter-spacing: 2px"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M6 16 L13 23 L26 9" fill="none" stroke="#D7372B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path></svg>PORTÉ</span>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const T = [
+      ['TENUE', 'M11 5 L16 11 L21 5 L28 9 L25 15 L22 13 V27 H10 V13 L7 15 L4 9 Z', true],
+      ['ÉCHARPE', 'M4 10 C 12 6, 20 14, 28 10 M8 10 C 10 18, 16 22, 20 28', false],
+      ['SILLAGE', 'M4 24 C 10 20, 14 22, 18 16 C 22 10, 26 10, 28 6 M4 28 L8 26 M10 28 L12 26', false],
+      ['ENCRE', 'M16 3 C22 12 26 16 26 21 A10 10 0 0 1 6 21 C6 16 10 12 16 3 Z', false],
+      ['INTERFACE', 'M5 6 H27 V22 H5 Z M12 27 H20 M16 22 V27', false]
+    ];
+    const tabs = T.map((t) => ({ n: t[0], d: t[1], sel: t[2] ? 'true' : 'false', c: t[2] ? '#EFE6D2' : '#1B1A1E', style: t[2] ? 'background: #1B1A1E; color: #EFE6D2' : '' }));
+    const I = [['#3A3846', 0, 'w'], ['#8A9BB0', 120, 'l'], ['#4F7F45', 0, ''], ['#D98A5F', 250, 'l'], ['#E8A8B4', 0, 'x'], ['#EDEDE6', 0, 'x'], ['#8E7AB0', 400, 'l'], ['#D9B85A', 900, 'l']];
+    const items = I.map((it, i) => {
+      const worn = it[2] === 'w', locked = it[2] === 'l', secret = it[2] === 'x';
+      return {
+        worn, locked, price: it[1], lab: worn ? 'Sumi, porté' : (locked ? 'Verrouillé, ' + it[1] + ' encre' : (secret ? 'Estampe requise' : 'Tenue')),
+        ring: 'position: relative; width: 68px; height: 68px; border-radius: 34px; padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #F5EEDD; ' + (worn ? 'border: 3px solid #D7372B; box-shadow: 0 0 0 3px #EFE6D2, 0 0 0 5px #1B1A1E' : 'border: 2px solid #CFC4AE'),
+        sw: 'width: 50px; height: 50px; border-radius: 25px; border: 2px solid #1B1A1E; box-sizing: border-box; background: ' + it[0] + (locked || secret ? '; opacity: 0.35' : '') + (secret ? '; border-style: dashed' : '')
+      };
+    });
+    return { tabs, items };
+  }
+}
+</script>
+</body>
+</html>

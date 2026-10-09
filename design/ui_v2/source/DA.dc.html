@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Direction artistique Ippitsu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700;900&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+.h2{margin:0;font-family:'Shippori Mincho',serif;font-weight:800;font-size:14px;letter-spacing:3px;border-bottom:2px solid #D7372B;padding-bottom:3px}
+</style>
+</helmet>
+<div style="width: 760px; height: 860px; box-sizing: border-box; padding: 30px 34px; background: #EFE6D2; color: #1B1A1E; font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; font-size: 12px; display: flex; flex-direction: column; gap: 16px">
+
+<div style="display: flex; align-items: flex-end; gap: 14px">
+<div class="sh" style="width: 54px; height: 54px; background: #D7372B; color: #EFE6D2; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 26px; transform: rotate(-3deg)">一筆</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 class="sh" style="margin: 0; font-size: 30px; letter-spacing: 6px">IPPITSU</h1>
+<div style="font-weight: 700; letter-spacing: 2px; color: #5A5148">ENCRE SUR PAPIER · UN SEUL TRAIT · ZÉRO PHRASE INUTILE</div>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<div style="background: #1B1A1E; color: #EFE6D2; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px"><div style="color: #D7372B"><svg width="22" height="22" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M16 3 C21 11 25.5 15.5 25.5 20 A9.5 9.5 0 0 1 6.5 20 C6.5 15.5 11 11 16 3 Z" fill="currentColor"></path></svg></div><b>Encre sur papier</b><span>Aplats, traits de pinceau irréguliers, sceaux. Pas de dégradé décoratif.</span></div>
+<div style="background: #1B1A1E; color: #EFE6D2; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px"><div style="color: #E2A93B"><svg width="34" height="22" viewBox="0 0 34 22" style="display: block" aria-hidden="true"><path d="M2 13 C 10 7, 24 6, 32 8 L 31 12 C 22 11, 11 13, 3 17 Z" fill="currentColor"></path></svg></div><b>Un concept, un nom, une icône</b><span>Glossaire figé. Aucun synonyme à l'écran.</span></div>
+<div style="background: #1B1A1E; color: #EFE6D2; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 4px"><div style="font-weight: 900; font-size: 20px; line-height: 22px; color: #3E9C8C">123</div><b>Le chiffre parle</b><span>Picto + chiffre + 2 mots max. L'état visuel remplace la consigne.</span></div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px">
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 class="h2">THÈMES · HUD FIXE, MÉTA THÉMÉE</h2>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="4">
+<div style="{{t.box}}">
+<div style="display: flex; justify-content: space-between; align-items: center"><b class="sh" style="font-size: 13px; letter-spacing: 2px">{{t.name}}</b></div>
+<div style="position: relative; height: 46px"><svg width="100%" height="46" viewBox="0 0 150 46" preserveAspectRatio="none" style="position: absolute; left: 0; top: 0" aria-hidden="true"><path d="M6 11 C 50 2, 110 3, 146 7 L 140 23 L 148 38 C 100 46, 50 46, 2 41 L 9 25 Z" fill="{{t.ink}}"></path><path d="M24 41 C 60 45, 100 44, 128 40" fill="none" stroke="{{t.acc}}" stroke-width="2.5" stroke-linecap="round"></path></svg><span style="{{t.lab}}">JOUER</span></div>
+<div style="display: flex; gap: 4px"><span style="{{t.s1}}"></span><span style="{{t.s2}}"></span><span style="{{t.s3}}"></span><span style="{{t.s4}}"></span></div>
+</div>
+</sc-for>
+</div>
+<span style="color: #5A5148">Nuit : l'accent or est réservé à la sélection. Récompenses et légendaire passent sur l'or clair + double filet pour ne pas se confondre.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 class="h2">ÉLÉMENTS · WASHI / NUIT</h2>
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px">
+<sc-for list="{{elems}}" as="e" hint-placeholder-count="7">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px">
+<div style="{{e.day}}"><svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="{{e.kd}}" fill="{{e.kf}}" stroke="{{e.ks}}" fill-rule="{{e.kr}}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+<div style="{{e.night}}"><svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="{{e.kd}}" fill="{{e.kf}}" stroke="{{e.ks}}" fill-rule="{{e.kr}}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+<b style="font-size: 10px">{{e.n}}</b>
+</div>
+</sc-for>
+</div>
+<span style="color: #5A5148">Eau et Ombre éclaircis en Nuit (#5B8BC9, #8E89A8) : contraste passé de 1,2:1 à plus de 3:1 sur #232A3A. « Encre » devient Neutre.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 class="h2">RARETÉ = BORDURE</h2>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+<div style="height: 70px; border-radius: 10px; background: #F5EEDD; border: 2px solid #8C8273"></div>
+<div style="height: 70px; border-radius: 10px; background: #F5EEDD; border: 3px solid #2F5D8A"></div>
+<div style="height: 70px; border-radius: 10px; background: #F5EEDD; border: 3px solid #8A5BB0; box-shadow: inset 0 0 0 2px #F5EEDD, inset 0 0 0 3.5px #8A5BB0"></div>
+<div style="height: 70px; border-radius: 10px; background: #F5EEDD; border: 3px solid #C49A45; box-shadow: inset 0 0 0 2px #F5EEDD, inset 0 0 0 3.5px #C49A45, 0 0 0 2px #1B1A1E"></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; text-align: center; font-weight: 700; font-size: 10px; color: #5A5148"><span>Commun · gris 2</span><span>Rare · indigo 3</span><span>Épique · prune double</span><span>Légendaire · or double + filet encre</span></div>
+<span style="color: #5A5148">Plus aucun mot de rareté. Couleur + épaisseur + nombre de filets : lisible aussi en daltonisme.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 class="h2">TYPOGRAPHIE (u)</h2>
+<div style="display: flex; align-items: baseline; gap: 12px"><span class="sh" style="font-size: 34px; letter-spacing: 4px">VICTOIRE</span><span style="color: #5A5148">Display 34</span></div>
+<div style="display: flex; align-items: baseline; gap: 12px"><span class="sh" style="font-size: 22px; letter-spacing: 4px">ATELIER</span><span style="font-weight: 900; font-size: 19px; font-variant-numeric: tabular-nums">23 540</span><span style="color: #5A5148">Titre 22 · Nombre 19</span></div>
+<div style="display: flex; align-items: baseline; gap: 12px"><span style="font-weight: 700; font-size: 12px; letter-spacing: 1px">DOUBLE ESTOC</span><span style="font-size: 11px">Transperce aussi les voisins de ta cible.</span><span style="color: #5A5148">Label 12 · Body 11</span></div>
+<span style="color: #5A5148">Shippori Mincho ExtraBold : titres, noms, sceaux. Zen Kaku Gothic New Black : chiffres du HUD (centrage fiable, chiffres à chasse fixe). Bold : le reste. Plancher 9.</span>
+</div>
+
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 class="h2">MOTIFS · UN PAR ÉCRAN, SUR PAPIER COMMUN</h2>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 4px"><svg width="100%" height="64" aria-hidden="true"><defs><pattern id="sg" width="24" height="12" patternUnits="userSpaceOnUse"><path d="M0 12 a12 12 0 0 1 24 0 M4 12 a8 8 0 0 1 16 0 M8 12 a4 4 0 0 1 8 0" fill="none" stroke="#1F3A5F" stroke-width="1.2" stroke-opacity="0.5"></path></pattern></defs><rect width="100%" height="64" rx="8" fill="#E4D9C2"></rect><rect width="100%" height="64" rx="8" fill="url(#sg)"></rect></svg><b>Seigaiha · Accueil, Mondes</b></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><svg width="100%" height="64" aria-hidden="true"><defs><pattern id="as" width="28" height="24" patternUnits="userSpaceOnUse"><path d="M14 0 L14 24 M0 6 L28 18 M0 18 L28 6 M14 12 L0 0 M14 12 L28 0 M14 12 L0 24 M14 12 L28 24" fill="none" stroke="#6E5A44" stroke-width="0.9" stroke-opacity="0.45"></path></pattern></defs><rect width="100%" height="64" rx="8" fill="#E4D9C2"></rect><rect width="100%" height="64" rx="8" fill="url(#as)"></rect></svg><b>Asanoha · Atelier</b></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><svg width="100%" height="64" aria-hidden="true"><defs><pattern id="ki" width="24" height="28" patternUnits="userSpaceOnUse"><polygon points="12,1 23,7.5 23,20.5 12,27 1,20.5 1,7.5" fill="none" stroke="#3A3846" stroke-width="1" stroke-opacity="0.4"></polygon></pattern></defs><rect width="100%" height="64" rx="8" fill="#E4D9C2"></rect><rect width="100%" height="64" rx="8" fill="url(#ki)"></rect></svg><b>Kikko · Bestiaire, Dojo</b></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><svg width="100%" height="64" aria-hidden="true"><rect width="100%" height="64" rx="8" fill="#E4D9C2"></rect><g stroke="#8C8273" stroke-opacity="0.35" stroke-width="1"><path d="M10 10 q30 4 60 -2"></path><path d="M40 30 q40 6 90 0"></path><path d="M5 50 q25 -3 50 2"></path><path d="M100 46 q20 5 60 -3"></path></g></svg><b>Fibres washi · base commune</b></div>
+</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const th = [
+      ['WASHI','#E4D9C2','#D8CBB1','#1B1A1E','#D7372B','筆'],
+      ['NUIT','#232A3A','#151B28','#EFE6D2','#E2A93B','夜'],
+      ['SAKURA','#FBEDEE','#F4DCE0','#3A1F2A','#C2456A','桜'],
+      ['INDIGO','#E6ECF4','#D5DEEA','#13213A','#2F5D8A','藍']
+    ];
+    const sw = (c) => 'width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.25); background: ' + c;
+    const themes = th.map((t) => ({
+      name: t[0], k: t[5],
+      box: 'background: ' + t[1] + '; color: ' + t[3] + '; border-radius: 10px; padding: 10px; display: flex; flex-direction: column; gap: 8px; border: 1px solid rgba(0,0,0,0.15)',
+      seal: "font-family: 'Shippori Mincho', serif; font-weight: 800; width: 22px; height: 22px; border-radius: 3px; display: flex; align-items: center; justify-content: center; background: " + t[4] + '; color: ' + t[1],
+      ink: t[3], acc: t[4],
+      lab: "position: absolute; left: 0; right: 22px; top: 0; height: 42px; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 4px; color: " + t[1],
+      seal2: "position: absolute; right: 10px; top: 9px; width: 24px; height: 24px; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 13px; transform: rotate(6deg); background: " + t[4] + '; color: ' + t[1],
+      s1: sw(t[1]), s2: sw(t[2]), s3: sw(t[3]), s4: sw(t[4])
+    }));
+    const el = [['火','Feu','#D7372B','#E8574A'],['水','Eau','#1F3A5F','#5B8BC9'],['雷','Foudre','#C49A45','#E2B862'],['風','Vent','#5F8F86','#7DB3A8'],['影','Ombre','#3A3846','#8E89A8'],['無','Neutre','#6E5A44','#B39A7C'],['法','Figure','#A8436B','#D06A93']];
+    const box = (bg, fg) => 'width: 38px; height: 38px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 20px; background: ' + bg + '; color: ' + fg;
+    const ICO = {"火": ["M16 3 C20 10 26 13 25 21 A9 9 0 0 1 7 21 C7 15 12 13 12 8 C14 11 15 12 16 3 Z", "F"], "水": ["M16 3 C21 11 25.5 15.5 25.5 20 A9.5 9.5 0 0 1 6.5 20 C6.5 15.5 11 11 16 3 Z", "F"], "雷": ["M18.5 2 L7.5 18 H15 L12 30 L24.5 13 H17 Z", "F"], "風": ["M4 12 H19 C25 12 26 5 21.5 5 C18.5 5 17.5 8.5 20 10 M4 19 H23 C29 19 29 27 24 27 C21 27 20.5 23.5 23 22.5", "S"], "影": ["M19 3 A13 13 0 1 0 29 21 A10.5 10.5 0 1 1 19 3 Z", "F"], "無": ["M23 6.5 A11 11 0 1 0 27 13.5", "S"], "法": ["M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5", "S"], "波": ["M3 12 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 M3 21 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0", "S"], "竹": ["M10 30 V3 M7.5 12 H12.5 M7.5 21 H12.5 M20 30 V9 M17.5 16 H22.5 M17.5 24 H22.5 M20 12 C 22 7, 26 5, 30 5 C 28 9, 24 11, 20 12", "S"], "梅": ["M11.00 9.00 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M17.66 13.84 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M15.11 21.66 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M6.89 21.66 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0 M4.34 13.84 a5 5 0 1 0 10 0 a5 5 0 1 0 -10 0", "F"], "松": ["M16 3 L25 14 H20 L27 23 H18.5 V29 H13.5 V23 H5 L12 14 H7 Z", "F"], "雪": ["M16 3 V29 M4.7 9.5 L27.3 22.5 M4.7 22.5 L27.3 9.5 M12.5 5 L16 8.5 L19.5 5 M12.5 27 L16 23.5 L19.5 27", "S"], "鬼": ["M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z", "E"], "妖": ["M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z", "E"], "王": ["M4 23 L6 8 L12 15 L16 5 L20 15 L26 8 L28 23 Z M5 25 H27 V28.5 H5 Z", "F"], "筆": ["M21 3 L29 11 L16 24 L8 16 Z M7 17.5 L14.5 25 C12 29.5 6 30.5 2 30 C2.5 26 3 20.5 7 17.5 Z", "F"], "道": ["M3 7 C11 9.5 21 9.5 29 7 M6 13.5 H26 M9.5 9 V29 M22.5 9 V29", "S"], "新": ["M16 2 L19.5 12.5 L30 16 L19.5 19.5 L16 30 L12.5 19.5 L2 16 L12.5 12.5 Z", "F"], "斬": ["M6 22 L20 6 M10 26 L25 9 M16 28 L27 16", "S"], "巻": ["M9 5 H23 V27 H9 Z M5 5 H12 M20 27 H27 M13 11 H19 M13 16 H19 M13 21 H17", "S"], "形": ["M5 25 C5 12 22 8 21 18 C20 25 10 21 15 14 C19 9 25 10 27 5", "S"], "鎖": ["M6 20 a5 5 0 0 1 0 -7 l3 -3 a5 5 0 0 1 7 7 M26 12 a5 5 0 0 1 0 7 l-3 3 a5 5 0 0 1 -7 -7 M12.5 19.5 L19.5 12.5", "S"], "金": ["M4 16 a12 12 0 1 0 24 0 a12 12 0 1 0 -24 0 M12 12 H20 V20 H12 Z", "S"], "開": ["M8 15 H24 V28 H8 Z M12 15 V10 A4 4 0 0 1 20 9 M16 20 V23", "S"]};
+    const ico = (k) => { const x = ICO[k] || ["", "F"]; return { kd: x[0], kf: x[1] === "S" ? "none" : "currentColor", ks: x[1] === "S" ? "currentColor" : "none", kr: x[1] === "E" ? "evenodd" : "nonzero" }; };
+    const elems = el.map((e) => ({ ...ico(e[0]), k: e[0], n: e[1], day: box(e[2], '#EFE6D2'), night: box('#232A3A', e[3]) + '; border: 2px solid ' + e[3] }));
+    return { themes, elems };
+  }
+}
+</script>
+</body>
+</html>

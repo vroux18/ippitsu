@@ -295,7 +295,7 @@ func _tear() -> void:
 	main.float_text(position + Vector3(0, 1.6, 0), "円", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.0, 0))
 	main.splash(position + Vector3(0, 1.4, 0), FEATHER, 26)
-	main.shake = maxf(float(main.shake), 0.4)
+	main.shake = maxf(float(main.shake), 0.55)
 	_shield_dmg(shield_max)
 
 

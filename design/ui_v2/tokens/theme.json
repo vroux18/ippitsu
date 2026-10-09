@@ -1,0 +1,98 @@
+{
+  "reference": {
+    "viewport_u": [
+      400,
+      860
+    ],
+    "note": "1 px maquette = 1 u. Godot : base 400x860, stretch canvas_items, aspect keep_width."
+  },
+  "colors": {
+    "washi": "#EFE6D2",
+    "washi_light": "#F5EEDD",
+    "washi_dark": "#E4D9C2",
+    "sumi": "#1B1A1E",
+    "sumi_hud_bg": "rgba(27,26,30,0.92)",
+    "vermilion": "#D7372B",
+    "vermilion_dark": "#B3261C",
+    "gold": "#E2A93B",
+    "gold_dark": "#C49A45",
+    "text_muted": "#5A5148",
+    "line_muted": "#CFC4AE",
+    "disabled": "#A99E8B",
+    "jade_up": "#2E7D4F",
+    "jade_up_on_dark": "#8FD6A8",
+    "malus_on_dark": "#FF8A7A",
+    "attack_zone_fill": "#E3242B @ 42-45%",
+    "attack_zone_stroke": "#FF4A3D 3.5 + #FFFFFF 1.2 dash 6/6"
+  },
+  "elements": {
+    "feu": {
+      "washi": "#D7372B",
+      "nuit": "#E8574A",
+      "icon": "icons/elements/feu.svg"
+    },
+    "eau": {
+      "washi": "#1F3A5F",
+      "nuit": "#5B8BC9",
+      "icon": "icons/elements/eau.svg"
+    },
+    "foudre": {
+      "washi": "#C49A45",
+      "nuit": "#E2B862",
+      "icon": "icons/elements/foudre.svg"
+    },
+    "vent": {
+      "washi": "#5F8F86",
+      "nuit": "#7DB3A8",
+      "icon": "icons/elements/vent.svg"
+    },
+    "ombre": {
+      "washi": "#3A3846",
+      "nuit": "#8E89A8",
+      "icon": "icons/elements/ombre.svg"
+    },
+    "neutre": {
+      "washi": "#6E5A44",
+      "nuit": "#B39A7C",
+      "icon": "icons/elements/neutre.svg",
+      "note": "pas d'anneau d'harmonie"
+    },
+    "figure": {
+      "washi": "#A8436B",
+      "nuit": "#D06A93",
+      "icon": "icons/elements/figure.svg"
+    }
+  },
+  "figures_ink": {
+    "boucle": "#3E9C8C",
+    "zigzag": "#D9A93A",
+    "trait_droit": "#C8463A",
+    "aller_retour": "#3D7EC4",
+    "enso": "#C2668F",
+    "crochet": "#8A5BB0"
+  },
+  "rarity_border": {
+    "commun": "2px #8C8273",
+    "rare": "3px #2F5D8A",
+    "epique": "3px #8A5BB0 + filet intérieur 1.5px #8A5BB0 à 2px de retrait",
+    "legendaire": "3px #C49A45 + filet intérieur 1.5px #C49A45 à 2px + contour extérieur 2px #1B1A1E",
+    "pacte": "vermillon, pas de crans"
+  },
+  "multiplier_chip": {
+    "x1.5": "#3E9C8C",
+    "x2": "#E2A93B",
+    "x3": "#E25A3F",
+    "x4": "#C2668F + halo (2-3 cercles alpha décroissant)"
+  },
+  "fonts": {
+    "titles": "Shippori Mincho ExtraBold (800) — titres, noms, libellés de boutons",
+    "numerals": "Zen Kaku Gothic New Black (900), tabular-nums, line-height 1 — TOUS les chiffres (HUD, cartes, tickets, prix)",
+    "body": "Zen Kaku Gothic New 500/700",
+    "licence": "Les deux polices sont sous SIL Open Font License (Google Fonts) : à embarquer dans res://fonts/"
+  },
+  "stroke": {
+    "icon_grid": 32,
+    "icon_stroke": 2.2,
+    "caps": "round"
+  }
+}

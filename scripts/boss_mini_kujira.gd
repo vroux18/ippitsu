@@ -312,7 +312,7 @@ func _kaeshi() -> void:
 	main.float_text(head + Vector3(0, 0.6, 0), "返", Toon.VERMILION)
 	main.big_hit(head + Vector3(0, 0.4, 0))
 	main.splash(head + Vector3(0, 0.6, 0), FOAM, 22)
-	main.shake = maxf(float(main.shake), 0.5)
+	main.shake = maxf(float(main.shake), 0.86)
 	_shield_dmg(shield_max)
 
 

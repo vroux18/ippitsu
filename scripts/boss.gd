@@ -470,7 +470,7 @@ func _shield_break() -> void:
 	main.sfx.play("strike", 1.6, -3.0)
 	main.sfx.play("torii", 1.25, -6.0)
 	main.feel("heavy")
-	main.shake = maxf(float(main.shake), 0.45)
+	main.shake = maxf(float(main.shake), 0.69)
 	if kind == "okappa":
 		# sonné : coupelle renversée, plus d'attaque
 		_cancel()

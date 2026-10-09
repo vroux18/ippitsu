@@ -176,7 +176,21 @@ var combo := 0
 var origin := Vector3.ZERO
 var _prev_hero := Vector3.ZERO
 
-var shake := 0.0
+var shake := 0.0  # secousse : amplitude linéaire (shake × 0,35 m)
+# impact d'un coup : arrêt sur image bref (temps réel), croissant avec la série, plafonné par trait
+const HITSTOP_HIT := 0.035
+const HITSTOP_KILL := 0.065
+const HITSTOP_BOSS := 0.05
+const HITSTOP_STEP := 0.01
+const HITSTOP_MAX := 0.12
+const HITSTOP_STROKE := 0.3  # arrêt cumulé maximal sur un trait
+const HITSTOP_SCALE := 0.03  # échelle de temps pendant l'arrêt
+var _hitstop := 0.0  # secondes réelles d'arrêt restantes
+var _stroke_stop := 0.0  # arrêt déjà donné sur le trait en cours
+var _kick := Vector3.ZERO  # poussée de caméra dans le sens du coup (retombe vite)
+var _zoom_k := 0.0  # rapproché bref de la caméra sur une belle série (1 -> 0 en 0,3 s)
+const ZOOM_PUNCH := 0.6
+const COMBO_PITCH := [1.0, 1.122, 1.26, 1.498, 1.682, 2.0]  # son de coup : gamme pentatonique
 var wave_wait := 1.0
 var safety_left := 1  # pas de côté automatiques restants dans la salle
 const ATTACK_TOKENS := 2  # ennemis autorisés à préparer une attaque en même temps
@@ -2157,6 +2171,9 @@ func _start(hub := true, tutorial := false) -> void:
 	game_over = false
 	touching = false
 	shake = 0.0
+	_kick = Vector3.ZERO
+	_zoom_k = 0.0
+	_hitstop = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
 	perf_mark("start", Time.get_ticks_usec() - t0)  # nouvelle partie entière (salle, héros, remise à zéro)
@@ -2275,7 +2292,7 @@ func _spawn_boss(k: String) -> Node3D:
 	bosses.append(b)
 	music.play_boss(current_world, is_mini_boss(k))
 	sfx.play("strike", 0.5)
-	shake = 0.4
+	shake = 0.55
 	perf_mark("boss_spawn", Time.get_ticks_usec() - t0)
 	return b
 
@@ -2348,7 +2365,7 @@ func _update_boss_intro(real: float) -> void:
 	if not _intro_roar and _state_t >= 0.3:
 		# rugissement : grondement grave, coup sourd, secousse
 		_intro_roar = true
-		shake = 0.5 if _intro_mini else 0.65
+		shake = 0.86 if _intro_mini else 1.45
 		sfx.play("hurt", 0.4, 1.0)
 		sfx.play("strike", 0.42, 2.0)
 		sfx.play("whoosh", 0.5, -2.0)
@@ -2427,7 +2444,7 @@ func boss_killed(b: Node3D) -> void:
 			_flawless_boss = true
 			float_text(b.position, "SANS UNE ÉGRATIGNURE", Toon.GOLD)
 	score.on_boss(is_mini_boss(String(b.kind)), clean, chain)
-	shake = 0.7
+	shake = 1.68
 	sfx.play("kill", 0.6)
 	feel("boss_death")
 	_splash(b.position, Toon.VERMILION, 30)
@@ -2446,8 +2463,34 @@ func boss_killed(b: Node3D) -> void:
 
 
 ## Retour haptique nommé (motifs dans sfx.gd) : sans effet hors mobile ou si l'option est coupée.
-func feel(kind: String) -> void:
-	sfx.haptic(kind)
+func feel(kind: String, boost := 0.0) -> void:
+	sfx.haptic(kind, boost)
+
+
+## Arrêt sur image après un coup : `base` + un cran par touche de la série (plafonds par coup et par trait).
+## Jamais pour le robot, ni hors du jeu (pause, rouleaux, mort), ni pendant le pas de côté automatique.
+func _add_hitstop(base: float) -> void:
+	if _bot != null or _auto_step or game_over or not (state in ["play", "tuto"]):
+		return
+	var want := minf(HITSTOP_MAX, base + HITSTOP_STEP * float(clampi(combo - 1, 0, 5)))
+	want = minf(want, _hitstop + maxf(0.0, HITSTOP_STROKE - _stroke_stop))
+	if want <= _hitstop:
+		return
+	_stroke_stop += want - _hitstop
+	_hitstop = want
+
+
+## Poussée de caméra dans le sens du coup (`amount` m), qui retombe vite (_process).
+func _cam_kick(dir: Vector3, amount: float) -> void:
+	var d := Vector3(dir.x, 0.0, dir.z)
+	if d.length_squared() < 0.0001:
+		return
+	_kick = d.normalized() * amount
+
+
+## Hauteur du son de coup : gamme pentatonique qui monte avec la série.
+func _combo_pitch() -> float:
+	return float(COMBO_PITCH[clampi(combo - 1, 0, COMBO_PITCH.size() - 1)])
 
 
 func small_hit(pos: Vector3) -> void:
@@ -2456,7 +2499,7 @@ func small_hit(pos: Vector3) -> void:
 
 
 func big_hit(pos: Vector3) -> void:
-	shake = maxf(shake, 0.35)
+	shake = maxf(shake, 0.42)
 	sfx.play("kill", 0.9)
 	feel("heavy")
 	_splash(pos, Toon.VERMILION, 24)
@@ -2464,7 +2507,7 @@ func big_hit(pos: Vector3) -> void:
 
 
 func clang(pos: Vector3) -> void:
-	shake = maxf(shake, 0.15)
+	shake = maxf(shake, 0.08)
 	sfx.play("empty", 0.5)
 	feel("clang")
 	_splash(pos, Toon.FOAM, 10)
@@ -3539,7 +3582,7 @@ func _award(victory: bool) -> void:
 
 func _take_curse(id: String) -> void:
 	curses.append(id)
-	shake = 0.4
+	shake = 0.55
 	sfx.play("strike", 0.5)
 	sfx.play("pact", 0.8, -2.0)
 	feel("heavy")
@@ -3780,7 +3823,7 @@ func _apply_shape() -> void:
 
 ## Fin d'un bond (figure) : les pouvoirs de figure frappent à l'atterrissage.
 func _on_hero_landed() -> void:
-	shake = maxf(shake, 0.5)
+	shake = maxf(shake, 0.86)
 	sfx.play("strike", 0.7)
 	feel("heavy")
 	powers.figure_landed(hero.position)
@@ -4250,7 +4293,7 @@ func _ultimate() -> void:
 	vfx.ink_wave(hp, 5.5)
 	shape_text(hp + Vector3(0, 1.2, 0), "筆")
 	hud.screen_flash = maxf(hud.screen_flash, 0.5)
-	shake = maxf(shake, 0.7)
+	shake = maxf(shake, 1.68)
 	sfx.play("iai", 0.8)
 	sfx.play("kill", 0.7)
 	feel("heavy")
@@ -4289,6 +4332,7 @@ func _launch(s: MeshInstance3D) -> void:
 	stroke_id += 1
 	combo = 0
 	_stroke_kills = 0
+	_stroke_stop = 0.0
 	_stroke_hit = false
 	_prev_hero = hero.position
 	hero.speed_mult = powers.dash_mult()
@@ -4417,7 +4461,7 @@ func is_danger(p: Vector3, eta: float) -> bool:
 
 
 func enemy_strike(center: Vector3, r: float) -> void:
-	shake = maxf(shake, 0.12)
+	shake = maxf(shake, 0.08)
 	sfx.play("strike", randf_range(0.9, 1.1), -3.0)
 	_blot(center, Color(Toon.VERMILION, 0.35), r * 0.9, 0.6)
 	# le coup tombe : bref anneau d'encre sur le bord de la zone
@@ -4469,7 +4513,7 @@ func _hurt_hero() -> void:
 	_break_chain()
 	score.on_hurt()
 	hud.hurt_flash = 1.0
-	shake = 0.45
+	shake = 0.69
 	sfx.play("hurt")
 	feel("hurt")
 	_splash(hero.position, Toon.SUMI, 14)
@@ -4528,19 +4572,27 @@ func _check_slashes() -> void:
 			gain_ult(0.06 if killed else 0.03)
 			_dmg_text(p, dmg, killed, e)
 			vfx.impact(p, dir, killed)
+			_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
+			_cam_kick(dir, 0.25 if killed else 0.12)
 			if killed:
 				_on_enemy_killed(e)
-				# le grand 斬 ne vient que sur une belle série ; quelques gouttes à la couleur du yōkai
-				vfx.kill_burst(p, dir, combo >= 3, _ink_tint(e))
-				hud.screen_flash = maxf(hud.screen_flash, 0.12)
+				# le grand 斬 dès la deuxième touche du trait ; quelques gouttes à la couleur du yōkai
+				vfx.kill_burst(p, dir, combo >= 2, _ink_tint(e))
+				hud.screen_flash = maxf(hud.screen_flash, 0.25)
 			if killed:
 				kills += 1
 				_stroke_kills += 1
 				powers.on_kill(e)
+				if _stroke_kills == 3:
+					_zoom_k = 1.0  # trois d'un trait : la caméra s'approche un instant
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
-			shake = maxf(shake, 0.11 if killed else 0.05)
-			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
-			feel("multi" if killed and _stroke_kills == 3 else ("kill" if killed else "hit"))
+			shake = maxf(shake, 0.3 if killed else 0.15)
+			sfx.play("kill" if killed else "slash", _combo_pitch())
+			if killed:
+				sfx.play("strike", 0.7, -6.0)  # coup sourd sous la mise à mort
+			var boost := 0.05 * float(mini(combo, 5))
+			feel("multi" if killed and _stroke_kills >= 2 else ("kill" if killed else "hit"), boost)
+			hero.slash_pop()
 			# touche : quelques gouttes d'encre (la mise à mort a sa giclée et sa tache, vfx.kill_burst)
 			if not killed:
 				_splash(p, Toon.SUMI, 3)
@@ -4560,9 +4612,12 @@ func _check_slashes() -> void:
 			gain_ult(0.025)
 			powers.on_boss_hit(bo.position, bd)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
-			shake = maxf(shake, 0.22)
-			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
+			_add_hitstop(HITSTOP_BOSS)
+			_cam_kick(bdir, 0.12)
+			shake = maxf(shake, 0.17)
+			sfx.play("slash", 0.85 * _combo_pitch())
 			feel("boss_hit")
+			hero.slash_pop()
 			_splash(bo.position + Vector3(0, 0.6, 0), Toon.SUMI, 5)
 			_slash_mark(bo.position, bdir)
 			vfx.impact(bo.position, bdir, false)
@@ -4802,11 +4857,13 @@ func _process(_delta: float) -> void:
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):
 		Engine.time_scale = 0.0
+		_hitstop = 0.0
 		return
 	# tutoriel : arrêt sur image le temps de lire une bulle du coach (figé comme la pause ; le coach compte
 	# en temps réel, se lève au toucher ou seul au bout de quelques secondes)
 	if state == "play" and not game_over and coach.frozen():
 		Engine.time_scale = 0.0
+		_hitstop = 0.0
 		return
 
 	# temps : fin de partie au ralenti, sinon normal
@@ -4831,7 +4888,12 @@ func _process(_delta: float) -> void:
 				_slowmo_t = -1.0
 	elif _slowmo_t >= 0.0 and state != "pick":
 		_slowmo_t = -1.0
-	if target < Engine.time_scale:
+	# arrêt sur image d'un coup (temps réel) : le temps se fige net, sans fondu, puis reprend son cours
+	if _hitstop > 0.0:
+		_hitstop = maxf(0.0, _hitstop - real)
+	if _hitstop > 0.0 and _bot == null and not game_over and state in ["play", "tuto"]:
+		Engine.time_scale = HITSTOP_SCALE
+	elif target < Engine.time_scale:
 		Engine.time_scale = lerpf(Engine.time_scale, target, minf(1.0, real * 18.0))
 	else:
 		Engine.time_scale = target
@@ -4997,6 +5059,13 @@ func _process(_delta: float) -> void:
 	if _slowmo_t >= 0.0:
 		# léger rapproché vers le dernier coup
 		cb.origin = cb.origin.lerp(_slowmo_pos + Vector3(0, 0.8, 0), 0.14 * _slowmo_w())
+	# belle série : la caméra s'avance d'un coup puis revient en 0,3 s (temps réel)
+	if _zoom_k > 0.0:
+		_zoom_k = maxf(0.0, _zoom_k - real / 0.3)
+		var zk := _zoom_k * _zoom_k * (3.0 - 2.0 * _zoom_k)
+		cb.origin -= cb.basis.z.normalized() * ZOOM_PUNCH * zk
+	# poussée dans le sens du coup : retombe très vite
+	_kick = _kick.lerp(Vector3.ZERO, minf(1.0, real * 22.0))
 
 	# barque (accueil, carte, départ) : pas d'anneau au sol sous le héros
 	if is_instance_valid(hero):
@@ -5038,13 +5107,14 @@ func _process(_delta: float) -> void:
 		_rock_boat(real)
 		cam.global_transform = _menu_transform()
 	elif state == "boss_intro":
-		shake = maxf(0.0, shake - real * 1.6)
-		var si := shake * shake * 1.2
+		# secousse linéaire, qui retombe d'autant plus vite qu'elle est forte (durées proches de l'ancienne)
+		shake = maxf(0.0, shake - real * (1.6 + 3.0 * shake))
+		var si := shake * 0.35
 		cam.global_transform = _boss_intro_cam().translated(Vector3(randf_range(-si, si), randf_range(-si, si) * 0.5, randf_range(-si, si)))
-	elif shake > 0.0:
-		shake = maxf(0.0, shake - real * 1.6)
-		var s := shake * shake * 1.2
-		cam.global_transform = cb.translated(Vector3(randf_range(-s, s), randf_range(-s, s) * 0.5, randf_range(-s, s)))
+	elif shake > 0.0 or _kick.length_squared() > 0.000001:
+		shake = maxf(0.0, shake - real * (1.6 + 3.0 * shake))
+		var s := shake * 0.35
+		cam.global_transform = cb.translated(Vector3(randf_range(-s, s), randf_range(-s, s) * 0.5, randf_range(-s, s)) + _kick)
 	else:
 		cam.global_transform = cb
 

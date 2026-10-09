@@ -191,7 +191,7 @@ func _zone_fire(z: Dictionary) -> void:
 	var o: Vector3 = z["c"]
 	for k in 4:
 		main.splash(o + _breath_dir * (1.5 + 1.4 * float(k)) + Vector3(0, 0.4, 0), SNOW, 6)
-	main.shake = maxf(float(main.shake), 0.15)
+	main.shake = maxf(float(main.shake), 0.08)
 	_spawn_path()
 	_state = "path"
 	_timer = PATH_TIME
@@ -309,7 +309,7 @@ func _shatter() -> void:
 	main.float_text(position + Vector3(0, 1.6, 0), "雪", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.0, 0))
 	main.splash(position + Vector3(0, 1.4, 0), ICE, 30)
-	main.shake = maxf(float(main.shake), 0.45)
+	main.shake = maxf(float(main.shake), 0.69)
 	_shield_dmg(shield_max)
 
 

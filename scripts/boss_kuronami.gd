@@ -570,7 +570,7 @@ func _check_enso(samples: Array) -> void:
 		main.big_hit(Vector3(0, 0.5, 0))
 		main.splash(Vector3(0, 0.6, 0), INK, 24)
 		main.float_text(Vector3(0, 1.6, 0), "Ensō !", SHIELD_C)
-		main.shake = maxf(float(main.shake), 0.6)
+		main.shake = maxf(float(main.shake), 1.23)
 		_shield_dmg(shield_max)
 	elif absf(turn) >= PI:
 		# une boucle ratée : on explique pourquoi
@@ -800,7 +800,7 @@ func _begin_shift() -> void:
 	_clear_all()
 	_state = "shift"
 	_timer = 2.2
-	main.shake = maxf(float(main.shake), 0.5)
+	main.shake = maxf(float(main.shake), 0.86)
 	# nouvelle phase : l'œil replonge, le bouclier se reforme
 	_eye.visible = false
 	_eye_grace = 0.0
@@ -1140,7 +1140,7 @@ func _shield_break() -> void:
 	main.sfx.play("strike", 1.3, -3.0)
 	main.sfx.play("torii", 1.25, -6.0)
 	main.feel("heavy")
-	main.shake = maxf(float(main.shake), 0.6)
+	main.shake = maxf(float(main.shake), 1.23)
 	main.splash(Vector3(0, 0.6, 0), INK, 20)
 	_resume = _state
 	_state = "stagger"

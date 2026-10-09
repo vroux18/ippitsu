@@ -45,6 +45,8 @@ var _lean := 0.0
 var _flash := 0.0
 # apparence de l'Atelier : sillage de lame (ruban qui suit la ruée)
 const TRAIL_LIFE := 0.22
+const TRAIL_LIFE_DASH := 0.3  # sillage plus long pendant la ruée
+var _trail_life := TRAIL_LIFE
 var _trail: MeshInstance3D
 var _trail_mesh: ImmediateMesh
 var _trail_col := Color.WHITE
@@ -57,6 +59,8 @@ const LEAN := 0.24  # penché de course
 var _blade_hand: Node3D
 var _hilt: MeshInstance3D  # poignée qui dépasse du fourreau (cachée quand le sabre est tiré)
 var _drawn_t := 0.0
+const POP_GAP := 0.15  # geste de sabre à chaque touche : pas plus d'un toutes les 0,15 s
+var _pop_t := 0.0
 var _life := 0.0
 var _scarf_col := SCARF_DEF
 var _scarf_mat: StandardMaterial3D  # col de l'écharpe (sommets blancs teintés)
@@ -220,12 +224,26 @@ func start_dash(p: PackedVector3Array) -> void:
 			plen += p[i].distance_to(p[i - 1])
 		if plen < 3.0:
 			ch.play_once("1H_Melee_Attack_Slice_Horizontal", 2.6)
+			_pop_t = POP_GAP
 		else:
 			run_anim(2.6)
 	_drawn_t = DRAWN_T
 	path = p
 	path_i = 1
 	dashing = true
+
+
+## Touche pendant la ruée : le sabre repart d'un coup de taille (si le dernier geste date de plus de POP_GAP).
+## Rien pendant une technique (toupie, garde, bond, estoc) ni une autre animation jouée une fois.
+func slash_pop() -> void:
+	if dead or _pop_t > 0.0 or protected():
+		return
+	var slice := "1H_Melee_Attack_Slice_Horizontal"
+	if ch._once and String(ch._current) != slice:
+		return
+	_pop_t = POP_GAP
+	_drawn_t = DRAWN_T
+	ch.play_once(slice, 2.6)
 
 
 ## Arrête net la ruée (bouclier, ricochet).
@@ -337,6 +355,8 @@ func _process(delta: float) -> void:
 			# le coup de sabre fini, la ruée continue en courant (plus de glissade figée)
 			run_anim(2.6)
 
+	if _pop_t > 0.0:
+		_pop_t -= delta
 	# techniques
 	if spinning > 0.0:
 		spinning -= delta
@@ -571,12 +591,14 @@ func _dust() -> void:
 		m.call("splash", position + Vector3(0, 0.15, 0), Toon.WASHI, 5)
 
 
-## Ruban vertical à hauteur de lame, qui s'efface en TRAIL_LIFE secondes.
+## Ruban vertical à hauteur de lame, qui s'efface en TRAIL_LIFE secondes (TRAIL_LIFE_DASH en ruée).
 func _update_trail(delta: float) -> void:
 	_trail_clock = fmod(_trail_clock + delta, 1000.0)
+	# durée du sillage : plus longue en ruée, revient en douceur (pas de saut de la traîne)
+	_trail_life = move_toward(_trail_life, TRAIL_LIFE_DASH if dashing else TRAIL_LIFE, delta * 0.5)
 	for p in _trail_pts:
 		p[1] = float(p[1]) + delta
-	while not _trail_pts.is_empty() and float(_trail_pts[0][1]) > TRAIL_LIFE:
+	while not _trail_pts.is_empty() and float(_trail_pts[0][1]) > _trail_life:
 		_trail_pts.pop_front()
 	if dashing or _leap_t >= 0.0:
 		_trail_pts.append([body.global_position + Vector3(0, 0.9, 0), 0.0, _trail_clock])
@@ -587,7 +609,7 @@ func _update_trail(delta: float) -> void:
 	var n := _trail_pts.size()
 	for i in n:
 		var p: Array = _trail_pts[i]
-		var k := 1.0 - float(p[1]) / TRAIL_LIFE
+		var k := 1.0 - float(p[1]) / _trail_life
 		# pointe effilée à la tête du trait
 		var tip := minf(1.0, float(n - 1 - i) * 0.45 + 0.4)
 		var c := Color(_trail_col, 0.8 * k)

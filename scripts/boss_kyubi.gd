@@ -624,7 +624,7 @@ func _shield_break() -> void:
 	main.sfx.play("strike", 1.6, -3.0)
 	main.sfx.play("torii", 1.25, -6.0)
 	main.feel("heavy")
-	main.shake = maxf(float(main.shake), 0.45)
+	main.shake = maxf(float(main.shake), 0.69)
 	# sonné : plus d'attaque le temps de la fenêtre
 	_cancel()
 	match _phase:
@@ -893,7 +893,7 @@ func _start_phase2() -> void:
 		hn.visible = false
 	_shift_from = position
 	main.float_text(position + Vector3(0, 0.4, 0), "九尾", Toon.GOLD)
-	main.set("shake", maxf(float(main.get("shake")), 0.4))
+	main.set("shake", maxf(float(main.get("shake")), 0.55))
 	_spawn_ground_tails()
 
 
@@ -908,7 +908,7 @@ func _start_phase3() -> void:
 	_clear_ground_tails()
 	_sync_body_tails()
 	main.float_text(position + Vector3(0, 0.4, 0), "逃", Toon.VERMILION)
-	main.set("shake", maxf(float(main.get("shake")), 0.4))
+	main.set("shake", maxf(float(main.get("shake")), 0.55))
 
 
 func _plan_route() -> void:

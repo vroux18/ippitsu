@@ -1116,7 +1116,7 @@ func _hit_band() -> void:
 		main._splash(Vector3(lerpf(_zone.position.x + 0.8, _zone.end.x - 0.8, float(k) / 4.0), 0.3, _band_z), Toon.FOAM, 10)
 	_crest_t = 0.0
 	main.sfx.play("strike", 0.6)
-	main.shake = maxf(main.shake, 0.3)
+	main.shake = maxf(main.shake, 0.31)
 	_end_band()
 
 

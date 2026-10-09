@@ -359,7 +359,7 @@ func _zone_fire(z: Dictionary) -> void:
 			main.enemy_strike(Vector3(hero.position.x, 0, hero.position.z), 0.4)
 		for k in 5:
 			main.vfx.water_burst(Vector3(-3.6 + 1.8 * float(k), 0, c.z), 0.8)
-		main.shake = maxf(float(main.shake), 0.35)
+		main.shake = maxf(float(main.shake), 0.42)
 	elif tag == "breath":
 		var o: Vector3 = z["c"]
 		var d: Vector3 = z["dir"]
@@ -367,7 +367,7 @@ func _zone_fire(z: Dictionary) -> void:
 			main.enemy_strike(Vector3(hero.position.x, 0, hero.position.z), 0.4)
 		for k in 5:
 			main.vfx.water_burst(o + d * (1.6 + 1.7 * float(k)), 0.5 + 0.12 * float(k))
-		main.shake = maxf(float(main.shake), 0.3)
+		main.shake = maxf(float(main.shake), 0.31)
 
 
 func _on_die() -> void:

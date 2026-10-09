@@ -143,7 +143,7 @@ func _zone_fire(z: Dictionary) -> void:
 		var c: Vector3 = z["c"]
 		main.enemy_strike(c, HOWL_R)
 		main.vfx.ring(Vector3(c.x, 0.08, c.z), HUNGER, HOWL_R)
-		main.shake = maxf(float(main.shake), 0.35)
+		main.shake = maxf(float(main.shake), 0.42)
 		_state = "idle"
 		_timer = 1.6 if hp > max_hp * 0.5 else 1.2
 
@@ -311,7 +311,7 @@ func _cut_chains(a: Vector3, b: Vector3) -> void:
 	if n_cut >= _chains.size() and vulnerable_t <= 0.0 and not dead:
 		main.float_text(position + Vector3(0, 2.4, 0), "断", Toon.GOLD)
 		main.big_hit(position + Vector3(0, 1.4, 0))
-		main.shake = maxf(float(main.shake), 0.45)
+		main.shake = maxf(float(main.shake), 0.69)
 		_shield_dmg(shield_max)
 
 

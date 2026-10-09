@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Fiche monstre Oni</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+.sh{font-family:'Shippori Mincho',serif;font-weight:800}
+.lab{font-weight:700;font-size:9px;letter-spacing:2px;color:#7A6F60}
+.tile{flex:1 1 0;border-radius:12px;background:#F5EEDD;border:1.5px solid #CFC4AE;padding:10px 12px;box-sizing:border-box;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:8px;font-weight:700;font-size:11.5px}
+.disk{flex:none;width:30px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center}
+.nav{width:44px;height:44px;border-radius:22px;background:#EFE6D2;border:2px solid #1B1A1E;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+</style>
+</helmet>
+<div style="width: 400px; height: 860px; position: relative; overflow: hidden; background: #EFE6D2; font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; color: #1B1A1E">
+<svg width="400" height="860" viewBox="0 0 400 860" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<defs><pattern id="kf" width="24" height="28" patternUnits="userSpaceOnUse"><polygon points="12,1 23,7.5 23,20.5 12,27 1,20.5 1,7.5" fill="none" stroke="#3A3846" stroke-width="0.9" stroke-opacity="0.12"></polygon></pattern></defs>
+<rect width="400" height="860" fill="url(#kf)"></rect>
+</svg>
+
+<a href="Bestiaire.dc.html" aria-label="Retour au bestiaire" style="position: absolute; left: 14px; top: 36px; width: 44px; height: 44px; border-radius: 22px; background: #1B1A1E; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M20 6 L10 16 L20 26" fill="none" stroke="#EFE6D2" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+</a>
+<div style="position: absolute; left: 0; right: 0; top: 38px; display: flex; flex-direction: column; align-items: center">
+<div style="display: flex; align-items: center; gap: 8px"><h1 class="sh" style="margin: 0; font-size: 22px; letter-spacing: 5px">BESTIAIRE</h1></div>
+<svg width="150" height="8" viewBox="0 0 200 10" aria-hidden="true"><path d="M4 6 C 60 1, 140 2, 196 5 L 190 8 C 130 9, 60 9, 8 8 Z" fill="#D7372B"></path></svg>
+</div>
+<div style="position: absolute; right: 14px; top: 41px; height: 34px; box-sizing: border-box; padding: 0 12px; border-radius: 17px; background: #1B1A1E; color: #EFE6D2; display: flex; align-items: center; gap: 6px"><span class="sh" style="font-size: 14px; color: #E2A93B">1</span><b class="sh" style="font-size: 12px; opacity: 0.6">/55</b></div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 96px; height: 300px; border-radius: 18px; overflow: hidden; background: #1F3A5F">
+<svg width="372" height="300" viewBox="0 0 372 300" style="position: absolute; left: 0; top: 0" aria-hidden="true">
+<defs><pattern id="sgf" width="32" height="16" patternUnits="userSpaceOnUse"><path d="M0 16 a16 16 0 0 1 32 0 M5 16 a11 11 0 0 1 22 0 M10 16 a6 6 0 0 1 12 0" fill="none" stroke="#EFE6D2" stroke-width="1.2" stroke-opacity="0.18"></path></pattern></defs>
+<rect width="372" height="300" fill="url(#sgf)"></rect>
+<circle cx="186" cy="130" r="96" fill="#EFE6D2" fill-opacity="0.08"></circle>
+<ellipse cx="186" cy="252" rx="92" ry="20" fill="#110E11" fill-opacity="0.45"></ellipse>
+<ellipse cx="186" cy="248" rx="92" ry="20" fill="none" stroke="#E2A93B" stroke-width="1.5" stroke-dasharray="4 6"></ellipse>
+<path d="M120 250 C 118 200, 140 168, 186 166 C 232 168, 254 200, 252 250 Z" fill="#3E7A57" stroke="#1B1A1E" stroke-width="3.5"></path>
+<rect x="152" y="196" width="68" height="10" fill="#C49A45" stroke="#1B1A1E" stroke-width="2"></rect>
+<circle cx="186" cy="128" r="50" fill="#3E7A57" stroke="#1B1A1E" stroke-width="3.5"></circle>
+<polygon points="156,96 146,50 172,88" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="2.5"></polygon>
+<polygon points="216,96 226,50 200,88" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="2.5"></polygon>
+<path d="M156 120 L176 128 M216 120 L196 128" stroke="#1B1A1E" stroke-width="4" stroke-linecap="round"></path>
+<circle cx="170" cy="134" r="6" fill="#E2A93B" stroke="#1B1A1E" stroke-width="2"></circle><circle cx="202" cy="134" r="6" fill="#E2A93B" stroke="#1B1A1E" stroke-width="2"></circle>
+<path d="M168 156 Q186 146 204 156 L200 162 L194 156 L186 162 L178 156 L172 162 Z" fill="#EFE6D2" stroke="#1B1A1E" stroke-width="2"></path>
+<path d="M252 200 L300 120" stroke="#6B4A2E" stroke-width="12" stroke-linecap="round"></path>
+<path d="M290 134 L312 98" stroke="#3B2A1E" stroke-width="18" stroke-linecap="round"></path>
+<g fill="#1B1A1E"><circle cx="300" cy="112" r="3"></circle><circle cx="306" cy="122" r="3"></circle><circle cx="296" cy="124" r="3"></circle></g>
+</svg>
+<div style="position: absolute; left: 12px; top: 12px; height: 28px; padding: 0 10px 0 4px; border-radius: 14px; background: rgba(17,14,17,0.75); color: #EFE6D2; display: flex; align-items: center; gap: 6px"><span class="sh" style="width: 20px; height: 20px; border-radius: 3px; background: #1F3A5F; border: 1.5px solid #EFE6D2; box-sizing: border-box; display: flex; align-items: center; justify-content: center; font-size: 11px"><svg width="11.6" height="11.6" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M3 12 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 M3 21 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0 q3.25 -4.5 6.5 0" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></span><span class="sh" style="font-size: 12px">1 · 1/7</span></div>
+<div style="position: absolute; right: 12px; top: 12px; width: 32px; height: 32px; border-radius: 16px; background: rgba(17,14,17,0.75); display: flex; align-items: center; justify-content: center" aria-label="Rotation 360°"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 16 C 5 11, 10 8, 16 8 C 22 8, 27 11, 27 16 M27 16 C 27 21, 22 24, 16 24 C 12 24, 8 23, 6 20 M6 20 L4 25 M6 20 L11 21" fill="none" stroke="#EFE6D2" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>
+<button class="nav" aria-label="Fiche précédente" style="position: absolute; left: 10px; top: 128px; opacity: 0.35"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M20 6 L10 16 L20 26" fill="none" stroke="#1B1A1E" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+<button class="nav" aria-label="Fiche suivante" style="position: absolute; right: 10px; top: 128px"><svg width="16" height="16" viewBox="0 0 32 32" aria-hidden="true"><path d="M12 6 L22 16 L12 26" fill="none" stroke="#1B1A1E" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"></path></svg></button>
+</div>
+
+<div style="position: absolute; left: 22px; right: 22px; top: 410px; display: flex; align-items: center; gap: 12px">
+<span class="sh" style="width: 52px; height: 52px; border-radius: 6px; background: #D7372B; color: #EFE6D2; display: flex; align-items: center; justify-content: center; font-size: 30px; transform: rotate(-4deg); box-shadow: 0 0 0 2px #1B1A1E"><svg width="31.5" height="31.5" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z" fill="currentColor" fill-rule="evenodd"></path></svg></span>
+<div style="display: flex; flex-direction: column; gap: 3px">
+<h2 class="sh" style="margin: 0; font-size: 28px; line-height: 1">Oni</h2>
+<span style="font-size: 12.5px; color: #5A5148">Ogre cornu des légendes, gardien des enfers.</span>
+</div>
+<div style="margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
+<b class="sh" style="font-size: 24px">42</b><span class="lab">VAINCUS</span>
+</div>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 490px; display: flex; gap: 10px">
+<div class="tile">
+<span class="lab" style="color: #B3261C">ATTAQUE</span>
+<div class="row"><span class="disk" style="background: #F7D9D4"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12" fill="#E3242B" fill-opacity="0.45" stroke="#A8121A" stroke-width="2.5"></circle><circle cx="16" cy="16" r="3" fill="#1B1A1E"></circle></svg></span>Massue en cercle</div>
+<div class="row"><span class="disk" style="background: #F7D9D4"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 22 Q16 4 28 22" fill="none" stroke="#A8121A" stroke-width="2.5" stroke-dasharray="3 3"></path><circle cx="28" cy="22" r="4" fill="#E3242B"></circle></svg></span>Bond</div>
+</div>
+<div class="tile">
+<span class="lab" style="color: #2E7D4F">PARADE</span>
+<div class="row"><span class="disk" style="background: #DCEBDF"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="5" fill="#1B1A1E"></circle><circle cx="16" cy="16" r="11" fill="none" stroke="#1B1A1E" stroke-width="1.6" stroke-dasharray="3 3"></circle></svg></span>Bondir hors zone</div>
+<div class="row"><span class="disk" style="background: #DCEBDF"><svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M14 16 a6 6 0 1 0 12 0 a6 6 0 1 0 -12 0 M4 26 L11 19 M4 20 V26 H10" fill="none" stroke="#1B1A1E" stroke-width="2.4" stroke-linecap="round"></path></svg></span>Frapper dans le dos</div>
+</div>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 636px; border-radius: 12px; background: #1B1A1E; color: #EFE6D2; padding: 12px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px">
+<span class="lab" style="color: #E2A93B">TRACES</span>
+<div style="display: flex; justify-content: space-between">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 27 L27 5" fill="none" stroke="#C8463A" stroke-width="3.4" stroke-linecap="round"></path></svg><b class="sh" style="font-size: 15px">18</b></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 26 C 5 12, 24 6, 22 17 C 20 27, 7 20, 15 12 C 21 7, 27 12, 28 5" fill="none" stroke="#3E9C8C" stroke-width="3.2" stroke-linecap="round"></path></svg><b class="sh" style="font-size: 15px">11</b></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M4 24 L11 8 L17 24 L23 8 L28 22" fill="none" stroke="#D9A93A" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg><b class="sh" style="font-size: 15px">7</b></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 12 L27 12 M23 8 L27 12 L23 16 M27 20 L5 20 M9 16 L5 20 L9 24" fill="none" stroke="#3D7EC4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg><b class="sh" style="font-size: 15px">4</b></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M24 7 A11 11 0 1 0 27 14" fill="none" stroke="#C2668F" stroke-width="3.2" stroke-linecap="round"></path></svg><b class="sh" style="font-size: 15px">2</b></div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 0.35"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 8 L23 8 Q27 8 26 12 L19 27" fill="none" stroke="#8A5BB0" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"></path></svg><b class="sh" style="font-size: 15px">0</b></div>
+</div>
+</div>
+
+<div style="position: absolute; left: 14px; right: 14px; top: 742px; display: flex; gap: 10px">
+<div style="flex: 1 1 0; height: 64px; border-radius: 12px; background: #E4D9C2; display: flex; align-items: center; justify-content: center; gap: 8px">
+<svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><path d="M5 7 H27 V25 H5 Z M8 22 L14 14 L18 19 L21 16 L25 22" fill="#C49A45" stroke="#1B1A1E" stroke-width="2.2" stroke-linejoin="round"></path></svg>
+<div style="display: flex; flex-direction: column; line-height: 1"><b class="sh" style="font-size: 16px">42<span style="font-size: 11px; opacity: 0.55"> / 100</span></b><span class="lab" style="margin-top: 3px">ESTAMPE</span></div>
+<div style="width: 60px; height: 6px; border-radius: 3px; background: #CFC4AE; overflow: hidden"><div style="width: 42%; height: 100%; background: #C49A45"></div></div>
+</div>
+<div style="width: 110px; height: 64px; border-radius: 12px; background: #E4D9C2; display: flex; align-items: center; justify-content: center; gap: 8px">
+<span class="sh" style="width: 26px; height: 26px; border-radius: 4px; background: #1B1A1E; color: #EFE6D2; display: flex; align-items: center; justify-content: center; font-size: 14px"><svg width="14.7" height="14.7" viewBox="0 0 32 32" style="display: block" aria-hidden="true"><path d="M7 4 L11.5 12.5 C8 14.5 6 17.5 6 21 C6 26.5 10.5 29.5 16 29.5 C21.5 29.5 26 26.5 26 21 C26 17.5 24 14.5 20.5 12.5 L25 4 L18 10.8 C16.7 10.6 15.3 10.6 14 10.8 Z M10.5 18.5 L15 20 L15 22 L10.5 21 Z M21.5 18.5 L17 20 L17 22 L21.5 21 Z" fill="currentColor" fill-rule="evenodd"></path></svg></span>
+<span class="lab" style="color: #1B1A1E">YOKAI</span>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

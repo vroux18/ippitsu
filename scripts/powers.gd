@@ -1299,7 +1299,7 @@ func figure_landed(pos: Vector3) -> void:
 		var rr := r * 1.4 + 0.4
 		main.vfx.ink_wave(pos, rr / 1.5, true)
 		_tag("ink_enso", pos)
-		main.shake = maxf(float(main.shake), 0.6)
+		main.shake = maxf(float(main.shake), 1.23)
 		_burst(pos, rr, val("ink_enso"), 8.0, "ink")
 		_add_inkring(pos, minf(rr, 4.0))
 
@@ -1390,7 +1390,7 @@ func _fig_cut(pts: PackedVector3Array, dmg: float, width: float) -> void:
 	if pts.size() < 2:
 		return
 	main.vfx.slash_line(pts[0], pts[pts.size() - 1])
-	main.shake = maxf(float(main.shake), 0.4)
+	main.shake = maxf(float(main.shake), 0.55)
 	main.sfx.play("kill", 1.3)
 	main.feel("figure")
 	var hits: Array = []
@@ -1442,7 +1442,7 @@ func _fig_counter(hp: Vector3) -> void:
 		_fig_hit(e, dmg, true, "fig_return")
 	if not targets.is_empty():
 		_tag("fig_return_counter", hp)
-		main.shake = maxf(float(main.shake), 0.3)
+		main.shake = maxf(float(main.shake), 0.31)
 		main.sfx.play("strike", 1.2, -3.0)
 
 
@@ -1509,14 +1509,14 @@ func _fig_hook(info: Dictionary, hp: Vector3) -> void:
 				_tag("fig_hook_back", op, false)
 			main.shadow_stab(hp, op)
 			_fig_hit(o, d, true, "fig_hook")
-		main.shake = maxf(float(main.shake), 0.25)
+		main.shake = maxf(float(main.shake), 0.21)
 		return
 	var bh: Array = _fig_boss(tip, rng, dmg)
 	if not bh.is_empty():
 		var bp: Vector3 = bh[0]
 		main.hero.stab(bp - hp)
 		main.shadow_stab(hp, bp)
-		main.shake = maxf(float(main.shake), 0.25)
+		main.shake = maxf(float(main.shake), 0.21)
 
 
 ## Ennemi pris de dos, ou sous la moitié de sa vie (Estoc assassin).
@@ -1553,7 +1553,7 @@ func on_hurt() -> bool:
 		var p: Vector3 = h.position
 		_shell(p)
 		main.shape_text(p, "逃")
-		main.shake = maxf(float(main.shake), 0.3)
+		main.shake = maxf(float(main.shake), 0.31)
 		main.sfx.play("whoosh", 0.7)
 		var d := val2("shadow_utsusemi")
 		_tag("shadow_utsusemi", p)
@@ -1574,7 +1574,7 @@ func on_hurt() -> bool:
 		main.vfx.embers(p2, 0.8, 10)
 		main.splash(p2, Vfx.FIRE_HOT, 14)
 		main.splash(p2, Vfx.FIRE, 14)
-		main.shake = 0.7
+		main.shake = 1.68
 		main.sfx.play("strike", 0.6)
 		main.float_text(p2, "+%d" % int(h.hp), Toon.VERMILION)
 		_tag("fire_hoo", p2)
@@ -1834,7 +1834,7 @@ func _drum() -> void:
 		_bolt_strike(hits[i], false)
 	_drum_pulse = 1.0
 	_tag("bolt_raijin", p)
-	main.shake = maxf(float(main.shake), 0.3)
+	main.shake = maxf(float(main.shake), 0.31)
 	main.sfx.play("strike", 1.3, -2.0)
 
 
@@ -2071,7 +2071,7 @@ func _add_wave(points: PackedVector3Array) -> void:
 	_tag("water_kanagawa", points[0])
 	main.sfx.play("whoosh", 0.5)
 	main.sfx.play("splash", 0.7, -2.0)
-	main.shake = maxf(float(main.shake), 0.35)
+	main.shake = maxf(float(main.shake), 0.42)
 
 
 func _add_clone(points: PackedVector3Array) -> void:

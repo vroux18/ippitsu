@@ -1531,7 +1531,7 @@ func sky_bolt(p: Vector3, big := false) -> void:
 		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 3, BOLT_CORE, 3.0, 7.0, 85.0)
 		_decal(g, 0.45 if big else 0.32, Color(0.12, 0.09, 0.05, 0.5), 1.0)
 		if big:
-			_shake(0.2)
+			_shake(0.14)
 	_play("thunder", randf_range(0.85, 0.95) if big else randf_range(1.0, 1.15), -3.0 if big else -7.0)
 
 
@@ -1742,7 +1742,8 @@ func fire_burst(pos: Vector3, r: float, hero := false) -> void:
 	embers(pos, r * 0.6, 6 if Toon.lite else 12, 1.3)
 	sparks(g + Vector3(0, 0.3, 0), Vector3.UP, 3 if Toon.lite else 5, FIRE_HOT, 4.0, 9.0, 60.0)
 	_decal(g, r * 0.7, Color(0.13, 0.06, 0.04, 0.5), 1.6)
-	_shake(minf(0.1 + 0.06 * r, 0.3))
+	var sv := minf(0.1 + 0.06 * r, 0.3)
+	_shake(maxf(0.08, sv * sv * 3.4))  # secousse linéaire (main) : même ressenti qu'avant
 	if r >= 2.2:
 		_flash(0.18)
 
@@ -1893,7 +1894,7 @@ func water_burst(pos: Vector3, r: float, hero := false) -> void:
 		if main:
 			main.splash(pos, WATER, 10)
 			main.splash(pos, WATER_FOAM, 7)
-		_shake(0.12)
+		_shake(0.08)
 		return
 	ring(Vector3(pos.x, 0.07, pos.z), WATER, r)
 	ring(Vector3(pos.x, 0.09, pos.z), WATER_FOAM, r * 0.6)
@@ -2012,7 +2013,7 @@ func toupie(pos: Vector3, r: float) -> void:
 	_anim(node, 0.75, Vector3.ONE * r * 0.45, Vector3.ONE * r * 0.9, ex)
 	_shock(Vector3(pos.x, 0.07, pos.z), r * 0.9, Color(INK, 0.8), fig_ink("loop"), BLADE, false, 0.45)
 	sparks(pos + Vector3(0, 0.6, 0), Vector3.UP, 3, BLADE, 4.0, 8.0, 90.0)
-	_shake(0.15)
+	_shake(0.08)
 
 
 ## Souffle de Fūjin (arrivée de ruée) : ondes jade au pinceau, croissants qui fusent tout autour, spirale.
@@ -2032,7 +2033,7 @@ func wind_burst(pos: Vector3, r: float) -> void:
 		var d := Vector3(cos(a), 0, sin(a))
 		_brush_crescent(pos + Vector3(0, 0.5, 0) + d * r * 0.25, d, 0.7, Color(WIND_DEEP, 0.85), WIND, WIND_PALE, 0.34, 0.0, d * r * 2.2)
 	sparks(pos + Vector3(0, 0.5, 0), Vector3.UP, 3, WIND_PALE, 4.0, 8.0, 90.0)
-	_shake(0.12)
+	_shake(0.08)
 
 
 # ------------------------------------------------------------------ ombre (影) : fumée violette, estoc
@@ -2133,7 +2134,7 @@ func shadow_burst(pos: Vector3, r: float) -> void:
 	_shock(g + Vector3(0, 0.01, 0), r, Color(INK, 0.9), SHADOW, SHADOW_GLOW, true, 0.5)
 	_flare(pos + Vector3(0, 0.8, 0), SHADOW_GLOW, 0.9, 0.16)
 	_ink_pop(pos + Vector3(0, 0.8, 0), 0.7)
-	_shake(0.12)
+	_shake(0.08)
 
 
 # ------------------------------------------------------------------ encre (墨) : onde, coupe
@@ -2158,7 +2159,7 @@ func ink_wave(pos: Vector3, r: float, hero := false) -> void:
 	_spatter(g, r * 1.5, INK, 1.3)
 	if main:
 		main.splash(pos, Toon.WASHI, 6)
-	_shake(0.3)
+	_shake(0.31)
 	if r >= 1.3:
 		_flash(0.08)
 

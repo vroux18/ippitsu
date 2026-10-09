@@ -227,7 +227,7 @@ func _zone_fire(z: Dictionary) -> void:
 			main.enemy_strike(Vector3(hero.position.x, 0, hero.position.z), 0.4)
 		for k in 5:
 			main.vfx.water_burst(Vector3(-3.6 + 1.8 * float(k), 0, c.z), 0.8)
-		main.shake = maxf(float(main.shake), 0.3)
+		main.shake = maxf(float(main.shake), 0.31)
 		_state = "idle"
 		_timer = 1.8 if hp > max_hp * 0.5 else 1.4
 	elif tag == "dive":
@@ -351,7 +351,7 @@ func _burst_all() -> void:
 	main.float_text(position + Vector3(0, 2.4, 0), "泡", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.6, 0))
 	main.splash(position + Vector3(0, 2.0, 0), FOAM_C, 30)
-	main.shake = maxf(float(main.shake), 0.5)
+	main.shake = maxf(float(main.shake), 0.86)
 	_free_bubbles(true)
 	_shield_dmg(shield_max)
 

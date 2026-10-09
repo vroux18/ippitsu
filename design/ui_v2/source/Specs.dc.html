@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Specs HUD combat</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@800&amp;family=Zen+Kaku+Gothic+New:wght@500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#D7372B}a:hover{color:#1B1A1E}
+</style>
+</helmet>
+<div style="width: 760px; height: 860px; box-sizing: border-box; padding: 32px 36px; background: #EFE6D2; color: #1B1A1E; font-family: 'Zen Kaku Gothic New', sans-serif; font-weight: 500; font-size: 12px; line-height: 1.45; display: flex; flex-direction: column; gap: 18px">
+
+<div style="display: flex; align-items: center; gap: 10px">
+<h1 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 24px; letter-spacing: 4px">HUD DE COMBAT · SPECS</h1>
+
+<div style="margin-left: auto; font-weight: 700; font-size: 11px; color: #5A5148">Référence 400 × 860 u · 1 px = 1 u</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px">
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 2px; border-bottom: 2px solid #D7372B; padding-bottom: 3px">ZONES RÉSERVÉES (y en u)</h2>
+<div style="display: grid; grid-template-columns: 88px 1fr; row-gap: 3px; column-gap: 8px">
+<b>0 – 32</b><span>Encoche (top_off). Rien.</span>
+<b>36 – 80</b><span>Barre haute. Gauche : étape. Droite : score + multiplicateur, pause.</span>
+<b>88 – 130</b><span>Bandeau d'événement (sous la barre de gardien quand elle est là).</span>
+<b>136 – 430</b><span>Jeu pur. Aucun élément d'UI fixe. Entrée des ennemis.</span>
+<b>436 – 682</b><span>Grappes latérales : vie / XP / niveau à gauche, encre / ultime à droite. x 7–55 et 338–394.</span>
+<b>690 – 836</b><span>Zone du pouce. Rien de fixe : le doigt trace ici sans rien masquer.</span>
+<b>836 – 860</b><span>Barre de gestes. Rien.</span>
+</div>
+<p style="margin: 4px 0 0 0">Mode pad : la zone pad occupe le bas, les deux grappes et le bandeau remontent d'autant (ancrés au-dessus du pad, jamais dessus).</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 2px; border-bottom: 2px solid #D7372B; padding-bottom: 3px">COMPOSANTS</h2>
+<div style="display: grid; grid-template-columns: 88px 1fr; row-gap: 3px; column-gap: 8px">
+<b>Étape</b><span>Pilule h44, r22. Sceau monde 30. « 5/8 » 20/13. Crans de combats 9×4, gap 3 (≤ 3 → crans).</span>
+<b>Score</b><span>Pilule h44. Puce multiplicateur h32, min 44, collée à gauche du score (21).</span>
+<b>Pause</b><span>Rond 44, papier, contour encre 2.</span>
+<b>Vie</b><span>Cœur 30 + jauge 28 × 150 (17,4 % de 860). 5 segments, gap 3.</span>
+<b>XP</b><span>Filet 11 × 150 collé à la vie. Jade, or au-delà de 80 %.</span>
+<b>Niveau</b><span>Hexagone 48, chiffre seul (plus de « NIV »).</span>
+<b>Encre</b><span>Goutte 24 + jauge 28 × 150 : papier + encre noire. Seule jauge claire du HUD.</span>
+<b>Ultime</b><span>Sceau 56, arc de charge or 4. Plein : halo + picto double tap 22 accroché.</span>
+<b>Gardien</b><span>Rouleau 372 × 36, rouleaux or aux bouts, sceau 26. Vulnérable : puce or bouclier brisé + ×2.</span>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 2px; border-bottom: 2px solid #D7372B; padding-bottom: 3px">LISIBILITÉ</h2>
+<ul style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px">
+<li>HUD indépendant du thème : fond sumi 92 % + contour papier 1,5. Lisible sur bois clair comme sur pierre nuit. Le thème ne change que l'accent.</li>
+<li>Segments vides : contour papier 55 %, jamais un simple aplat sombre.</li>
+<li>Zones d'attaque : rouge #E3242B à 42–45 %, contour 3,5 plein + liseré blanc pointillé 1,2. Tient sur bois clair.</li>
+<li>Multiplicateur : ×1,5 jade · ×2 or · ×3 vermillon clair · ×4 prune + halo. Texte encre sur la puce.</li>
+<li>Vie critique (1 segment) : contour vermillon + halo pulsé.</li>
+</ul>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 2px; border-bottom: 2px solid #D7372B; padding-bottom: 3px">ANIMATIONS</h2>
+<div style="display: grid; grid-template-columns: 120px 1fr; row-gap: 3px; column-gap: 8px">
+<b>Multiplicateur</b><span>Changement de palier : scale 1 → 1,25 → 1, 180 ms, back-out. Bris : flash blanc 80 ms puis fondu 220 ms.</span>
+<b>Segment perdu</b><span>Shake ±3 u, 120 ms, puis vidage 200 ms ease-in.</span>
+<b>Vie critique</b><span>Halo 0,4 → 1 → 0,4, boucle 900 ms sine.</span>
+<b>Encre</b><span>Remplissage linéaire temps réel. Vide : jauge clignote 2 × 100 ms.</span>
+<b>Ultime plein</b><span>Tampon 1,3 → 1, 220 ms, puis halo boucle 1,2 s. Picto double tap pulse en phase.</span>
+<b>Bandeau</b><span>Trait peint gauche → droite 260 ms, texte fondu +80 ms, tenue 1,6 s, sortie 200 ms.</span>
+<b>Niveau +1</b><span>Hexagone flip 240 ms puis gel → choix des rouleaux.</span>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 2px; border-bottom: 2px solid #D7372B; padding-bottom: 3px">_draw() — FAISABILITÉ</h2>
+<ul style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px">
+<li>Tout est aplats, rectangles arrondis, arcs, polygones : OK.</li>
+<li>Bandeau : polygone irrégulier de 8 points + trait vermillon. OK.</li>
+<li>Halos (×4, vie critique, ultime) : pas de flou en _draw(). Remplacer par 2–3 cercles/contours concentriques à alpha décroissant.</li>
+<li>Liseré pointillé des zones d'attaque : draw_dashed_line ou segments d'arc. OK.</li>
+</ul>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-family: 'Shippori Mincho', serif; font-weight: 800; font-size: 15px; letter-spacing: 2px; border-bottom: 2px solid #D7372B; padding-bottom: 3px">SUPPRIMÉ vs l'existant</h2>
+<ul style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px">
+<li>Pastille or, badge « ×17 CHAÎNE +50 % », « 2× TAP », « NIV », « SCORE ».</li>
+<li>Colonne de progression d'étape (remplacée par les crans de la pilule étape).</li>
+<li>Jauges à 25 % de hauteur : ramenées à 17,4 %, élargies à 28 et descendues sous la zone d'entrée.</li>
+</ul>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":760,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

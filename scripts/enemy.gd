@@ -71,6 +71,20 @@ var body: Node3D
 var ch: Node3D
 var _flash := 0.0
 var flash_c := Color.WHITE  # teinte de l'éclat de touche (élément du pouvoir, elem_flash) ; blanc sinon
+# impact d'un coup de sabre : éclat blanc franc, silhouette écrasée, bref temps figé
+const FLASH_T := 0.09  # éclat de touche (plein éclat les 0,05 premières secondes)
+const FLASH_FULL := 0.05
+const SQUASH := Vector3(1.2, 0.8, 1.2)
+const HIT_FREEZE := 0.06  # touché sans être tué : figé un instant
+var _squash := 0.0  # retour en douceur de l'écrasement (s)
+var _hit_freeze := 0.0
+# mort : recul franc, petit saut en basculant dans le sens du coup, puis il s'enfonce
+const DIE_KNOCK := 9.0
+const DIE_HOP := 0.3  # durée du saut (s)
+const DIE_HOP_H := 0.6  # hauteur du saut (m)
+const DIE_TILT := 1.2  # bascule (rad)
+const DIE_SINK := 0.4  # enfoncement (s)
+var _die_y := 0.0
 var _spawn := SPAWN_TIME
 var _knock := Vector3.ZERO
 var _t := 0.0
@@ -1010,7 +1024,7 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 	dmg = _armour(dmg, dir)
 	dmg = _absorb(dmg, _figure_hit())
 	hp -= dmg
-	_flash = 0.12
+	_flash = FLASH_T
 	_knock = dir.normalized() * _knock_force()
 	if kind == "funa" or kind == "tsurara" or _state == "charge" or _air:
 		_knock = Vector3.ZERO
@@ -1018,12 +1032,17 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 		_cancel_attack()
 	if hp <= 0.0:
 		_die()
-		# mort sobre : petit recul (~0.5 m), pas de vrille
-		_knock = Vector3.ZERO if kind == "funa" or kind == "tsurara" else dir.normalized() * 4.0
+		# mort franche : recul (~1 m), il bascule dans le sens du coup
+		_knock = Vector3.ZERO if kind == "funa" or kind == "tsurara" else dir.normalized() * DIE_KNOCK
+		var hd := Vector3(dir.x, 0.0, dir.z)
+		if hd.length_squared() > 0.0001:
+			body.rotation.y = atan2(hd.x, hd.z)  # dos au coup : la bascule (rotation.x) le couche dans son sens
 		return true
 	ch.play_once("Hit_A", 1.6)
-	if _custom:
-		body.scale = Vector3(1.18, 0.85, 1.18)  # pas de squelette : le coup écrase la silhouette
+	# le coup écrase la silhouette (retour en douceur, _process) et le fige un instant
+	body.scale = SQUASH
+	_squash = 0.25
+	_hit_freeze = HIT_FREEZE
 	if kind == "umibozu":
 		# touché sans être tranché net : il replonge aussitôt
 		_phase = "dive"
@@ -1377,6 +1396,8 @@ func _die() -> void:
 	_clear_cloud()
 	_fire_t = 0.0
 	_air = false
+	_die_y = body.position.y
+	_hit_freeze = 0.0
 	if kind == "kemuri":
 		# tombé dans la fumée : on le voit tomber
 		body.visible = true
@@ -1457,8 +1478,12 @@ func _process(delta: float) -> void:
 		_shield_frac = 0.0
 	if _flash > 0.0:
 		_flash -= delta
-		# éclat blanc qui retombe (plus net qu'un simple allumé / éteint)
-		var fa := 0.35 + 0.65 * clampf(_flash / 0.12, 0.0, 1.0) if _flash > 0.0 else 0.0
+		# éclat blanc franc (plein éclat d'abord), puis qui retombe
+		var fa := 0.0
+		if _flash > FLASH_T - FLASH_FULL:
+			fa = 1.0
+		elif _flash > 0.0:
+			fa = 0.35 + 0.65 * clampf(_flash / (FLASH_T - FLASH_FULL), 0.0, 1.0)
 		if _flash > 0.0 and flash_c != Color.WHITE:
 			ch.set_glow(fa * 1.6, flash_c)  # éclat à la couleur de l'élément
 		else:
@@ -1483,18 +1508,21 @@ func _process(delta: float) -> void:
 				if _zone:
 					_zone.queue_free()
 					_zone = null
-		# mort sobre (0.6 s) : petit recul, bascule en arrière, puis s'enfonce dans le sol
+		# mort (0,7 s) : recul franc, petit saut en basculant dans le sens du coup, puis s'enfonce dans le sol
 		position += _knock * delta
 		_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 8.0))
 		_timer += delta
-		body.rotation.x = 0.35 * clampf(_timer / 0.2, 0.0, 1.0)
-		var sink := clampf((_timer - 0.2) / 0.4, 0.0, 1.0)
-		if sink > 0.0:
-			body.position.y = -1.3 * sink * sink
+		var tk := clampf(_timer / DIE_HOP, 0.0, 1.0)
+		body.rotation.x = DIE_TILT * (1.0 - (1.0 - tk) * (1.0 - tk))
+		var sink := clampf((_timer - DIE_HOP) / DIE_SINK, 0.0, 1.0)
+		if _timer < DIE_HOP:
+			body.position.y = _die_y + DIE_HOP_H * sin(PI * tk)
+		else:
+			body.position.y = _die_y * (1.0 - sink) - 1.3 * sink * sink
 		body.scale = Vector3.ONE * (1.0 - 0.2 * sink)
 		if _shadow:
 			_shadow.visible = sink < 0.5
-		if _timer > 0.6 and _blast_t <= 0.0:
+		if _timer > DIE_HOP + DIE_SINK and _blast_t <= 0.0:
 			queue_free()
 		return
 
@@ -1507,11 +1535,21 @@ func _process(delta: float) -> void:
 			body.scale = Vector3.ONE * (clampf(1.0 - _spawn / _scale_in, 0.05, 1.0) if _spawn > 0.0 else 1.0)
 		return
 
+	if _squash > 0.0:
+		# écrasement du coup : la silhouette reprend sa forme en douceur
+		_squash -= delta
+		body.scale = Vector3.ONE if _squash <= 0.0 else body.scale.lerp(Vector3.ONE, minf(1.0, delta * 12.0))
+
 	if kind == "funa":
 		_ghost(delta)
 		return
 
 	if dummy and not spar:
+		return
+
+	if _hit_freeze > 0.0:
+		# touché : figé un instant (ni marche, ni attaque, ni recul), puis le recul part
+		_hit_freeze -= delta
 		return
 
 	if _hit_cd > 0.0:
@@ -1674,7 +1712,7 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 					# la massue fend le sol
 					main.vfx.ring(Vector3(center.x, 0.08, center.z), Toon.GOLD, _zone_r * 1.1)
 					main.vfx.scorch(center, _zone_r * 0.8, 1.0)
-					main.shake = maxf(float(main.shake), 0.25)
+					main.shake = maxf(float(main.shake), 0.21)
 				_cancel_attack()
 				_timer = 1.3
 		"recover":

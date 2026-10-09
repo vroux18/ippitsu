@@ -7,6 +7,7 @@ extends Node
 const RATE := 22050
 const PLAYERS := 16
 const MIN_GAP_MS := 30  # même son relancé plus vite : ignoré
+const GAP_MS := {"slash": 15}  # écart propre à certains sons (touches serrées d'une série)
 const BUZZ_GAP_MS := 40  # vibrations : une impulsion toutes les 40 ms au plus
 const CORE := ["slash", "kill", "whoosh", "hurt", "strike", "shot", "empty"]
 const LATER := ["xp", "coin", "zap", "thunder", "fire", "crackle", "splash", "swish", "gust", "puff", "stab", "ink", "iai",
@@ -18,10 +19,10 @@ const TUNED := ["tech_loop", "tech_zigzag", "tech_straight", "tech_return", "tec
 # motifs de vibration : [délai ms, durée ms, force 0..1]
 const HAPTIC := {
 	"dash": [[0, 6, 0.2]],
-	"hit": [[0, 10, 0.35]],
+	"hit": [[0, 15, 0.5]],
 	"clang": [[0, 14, 0.5]],
-	"kill": [[0, 22, 0.6]],
-	"multi": [[0, 30, 0.8]],
+	"kill": [[0, 30, 0.8]],
+	"multi": [[0, 40, 0.9]],
 	"figure": [[0, 30, 0.75]],
 	"heavy": [[0, 35, 0.85]],
 	"hurt": [[0, 60, 1.0]],
@@ -78,7 +79,7 @@ func play(id: String, pitch := 1.0, volume_db := 0.0) -> void:
 		_streams[id] = _build(id)  # demandé avant son tour : créé tout de suite
 		_todo.erase(id)
 	var now := Time.get_ticks_msec()
-	if now - int(_last.get(id, -1000)) < MIN_GAP_MS:
+	if now - int(_last.get(id, -1000)) < int(GAP_MS.get(id, MIN_GAP_MS)):
 		return
 	_last[id] = now
 	var vars: Array = _streams[id]
@@ -109,8 +110,9 @@ func _can_buzz() -> bool:
 	return haptics and (_native_vib or _web_vib)
 
 
-## Motif de vibration nommé (voir HAPTIC). Sans effet hors mobile, sans vibreur ou si l'option est coupée.
-func haptic(kind: String) -> void:
+## Motif de vibration nommé (voir HAPTIC), `boost` ajouté à la force (série). Sans effet hors mobile, sans vibreur
+## ou si l'option est coupée.
+func haptic(kind: String, boost := 0.0) -> void:
 	if not _can_buzz() or not HAPTIC.has(kind):
 		return
 	var steps: Array = HAPTIC[kind]
@@ -118,9 +120,9 @@ func haptic(kind: String) -> void:
 		var a: Array = st
 		var delay := float(a[0]) / 1000.0
 		if delay <= 0.0:
-			buzz(int(a[1]), float(a[2]))
+			buzz(int(a[1]), float(a[2]) + boost)
 		else:
-			get_tree().create_timer(delay, true, false, true).timeout.connect(buzz.bind(int(a[1]), float(a[2])))
+			get_tree().create_timer(delay, true, false, true).timeout.connect(buzz.bind(int(a[1]), float(a[2]) + boost))
 
 
 ## Impulsion brève : ms, force 0..1. Une seule toutes les 40 ms, sauf si la nouvelle est plus longue.
