@@ -26,6 +26,18 @@ const FAIL_T := 0.6
 const STONE := Color("#8A857C")
 const STONE_DARK := Color("#6E6A63")
 const MOSS := Color("#5F7D3C")
+## Pierre, mousse et galets des énigmes à la teinte du monde (design/PALETTES.md) ; sinon la palette commune.
+const WORLD_STONE := {
+	1: {"stone": Color("#8E8678"), "moss": Color("#5F7D3C"), "pebble": Color("#9C978C")},
+	2: {"stone": Color("#7E8678"), "moss": Color("#4A6A44"), "pebble": Color("#8A9284")},
+	3: {"stone": Color("#9A9EAC"), "moss": Color("#C7CFD8"), "pebble": Color("#A9AFBE")},
+	4: {"stone": Color("#5E5753"), "moss": Color("#6E5A48"), "pebble": Color("#4A4542")},
+	5: {"stone": Color("#8C8780"), "moss": Color("#6E6A62"), "pebble": Color("#9A958D")},
+	6: {"stone": Color("#8A8873"), "moss": Color("#4A6440"), "pebble": Color("#8E8C78")},
+	7: {"stone": Color("#9E9A88"), "moss": Color("#3E6E66"), "pebble": Color("#A8A492")},
+	8: {"stone": Color("#6E6A70"), "moss": Color("#5A5660"), "pebble": Color("#7A7680")},
+}
+static var _wid := 0
 const ENGRAVE := Color("#F3E2AE")
 const INK_COL := Color(0.106, 0.102, 0.118, 0.88)
 const PAPER_DIM := Color("#B9AD93")
@@ -46,6 +58,21 @@ const P_DRY := &"dry"
 
 static var _meshes := {}
 static var _mats := {}
+
+
+## Change de monde : les matières de pierre, mousse et galets sont refaites à la teinte du monde
+## (arena.set_world) ; les autres (papier, flamme, encre) sont communes.
+static func set_world(id: int) -> void:
+	if id == _wid:
+		return
+	_wid = id
+	for k in ["stone", "stone_dark", "stone_light", "moss", "pebble", "inlay", "lantern"]:
+		_mats.erase(k)
+
+
+static func _wcol(key: String, fallback: Color) -> Color:
+	var d: Dictionary = WORLD_STONE.get(_wid, {})
+	return d.get(key, fallback)
 static var _shader: Shader = null
 static var _grad: Gradient = null
 
@@ -907,15 +934,15 @@ static func _mat(key: String) -> Material:
 	var m: Material = null
 	match key:
 		"stone":
-			m = Toon.mat(STONE, true, 0.03)
+			m = Toon.mat(_wcol("stone", STONE), true, 0.03)
 		"stone_dark":
-			m = Toon.mat(STONE_DARK, true, 0.03)
+			m = Toon.mat(_wcol("stone", STONE).darkened(0.2), true, 0.03)
 		"stone_light":
-			m = Toon.mat(STONE.lightened(0.14), false)
+			m = Toon.mat(_wcol("stone", STONE).lightened(0.14), false)
 		"panel":
 			m = Toon.mat(Color("#4E4A45"), false)
 		"moss":
-			m = Toon.mat(MOSS, true, 0.02)
+			m = Toon.mat(_wcol("moss", MOSS), true, 0.02)
 		"rope":
 			m = Toon.mat(Color("#D6C084"), true, 0.015)
 		"paper":
@@ -927,9 +954,9 @@ static func _mat(key: String) -> Material:
 		"water":
 			m = Toon.flat(Color("#36545E", 0.9))
 		"inlay":
-			m = Toon.flat(Color("#857F74", 0.3))
+			m = Toon.flat(Color(_wcol("stone", STONE).darkened(0.05), 0.3))
 		"pebble":
-			m = Toon.mat(Color("#9C978C"), true, 0.018)
+			m = Toon.mat(_wcol("pebble", Color("#9C978C")), true, 0.018)
 		"ghost":
 			var gh := ink_mat(Color(Toon.SUMI, 0.14))
 			gh.set_shader_parameter(P_DRY, 0.3)
@@ -939,7 +966,7 @@ static func _mat(key: String) -> Material:
 			se.render_priority = 2
 			m = se
 		"lantern":
-			m = Toon.mat(Color("#9A958D"), true, 0.025)
+			m = Toon.mat(_wcol("stone", Color("#9A958D")).lightened(0.08), true, 0.025)
 		"roof":
 			m = Toon.mat(Color("#5A5753"), true, 0.03)
 		"wood":

@@ -12,6 +12,7 @@ extends Node3D
 const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
 const Worlds = preload("res://scripts/worlds.gd")
+const PuzzleArt = preload("res://scripts/puzzle_art.gd")
 
 const HALF := Vector2(4.6, 8.6)  # bornes de l'arène (comme main.gd)
 
@@ -236,6 +237,7 @@ func _ready() -> void:
 func set_world(id: int) -> void:
 	if id == world_id:
 		return
+	PuzzleArt.set_world(id)  # pierre et mousse des énigmes à la teinte du monde
 	var prev := world_id
 	var back: Array = _worlds_kept.get(id, [])
 	_worlds_kept.erase(id)
@@ -676,26 +678,26 @@ func _barrier_style() -> Dictionary:
 	match world_id:
 		2:  # bambouseraie de Tanabata
 			return {"pole": Color("#6F9B4C"), "rope": Color("#D8C084"), "glow": Color("#FFE7A6"), "glow_e": 0.75,
-				"paper": Color("#F3ECD8"), "stripe": Color("#C8342A"), "ink": Color("#15211C"),
+				"paper": Color("#F3ECD8"), "stripe": Color("#6E2A24"), "ink": Color("#15211C"),
 				"mist": Color("#A9CFC2"), "mist_a": 0.3, "burn": Color("#FF9A45")}
 		3:  # corde de givre
 			return {"pole": Color("#A7BAC6"), "rope": Color("#DDEFF8"), "glow": Color("#8FD6FF"), "glow_e": 0.95,
 				"paper": Color("#F4F8FB"), "stripe": Color("#1F3A5F"), "ink": Color("#22303E"),
 				"mist": Color("#F2F7FB"), "mist_a": 0.5, "burn": Color("#9FE0FF")}
 		4:  # braises du Fuji
-			return {"pole": Color("#4A3530"), "rope": Color("#C99A60"), "glow": Color("#FF6A24"), "glow_e": 1.15,
-				"paper": Color("#F0E2C8"), "stripe": Color("#D7372B"), "ink": Color("#1A1010"),
-				"mist": Color("#7A3A2A"), "mist_a": 0.36, "burn": Color("#FF7A2E")}
+			return {"pole": Color("#4A3530"), "rope": Color("#C99A60"), "glow": Color("#E0A84A"), "glow_e": 1.0,
+				"paper": Color("#F0E2C8"), "stripe": Toon.GOLD, "ink": Color("#1A1010"),
+				"mist": Color("#5A3A30"), "mist_a": 0.36, "burn": Color("#E0A84A")}
 		5:  # monde d'encre
 			return {"pole": Color("#2B2729"), "rope": Color("#EDE2C8"), "glow": Color("#FFF1D6"), "glow_e": 0.6,
-				"paper": Color("#F5EEDD"), "stripe": Color("#D7372B"), "ink": Color("#0E0D10"),
+				"paper": Color("#F5EEDD"), "stripe": Toon.GOLD, "ink": Color("#0E0D10"),
 				"mist": Color("#1B1A1E"), "mist_a": 0.34, "burn": Color("#FF8A3A")}
 		6:  # cordes de Kurama, ofuda vermillon
 			return {"pole": Color("#5A3A2A"), "rope": Color("#D8C084"), "glow": Color("#FFD27A"), "glow_e": 0.65,
-				"paper": Color("#F3ECD8"), "stripe": Color("#B8352A"), "ink": Color("#1A1E1A"),
+				"paper": Color("#F3ECD8"), "stripe": Color("#8E2A1E"), "ink": Color("#1A1E1A"),
 				"mist": Color("#C9D2BF"), "mist_a": 0.4, "burn": Color("#FF8A3A")}
 		7:  # cordes d'algues du palais, lueur de perle
-			return {"pole": Color("#B8452E"), "rope": Color("#6A8E5A"), "glow": Color("#9FF0E6"), "glow_e": 0.85,
+			return {"pole": Color("#6E2A28"), "rope": Color("#6A8E5A"), "glow": Color("#9FF0E6"), "glow_e": 0.85,
 				"paper": Color("#EAF4EE"), "stripe": Color("#C49A45"), "ink": Color("#10262A"),
 				"mist": Color("#7FC0BE"), "mist_a": 0.36, "burn": Color("#7FE8FF")}
 		8:  # cordes de Yomi, feu des âmes
@@ -703,7 +705,7 @@ func _barrier_style() -> Dictionary:
 				"paper": Color("#E8E2EE"), "stripe": Color("#5A3A7A"), "ink": Color("#0E0C10"),
 				"mist": Color("#4A4452"), "mist_a": 0.42, "burn": Color("#B98AFF")}
 	return {"pole": Color("#C2A66E"), "rope": Color("#D9C38C"), "glow": Color("#FFD98A"), "glow_e": 0.55,
-		"paper": Color("#F4ECD8"), "stripe": Color("#D7372B"), "ink": Color("#1B1A1E"),
+		"paper": Color("#F4ECD8"), "stripe": Toon.GOLD, "ink": Color("#1B1A1E"),
 		"mist": Color("#E8EEF2"), "mist_a": 0.42, "burn": Color("#FF8A3A")}
 
 
@@ -2310,7 +2312,7 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 	for col in w.ground:
 		mats.append(_ground_mat(col, style, look))
 	var woods: Array = []
-	for col in WOOD:
+	for col in w.get("bridge_wood", WOOD):  # bois des ponts teinté par monde (design/PALETTES.md)
 		woods.append(_ground_mat(col, "wood", look))
 	var under := _ground_mat(w.under, "under", look)
 	var deck := _ground_mat(Color("#3E2C1C"), "wood", look)
@@ -2346,6 +2348,7 @@ func _build_steps(w: Dictionary) -> void:
 	var nose := _shared_mat(g0.lightened(0.22), true)
 	var riser := _shared_mat(g0.darkened(0.5), true)
 	var flight: int = 3 if world_id == 6 else 1
+	var woods: Array = w.get("bridge_wood", WOOD)
 	for s in _steps:
 		var sv: Vector3 = s
 		var l := sv.y - sv.x
@@ -2358,11 +2361,11 @@ func _build_steps(w: Dictionary) -> void:
 		var r: Rect2 = gp
 		var c := r.get_center()
 		for k in 3:
-			var m := _shared_mat(WOOD[k % WOOD.size()], true)
+			var m := _shared_mat(woods[k % woods.size()], true)
 			var p := Vector3(c.x + _deco_rng.randf_range(-0.3, 0.3) * r.size.x, -0.5, c.y + _deco_rng.randf_range(-0.3, 0.3) * r.size.y)
 			_tile(Vector3(r.size.x * 0.45, 0.05, 0.16), p, m, _deco_rng.randf_range(-0.6, 0.6))
 		# bouts de planches éclatés qui dépassent du tablier, de part et d'autre de la trouée
-		var dark := _shared_mat(WOOD[2], true)
+		var dark := _shared_mat(woods[2], true)
 		for q in 3:
 			var x := lerpf(r.position.x + 0.3, r.end.x - 0.3, float(q) / 2.0)
 			var ln := _deco_rng.randf_range(0.12, 0.3)
@@ -2544,10 +2547,10 @@ func _floor_piece(r: Rect2, style: String, mats: Array, rng: RandomNumberGenerat
 						gx += s
 				gz += s
 			if style == "basalt":
-				# veines d'or dans la roche noire
-				var gold := _shared_mat(Toon.GOLD, false)
+				# fissures d'encre dans la cendre (l'or reste à la lave du vide et aux repères)
+				var crack := _shared_mat(Color("#2A2422"), true)
 				for i in int(r.size.x * r.size.y / 6.0):
-					_tile(Vector3(rng.randf_range(0.4, 1.2), 0.012, 0.05), Vector3(rng.randf_range(r.position.x + 0.3, r.end.x - 0.3), 0.003, rng.randf_range(r.position.y + 0.3, r.end.y - 0.3)), gold, rng.randf() * PI)
+					_tile(Vector3(rng.randf_range(0.4, 1.2), 0.012, 0.05), Vector3(rng.randf_range(r.position.x + 0.3, r.end.x - 0.3), 0.003, rng.randf_range(r.position.y + 0.3, r.end.y - 0.3)), crack, rng.randf() * PI)
 		"snow":
 			_tile(Vector3(r.size.x, 0.1, r.size.y), Vector3(c.x, -0.05, c.y), mats[0])
 			for i in int(r.size.x * r.size.y / 5.0):
@@ -2862,7 +2865,7 @@ func _build_gate(_w: Dictionary) -> void:
 	_gate = Node3D.new()
 	_room_root.add_child(_gate)
 	_gate.position = gate_pos
-	var t := Decor.torii(_gate, Vector3(0, 0, -0.3), 0.55)
+	var t := Decor.torii(_gate, Vector3(0, 0, -0.3), 0.55, true)
 	t.visible = true
 	# sceaux (ofuda) sur la face des piliers : ils s'allument un à un, de bas en haut
 	var seal_mesh := Toon.box(Vector3(0.085, 0.17, 0.012))

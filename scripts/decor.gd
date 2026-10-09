@@ -982,10 +982,11 @@ static func _shide(b: Dictionary, m: Material, top: Vector3, along: Vector3, xf 
 # ------------------------------------------------------------------ torii
 
 ## Torii : socles noirs, piliers vermillon, nuki et kusabi, gakuzuka + plaque, shimaki, kasagi incurvé.
-static func torii(parent: Node3D, pos: Vector3, s := 1.0) -> Node3D:
+## `dark` : torii de repère (sortie de salle), laque sumi et or au lieu du vermillon (réservé au lointain).
+static func torii(parent: Node3D, pos: Vector3, s := 1.0, dark := false) -> Node3D:
 	var root := _root(parent, pos, s, "Torii")
 	var b := {}
-	_torii_build(b, Transform3D.IDENTITY, -1.0)
+	_torii_build(b, Transform3D.IDENTITY, -1.0, dark)
 	_flush(b, root)
 	return root
 
@@ -995,8 +996,8 @@ static func torii_into(bs: Dictionary, xf: Transform3D, low_y := 0.0) -> void:
 	_torii_build(bs, xf, low_y)
 
 
-static func _torii_build(b: Dictionary, xf: Transform3D, low_y: float) -> void:
-	var red := _toon("torii_red", Toon.VERMILION)
+static func _torii_build(b: Dictionary, xf: Transform3D, low_y: float, dark := false) -> void:
+	var red := _toon("torii_lacquer", Color("#2A2428")) if dark else _toon("torii_red", Toon.VERMILION)
 	var black := _toon("torii_black", Toon.SUMI)
 	var gold := _toon("torii_gold", Toon.GOLD, false)
 	var px := 2.2
@@ -1019,6 +1020,10 @@ static func _torii_build(b: Dictionary, xf: Transform3D, low_y: float) -> void:
 	_add(b, red, box(Vector3(0.22, 0.44, 0.16)), xf * _at(Vector3(0, 2.76, 0)))
 	_add(b, black, box(Vector3(0.44, 0.52, 0.06)), xf * _at(Vector3(0, 2.74, 0.12)))
 	_add(b, gold, box(Vector3(0.32, 0.4, 0.02)), xf * _at(Vector3(0, 2.74, 0.155)))
+	if dark:
+		# filets d'or sur la laque sombre : le repère se lit de loin sans crier
+		_add(b, gold, box(Vector3(5.75, 0.04, 0.17)), xf * _at(Vector3(0, 2.56, 0)))
+		_add(b, gold, box(Vector3(5.95, 0.04, 0.35)), xf * _at(Vector3(0, 3.16, 0)))
 	# shimaki : linteau vermillon droit
 	_add(b, red, box(Vector3(5.9, 0.2, 0.34)), xf * _at(Vector3(0, 3.05, 0)))
 	# kasagi : linteau noir aux extrémités relevées (segments qui suivent la courbe)
