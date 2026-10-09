@@ -37,6 +37,33 @@ static func set_ui_theme(d: Dictionary) -> void:
 	ui_rev += 1
 
 
+# caches partagés (voir mat_shared, outline_mat, sphere…) : bornés, vidés quand ils débordent
+# (les objets en service restent vivants par leurs utilisateurs, seules les clés sont oubliées)
+static var _mesh_cache := {}  # dimensions (float : sphère, Vector2 : capsule, Vector3 : boîte, Vector4 : cylindre) -> maillage
+static var _outlines := {}  # épaisseur -> passe de contour d'encre (jamais modifiée par les appelants)
+static var _mat_cache := {}  # couleur + contour -> matériau toon figé
+const CACHE_MAX := 4096
+
+
+## Passe de contour d'encre (coque inversée gonflée de `size`), partagée par épaisseur : aucun appelant
+## ne modifie cette passe, seul le matériau de base est propre à chacun.
+static func outline_mat(size: float) -> StandardMaterial3D:
+	var key := "%.4f" % size
+	if _outlines.has(key):
+		var cached: StandardMaterial3D = _outlines[key]
+		return cached
+	var o := StandardMaterial3D.new()
+	o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	o.albedo_color = SUMI
+	o.cull_mode = BaseMaterial3D.CULL_FRONT
+	o.grow = true
+	o.grow_amount = size
+	_outlines[key] = o
+	return o
+
+
+## Matériau toon neuf (l'appelant peut le modifier : flash, lueur, couleurs de sommets…) ; sa passe de
+## contour est partagée. Pour une pièce qui ne bouge jamais de couleur, préférer mat_shared.
 static func mat(color: Color, outline := true, outline_size := 0.035) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = color
@@ -47,16 +74,25 @@ static func mat(color: Color, outline := true, outline_size := 0.035) -> Standar
 	m.rim = 0.25
 	m.rim_tint = 0.6
 	if outline:
-		var o := StandardMaterial3D.new()
-		o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		o.albedo_color = SUMI
-		o.cull_mode = BaseMaterial3D.CULL_FRONT
-		o.grow = true
-		o.grow_amount = outline_size
-		m.next_pass = o
+		m.next_pass = outline_mat(outline_size)
 	return m
 
 
+## Même matériau que mat(), mais partagé par couleur et contour : à réserver aux pièces dont le
+## matériau n'est jamais retouché après coup (une modification toucherait toutes les pièces de même clé).
+static func mat_shared(color: Color, outline := true, outline_size := 0.035) -> StandardMaterial3D:
+	var key := "%s%d%.4f" % [color.to_html(true), 1 if outline else 0, outline_size]
+	if _mat_cache.has(key):
+		var cached: StandardMaterial3D = _mat_cache[key]
+		return cached
+	if _mat_cache.size() >= CACHE_MAX:
+		_mat_cache.clear()
+	var m := mat(color, outline, outline_size)
+	_mat_cache[key] = m
+	return m
+
+
+## Aplat sans lumière, neuf (souvent fondu ou recoloré par l'appelant).
 static func flat(color: Color) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -76,37 +112,69 @@ static func part(parent: Node3D, mesh: Mesh, material: Material, pos: Vector3, s
 	return mi
 
 
+## Les primitives sont partagées par dimensions (aucun appelant ne les modifie après coup) : même
+## géométrie, un seul maillage envoyé au GPU par taille. Cache borné : des dimensions tirées au sort
+## (débris, éclats) ne le font pas grossir sans fin.
+static func _mesh_room() -> void:
+	if _mesh_cache.size() >= CACHE_MAX:
+		_mesh_cache.clear()
+
+
 static func sphere(r: float) -> SphereMesh:
+	var key := r  # clés sans texte (float, Vector2/3/4) : la recherche coûte moins que la création
+	if _mesh_cache.has(key):
+		var cached: SphereMesh = _mesh_cache[key]
+		return cached
+	_mesh_room()
 	var m := SphereMesh.new()
 	m.radius = r
 	m.height = r * 2.0
 	m.radial_segments = 16
 	m.rings = 8
+	_mesh_cache[key] = m
 	return m
 
 
 static func capsule(r: float, h: float) -> CapsuleMesh:
+	var key := Vector2(r, h)
+	if _mesh_cache.has(key):
+		var cached: CapsuleMesh = _mesh_cache[key]
+		return cached
+	_mesh_room()
 	var m := CapsuleMesh.new()
 	m.radius = r
 	m.height = h
 	m.radial_segments = 12
 	m.rings = 4
+	_mesh_cache[key] = m
 	return m
 
 
 static func box(size: Vector3) -> BoxMesh:
+	var key := size
+	if _mesh_cache.has(key):
+		var cached: BoxMesh = _mesh_cache[key]
+		return cached
+	_mesh_room()
 	var m := BoxMesh.new()
 	m.size = size
+	_mesh_cache[key] = m
 	return m
 
 
 static func cyl(top: float, bottom: float, h: float, sides := 16) -> CylinderMesh:
+	var key := Vector4(top, bottom, h, float(sides))
+	if _mesh_cache.has(key):
+		var cached: CylinderMesh = _mesh_cache[key]
+		return cached
+	_mesh_room()
 	var m := CylinderMesh.new()
 	m.top_radius = top
 	m.bottom_radius = bottom
 	m.height = h
 	m.radial_segments = sides
 	m.rings = 1
+	_mesh_cache[key] = m
 	return m
 
 

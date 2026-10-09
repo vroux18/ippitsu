@@ -53,10 +53,10 @@ func _ready() -> void:
 # ------------------------------------------------------------------ construction
 
 func _build() -> void:
-	var skin := Toon.mat(SCALE_C, true, 0.04)
-	var hi := Toon.mat(SCALE_HI, true, 0.03)
-	var belly := Toon.mat(BELLY, true, 0.03)
-	var gold := Toon.mat(Toon.GOLD, true, 0.03)
+	var skin := Toon.mat_shared(SCALE_C, true, 0.04)
+	var hi := Toon.mat_shared(SCALE_HI, true, 0.03)
+	var belly := Toon.mat_shared(BELLY, true, 0.03)
+	var gold := Toon.mat_shared(Toon.GOLD, true, 0.03)
 	Toon.disc(self, 2.4, Color(0, 0, 0, 0.2))
 	body = Node3D.new()
 	add_child(body)
@@ -70,7 +70,7 @@ func _build() -> void:
 		var r := lerpf(0.9, 0.55, t)
 		Toon.part(c, Toon.sphere(r), skin, Vector3(0, r * 0.7, 0), Vector3(1.0, 1.0, 1.3))
 		Toon.part(c, Toon.sphere(r * 0.85), belly, Vector3(0, r * 0.35, 0.15), Vector3(1.0, 0.6, 1.2))
-		var fin := Toon.part(c, Toon.cyl(0.0, r * 0.35, r * 0.8, 4), Toon.mat(MANE), Vector3(0, r * 1.55, 0))
+		var fin := Toon.part(c, Toon.cyl(0.0, r * 0.35, r * 0.8, 4), Toon.mat_shared(MANE), Vector3(0, r * 1.55, 0))
 		fin.rotation.x = -0.4
 		_coils.append([c, t * 4.0])
 	# tête de dragon : museau, mâchoire, cornes de cerf, crinière, moustaches, yeux d'or
@@ -85,7 +85,7 @@ func _build() -> void:
 	_jaw.position = Vector3(0, -0.15, 0.4)
 	Toon.part(_jaw, Toon.box(Vector3(0.85, 0.22, 1.1)), belly, Vector3(0, -0.05, 0.55))
 	for k in 4:
-		var tooth := Toon.part(_jaw, Toon.cyl(0.0, 0.05, 0.16, 4), Toon.mat(PEARL), Vector3(-0.3 + 0.2 * float(k), 0.1, 1.0))
+		var tooth := Toon.part(_jaw, Toon.cyl(0.0, 0.05, 0.16, 4), Toon.mat_shared(PEARL), Vector3(-0.3 + 0.2 * float(k), 0.1, 1.0))
 		tooth.rotation.x = PI
 	_eye_mat = main.vfx.glow_mat(Toon.GOLD, 2.0)
 	for sx: float in [-1.0, 1.0]:
@@ -99,7 +99,7 @@ func _build() -> void:
 		var w := Toon.part(_head, Toon.cyl(0.015, 0.04, 1.4, 4), gold, Vector3(sx * 0.6, 0.1, 1.5))
 		w.rotation = Vector3(1.2, 0, -sx * 0.9)
 	for k in 6:
-		var mane := Toon.part(_head, Toon.cyl(0.0, 0.22, 0.8, 5), Toon.mat(MANE), Vector3((float(k) - 2.5) * 0.25, 0.75, -0.6))
+		var mane := Toon.part(_head, Toon.cyl(0.0, 0.22, 0.8, 5), Toon.mat_shared(MANE), Vector3((float(k) - 2.5) * 0.25, 0.75, -0.6))
 		mane.rotation.x = -1.0 - 0.1 * float(k % 2)
 	# la perle du dragon tenue sous le menton
 	Toon.part(_head, Toon.sphere(0.25), main.vfx.glow_mat(PEARL, 1.8), Vector3(0, -0.45, 1.3))

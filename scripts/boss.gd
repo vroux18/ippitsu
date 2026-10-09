@@ -119,19 +119,19 @@ func _build_okappa() -> void:
 	ch.setup(MAGE, 2.8, [["Hat", tex], ["Body", tex]], ["Skeleton_Mage_Hat"], Toon.GOLD)
 	ch.idle = "Idle_Combat"
 	# la coupelle d'eau sur le crâne : son point faible, visible de dos
-	var bowl := Toon.part(body, Toon.cyl(0.42, 0.3, 0.12, 20), Toon.mat(Toon.GOLD), Vector3(0, 2.62, 0.05))
+	var bowl := Toon.part(body, Toon.cyl(0.42, 0.3, 0.12, 20), Toon.mat_shared(Toon.GOLD), Vector3(0, 2.62, 0.05))
 	bowl.name = "bowl"
-	Toon.part(body, Toon.cyl(0.34, 0.34, 0.02, 20), Toon.mat(BOWL_WATER, false), Vector3(0, 2.69, 0.05))
+	Toon.part(body, Toon.cyl(0.34, 0.34, 0.02, 20), Toon.mat_shared(BOWL_WATER, false), Vector3(0, 2.69, 0.05))
 	Toon.disc(self, 1.0, Color(0, 0, 0, 0.14))
 	body.scale = Vector3.ONE * 0.01
 	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 1.2, 0.0)
 
 
 func _build_uwabami() -> void:
-	var skin := Toon.mat(Toon.PRUSSIAN)
-	var belly := Toon.mat(Color("#C9D6DC"))
-	var fin := Toon.mat(Toon.GOLD)
-	var horn := Toon.mat(Toon.FOAM)
+	var skin := Toon.mat_shared(Toon.PRUSSIAN)
+	var belly := Toon.mat_shared(Color("#C9D6DC"))
+	var fin := Toon.mat_shared(Toon.GOLD)
+	var horn := Toon.mat_shared(Toon.FOAM)
 	for i in SEGMENTS:
 		var s := Node3D.new()
 		add_child(s)
@@ -144,9 +144,9 @@ func _build_uwabami() -> void:
 			for sx in [-1.0, 1.0]:
 				var h := Toon.part(s, Toon.cyl(0.0, 0.1, 0.7, 8), horn, Vector3(sx * 0.35, 1.15, 0.15))
 				h.rotation = Vector3(0.6, 0, sx * 0.35)
-				Toon.part(s, Toon.sphere(0.12), Toon.mat(Toon.GOLD, false), Vector3(sx * 0.32, 0.78, -0.45))
-				Toon.part(s, Toon.sphere(0.06), Toon.mat(Toon.SUMI, false), Vector3(sx * 0.34, 0.8, -0.55))
-			var mane := Toon.part(s, Toon.cyl(0.0, 0.35, 0.8, 6), Toon.mat(Toon.VERMILION), Vector3(0, 1.0, 0.45))
+				Toon.part(s, Toon.sphere(0.12), Toon.mat_shared(Toon.GOLD, false), Vector3(sx * 0.32, 0.78, -0.45))
+				Toon.part(s, Toon.sphere(0.06), Toon.mat_shared(Toon.SUMI, false), Vector3(sx * 0.34, 0.8, -0.55))
+			var mane := Toon.part(s, Toon.cyl(0.0, 0.35, 0.8, 6), Toon.mat_shared(Toon.VERMILION), Vector3(0, 1.0, 0.45))
 			mane.rotation.x = -1.0
 		else:
 			Toon.part(s, Toon.sphere(SEG_R * k), skin, Vector3(0, 0.45 * k, 0), Vector3(1.0, 0.85, 1.25))

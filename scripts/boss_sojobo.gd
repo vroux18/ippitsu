@@ -68,41 +68,41 @@ func _build() -> void:
 	ch.idle = "Idle_Combat"
 	ch.play("Idle_Combat")
 	# visage rouge au très long nez, crinière et barbe blanches, tokin noir
-	var face := Toon.mat(FACE)
+	var face := Toon.mat_shared(FACE)
 	var nose := Toon.part(body, Toon.cyl(0.04, 0.12, 0.9, 7), face, Vector3(0, 2.95, -0.7))
 	nose.rotation.x = -PI / 2.0 + 0.15
-	var hair := Toon.mat(HAIR)
+	var hair := Toon.mat_shared(HAIR)
 	Toon.part(body, Toon.box(Vector3(0.9, 0.9, 0.3)), hair, Vector3(0, 2.75, 0.35))
 	var beard := Toon.part(body, Toon.cyl(0.32, 0.05, 0.8, 6), hair, Vector3(0, 2.45, -0.3))
 	beard.rotation.x = 0.2
 	for sx: float in [-1.0, 1.0]:
 		var brow := Toon.part(body, Toon.cyl(0.02, 0.08, 0.45, 5), hair, Vector3(sx * 0.2, 3.2, -0.38))
 		brow.rotation.z = -sx * 1.1
-	Toon.part(body, Toon.box(Vector3(0.3, 0.24, 0.3)), Toon.mat(Color("#1E1C20")), Vector3(0, 3.45, -0.1))
+	Toon.part(body, Toon.box(Vector3(0.3, 0.24, 0.3)), Toon.mat_shared(Color("#1E1C20")), Vector3(0, 3.45, -0.1))
 	# pompons d'ascète sur la poitrine
 	for k in 3:
-		Toon.part(body, Toon.sphere(0.11), Toon.mat(HAIR), Vector3((float(k) - 1.0) * 0.22, 2.05, -0.5))
+		Toon.part(body, Toon.sphere(0.11), Toon.mat_shared(HAIR), Vector3((float(k) - 1.0) * 0.22, 2.05, -0.5))
 	# grandes ailes noires
 	for sx: float in [-1.0, 1.0]:
 		var pv := Node3D.new()
 		body.add_child(pv)
 		pv.position = Vector3(sx * 0.4, 2.5, 0.4)
-		var wing := Toon.part(pv, Toon.box(Vector3(2.2, 0.1, 0.9)), Toon.mat(FEATHER), Vector3(sx * 1.1, 0, 0.15))
+		var wing := Toon.part(pv, Toon.box(Vector3(2.2, 0.1, 0.9)), Toon.mat_shared(FEATHER), Vector3(sx * 1.1, 0, 0.15))
 		wing.rotation.y = sx * 0.3
 		for k in 5:
-			var f := Toon.part(pv, Toon.box(Vector3(0.22, 0.08, 0.8)), Toon.mat(Color("#2E2A34")), Vector3(sx * (0.5 + 0.4 * float(k)), -0.06, 0.7))
+			var f := Toon.part(pv, Toon.box(Vector3(0.22, 0.08, 0.8)), Toon.mat_shared(Color("#2E2A34")), Vector3(sx * (0.5 + 0.4 * float(k)), -0.06, 0.7))
 			f.rotation.y = sx * 0.12 * float(k)
 		_wings.append(pv)
 	# grand éventail de plumes (hauchiwa) tenu devant lui
 	_fan = Node3D.new()
 	body.add_child(_fan)
 	_fan.position = Vector3(1.1, 1.9, -0.6)
-	Toon.part(_fan, Toon.cyl(0.04, 0.05, 0.8, 6), Toon.mat(Color("#3B2E25")), Vector3(0, -0.4, 0))
+	Toon.part(_fan, Toon.cyl(0.04, 0.05, 0.8, 6), Toon.mat_shared(Color("#3B2E25")), Vector3(0, -0.4, 0))
 	for k in 9:
 		var a := deg_to_rad(-60.0 + 15.0 * float(k))
-		var fe := Toon.part(_fan, Toon.box(Vector3(0.16, 0.85, 0.04)), Toon.mat(FEATHER), Vector3(sin(a) * 0.45, cos(a) * 0.45, 0))
+		var fe := Toon.part(_fan, Toon.box(Vector3(0.16, 0.85, 0.04)), Toon.mat_shared(FEATHER), Vector3(sin(a) * 0.45, cos(a) * 0.45, 0))
 		fe.rotation.z = -a
-		Toon.part(_fan, Toon.sphere(0.07), Toon.mat(HAIR, false), Vector3(sin(a) * 0.9, cos(a) * 0.9, 0))
+		Toon.part(_fan, Toon.sphere(0.07), Toon.mat_shared(HAIR, false), Vector3(sin(a) * 0.9, cos(a) * 0.9, 0))
 	_hint = Loop.hint_ring(self, HINT_R, Toon.GOLD)
 	_hint.visible = false
 	_make_stars(body, 3.9)
@@ -125,7 +125,7 @@ func _make_tornado(p: Vector3) -> void:
 		tm.ring_segments = 4
 		var ring := Toon.part(n, tm, m, Vector3(0, 0.25 + 0.5 * float(k), 0), Vector3(1, 0.5, 1))
 		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var fm := Toon.mat(FEATHER, false)
+	var fm := Toon.mat_shared(FEATHER, false)
 	for k in 8:
 		var a := TAU * float(k) / 8.0
 		var r2 := 0.4 + 0.12 * float(k % 4)

@@ -166,7 +166,7 @@ func _build() -> void:
 	_bone_mat.emission_enabled = true
 	_bone_mat.emission = ICE
 	_bone_mat.emission_energy_multiplier = 0.0
-	var dark := Toon.mat(SOCKET, false)
+	var dark := Toon.mat_shared(SOCKET, false)
 
 	# sol fendu et congères autour de la sortie
 	var crack := Toon.disc(_rig, 2.4, Color(LAVENDER, 0.4), 0.012)
@@ -177,7 +177,7 @@ func _build() -> void:
 		c.position = Vector3(sin(a) * 2.3, 0.016, Z_BUST + 0.3 + cos(a) * 2.3)
 		c.rotation.y = a
 		c.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var snow := Toon.mat(SNOW)
+	var snow := Toon.mat_shared(SNOW)
 	for sx in [-1.0, 1.0]:
 		Toon.part(_rig, _ball(1.0), snow, Vector3(sx * 1.9, 0.0, Z_BUST + 0.6), Vector3(1.3, 0.42, 0.9))
 	Toon.part(_rig, _ball(1.0), snow, Vector3(0.0, 0.0, Z_BUST - 1.0), Vector3(2.4, 0.5, 0.9))
@@ -302,11 +302,11 @@ func _make_stele(c: Vector3) -> Node3D:
 	_rig.add_child(s)
 	s.position = Vector3(c.x, 7.0, c.z)
 	s.rotation.y = randf_range(-0.3, 0.3)
-	var stone := Toon.mat(STONE)
+	var stone := Toon.mat_shared(STONE)
 	Toon.part(s, Toon.box(Vector3(1.0, 0.25, 0.7)), stone, Vector3(0, 0.12, 0))
 	Toon.part(s, Toon.box(Vector3(0.62, 1.6, 0.3)), stone, Vector3(0, 1.05, 0))
-	Toon.part(s, Toon.box(Vector3(0.68, 0.14, 0.36)), Toon.mat(SNOW), Vector3(0, 1.92, 0))
-	Toon.part(s, Toon.box(Vector3(0.08, 0.9, 0.02)), Toon.mat(Toon.SUMI, false), Vector3(0, 1.1, 0.16))
+	Toon.part(s, Toon.box(Vector3(0.68, 0.14, 0.36)), Toon.mat_shared(SNOW), Vector3(0, 1.92, 0))
+	Toon.part(s, Toon.box(Vector3(0.08, 0.9, 0.02)), Toon.mat_shared(Toon.SUMI, false), Vector3(0, 1.1, 0.16))
 	s.visible = false
 	return s
 

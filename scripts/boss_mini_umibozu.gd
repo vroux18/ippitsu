@@ -50,8 +50,8 @@ func _build() -> void:
 	Toon.disc(self, 1.3, Color(0, 0, 0, 0.18))
 	body = Node3D.new()
 	add_child(body)
-	var skin := Toon.mat(BLACK, true, 0.05)
-	var hi := Toon.mat(BLACK_HI, true, 0.04)
+	var skin := Toon.mat_shared(BLACK, true, 0.05)
+	var hi := Toon.mat_shared(BLACK_HI, true, 0.04)
 	# épaules en robe de moine et tête chauve démesurée
 	Toon.part(body, Toon.sphere(1.0), skin, Vector3(0, 0.7, 0), Vector3(1.5, 0.8, 1.2))
 	_head = Node3D.new()
@@ -62,15 +62,15 @@ func _build() -> void:
 	for sx: float in [-1.0, 1.0]:
 		var eye := Toon.part(_head, Toon.sphere(0.2), main.vfx.glow_mat(Toon.GOLD, 2.4), Vector3(sx * 0.33, 0.05, -0.84))
 		_eyes.append(eye)
-		Toon.part(_head, Toon.sphere(0.08), Toon.mat(Toon.SUMI, false), Vector3(sx * 0.33, 0.05, -1.0))
+		Toon.part(_head, Toon.sphere(0.08), Toon.mat_shared(Toon.SUMI, false), Vector3(sx * 0.33, 0.05, -1.0))
 	# collier d'écume au ras de l'eau
 	for k in 12:
 		var a := TAU * float(k) / 12.0
-		Toon.part(body, Toon.sphere(0.22), Toon.mat(FOAM_C, false), Vector3(cos(a) * 1.35, 0.15, sin(a) * 1.1))
+		Toon.part(body, Toon.sphere(0.22), Toon.mat_shared(FOAM_C, false), Vector3(cos(a) * 1.35, 0.15, sin(a) * 1.1))
 	# chapelet (juzu) de perles d'or sur la poitrine
 	for k in 9:
 		var a2 := -0.9 + 1.8 * float(k) / 8.0
-		Toon.part(body, Toon.sphere(0.1), Toon.mat(Toon.GOLD), Vector3(sin(a2) * 0.9, 1.15 - cos(a2) * 0.25, -0.95 + absf(sin(a2)) * 0.3))
+		Toon.part(body, Toon.sphere(0.1), Toon.mat_shared(Toon.GOLD), Vector3(sin(a2) * 0.9, 1.15 - cos(a2) * 0.25, -0.95 + absf(sin(a2)) * 0.3))
 	_make_stars(body, 3.4)
 
 
@@ -86,7 +86,7 @@ func _make_bubble(idx: int, p: Vector3) -> Dictionary:
 	orb.position.y = 0.9
 	Toon.part(orb, Toon.sphere(0.36), Toon.flat(Color(FOAM_C, 0.55)), Vector3.ZERO)
 	Toon.part(orb, Toon.sphere(0.12), Toon.flat(Color(1, 1, 1, 0.9)), Vector3(-0.12, 0.14, -0.2))
-	var ink := Toon.mat(Toon.SUMI, false)
+	var ink := Toon.mat_shared(Toon.SUMI, false)
 	for k in idx + 1:
 		var x := (float(k) - float(idx) * 0.5) * 0.2
 		Toon.part(n, Toon.box(Vector3(0.08, 0.05, 0.4)), ink, Vector3(x, 1.6, 0))

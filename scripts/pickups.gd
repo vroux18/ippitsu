@@ -95,14 +95,7 @@ func _emissive(c: Color, energy: float) -> StandardMaterial3D:
 	m.emission = c
 	m.emission_energy_multiplier = energy
 	m.roughness = 0.3
-	# contour d'encre
-	var o := StandardMaterial3D.new()
-	o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	o.albedo_color = Toon.SUMI
-	o.cull_mode = BaseMaterial3D.CULL_FRONT
-	o.grow = true
-	o.grow_amount = 0.025
-	m.next_pass = o
+	m.next_pass = Toon.outline_mat(0.025)  # contour d'encre (passe partagée)
 	return m
 
 

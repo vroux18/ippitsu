@@ -125,9 +125,9 @@ func _ready() -> void:
 	radius = 0.9
 	hp *= max_hp_mult
 	max_hp = hp
-	_fur = Toon.mat(ORANGE)
-	_white = Toon.mat(WHITE)
-	_ash = Toon.mat(ASH)
+	_fur = Toon.mat_shared(ORANGE)
+	_white = Toon.mat_shared(WHITE)
+	_ash = Toon.mat_shared(ASH)
 	_fox = _build_fox(self, true)
 	for i in 2:
 		var n := Node3D.new()
@@ -161,7 +161,7 @@ func _build_fox(root: Node3D, is_real: bool) -> Dictionary:
 	var body := Node3D.new()
 	root.add_child(body)
 	body.scale = Vector3.ONE * FOX_SCALE
-	var dark := Toon.mat(Toon.SUMI)
+	var dark := Toon.mat_shared(Toon.SUMI)
 	var red := Toon.flat(Toon.VERMILION)
 	# corps, poitrail blanc
 	Toon.part(body, _lp_sphere(0.5), _fur, Vector3(0, 0.78, 0.05), Vector3(0.8, 0.75, 1.3))
@@ -174,9 +174,9 @@ func _build_fox(root: Node3D, is_real: bool) -> Dictionary:
 	# cou + collier vermillon à clochette d'or
 	var neck := Toon.part(body, Toon.cyl(0.2, 0.26, 0.5, 8), _fur, Vector3(0, 1.05, -0.45))
 	neck.rotation.x = -0.5
-	var collar := Toon.part(body, Toon.cyl(0.25, 0.25, 0.08, 8), Toon.mat(Toon.VERMILION), Vector3(0, 0.98, -0.5))
+	var collar := Toon.part(body, Toon.cyl(0.25, 0.25, 0.08, 8), Toon.mat_shared(Toon.VERMILION), Vector3(0, 0.98, -0.5))
 	collar.rotation.x = -0.5
-	Toon.part(body, _lp_sphere(0.07), Toon.mat(Toon.GOLD), Vector3(0, 0.86, -0.7))
+	Toon.part(body, _lp_sphere(0.07), Toon.mat_shared(Toon.GOLD), Vector3(0, 0.86, -0.7))
 	# tête et masque blanc (kitsune-men)
 	Toon.part(body, _lp_sphere(0.32), _fur, Vector3(0, 1.32, -0.62), Vector3(1.0, 0.9, 1.0))
 	Toon.part(body, _lp_sphere(0.27), _white, Vector3(0, 1.32, -0.76), Vector3(1.0, 0.95, 0.7))
@@ -196,7 +196,7 @@ func _build_fox(root: Node3D, is_real: bool) -> Dictionary:
 		# oreilles
 		var ear := Toon.part(body, Toon.cyl(0.0, 0.12, 0.36, 4), _fur, Vector3(sx * 0.16, 1.62, -0.58))
 		ear.rotation.z = -sx * 0.25
-		Toon.part(ear, Toon.cyl(0.0, 0.07, 0.22, 4), Toon.mat(WHITE, false), Vector3(0, -0.04, -0.05))
+		Toon.part(ear, Toon.cyl(0.0, 0.07, 0.22, 4), Toon.mat_shared(WHITE, false), Vector3(0, -0.04, -0.05))
 	# les neuf queues en éventail (cônes à bout blanc)
 	var tail_root := Node3D.new()
 	body.add_child(tail_root)

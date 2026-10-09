@@ -99,18 +99,7 @@ static func _toon_vc(key: String) -> StandardMaterial3D:
 
 ## Contour d'encre seul : 2e surface des maillages faits main (normales lisses, pas de fissures).
 static func _ink(osz: float) -> StandardMaterial3D:
-	var key := "ink_%.3f" % osz
-	if _mats.has(key):
-		var cached: StandardMaterial3D = _mats[key]
-		return cached
-	var o := StandardMaterial3D.new()
-	o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	o.albedo_color = Toon.SUMI
-	o.cull_mode = BaseMaterial3D.CULL_FRONT
-	o.grow = true
-	o.grow_amount = osz
-	_mats[key] = o
-	return o
+	return Toon.outline_mat(osz)  # la même passe que celle des matériaux toon, partagée par épaisseur
 
 
 # ------------------------------------------------------------------ maillages (cache)
@@ -274,7 +263,10 @@ class CpuMesh extends Mesh:
 
 static var _cpu: Dictionary = {}  # clé (paramètres ou identifiant) -> CpuMesh
 static var _unit_box: CpuMesh = null
-static var _cpu_ok := 0  # désactivé : un Mesh écrit en script n'est pas accepté par SurfaceTool.append_from (ancien chemin)
+static var _cpu_ok := 1  # 0 = ancien chemin (append_from direct). La copie CPU était coupée parce que
+# _cpu_of appelait surface_get_primitive_type / surface_get_format, qui n'existent que sur ArrayMesh
+# (erreur sur les primitives) ; corrigé, SurfaceTool.append_from accepte bien un Mesh écrit en script
+# (tools/_cpu_test.gd : mêmes sommets et indices qu'avec le maillage d'origine).
 const CPU_MAX := 2048  # au-delà, le cache repart de zéro (maillages uniques jetables)
 
 
@@ -317,16 +309,30 @@ static func cpu_from(st: SurfaceTool) -> Mesh:
 	var c := CpuMesh.new()
 	c.arrays = st.commit_to_arrays()
 	c.prim = Mesh.PRIMITIVE_TRIANGLES
+	c.fmt = _fmt_of(c.arrays)
 	return c
 
 
 static func _cpu_of(mesh: Mesh, surf: int) -> CpuMesh:
 	var c := CpuMesh.new()
 	c.arrays = mesh.surface_get_arrays(surf)
-	c.prim = mesh.surface_get_primitive_type(surf)
-	c.fmt = mesh.surface_get_format(surf)
+	# Mesh n'expose ni le type de primitive ni le format (seul ArrayMesh le fait) : les primitives
+	# (BoxMesh, CylinderMesh…) sont toujours des triangles, le format se déduit des tableaux présents
+	var am := mesh as ArrayMesh
+	c.prim = am.surface_get_primitive_type(surf) if am != null else Mesh.PRIMITIVE_TRIANGLES
+	c.fmt = am.surface_get_format(surf) if am != null else _fmt_of(c.arrays)
 	c.bounds = mesh.get_aabb()
 	return c
+
+
+## Drapeaux de format d'un jeu de tableaux de sommets (un bit par tableau rempli).
+static func _fmt_of(arrays: Array) -> int:
+	var f := 0
+	for i in mini(arrays.size(), Mesh.ARRAY_MAX):
+		var a = arrays[i]  # null, Array ou Packed*Array : tous répondent à is_empty()
+		if a != null and not a.is_empty():
+			f |= 1 << i
+	return f
 
 
 ## Clé de cache : paramètres des primitives (deux cylindres égaux partagent leurs sommets), identifiant
