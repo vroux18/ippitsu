@@ -479,7 +479,7 @@ func _gauge_span(sz: Vector2, u: float) -> Vector2:
 	var gy := top_off + (_band_k + 36.0) * u
 	var bot := gy + sz.y * 0.24
 	if pad.size.x >= 10.0:
-		bot = minf(bot, pad.position.y - 42.0 * u)
+		bot = minf(bot, pad.position.y - 100.0 * u)  # place de la goutte et du sceau d'ultime sous la jauge
 	return Vector2(gy, maxf(bot - gy, 60.0 * u))
 
 
@@ -1093,7 +1093,7 @@ func _draw_gauge(_sz: Vector2, u: float) -> void:
 	draw_circle(drop + Vector2(0, 2) * u, 6.0 * u, ink)
 	draw_colored_polygon(PackedVector2Array([drop + Vector2(-5.5, 1) * u, drop + Vector2(0, -10) * u, drop + Vector2(5.5, 1) * u]), ink)
 	draw_circle(drop + Vector2(-2, 1) * u, 1.6 * u, Color(1, 1, 1, 0.6))
-	_draw_ult(Vector2(gx + gw / 2.0, gy - 26.0 * u), u)
+	_draw_ult(Vector2(gx + gw / 2.0 - 4.0 * u, gy + gh + 50.0 * u), u)  # sous la goutte d'encre
 
 
 ## Jauge d'ultime : sceau rond au bout de la jauge d'encre ; pleine, il pulse en or (double tap).
@@ -1113,7 +1113,7 @@ func _draw_ult(c: Vector2, u: float) -> void:
 		var hs := int(9 * u)
 		var hint := "2× TAP"
 		var hw := UiKit.UI_FONT.get_string_size(hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hs).x
-		draw_string(UiKit.UI_FONT, c + Vector2(-hw / 2.0, -r - 6.0 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hs, Color(Toon.GOLD, 0.7 + 0.3 * pulse))
+		draw_string(UiKit.UI_FONT, c + Vector2(-hw / 2.0, r + 13.0 * u), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, hs, Color(Toon.GOLD, 0.7 + 0.3 * pulse))
 
 
 func _draw_boss(sz: Vector2, u: float) -> void:
@@ -1405,9 +1405,13 @@ func _draw_stage_bar(_sz: Vector2, u: float) -> void:
 		return
 	var sa := clampf(_stage_vis_t / 0.5, 0.0, 1.0) * clampf((3.2 - _stage_vis_t) / 0.25, 0.0, 1.0)
 	draw_set_transform(Vector2(-30.0 * u * (1.0 - sa), 0.0))
-	var x := 66.0 * u  # à droite des jauges de vie et d'expérience (qui finissent à ~46u)
-	var y0 := top_off + 236.0 * u
-	var y1 := y0 + 200.0 * u
+	# sous la vie et l'XP (et leur hexagone de niveau), sur le bord gauche
+	var x := 22.0 * u
+	var y0 := life_rect().end.y + 72.0 * u
+	var y1 := y0 + 140.0 * u
+	if pad.size.x >= 10.0:
+		y1 = minf(y1, pad.position.y - 24.0 * u)  # mode pad : la colonne s'arrête au-dessus du pad
+		y0 = minf(y0, y1 - 60.0 * u)
 	# fond : pilule sombre translucide pour rester lisible partout
 	_sb.bg_color = Color(0.06, 0.05, 0.07, 0.55)
 	_sb.set_corner_radius_all(int(9 * u))

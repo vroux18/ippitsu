@@ -57,7 +57,7 @@ const BOSS_LAYOUT := "full"  # les boss supposent toute l'arène (HALF)
 const FIRST_LAYOUTS := ["court", "court_wide"]  # salle 1 : une cour simple, ouverte, d'un seul tenant
 # saveur par monde : ces formes sortent deux fois plus souvent (formes fixes et générées)
 const FLAVOR := {
-	1: ["g_oct", "g_tee", "cross", "court_wide"],  # quais larges et plats (premier monde : rien de morcelé)
+	1: ["g_oct", "cross", "court_wide"],  # quais larges et plats (premier monde : rien de morcelé)
 	2: ["quad", "diamond", "stairs", "g_isles", "g_plus", "g_oct"],  # îlots de la bambouseraie
 	3: ["moat", "ring", "ell", "g_oct", "g_ell", "g_split"],  # places enneigées, berges de la Sumida
 	4: ["zigzag", "stairs", "hourglass", "islands", "g_diag", "g_broken", "g_terrace"],  # coulées, gradins de basalte
@@ -67,7 +67,7 @@ const FLAVOR := {
 	8: ["hourglass", "cross", "zigzag", "spine", "g_alcove", "g_broken", "g_tee"],  # allées de tombes, pente de Yomi
 }
 # monde 1 : seulement des places larges d'un seul tenant (on découvre le jeu, pas de vide partout)
-const W1_SHAPES := ["full", "court", "court_wide", "g_oct", "g_tee", "cross"]
+const W1_SHAPES := ["full", "court", "court_wide", "g_oct", "cross"]
 const MAX_USES := 2  # une forme au plus deux fois par partie
 const MAX_USES_GEN := 3  # forme générée : tirée au hasard à chaque fois, elle peut revenir un peu plus
 # formes générées des étapes : famille (jamais deux fois de suite) et palier (0 simple -> 2 morcelée)

@@ -2656,17 +2656,43 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 	n.position = Vector3(p.x, 0, p.z)
 	match kind:
 		"chest":
-			var lac := Toon.mat(Color("#5A1E18"))
-			var gold := Toon.mat(Toon.GOLD)
-			Toon.part(n, Toon.box(Vector3(0.72, 0.4, 0.48)), lac, Vector3(0, 0.2, 0))
+			# karabitsu laqué : coffre à pieds, ferrures d'or aux angles, couvercle à gradin, mon d'or en façade
+			var lac := Toon.mat(Color("#7A1F17"))
+			var dark := Toon.mat(Color("#2A0E0B"))
+			var gold := Toon.mat(Color("#E0B04E"))
+			gold.emission_enabled = true
+			gold.emission = Color("#8A5A10")
+			var W := 1.15
+			var D := 0.78
+			var H := 0.62
+			var B := 0.16  # hauteur des pieds
+			for sx in [-1.0, 1.0]:
+				for sz in [-1.0, 1.0]:
+					Toon.part(n, Toon.box(Vector3(0.16, B, 0.16)), dark, Vector3(float(sx) * (W / 2.0 - 0.1), B / 2.0, float(sz) * (D / 2.0 - 0.1)))
+			Toon.part(n, Toon.box(Vector3(W, H, D)), lac, Vector3(0, B + H / 2.0, 0))
+			# ferrures : montants d'or aux quatre angles et bande basse
+			for sx in [-1.0, 1.0]:
+				for sz in [-1.0, 1.0]:
+					Toon.part(n, Toon.box(Vector3(0.09, H + 0.02, 0.09)), gold, Vector3(float(sx) * (W / 2.0 - 0.03), B + H / 2.0, float(sz) * (D / 2.0 - 0.03)))
+			Toon.part(n, Toon.box(Vector3(W + 0.03, 0.06, D + 0.03)), gold, Vector3(0, B + 0.05, 0))
+			# mon (blason rond) et moraillon en façade
+			var mon := Toon.part(n, Toon.cyl(0.13, 0.13, 0.03, 20), gold, Vector3(0, B + H * 0.55, D / 2.0 + 0.01))
+			mon.rotation.x = PI / 2.0
+			Toon.part(n, Toon.box(Vector3(0.1, 0.18, 0.04)), gold, Vector3(0, B + H - 0.06, D / 2.0 + 0.02))
 			var lid := Node3D.new()
 			lid.name = "Lid"
 			n.add_child(lid)
-			lid.position = Vector3(0, 0.4, -0.24)
-			Toon.part(lid, Toon.box(Vector3(0.76, 0.14, 0.52)), lac, Vector3(0, 0.07, 0.24))
-			Toon.part(lid, Toon.box(Vector3(0.78, 0.05, 0.08)), gold, Vector3(0, 0.07, 0.24))
-			Toon.part(n, Toon.box(Vector3(0.1, 0.16, 0.02)), gold, Vector3(0, 0.33, 0.25))
-			_disc(n, 0.75, Toon.flat(Color(Toon.SUMI, 0.18)), 0.015)
+			lid.position = Vector3(0, B + H, -D / 2.0)  # charnière à l'arrière
+			Toon.part(lid, Toon.box(Vector3(W + 0.06, 0.14, D + 0.06)), lac, Vector3(0, 0.07, D / 2.0))
+			Toon.part(lid, Toon.box(Vector3(W - 0.14, 0.12, D - 0.2)), lac, Vector3(0, 0.2, D / 2.0))
+			Toon.part(lid, Toon.box(Vector3(W + 0.08, 0.05, 0.12)), gold, Vector3(0, 0.1, D / 2.0))
+			Toon.part(lid, Toon.box(Vector3(0.12, 0.05, D + 0.08)), gold, Vector3(0, 0.1, D / 2.0))
+			Toon.part(lid, Toon.box(Vector3(0.18, 0.06, 0.18)), gold, Vector3(0, 0.28, D / 2.0))
+			_disc(n, 1.0, Toon.flat(Color(Toon.SUMI, 0.22)), 0.015)
+			# lueur d'or au sol qui respire tant qu'il est fermé (main._update_pockets)
+			var glow := Toon.flat(Color(Toon.GOLD, 0.25))
+			var gd := _disc(n, 1.35, glow, 0.02)
+			gd.name = "Glow"
 		"spring":
 			var stone := Toon.mat(Color("#8C8A86"))
 			for k in 7:
@@ -2712,11 +2738,28 @@ func _update_pockets() -> void:
 		var n: Node3D = pk["node"]
 		match kind:
 			"chest":
-				if d < 1.1:
+				var gl := n.get_node_or_null("Glow") as MeshInstance3D
+				if gl != null:
+					var gk := 0.5 + 0.5 * sin(run_time * 3.0)
+					(gl.material_override as StandardMaterial3D).albedo_color = Color(Toon.GOLD, 0.12 + 0.2 * gk)
+					gl.scale = Vector3(1.35, 1.0, 1.35) * (0.9 + 0.12 * gk)
+				if d < 1.35:
 					pk["used"] = true
 					var lid := n.get_node_or_null("Lid") as Node3D
 					if lid != null:
-						lid.rotation.x = -1.05
+						# le couvercle bascule d'un coup sec, avec un petit rebond
+						var tw := create_tween()
+						tw.tween_property(lid, "rotation:x", -1.9, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+					if gl != null:
+						gl.queue_free()
+					# colonne de lumière dorée qui jaillit et s'efface
+					var beam_m := Toon.flat(Color(Toon.GOLD.lightened(0.35), 0.55))
+					var beam := Toon.part(n, Toon.cyl(0.42, 0.3, 3.2, 16), beam_m, Vector3(0, 2.2, 0))
+					beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					var tb := create_tween()
+					tb.tween_property(beam_m, "albedo_color:a", 0.0, 0.9).set_delay(0.15)
+					tb.tween_callback(beam.queue_free)
+					shake = maxf(shake, 0.25)
 					pickups.drop(p, "coin", randi_range(6, 9))
 					pickups.drop(p, "xp", randi_range(3, 5))
 					_splash(p + Vector3(0, 0.3, 0), Toon.GOLD, 16)
@@ -3069,7 +3112,12 @@ func _puzzle_stroke(pts: PackedVector3Array) -> void:
 					_puzzle_fail(pk, "DANS L'ORDRE, D'UN SEUL TRAIT : 1 → %d" % order.size())
 			"spirit":
 				var sp := spirit_pos(pk)
-				if absf(_winding(pts, sp)) >= PI * 1.6:
+				var wind := absf(_winding(pts, sp))
+				# boucle ou ensō reconnu autour de lui ; et au bord du quai (trait rogné par l'eau), un tour partiel suffit
+				var fig_c: Vector3 = _shape.get("center", Vector3.INF)
+				var ringed := String(_shape.get("shape", "")) in ["loop", "enso"] and fig_c != Vector3.INF 					and Vector2(fig_c.x - sp.x, fig_c.z - sp.z).length() < 1.8
+				var edge := not arena.walkable(sp, 1.4)
+				if wind >= PI * 1.6 or ringed or (edge and wind >= PI * 1.05):
 					_solve_puzzle(pk)
 				else:
 					var close := 1.0e9
