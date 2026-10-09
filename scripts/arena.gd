@@ -2974,9 +2974,9 @@ func _mote_color() -> Color:
 		4:
 			return Color("#FF8A3A")  # braises
 		6:
-			return Color("#B9D98A")  # lucioles de la forêt
+			return Color("#F2C288")  # lucioles au crépuscule (braise)
 		7:
-			return Color("#BFF4EC")  # bulles
+			return Color("#BFE0FF")  # bulles sous la lumière froide
 		8:
 			return Color("#C9B8FF")  # âmes
 	return Color("#2A2830")  # encre
