@@ -1268,7 +1268,9 @@ func _step_puzzles() -> bool:
 			main.hero.position = pk["pos"]  # au centre de l'énigme, comme le robot de campagne
 			main._prev_hero = main.hero.position
 			bot.solve_puzzle(pk)
-			await _until(func(): return _hero_still(), "énigme : fin du trait", 10.0)
+			# un rouleau de niveau peut s'ouvrir à tout moment (montée de niveau immédiate) : on le referme
+			await _until(func(): return _hero_still() or String(main.state) == "pick", "énigme : fin du trait", 10.0)
+			await _settle_play("après le trait d'énigme")
 			await _frames(3)
 		ok = _check(bool(pk["used"]), "énigme %s résolue d'un trait (%d essai(s))" % [String(pk["pz"]), tries], "non résolue") and ok
 	return ok
