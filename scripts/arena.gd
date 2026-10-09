@@ -45,20 +45,26 @@ const LAYOUTS := {
 	# douves : cadre fin, île centrale reliée au nord et au sud
 	"moat": [Rect2(-4.6, -8.6, 9.2, 3.4), Rect2(-4.6, 4.6, 9.2, 4.0), Rect2(-4.6, -5.8, 1.8, 11.0), Rect2(2.8, -5.8, 1.8, 11.0),
 		Rect2(-1.7, -2.4, 3.4, 4.8), Rect2(-1.0, -5.8, 2.0, 4.0), Rect2(-1.0, 1.8, 2.0, 3.4)],
+	# cour octogonale au centre de l'écran, entrée en bas, sortie en haut : la salle 1 (tutoriel)
+	"court": [Rect2(-3.8, -1.6, 7.6, 4.0), Rect2(-1.6, -4.2, 3.2, 9.2), Rect2(-2.9, -3.1, 5.8, 7.0),
+		Rect2(-1.7, 1.8, 3.4, 6.8), Rect2(-1.7, -8.6, 3.4, 7.6)],
+	# même cour, plus large
+	"court_wide": [Rect2(-3.9, -2.4, 7.8, 5.6), Rect2(-2.2, -4.8, 4.4, 10.6), Rect2(-3.4, -3.8, 6.8, 8.4),
+		Rect2(-1.7, 3.0, 3.4, 5.6), Rect2(-1.7, -8.6, 3.4, 6.4)],
 }
 
 const BOSS_LAYOUT := "full"  # les boss supposent toute l'arène (HALF)
-const FIRST_LAYOUTS := ["pond", "terraces"]  # salle 1 : du relief, mais facile
-# saveur par monde : ces formes sortent deux fois plus souvent
+const FIRST_LAYOUTS := ["court", "court_wide"]  # salle 1 : une cour simple, ouverte, d'un seul tenant
+# saveur par monde : ces formes sortent deux fois plus souvent (formes fixes et générées)
 const FLAVOR := {
-	1: ["islands", "twin", "spine", "terraces"],
-	2: ["quad", "diamond", "stairs"],
-	3: ["moat", "ring", "ell"],
-	4: ["zigzag", "stairs", "hourglass", "islands"],
-	5: ["cross", "pond", "diamond", "spine"],
-	6: ["stairs", "terraces", "ell", "twin"],
-	7: ["pond", "moat", "ring", "islands"],
-	8: ["hourglass", "cross", "zigzag", "spine"],
+	1: ["islands", "twin", "spine", "terraces", "g_isles", "g_broken", "g_alcove"],  # quais, jetées, pontons
+	2: ["quad", "diamond", "stairs", "g_isles", "g_plus", "g_oct"],  # îlots de la bambouseraie
+	3: ["moat", "ring", "ell", "g_oct", "g_ell", "g_split"],  # places enneigées, berges de la Sumida
+	4: ["zigzag", "stairs", "hourglass", "islands", "g_diag", "g_broken", "g_terrace"],  # coulées, gradins de basalte
+	5: ["cross", "pond", "diamond", "spine", "g_tee", "g_plus", "g_twin_oct"],  # pavillons de papier
+	6: ["stairs", "terraces", "ell", "twin", "g_terrace", "g_diag", "g_alcove"],  # escaliers de pierre de Kurama
+	7: ["pond", "moat", "ring", "islands", "g_twin_oct", "g_isles", "g_split"],  # cours du palais, récifs
+	8: ["hourglass", "cross", "zigzag", "spine", "g_alcove", "g_broken", "g_tee"],  # allées de tombes, pente de Yomi
 }
 const MAX_USES := 2  # une forme au plus deux fois par partie
 const MAX_USES_GEN := 3  # forme générée : tirée au hasard à chaque fois, elle peut revenir un peu plus
@@ -80,8 +86,9 @@ const SIDED := ["g_ell", "g_diag", "g_broken"]  # formes à côté d'entrée : o
 # formes fixes : [famille, palier]
 const LAYOUT_FAM := {
 	"full": ["open", 0], "islands": ["isles", 1], "cross": ["plus", 0], "ring": ["ring", 2], "zigzag": ["diag", 1],
-	"hourglass": ["neck", 1], "twin": ["twin", 1], "pond": ["ring", 0], "terraces": ["terrace", 0], "ell": ["ell", 1],
+	"hourglass": ["neck", 1], "twin": ["twin", 1], "pond": ["ring", 1], "terraces": ["terrace", 0], "ell": ["ell", 1],
 	"stairs": ["diag", 1], "diamond": ["isles", 2], "spine": ["alcove", 1], "quad": ["isles", 2], "moat": ["ring", 2],
+	"court": ["plaza", 0], "court_wide": ["plaza", 0],
 }
 const RING_LIKE := ["ring", "pond", "moat", "islands"]  # anneau autour d'une fosse, longue jetée : moins souvent
 const PIECE_GAP := 1.6  # passage laissé autour d'une pièce de décor, dans chaque plateforme qu'elle touche
@@ -89,10 +96,11 @@ const BRIDGE_W := 2.7  # un rectangle plus étroit que ça est une passerelle (p
 const WOOD := [Color("#8E6B3E"), Color("#A88452"), Color("#7A5A34")]
 const MIN_AREA := 70.0  # surface jouable minimale d'une forme (m²)
 
-# hub de départ : place (0), dojo (1), passerelle dojo-place (2), chemin de planches (3), sanctuaire du torii (4)
-const HUB_RECTS := [Rect2(-4.6, 2.0, 9.2, 6.6), Rect2(-4.6, -4.0, 5.2, 5.4), Rect2(-3.2, 0.8, 2.4, 1.8),
-	Rect2(1.6, -6.0, 2.4, 8.6), Rect2(-1.0, -8.6, 5.6, 3.2)]
-const HUB_DOJO := 1
+# hub de départ, un chemin d'un seul tenant du bas (arrivée) au torii (haut) : place d'arrivée (0), allée
+# centrale (1), dojo accolé à l'allée (2), jardinet en face (3), sanctuaire du torii (4) ; ni vide ni pont
+const HUB_RECTS := [Rect2(-3.4, 2.4, 6.8, 6.2), Rect2(-1.6, -6.0, 3.2, 9.0), Rect2(-4.6, -3.6, 4.4, 6.2),
+	Rect2(1.0, -1.0, 3.6, 3.6), Rect2(-2.6, -8.6, 5.2, 3.2)]
+const HUB_DOJO := 2
 
 # étapes (expéditions) : plusieurs tronçons de la taille d'une salle, empilés vers le fond (z négatif)
 const CHUNK_L := 17.2  # profondeur d'un tronçon (= HALF.y * 2)
@@ -1348,6 +1356,831 @@ func _pick_key(rng: RandomNumberGenerator) -> String:
 	return pick
 
 
+# ------------------------------------------------------------------ formes des étapes
+
+## Famille d'une forme (deux tronçons voisins n'ont jamais la même).
+static func _family(key: String) -> String:
+	if GEN.has(key):
+		var gd: Dictionary = GEN[key]
+		return String(gd["fam"])
+	if LAYOUT_FAM.has(key):
+		var la: Array = LAYOUT_FAM[key]
+		return String(la[0])
+	return key
+
+
+## Palier d'une forme : 0 simple, 1 à détours, 2 morcelée.
+static func _tier(key: String) -> int:
+	if GEN.has(key):
+		var gd: Dictionary = GEN[key]
+		return int(gd["tier"])
+	if LAYOUT_FAM.has(key):
+		var la: Array = LAYOUT_FAM[key]
+		return int(la[1])
+	return 1
+
+
+## Forme d'un tronçon d'étape parmi les formes fixes et générées, pondérée par la saveur du monde et
+## l'avancée (monde, étape, tronçon : les formes morcelées viennent plus tard) ; jamais la même famille
+## deux fois de suite, une famille déjà vue dans l'étape sort trois fois moins. Un seul tirage de `rng`.
+func _pick_chunk(rng: RandomNumberGenerator, i: int, fams: Dictionary, last_fam: String) -> String:
+	var flavor: Array = FLAVOR.get(world_id, [])
+	var prog := clampf(float(world_id - 1) / 14.0 + float(_stage_n) / 14.0 + float(i) * 0.04, 0.0, 1.0)
+	var keys: Array = LAYOUTS.keys() + GEN.keys()
+	var cands: Array = []
+	var weights: Array = []
+	var total := 0.0
+	for pass_i in 2:
+		for k in keys:
+			var key := String(k)
+			if key == BOSS_LAYOUT or key == _last:
+				continue
+			var fam := _family(key)
+			var tier := _tier(key)
+			if pass_i == 0:
+				var cap: int = MAX_USES_GEN if GEN.has(key) else MAX_USES
+				if fam == last_fam or int(_used.get(key, 0)) >= cap:
+					continue
+				# première étape du monde : rien que des formes simples (la variété vient ensuite)
+				if _stage_n == 0 and tier > 0:
+					continue
+			var wgt := 1.0
+			if tier == 0:
+				wgt = 1.5 - 0.9 * prog
+			elif tier == 2:
+				wgt = 0.35 + 1.15 * prog
+			if GEN.has(key):
+				wgt *= 1.4  # formes générées : la vraie variété
+			if key in RING_LIKE:
+				wgt *= 0.5
+			if key in flavor:
+				wgt *= 1.8
+			if fams.has(fam):
+				wgt *= 0.33
+			cands.append(key)
+			weights.append(wgt)
+			total += wgt
+		if not cands.is_empty():
+			break
+	var pick := String(cands[cands.size() - 1])
+	var x := rng.randf() * total
+	for c in cands.size():
+		x -= float(weights[c])
+		if x <= 0.0:
+			pick = String(cands[c])
+			break
+	return pick
+
+
+## Passage d'arrivée : le plus large au nord du tronçon précédent (x0, x1) ; Vector2(1, -1) : aucun.
+static func _entry_run(prev: Array) -> Vector2:
+	var best := Vector2(1, -1)
+	if prev.is_empty():
+		return best
+	var bw := -1.0
+	for v in _edge_runs(prev, true):
+		var vv: Vector2 = v
+		if vv.y - vv.x > bw:
+			bw = vv.y - vv.x
+			best = vv
+	return best
+
+
+## Forme générée `kind` en coordonnées du tronçon ; `run` : passage d'arrivée au sud (x0, x1), ou
+## Vector2(1, -1). -> {rects, steps: [Vector3(x0, x1, z)], gaps: [Rect2]} ; rects vide si aucun essai valide.
+static func _gen_layout(kind: String, g: RandomNumberGenerator, run: Vector2) -> Dictionary:
+	for attempt in 10:
+		var d: Dictionary = _gen_once(kind, g, run)
+		var rs: Array = d["rects"]
+		if _chunk_ok(rs):
+			return d
+	return {"rects": [], "steps": [], "gaps": []}
+
+
+static func _gen_once(kind: String, g: RandomNumberGenerator, run: Vector2) -> Dictionary:
+	var out := {"rects": [], "steps": [], "gaps": []}
+	# retournée gauche/droite au hasard ; les formes à côté d'entrée se tournent vers le passage d'arrivée
+	var flip := g.randf() < 0.5
+	if run.x <= run.y and kind in SIDED:
+		var rc := (run.x + run.y) * 0.5
+		if absf(rc) > 0.8:
+			flip = rc > 0.0
+	var rn := run
+	if flip and run.x <= run.y:
+		rn = Vector2(-run.y, -run.x)
+	match kind:
+		"g_oct":
+			_g_oct(out, g, rn)
+		"g_twin_oct":
+			_g_twin_oct(out, g, rn)
+		"g_ell":
+			_g_ell(out, g, rn)
+		"g_tee":
+			_g_tee(out, g, rn)
+		"g_plus":
+			_g_plus(out, g, rn)
+		"g_diag":
+			_g_diag(out, g, rn)
+		"g_terrace":
+			_g_terrace(out, g, rn)
+		"g_alcove":
+			_g_alcove(out, g, rn)
+		"g_isles":
+			_g_isles(out, g, rn)
+		"g_split":
+			_g_split(out, g, rn)
+		"g_broken":
+			_g_broken(out, g, rn)
+	if flip:
+		_flip_out(out)
+	return out
+
+
+static func _flip_out(out: Dictionary) -> void:
+	var rs: Array = out["rects"]
+	for i in rs.size():
+		var r: Rect2 = rs[i]
+		rs[i] = Rect2(-r.end.x, r.position.y, r.size.x, r.size.y)
+	var st: Array = out["steps"]
+	for i in st.size():
+		var s: Vector3 = st[i]
+		st[i] = Vector3(-s.y, -s.x, s.z)
+	var gp: Array = out["gaps"]
+	for i in gp.size():
+		var r: Rect2 = gp[i]
+		gp[i] = Rect2(-r.end.x, r.position.y, r.size.x, r.size.y)
+
+
+## Contrôle d'un tronçon généré (mêmes règles que check_layouts) : dans l'arène, rectangles assez larges,
+## connexe, jonctions franches, pas de fente de vide de moins de 0.6, départ et torii sur la terre ferme,
+## surface suffisante, raccord à la forme pleine des deux côtés (le repli des étapes).
+static func _chunk_ok(rs: Array) -> bool:
+	if rs.is_empty() or rs.size() > 12:
+		return false
+	var box := Rect2(-HALF.x - 0.001, -HALF.y - 0.001, HALF.x * 2.0 + 0.002, HALF.y * 2.0 + 0.002)
+	for r in rs:
+		var rr: Rect2 = r
+		if not box.encloses(rr) or minf(rr.size.x, rr.size.y) < 1.6:
+			return false
+	var seen := {0: true}
+	var queue: Array = [0]
+	while not queue.is_empty():
+		var cur: int = queue.pop_front()
+		for j in rs.size():
+			if not seen.has(j) and _touch_r(rs[cur], rs[j]):
+				seen[j] = true
+				queue.append(j)
+	if seen.size() < rs.size():
+		return false
+	for i in rs.size():
+		for j in range(i + 1, rs.size()):
+			var a: Rect2 = rs[i]
+			var b: Rect2 = rs[j]
+			if _touch_r(a, b):
+				var inter := a.intersection(b)
+				if maxf(inter.size.x, inter.size.y) < 1.4 or minf(inter.size.x, inter.size.y) < 0.15:
+					return false
+			elif _sliver(rs, a, b):
+				return false
+	# fente de vide trop fine contre le cadre (bords, et raccord avec les tronçons voisins)
+	for r in rs:
+		var rr: Rect2 = r
+		var c := rr.get_center()
+		var probes: Array = []
+		var dl := rr.position.x + HALF.x
+		if dl > 0.01 and dl < 0.6:
+			probes.append(Vector2(rr.position.x - dl * 0.5, c.y))
+		var dr := HALF.x - rr.end.x
+		if dr > 0.01 and dr < 0.6:
+			probes.append(Vector2(rr.end.x + dr * 0.5, c.y))
+		var dn := rr.position.y + HALF.y
+		if dn > 0.01 and dn < 0.6:
+			probes.append(Vector2(c.x, rr.position.y - dn * 0.5))
+		var ds := HALF.y - rr.end.y
+		if ds > 0.01 and ds < 0.6:
+			probes.append(Vector2(c.x, rr.end.y + ds * 0.5))
+		for q in probes:
+			var qv: Vector2 = q
+			if not _in_any(rs, qv):
+				return false
+	var ends: Array = _ends(rs)
+	var s: Vector3 = ends[0]
+	var gt: Vector3 = ends[1]
+	var high: Rect2 = ends[3]
+	if not _walk_r(rs, Vector2(s.x, s.z), 0.5) or not _walk_r(rs, Vector2(gt.x, gt.z), 0.5) or high.size.x < 2.4:
+		return false
+	var full: Array = _layout_rects(BOSS_LAYOUT, false)
+	if _join_pieces(rs, full).is_empty() or _join_pieces(full, rs).is_empty():
+		return false
+	var area := 0.0
+	var dec: Dictionary = _decompose(rs)
+	for pc in dec["pieces"]:
+		var pa: Array = pc
+		var pr: Rect2 = pa[0]
+		area += pr.get_area()
+	return area >= MIN_AREA
+
+
+## Vrai si a et b (qui ne se touchent pas) laissent entre eux une fente de vide de moins de 0.6.
+static func _sliver(rs: Array, a: Rect2, b: Rect2) -> bool:
+	if not a.grow(0.6).intersects(b):
+		return false
+	# milieu de l'écart (en x, en z, ou entre deux coins)
+	var p := Vector2((maxf(a.position.x, b.position.x) + minf(a.end.x, b.end.x)) * 0.5,
+		(maxf(a.position.y, b.position.y) + minf(a.end.y, b.end.y)) * 0.5)
+	return not _in_any(rs, p)
+
+
+## Rectangle de (x0, z0) à (x1, z1), calé au décimètre.
+static func _rq(x0: float, z0: float, x1: float, z1: float) -> Rect2:
+	var a := snappedf(minf(x0, x1), 0.1)
+	var b := snappedf(maxf(x0, x1), 0.1)
+	var c := snappedf(minf(z0, z1), 0.1)
+	var d := snappedf(maxf(z0, z1), 0.1)
+	return Rect2(a, c, b - a, d - c)
+
+
+## Bornes en x (x0, x1) d'une bande de largeur `w` centrée en `c`, dans l'arène ; collée au bord si elle
+## en laisserait moins de 0.6 (pas de fente de vide).
+static func _span(c: float, w: float) -> Vector2:
+	var ww := minf(w, HALF.x * 2.0)
+	var x0 := clampf(c - ww * 0.5, -HALF.x, HALF.x - ww)
+	var x1 := x0 + ww
+	if x0 + HALF.x < 0.6:
+		x0 = -HALF.x
+	if HALF.x - x1 < 0.6:
+		x1 = HALF.x
+	return Vector2(x0, x1)
+
+
+## Retrait d'un bord : collé (0) ou franc (0.6 à 1.2), jamais une fente.
+static func _eoff(g: RandomNumberGenerator) -> float:
+	if g.randf() < 0.55:
+		return 0.0
+	return g.randf_range(0.6, 1.2)
+
+
+## Milieu d'une entrée de largeur `w` au bord sud, dans le passage d'arrivée `run` s'il y en a un
+## (dedans s'il est plus large, sinon l'entrée le couvre tout entier).
+static func _entry_x(g: RandomNumberGenerator, run: Vector2, w: float) -> float:
+	var lo := -HALF.x + w * 0.5
+	var hi := HALF.x - w * 0.5
+	if run.x <= run.y:
+		var a := run.x + w * 0.5
+		var b := run.y - w * 0.5
+		lo = maxf(lo, minf(a, b))
+		hi = minf(hi, maxf(a, b))
+		if lo > hi:
+			return clampf((run.x + run.y) * 0.5, -HALF.x + w * 0.5, HALF.x - w * 0.5)
+	return g.randf_range(lo, hi)
+
+
+## Octogone (presque rond) de centre (cx, cz), demi-tailles rx, rz : bande large, bande haute, carré central.
+static func _oct(rs: Array, cx: float, cz: float, rx: float, rz: float) -> void:
+	var sa := _span(cx, 2.0 * rx)
+	rs.append(_rq(sa.x, cz - 0.42 * rz, sa.y, cz + 0.42 * rz))
+	rs.append(_rq(cx - 0.42 * rx, cz - rz, cx + 0.42 * rx, cz + rz))
+	rs.append(_rq(cx - 0.76 * rx, cz - 0.76 * rz, cx + 0.76 * rx, cz + 0.76 * rz))
+
+
+## Place octogonale, entrée et sortie en couloir (terre ou passerelle large), parfois une alcôve sur le côté.
+static func _g_oct(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var rx := g.randf_range(3.3, 4.3)
+	var cx := g.randf_range(-(HALF.x - rx), HALF.x - rx)
+	var cz := g.randf_range(-1.4, 1.4)
+	var rz := minf(rx * g.randf_range(1.0, 1.35), HALF.y - absf(cz) - 1.8)
+	_oct(rs, cx, cz, rx, rz)
+	var a: Rect2 = rs[0]
+	var ws := g.randf_range(2.4, 3.8)
+	var sx := clampf(_entry_x(g, run, ws), cx - 0.76 * rx + ws * 0.5, cx + 0.76 * rx - ws * 0.5)
+	var sp := _span(sx, ws)
+	rs.append(_rq(sp.x, cz + 0.42 * rz - 0.4, sp.y, HALF.y))
+	var wn := g.randf_range(2.4, 3.8)
+	var nsp := _span(clampf(g.randf_range(-2.6, 2.6), cx - 0.76 * rx + wn * 0.5, cx + 0.76 * rx - wn * 0.5), wn)
+	rs.append(_rq(nsp.x, -HALF.y, nsp.y, cz - 0.42 * rz + 0.4))
+	# alcôve (un recoin pour un coffre, une source), s'il reste de la place sur un côté
+	if g.randf() < 0.55:
+		var room_l := a.position.x + HALF.x
+		var room_r := HALF.x - a.end.x
+		var ah := minf(g.randf_range(1.0, 1.5), 0.42 * rz - 0.1)
+		var az := cz + g.randf_range(-0.42 * rz + ah, 0.42 * rz - ah)
+		if room_l >= 1.2 and room_l >= room_r:
+			rs.append(_rq(-HALF.x, az - ah, a.position.x + 0.4, az + ah))
+		elif room_r >= 1.2:
+			rs.append(_rq(a.end.x - 0.4, az - ah, HALF.x, az + ah))
+
+
+## Deux places octogonales décalées en diagonale, reliées par un col (terre) ou une passerelle courte.
+static func _g_twin_oct(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var r1x := g.randf_range(2.9, 3.7)
+	var r2x := g.randf_range(2.9, 3.7)
+	var c1z := g.randf_range(3.7, 4.5)
+	var c2z := -g.randf_range(3.7, 4.5)
+	var r1z := minf(g.randf_range(2.6, 3.3), 7.9 - c1z)
+	var r2z := minf(g.randf_range(2.6, 3.3), 7.9 + c2z)
+	# un vide d'au moins 1.2 entre les deux places
+	var room := (c1z - r1z) - (c2z + r2z)
+	if room < 1.2:
+		r1z -= (1.2 - room) * 0.5
+		r2z -= (1.2 - room) * 0.5
+	var c1x := clampf(_entry_x(g, run, 2.8), -(HALF.x - r1x), HALF.x - r1x)
+	var side: float = 1.0 if g.randf() < 0.5 else -1.0
+	var c2x := clampf(c1x + side * g.randf_range(0.9, 2.4), -(HALF.x - r2x), HALF.x - r2x)
+	_oct(rs, c1x, c1z, r1x, r1z)
+	_oct(rs, c2x, c2z, r2x, r2z)
+	var wn := g.randf_range(1.9, 3.2)
+	var lo := maxf(c1x - 0.7 * r1x, c2x - 0.7 * r2x) + wn * 0.5
+	var hi := minf(c1x + 0.7 * r1x, c2x + 0.7 * r2x) - wn * 0.5
+	var nx := (lo + hi) * 0.5
+	if lo < hi:
+		nx = g.randf_range(lo, hi)
+	rs.append(_rq(nx - wn * 0.5, c2z + 0.6 * r2z, nx + wn * 0.5, c1z - 0.6 * r1z))
+	var ws := g.randf_range(2.4, 3.4)
+	var sx := clampf(_entry_x(g, run, ws), c1x - 0.76 * r1x + ws * 0.5, c1x + 0.76 * r1x - ws * 0.5)
+	rs.append(_rq(sx - ws * 0.5, c1z + 0.42 * r1z - 0.4, sx + ws * 0.5, HALF.y))
+	var wx := g.randf_range(2.4, 3.4)
+	var ex := clampf(c2x + g.randf_range(-1.0, 1.0), c2x - 0.76 * r2x + wx * 0.5, c2x + 0.76 * r2x - wx * 0.5)
+	rs.append(_rq(ex - wx * 0.5, -HALF.y, ex + wx * 0.5, c2z - 0.42 * r2z + 0.4))
+
+
+## L : un bras qui monte depuis l'entrée, un bras en travers, la sortie à son bout ; parfois une île
+## dans le coude, reliée par une passerelle courte.
+static func _g_ell(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var wv := g.randf_range(3.2, 4.6)
+	var vs := _span(_entry_x(g, run, wv), wv)
+	var right := (vs.x + vs.y) * 0.5 <= 0.0  # le bras en travers part vers la droite
+	var zt := g.randf_range(-6.0, -3.0)
+	var hh := g.randf_range(3.2, 4.4)
+	var eh := _eoff(g)
+	var hx0: float = vs.x if right else -HALF.x + eh
+	var hx1: float = HALF.x - eh if right else vs.y
+	rs.append(_rq(vs.x, zt, vs.y, HALF.y))
+	rs.append(_rq(hx0, zt, hx1, zt + hh))
+	var wn := g.randf_range(2.6, 3.6)
+	var inset := g.randf_range(0.0, 1.0)
+	var nc: float = (hx1 - inset - wn * 0.5) if right else (hx0 + inset + wn * 0.5)
+	var nsp := _span(nc, wn)
+	rs.append(_rq(nsp.x, -HALF.y, nsp.y, zt + 0.6))
+	if g.randf() < 0.45:
+		var qx0: float = vs.y + 0.9 if right else -HALF.x
+		var qx1: float = HALF.x if right else vs.x - 0.9
+		var qz0 := zt + hh + 1.0
+		var iw := g.randf_range(2.6, 3.4)
+		var ih := g.randf_range(2.6, 3.4)
+		var qz1 := minf(HALF.y - ih, zt + hh + 2.4)
+		if qx1 - qx0 >= iw and qz1 >= qz0:
+			var ix0 := g.randf_range(qx0, qx1 - iw)
+			if right and HALF.x - (ix0 + iw) < 0.6:
+				ix0 = HALF.x - iw
+			if not right and ix0 + HALF.x < 0.6:
+				ix0 = -HALF.x
+			var iz0 := g.randf_range(qz0, qz1)
+			if HALF.y - (iz0 + ih) < 0.6:
+				iz0 = HALF.y - ih
+			rs.append(_rq(ix0, iz0, ix0 + iw, iz0 + ih))
+			var bw := g.randf_range(1.8, 2.2)
+			var blo := maxf(ix0, hx0) + bw * 0.5 + 0.2
+			var bhi := minf(ix0 + iw, hx1) - bw * 0.5 - 0.2
+			var bx := (blo + bhi) * 0.5
+			if blo < bhi:
+				bx = g.randf_range(blo, bhi)
+			rs.append(_rq(bx - bw * 0.5, zt + hh - 0.5, bx + bw * 0.5, iz0 + 0.5))
+
+
+## T : une barre en travers et un pied. Barre au nord (une ou deux sorties à ses bouts), ou au sud :
+## le pied monte alors vers la sortie, coupé d'une seconde barre courte et décalée.
+static func _g_tee(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var bh := g.randf_range(3.0, 4.2)
+	var e1 := _eoff(g)
+	var e2 := _eoff(g)
+	if g.randf() < 0.55:
+		var zb0 := g.randf_range(-HALF.y, -5.0)
+		if zb0 + HALF.y < 0.6:
+			zb0 = -HALF.y
+		rs.append(_rq(-HALF.x + e1, zb0, HALF.x - e2, zb0 + bh))
+		var ws := g.randf_range(3.2, 4.8)
+		var sp := _span(_entry_x(g, run, ws), ws)
+		rs.append(_rq(sp.x, zb0 + bh - 0.6, sp.y, HALF.y))
+		if zb0 > -HALF.y + 0.01:
+			var two := g.randf() < 0.5
+			var first_right := g.randf() < 0.5
+			for k in (2 if two else 1):
+				var wn := g.randf_range(2.4, 3.2)
+				var at_right: bool = first_right if k == 0 else not first_right
+				var nc: float = (HALF.x - e2 - wn * 0.5 - g.randf_range(0.0, 0.6)) if at_right else (-HALF.x + e1 + wn * 0.5 + g.randf_range(0.0, 0.6))
+				var np := _span(nc, wn)
+				rs.append(_rq(np.x, -HALF.y, np.y, zb0 + 0.6))
+	else:
+		var eb := _eoff(g)
+		var zb1 := HALF.y - eb
+		rs.append(_rq(-HALF.x + e1, zb1 - bh, HALF.x - e2, zb1))
+		if eb > 0.0:
+			var we := g.randf_range(2.6, 3.6)
+			var ep := _span(_entry_x(g, run, we), we)
+			rs.append(_rq(ep.x, zb1 - 0.6, ep.y, HALF.y))
+		var wp := g.randf_range(3.2, 4.4)
+		var sc := g.randf_range(-2.4, 2.4)
+		var pp := _span(sc, wp)
+		rs.append(_rq(pp.x, -HALF.y, pp.y, zb1 - bh + 0.6))
+		var cw := g.randf_range(5.4, 7.4)
+		var ch := g.randf_range(2.6, 3.4)
+		var cz := g.randf_range(-4.6, -1.0)
+		var cp := _span(sc + g.randf_range(-1.2, 1.2), cw)
+		rs.append(_rq(cp.x, cz - ch * 0.5, cp.y, cz + ch * 0.5))
+
+
+## Croix décalée : bras en travers, pied et tête en baïonnette ; parfois une tête de marteau au bout du bras.
+static func _g_plus(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var cz := snappedf(g.randf_range(-2.2, 2.2), 0.1)
+	var hw := g.randf_range(3.0, 4.2)
+	var e1 := _eoff(g)
+	var e2 := _eoff(g)
+	rs.append(_rq(-HALF.x + e1, cz - hw * 0.5, HALF.x - e2, cz + hw * 0.5))
+	var w1 := g.randf_range(2.8, 4.0)
+	var s1 := _span(_entry_x(g, run, w1), w1)
+	rs.append(_rq(s1.x, cz + 0.2, s1.y, HALF.y))
+	var w2 := g.randf_range(2.8, 4.0)
+	var c1 := (s1.x + s1.y) * 0.5
+	var dir: float = 1.0 if g.randf() < 0.5 else -1.0
+	if c1 + dir * 2.0 > HALF.x - w2 * 0.5 or c1 + dir * 2.0 < -HALF.x + w2 * 0.5:
+		dir = -dir
+	var s2 := _span(c1 + dir * g.randf_range(1.2, 2.6), w2)
+	rs.append(_rq(s2.x, -HALF.y, s2.y, cz - 0.2))
+	if g.randf() < 0.5:
+		var hl := g.randf_range(4.4, 6.0)
+		var hw2 := g.randf_range(2.0, 2.6)
+		var left := g.randf() < 0.5
+		var hx0: float = (-HALF.x + e1) if left else (HALF.x - e2 - hw2)
+		var hz0 := clampf(cz - hl * 0.5, -HALF.y + 1.2, HALF.y - 1.2 - hl)
+		rs.append(_rq(hx0, hz0, hx0 + hw2, hz0 + hl))
+
+
+## Escalier en diagonale (ou en zigzag) : trois ou quatre marches larges qui se décalent, paliers peints.
+static func _g_diag(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var st: Array = out["steps"]
+	var k := g.randi_range(3, 4)
+	var zig := g.randf() < 0.3
+	var base := HALF.y * 2.0 / float(k)
+	var w0 := g.randf_range(3.8, 5.0)
+	var c0 := _entry_x(g, run, w0)
+	var c_end: float = g.randf_range(1.0, 2.8) * (1.0 if c0 <= 0.0 else -1.0)
+	var prev_s := Vector2.ZERO
+	for i in k:
+		var w: float = w0 if i == 0 else g.randf_range(3.6, 5.0)
+		var c := lerpf(c0, c_end, float(i) / float(k - 1))
+		if zig:
+			c = c0 if i % 2 == 0 else c_end
+		var s := _span(c, w)
+		if i > 0:
+			# au moins 1.8 de recouvrement avec la marche précédente
+			if s.x > prev_s.y - 1.8:
+				s = _span(prev_s.y - 1.8 + w * 0.5, w)
+			elif s.y < prev_s.x + 1.8:
+				s = _span(prev_s.x + 1.8 - w * 0.5, w)
+		var zb := HALF.y - base * float(i)
+		var z1: float = zb + (0.0 if i == 0 else 0.5)
+		var z0: float = HALF.y - base * float(i + 1) - (0.0 if i == k - 1 else 0.5)
+		rs.append(_rq(s.x, z0, s.y, z1))
+		if i > 0:
+			var ox0 := maxf(s.x, prev_s.x) + 0.2
+			var ox1 := minf(s.y, prev_s.y) - 0.2
+			if ox1 - ox0 > 1.0:
+				st.append(Vector3(ox0, ox1, snappedf(zb, 0.1)))
+		prev_s = s
+
+
+## Terrasses : trois ou quatre plateformes larges étagées vers le fond, décalées, marches peintes entre elles.
+static func _g_terrace(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var st: Array = out["steps"]
+	var k := g.randi_range(3, 4)
+	var base := HALF.y * 2.0 / float(k)
+	var prev_s := Vector2.ZERO
+	for i in k:
+		var w := g.randf_range(5.0, 8.2)
+		var c: float = _entry_x(g, run, w) if i == 0 else g.randf_range(-2.2, 2.2)
+		var s := _span(c, w)
+		if i > 0:
+			if s.x > prev_s.y - 2.6:
+				s = _span(prev_s.y - 2.6 + w * 0.5, w)
+			elif s.y < prev_s.x + 2.6:
+				s = _span(prev_s.x + 2.6 - w * 0.5, w)
+		var zb := HALF.y - base * float(i)
+		var z1: float = zb + (0.0 if i == 0 else 0.2)
+		var z0: float = HALF.y - base * float(i + 1) - (0.0 if i == k - 1 else 0.2)
+		rs.append(_rq(s.x, z0, s.y, z1))
+		if i > 0:
+			var ox0 := maxf(s.x, prev_s.x) + 0.15
+			var ox1 := minf(s.y, prev_s.y) - 0.15
+			if ox1 - ox0 > 1.0:
+				st.append(Vector3(ox0, ox1, snappedf(zb, 0.1)))
+		prev_s = s
+
+
+## Allée (en baïonnette) bordée d'alcôves alternées ; parfois une nef élargie au milieu.
+static func _g_alcove(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var wsp := g.randf_range(3.2, 4.2)
+	var zm := snappedf(g.randf_range(-1.6, 1.6), 0.1)
+	var s1 := _span(_entry_x(g, run, wsp), wsp)
+	var s2 := _span((s1.x + s1.y) * 0.5 + g.randf_range(-1.2, 1.2), wsp)
+	rs.append(_rq(s1.x, zm - 0.6, s1.y, HALF.y))
+	rs.append(_rq(s2.x, -HALF.y, s2.y, zm + 0.6))
+	var nave := g.randf() < 0.35
+	var nh := g.randf_range(2.6, 3.4)
+	if nave:
+		var nw := g.randf_range(6.0, 8.0)
+		var ns := _span((s1.x + s1.y + s2.x + s2.y) * 0.25, nw)
+		rs.append(_rq(ns.x, zm - nh * 0.5, ns.y, zm + nh * 0.5))
+	var n := g.randi_range(2, 3)
+	var left := g.randf() < 0.5
+	for j in n:
+		var ah := g.randf_range(2.2, 3.2)
+		var az := lerpf(-5.6, 5.0, (float(j) + 0.5) / float(n)) + g.randf_range(-0.5, 0.5)
+		var aw := g.randf_range(2.0, 3.2)
+		var seg: Vector2 = s1 if az > zm else s2
+		# hors du coude de l'allée et de la nef
+		var keep: float = nh * 0.5 if nave else 0.8
+		if absf(az - zm) >= ah * 0.5 + keep + 0.7:
+			if left:
+				var x0 := maxf(seg.x - aw, -HALF.x)
+				if x0 + HALF.x < 0.6:
+					x0 = -HALF.x
+				if seg.x - x0 >= 1.2:
+					rs.append(_rq(x0, az - ah * 0.5, seg.x + 0.5, az + ah * 0.5))
+			else:
+				var x1 := minf(seg.y + aw, HALF.x)
+				if HALF.x - x1 < 0.6:
+					x1 = HALF.x
+				if x1 - seg.y >= 1.2:
+					rs.append(_rq(seg.y - 0.5, az - ah * 0.5, x1, az + ah * 0.5))
+		left = not left
+
+
+## Îles reliées par des passerelles courtes (une, parfois deux), décalées d'une île à l'autre.
+static func _g_isles(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var n: int = 3 if g.randf() < 0.55 else 2
+	var hs: Array = []
+	var sum_h := 0.0
+	for i in n:
+		var h: float = g.randf_range(3.8, 4.8) if n == 3 else g.randf_range(6.6, 7.6)
+		hs.append(h)
+		sum_h += h
+	# vides entre îles : de 1.2 à 2.8 (passerelles courtes, jamais une longue jetée)
+	var gap := (HALF.y * 2.0 - sum_h) / float(n - 1)
+	if gap > 2.8 or gap < 1.2:
+		var target := clampf(gap, 1.2, 2.8)
+		var f := (HALF.y * 2.0 - target * float(n - 1)) / sum_h
+		for i in n:
+			hs[i] = float(hs[i]) * f
+		gap = target
+	var z := HALF.y
+	var prev := Rect2()
+	for i in n:
+		var w := g.randf_range(4.4, 7.0)
+		var c: float = _entry_x(g, run, w) if i == 0 else prev.get_center().x + g.randf_range(-2.2, 2.2)
+		var s := _span(c, w)
+		var z0: float = -HALF.y if i == n - 1 else z - float(hs[i])
+		var isl := _rq(s.x, z0, s.y, z)
+		rs.append(isl)
+		if i > 0:
+			var lo := maxf(isl.position.x, prev.position.x)
+			var hi := minf(isl.end.x, prev.end.x)
+			var bw := g.randf_range(1.8, 2.3)
+			var bx := (lo + hi) * 0.5
+			if hi - lo >= bw + 0.6:
+				bx = g.randf_range(lo + 0.3 + bw * 0.5, hi - 0.3 - bw * 0.5)
+			rs.append(_rq(bx - bw * 0.5, isl.end.y - 0.5, bx + bw * 0.5, prev.position.y + 0.5))
+			# seconde passerelle à l'autre bout, si les îles se recouvrent assez
+			if hi - lo >= 2.0 * bw + 2.4 and g.randf() < 0.35:
+				var bx2: float = lo + 0.3 + bw * 0.5 if bx > (lo + hi) * 0.5 else hi - 0.3 - bw * 0.5
+				if absf(bx2 - bx) >= bw + 1.0:
+					rs.append(_rq(bx2 - bw * 0.5, isl.end.y - 0.5, bx2 + bw * 0.5, prev.position.y + 0.5))
+		prev = isl
+		z = z0 - gap
+
+
+## Chemins qui se séparent puis se rejoignent : une masse d'entrée, une de sortie, deux chemins de largeurs
+## différentes autour d'un vide ; l'étroit porte un îlot à mi-chemin, le large fait parfois un coude.
+static func _g_split(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var hs := g.randf_range(3.6, 5.0)
+	var hn := g.randf_range(3.6, 5.0)
+	var ws := g.randf_range(7.4, 9.2)
+	var wn := g.randf_range(7.4, 9.2)
+	var ss := _span(_entry_x(g, run, ws), ws)
+	var ns := _span(g.randf_range(-1.4, 1.4), wn)
+	var zs0 := HALF.y - hs
+	var zn1 := -HALF.y + hn
+	rs.append(_rq(ss.x, zs0, ss.y, HALF.y))
+	rs.append(_rq(ns.x, -HALF.y, ns.y, zn1))
+	var lo := maxf(ss.x, ns.x)
+	var hi := minf(ss.y, ns.y)
+	var w1 := g.randf_range(2.0, 3.0)
+	var w2 := g.randf_range(2.8, 3.4)
+	var vw := g.randf_range(1.4, 2.4)
+	var slack := (hi - lo) - (w1 + w2 + vw)
+	if slack < 0.0:
+		vw = maxf(1.4, vw + slack)
+		slack = (hi - lo) - (w1 + w2 + vw)
+	if slack < 0.0:
+		return  # masses trop étroites : essai raté
+	var oa := g.randf_range(0.0, slack * 0.5)
+	var ob := g.randf_range(0.0, slack - oa)
+	var narrow_left := g.randf() < 0.5
+	var pa := Vector2(lo + oa, lo + oa + (w1 if narrow_left else w2))
+	var pb := Vector2(hi - ob - (w2 if narrow_left else w1), hi - ob)
+	var narrow: Vector2 = pa if narrow_left else pb
+	var wide: Vector2 = pb if narrow_left else pa
+	var z0 := zn1 - 0.5
+	var z1 := zs0 + 0.5
+	var zm := (z0 + z1) * 0.5
+	# chemin étroit (souvent une passerelle) et son îlot, qui déborde vers l'extérieur
+	rs.append(_rq(narrow.x, z0, narrow.y, z1))
+	var iw := g.randf_range(3.0, 3.8)
+	var ih := g.randf_range(2.2, 3.0)
+	var izm := zm + g.randf_range(-0.8, 0.8)
+	var ix: Vector2 = Vector2(narrow.y - iw, narrow.y) if narrow_left else Vector2(narrow.x, narrow.x + iw)
+	ix.x = maxf(ix.x, -HALF.x)
+	ix.y = minf(ix.y, HALF.x)
+	if ix.x + HALF.x < 0.6:
+		ix.x = -HALF.x
+	if HALF.x - ix.y < 0.6:
+		ix.y = HALF.x
+	rs.append(_rq(ix.x, izm - ih * 0.5, ix.y, izm + ih * 0.5))
+	# chemin large : droit, ou en baïonnette vers l'extérieur
+	if g.randf() < 0.45:
+		var sh: float = 0.9 if narrow_left else -0.9
+		var wl := _span((wide.x + wide.y) * 0.5 + sh, wide.y - wide.x)
+		rs.append(_rq(wide.x, z0, wide.y, zm + 0.6))
+		rs.append(_rq(wl.x, zm - 0.6, wl.y, z1))
+	else:
+		rs.append(_rq(wide.x, z0, wide.y, z1))
+
+
+## Pont cassé : deux masses reliées par un chemin de terre sur le côté, et un pont droit coupé d'une
+## trouée (on la franchit d'un trait ; les ennemis font le tour par le chemin).
+static func _g_broken(out: Dictionary, g: RandomNumberGenerator, run: Vector2) -> void:
+	var rs: Array = out["rects"]
+	var gp: Array = out["gaps"]
+	var hs := g.randf_range(4.2, 5.4)
+	var hn := g.randf_range(4.2, 5.4)
+	var ws := g.randf_range(7.0, 9.2)
+	var wn := g.randf_range(7.0, 9.2)
+	var ss := _span(_entry_x(g, run, ws), ws)
+	var ns := _span(g.randf_range(-1.0, 1.0), wn)
+	var zs0 := HALF.y - hs
+	var zn1 := -HALF.y + hn
+	rs.append(_rq(ss.x, zs0, ss.y, HALF.y))
+	rs.append(_rq(ns.x, -HALF.y, ns.y, zn1))
+	var lo := maxf(ss.x, ns.x)
+	var hi := minf(ss.y, ns.y)
+	var wr := g.randf_range(2.8, 3.4)
+	var bw := g.randf_range(1.8, 2.2)
+	if hi - lo < wr + 1.4 + bw + 0.3:
+		return  # pas la place : essai raté
+	rs.append(_rq(lo, zn1 - 0.5, lo + wr, zs0 + 0.5))
+	var bx := g.randf_range(lo + wr + 1.4 + bw * 0.5, hi - 0.3 - bw * 0.5)
+	var gb := g.randf_range(1.0, 1.4)
+	var l1 := (zs0 - zn1 - gb) * g.randf_range(0.35, 0.65)
+	var zg1 := zs0 - l1  # bord sud de la trouée
+	var zg0 := zg1 - gb  # bord nord
+	rs.append(_rq(bx - bw * 0.5, zg1, bx + bw * 0.5, zs0 + 0.5))
+	rs.append(_rq(bx - bw * 0.5, zn1 - 0.5, bx + bw * 0.5, zg0))
+	gp.append(_rq(bx - bw * 0.5, zg0, bx + bw * 0.5, zg1))
+
+
+# ------------------------------------------------------------------ pièces de décor (obstacles)
+
+## Pièces de décor du monde sur la terre ferme des tronçons (une ou deux par zone de combat, rarement au
+## départ) : loin des passages, du départ, du torii, des recoins et des ponts, avec PIECE_GAP de passage
+## tout autour dans chaque plateforme touchée. On les retire du sol praticable (_carve_rects) : héros,
+## ennemis et clamp_walk les contournent ; on les survole d'un trait comme le vide.
+func _place_set_pieces(per_chunk: Array, g: RandomNumberGenerator, first: bool) -> void:
+	set_pieces = []
+	var kinds: Array = Worlds.set_piece_kinds(world_id)
+	if kinds.is_empty():
+		return
+	var prog := clampf(float(world_id - 1) / 14.0 + float(_stage_n) / 14.0, 0.0, 1.0)
+	for i in chunks:
+		var want := 0
+		if _stage_n == 0:
+			want = 0  # première étape du monde : sol dégagé
+		elif i == 0:
+			if not first and g.randf() < 0.5:
+				want = 1
+		else:
+			want = 1
+			if _stage_n >= 2 and g.randf() < 0.4 + 0.35 * prog:
+				want = 2
+		var dz := -float(i) * CHUNK_L
+		var placed := 0
+		var last_kind := ""
+		for attempt in 20:
+			if placed >= want:
+				break
+			var kd: Array = kinds[g.randi() % kinds.size()]
+			var kind := String(kd[0])
+			if kind == last_kind and kinds.size() > 1:
+				continue
+			var turned := g.randf() < 0.5
+			var w: float = kd[2] if turned else kd[1]
+			var d: float = kd[1] if turned else kd[2]
+			var host := _piece_host(per_chunk[i], g, w, d)
+			if not host.has_area():
+				continue
+			var fp := Rect2(g.randf_range(host.position.x + PIECE_GAP, host.end.x - PIECE_GAP - w),
+				g.randf_range(host.position.y + PIECE_GAP, host.end.y - PIECE_GAP - d), w, d)
+			if _piece_ok(fp, dz):
+				rects = _carve_rects(rects, fp)
+				set_pieces.append([fp, kind, i, turned])
+				placed += 1
+				last_kind = kind
+
+
+## Plateforme (terre ferme) assez grande pour une pièce w × d et son passage, tirée selon sa surface.
+static func _piece_host(rs: Array, g: RandomNumberGenerator, w: float, d: float) -> Rect2:
+	var pool: Array = []
+	var total := 0.0
+	for r in rs:
+		var rr: Rect2 = r
+		if _is_bridge_rect(rr) or rr.size.x < w + PIECE_GAP * 2.0 + 0.1 or rr.size.y < d + PIECE_GAP * 2.0 + 0.1:
+			continue
+		pool.append(rr)
+		total += rr.get_area()
+	if pool.is_empty():
+		return Rect2()
+	var x := g.randf() * total
+	for r in pool:
+		var rr: Rect2 = r
+		x -= rr.get_area()
+		if x <= 0.0:
+			return rr
+	var last: Rect2 = pool[pool.size() - 1]
+	return last
+
+
+## Empreinte acceptable : loin des haies et de l'entrée de zone, du départ, du torii, des recoins, des ponts
+## et des autres pièces ; chaque plateforme praticable qu'elle touche garde PIECE_GAP tout autour.
+func _piece_ok(fp: Rect2, dz: float) -> bool:
+	if fp.position.y - dz < -HALF.y + 2.4 or fp.end.y - dz > HALF.y - 4.0:
+		return false
+	for p in [start, gate_pos]:
+		var pv: Vector3 = p
+		if _rect_dist(fp, Vector2(pv.x, pv.z)) < 2.6:
+			return false
+	for p in pocket_spots:
+		var pv: Vector3 = p
+		if pv != Vector3.INF and _rect_dist(fp, Vector2(pv.x, pv.z)) < 2.4:
+			return false
+	for b in bridges:
+		var br: Rect2 = b
+		if br.grow(0.6).intersects(fp):
+			return false
+	for sp in set_pieces:
+		var spa: Array = sp
+		var other: Rect2 = spa[0]
+		if other.grow(PIECE_GAP + 0.2).intersects(fp):
+			return false
+	var hit := false
+	for r in rects:
+		var rr: Rect2 = r
+		if rr.intersects(fp):
+			hit = true
+			if not rr.grow(-PIECE_GAP).encloses(fp):
+				return false
+	return hit
+
+
+## Sol praticable moins l'empreinte `fp` : chaque plateforme touchée devient un anneau de quatre plateformes
+## qui se chevauchent aux coins (bandes nord et sud sur toute la largeur, montants ouest et est sur toute
+## la hauteur) ; le chemin des ennemis passe par ces chevauchements.
+static func _carve_rects(rs: Array, fp: Rect2) -> Array:
+	var out: Array = []
+	for r in rs:
+		var rr: Rect2 = r
+		if not rr.intersects(fp):
+			out.append(rr)
+			continue
+		out.append(Rect2(rr.position.x, rr.position.y, rr.size.x, fp.position.y - rr.position.y))
+		out.append(Rect2(rr.position.x, fp.end.y, rr.size.x, rr.end.y - fp.end.y))
+		out.append(Rect2(rr.position.x, rr.position.y, fp.position.x - rr.position.x, rr.size.y))
+		out.append(Rect2(fp.end.x, rr.position.y, rr.end.x - fp.end.x, rr.size.y))
+	return out
+
+
+static func _rect_dist(r: Rect2, p: Vector2) -> float:
+	var q := Vector2(clampf(p.x, r.position.x, r.end.x), clampf(p.y, r.position.y, r.end.y))
+	return q.distance_to(p)
+
+
 ## Rectangles d'une forme, éventuellement retournée gauche/droite.
 static func _layout_rects(key: String, mirror: bool) -> Array:
 	var out: Array = []
@@ -1424,7 +2257,7 @@ func _build_steps(w: Dictionary) -> void:
 	var g0: Color = gcols[0]
 	var nose := _shared_mat(g0.lightened(0.22), true)
 	var riser := _shared_mat(g0.darkened(0.5), true)
-	var flight := 3 if world_id == 6 else 1
+	var flight: int = 3 if world_id == 6 else 1
 	for s in _steps:
 		var sv: Vector3 = s
 		var l := sv.y - sv.x
@@ -2444,8 +3277,45 @@ static func check_layouts() -> Array:
 			fails.append("forme de salle 1 inconnue : " + String(f))
 	for wid in FLAVOR.keys():
 		for f in FLAVOR[wid]:
-			if not LAYOUTS.has(f):
+			if not LAYOUTS.has(f) and not GEN.has(f):
 				fails.append("saveur du monde %d inconnue : %s" % [int(wid), String(f)])
+	for k in LAYOUTS.keys():
+		if not LAYOUT_FAM.has(k):
+			fails.append("forme sans famille : " + String(k))
+	# formes générées : chaque sorte aboutit en quelques tirages (avec ou sans passage d'arrivée)
+	var grng := RandomNumberGenerator.new()
+	for k in GEN.keys():
+		var ok_n := 0
+		for sd in 6:
+			grng.seed = 4243 + sd * 7919
+			var run: Vector2 = Vector2(1, -1) if sd % 2 == 0 else Vector2(-2.6 + float(sd) * 0.5, 0.2 + float(sd) * 0.5)
+			var gd: Dictionary = _gen_layout(String(k), grng, run)
+			var grs: Array = gd["rects"]
+			if not grs.is_empty():
+				ok_n += 1
+		if ok_n == 0:
+			fails.append("forme générée %s : aucun tirage valide" % String(k))
+	# pièces de décor : tailles lisibles ; découpe du sol qui garde tout relié
+	for wid in range(1, Worlds.WORLDS.size() + 1):
+		for kd in Worlds.set_piece_kinds(wid):
+			var ka: Array = kd
+			if minf(float(ka[1]), float(ka[2])) < 0.8 or maxf(float(ka[1]), float(ka[2])) > 2.6:
+				fails.append("pièce de décor du monde %d mal taillée : %s" % [wid, String(ka[0])])
+	var cut: Array = _carve_rects([Rect2(-4.6, -8.6, 9.2, 6.0), Rect2(-1.2, -3.0, 2.4, 6.0)], Rect2(-0.6, -6.6, 1.2, 1.0))
+	var cseen := {0: true}
+	var cq: Array = [0]
+	while not cq.is_empty():
+		var cc: int = cq.pop_front()
+		for j in cut.size():
+			if not cseen.has(j) and _touch_r(cut[cc], cut[j]):
+				cseen[j] = true
+				cq.append(j)
+	if cseen.size() < cut.size():
+		fails.append("découpe d'une pièce de décor : sol coupé en deux")
+	for r in cut:
+		var rr: Rect2 = r
+		if rr.intersects(Rect2(-0.6, -6.6, 1.2, 1.0)):
+			fails.append("découpe d'une pièce de décor : l'empreinte reste praticable")
 	# étapes : la forme pleine (repli) doit se raccorder à toutes les autres, des deux côtés
 	var full: Array = _layout_rects(BOSS_LAYOUT, false)
 	for k in LAYOUTS.keys():

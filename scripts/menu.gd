@@ -6,10 +6,12 @@ const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Meta = preload("res://scripts/meta.gd")
+const Score = preload("res://scripts/score.gd")
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
 # feuille de résultats : hauteurs des blocs (× u) et sceaux par ligne
 const HEAD_H := 164.0
 const STATS_H := 62.0
+const SCORE_H := 58.0  # rangée du score (sceau du rang, points, record)
 const FIG_H := 80.0
 const BTN_H := 132.0  # bas de l'écran réservé aux boutons
 const PER_ROW := 10
@@ -54,6 +56,11 @@ var stat_room := 0
 var stat_kills := 0
 var stat_combo := 0
 var stat_time := 0.0
+var stat_score := 0  # points de la partie (score.gd)
+var best_score := 0  # meilleur score du monde (record compris)
+var score_record := false  # le score bat l'ancien record du monde
+var score_rank := 0  # 0 : aucun, 1..4 : 梅 竹 松 極
+var score_next := 0  # points du rang suivant (0 : rang maximal)
 var pause_powers: Array = []  # ids des pouvoirs de la partie (rangée d'icônes de la pause)
 var world_name := ""
 var world_kanji := "波"
@@ -529,6 +536,8 @@ func _draw_results() -> void:
 	var y := card.position.y
 	_draw_head(card, y, u, v, a)
 	y += HEAD_H * v
+	_draw_score(x0, x1, y, u, v, a)
+	y += SCORE_H * v
 	_draw_stats(x0, x1, y, u, v, a)
 	y += STATS_H * v
 	_draw_build(x0, x1, y, u, v, a)
@@ -553,7 +562,7 @@ func _results_layout(u: float) -> Dictionary:
 	var unlock_h := 0.0
 	if _unlock_rows() > 0:
 		unlock_h = 26.0 + 42.0 * _unlock_rows()
-	var content := HEAD_H + STATS_H + build_h + FIG_H + gains_h + unlock_h + 12.0
+	var content := HEAD_H + SCORE_H + STATS_H + build_h + FIG_H + gains_h + unlock_h + 12.0
 	var avail := (size.y - _safe.x - _safe.y) / u - 14.0 - BTN_H - 12.0
 	var k := clampf(avail / content, 0.72, 1.0)
 	var top := 14.0 + _safe.x / u + maxf(0.0, avail - content) * 0.35
@@ -618,6 +627,59 @@ func _killer_line() -> String:
 	if who == "":
 		return ""
 	return UiKit.plain(("vaincu par " + who).to_upper())
+
+
+## Score : sceau du rang qui s'abat à gauche, points qui montent, record du monde dessous,
+## nom du rang et ce qu'il faut pour le suivant à droite (de quoi donner envie de rejouer le monde).
+func _draw_score(x0: float, x1: float, y: float, u: float, v: float, a: float) -> void:
+	var k := UiKit.ease_out(clampf((_t - 0.3) / 0.35, 0.0, 1.0))
+	if k <= 0.0:
+		return
+	var ka := a * k
+	draw_style_box(UiKit.box(_sb, Color(th_ink, 0.05 * ka), int(10 * u)), Rect2(Vector2(x0 - 6 * u, y + 2 * v), Vector2(x1 - x0 + 12 * u, 52 * v)))
+	# sceau du rang : il s'abat une fois les points comptés
+	var hs := 40.0 * v
+	var hc := Vector2(x0 + 4 * u + hs / 2.0, y + 28 * v)
+	var rk := clampf((_t - 1.45) / 0.22, 0.0, 1.0)
+	if score_rank > 0:
+		if rk > 0.0:
+			var s := 1.0 + 0.7 * (1.0 - UiKit.ease_out(rk))
+			draw_set_transform(hc, -0.12, Vector2(s, s))
+			UiKit.hanko(self, Rect2(Vector2(-hs / 2.0, -hs / 2.0), Vector2(hs, hs)), Score.rank_glyph(score_rank), Score.rank_color(score_rank), Toon.WASHI, a * rk, u, 5.0)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	else:
+		draw_rect(Rect2(hc - Vector2(hs, hs) / 2.0, Vector2(hs, hs)), Color(th_ink, 0.25 * ka), false, maxf(1.0, 1.5 * u))
+		UiKit.text(self, UiKit.UI_FONT, "—", hc + Vector2(0, 5 * u), int(14 * u), Color(th_ink, 0.35 * ka))
+	# points : le compteur monte
+	var ck := UiKit.ease_out(clampf((_t - 0.4) / 1.0, 0.0, 1.0))
+	var tx := hc.x + hs / 2.0 + 12 * u
+	draw_string(UiKit.UI_FONT, Vector2(tx, y + 15 * v), "SCORE", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9.5 * u), Color(th_ink, 0.5 * ka))
+	draw_string(UiKit.TITLE_FONT, Vector2(tx, y + 38 * v), Score.fmt(int(round(float(stat_score) * ck))), HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u), Color(th_ink, ka))
+	var rfs := int(9 * u)
+	if score_record:
+		var pk := clampf((_t - 1.45) / 0.2, 0.0, 1.0)
+		var pulse := 0.8 + 0.2 * sin(_t * 6.0)
+		draw_string(UiKit.UI_FONT, Vector2(tx, y + 51 * v), "NOUVEAU MEILLEUR SCORE", HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(Toon.VERMILION, a * pk * pulse))
+	elif best_score > 0:
+		draw_string(UiKit.UI_FONT, Vector2(tx, y + 51 * v), "RECORD  " + Score.fmt(best_score), HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(th_ink, 0.5 * ka))
+	# rang : son nom, puis le palier suivant
+	var ra := a * UiKit.ease_out(clampf((_t - 1.5) / 0.3, 0.0, 1.0))
+	if ra <= 0.0:
+		return
+	var rx := x1 - 2 * u
+	var lab := "RANG"
+	var nm := Score.rank_name(score_rank) if score_rank > 0 else "SANS RANG"
+	var lfs := int(9.5 * u)
+	var nfs := int(15 * u)
+	var lw := UiKit.UI_FONT.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
+	var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	draw_string(UiKit.UI_FONT, Vector2(rx - lw, y + 15 * v), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(th_ink, 0.5 * ra))
+	var nc: Color = Score.rank_color(score_rank) if score_rank > 0 else Color(th_ink, 0.45)
+	draw_string(UiKit.TITLE_FONT, Vector2(rx - nw, y + 35 * v), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(nc, nc.a * ra))
+	if score_next > 0:
+		var nxt := "SUIVANT À " + Score.fmt(score_next)
+		var xw := UiKit.UI_FONT.get_string_size(nxt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
+		draw_string(UiKit.UI_FONT, Vector2(rx - xw, y + 51 * v), nxt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(th_ink, 0.5 * ra))
 
 
 ## Rangée de chiffres : salle, ennemis, chaîne max, temps, figures.
@@ -923,13 +985,14 @@ func _draw_pause() -> void:
 	UiKit.hanko(self, seal, world_kanji, world_color, Toon.WASHI, a, u, 4.0)
 	UiKit.text(self, _title, "PAUSE", Vector2(card.get_center().x + 3.0, card.position.y + 122.0 * u), int(28 * u), Color(th_ink, a))
 	# la partie en cours
-	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["TEMPS", "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]]]
+	var cols := [["ÉTAPE", "%d / %d" % [stat_room, rooms_total]], ["CHAÎNE", str(stat_combo)], ["SCORE", Score.fmt(stat_score)],
+		["TEMPS", "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]]]
 	for i in cols.size():
-		var cx := card.position.x + card.size.x * (0.2 + 0.3 * i)
+		var cx := card.position.x + card.size.x * (0.14 + 0.24 * i)
 		UiKit.text(self, _ui, String(cols[i][0]), Vector2(cx, card.position.y + 154 * u), int(10 * u), Color(th_ink, 0.5 * a))
 		UiKit.text(self, UiKit.TITLE_FONT, String(cols[i][1]), Vector2(cx, card.position.y + 180 * u), int(19 * u), Color(th_ink, a))
 		if i > 0:
-			var lx := card.position.x + card.size.x * (0.05 + 0.3 * i)
+			var lx := card.position.x + card.size.x * (0.02 + 0.24 * i)
 			draw_line(Vector2(lx, card.position.y + 144 * u), Vector2(lx, card.position.y + 184 * u), Color(th_ink, 0.12 * a), 1.5 * u)
 	# pouvoirs de la partie : pastilles en rangée ; la rangée entière ouvre MES POUVOIRS
 	var pr := _powers_rect(card, u)

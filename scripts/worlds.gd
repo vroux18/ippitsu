@@ -1344,7 +1344,8 @@ static func _lava_flow(lava: Dictionary, veins: Dictionary, lm: Material, vm: Ma
 ## d'une zone jouable, rien de haut au bas de l'écran), petits props dans les vides entre plateformes,
 ## tapis d'éléments répétés (MultiMesh). Tout est fusionné : ~1 draw call par matériau.
 ## `zone` (facultatif, tronçon d'une étape) : les props de bord restent dans cette tranche de z.
-static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS) -> void:
+## `pieces` (étapes) : pièces de décor posées sur la terre ferme (_set_pieces), dans les mêmes lots.
+static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = []) -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 31 + wid)
 	var root := Node3D.new()
@@ -1384,6 +1385,9 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 		_contact(ctx, p, 0.8)
 	# tapis d'éléments répétés
 	_fill(wid, ctx, rng)
+	# pièces de décor sur la terre ferme (tirages à part : le décor autour ne change pas)
+	if not pieces.is_empty():
+		_set_pieces(wid, ctx, pieces, _rng(rng_seed * 13 + 7))
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
 	var mm: Dictionary = ctx["mm"]
@@ -1674,6 +1678,345 @@ static func _fill(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void
 			_fill_yomi(ctx, rng)
 		_:
 			_fill_ink(ctx, rng)
+
+
+# --- pièces de décor sur la terre ferme (étapes)
+
+## Pièces de décor posées DANS les zones jouables des étapes, par monde : [nom, longueur, largeur] (m).
+## Ce sont des obstacles (arena.gd les retire du sol praticable : on les contourne, on les survole d'un
+## trait) : peu nombreuses, basses (rien qui masque les ennemis), lisibles d'en haut grâce à leur socle.
+const SET_PIECES := {
+	1: [["bollards", 1.4, 0.8], ["cargo", 1.1, 1.0], ["skiff", 2.2, 0.9]],  # quai : bittes, fret, barque à sec
+	2: [["grove", 1.4, 1.3], ["grove", 1.1, 1.1], ["fox_pair", 1.4, 0.8]],  # îlots de bambous, renards de pierre
+	3: [["frozen_pond", 2.2, 1.5], ["frozen_pond", 1.6, 1.2], ["jizo_row", 1.6, 0.8]],  # mares gelées, jizō
+	4: [["lava_crack", 2.4, 0.9], ["lava_crack", 1.6, 0.9], ["basalt", 1.1, 1.1]],  # failles de lave, orgues
+	5: [["screen", 1.9, 0.8], ["seal", 1.0, 1.0], ["scrolls", 1.4, 0.9]],  # paravents, sceau, rouleaux
+	6: [["roots", 1.5, 1.4], ["sacred_rock", 1.3, 1.1]],  # souches de cèdre, rocher sacré
+	7: [["coral", 1.2, 1.1], ["clams", 1.7, 1.0]],  # coraux, lit de bénitiers
+	8: [["graves", 1.8, 0.8], ["lantern_row", 2.2, 0.8]],  # tombes et sotoba, rangée de lanternes
+}
+
+
+static func set_piece_kinds(world_id: int) -> Array:
+	var k: Array = SET_PIECES.get(clampi(world_id, 1, WORLDS.size()), [])
+	return k
+
+
+## Pièces de décor (`pieces` : [empreinte Rect2, nom, quart de tour ?], coordonnées du parent, sol en y = 0).
+## L'axe local x suit la longueur (quart de tour : elle suit z). Ombre douce et socle cerné d'encre.
+static func _set_pieces(_wid: int, ctx: Dictionary, pieces: Array, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	for pc in pieces:
+		var pa: Array = pc
+		var fp: Rect2 = pa[0]
+		var kind := String(pa[1])
+		var turned := bool(pa[2])
+		var c := fp.get_center()
+		var ln: float = fp.size.y if turned else fp.size.x
+		var wd: float = fp.size.x if turned else fp.size.y
+		var yaw: float = PI * 0.5 if turned else 0.0
+		var xf := _at(Vector3(c.x, 0.0, c.y), Vector3(0, yaw, 0))
+		_inst(ctx, "piece_ao", Toon.blob_mesh(), Toon.blob_mat(0.3), _at(Vector3(c.x, 0.016, c.y), Vector3.ZERO, Vector3(fp.size.x * 0.66, 1.0, fp.size.y * 0.66)))
+		match kind:
+			"bollards":
+				_sp_bollards(bs, bn, xf, ln, wd, rng)
+			"cargo":
+				_sp_cargo(bs, bn, xf, ln, wd, rng)
+			"skiff":
+				_sp_skiff(bs, bn, xf, ln, wd)
+			"grove":
+				_sp_grove(bs, bn, xf, ln, wd, rng)
+			"fox_pair":
+				_sp_fox_pair(bs, bn, xf, ln, wd)
+			"frozen_pond":
+				_sp_frozen_pond(bs, bn, xf, ln, wd, rng)
+			"jizo_row":
+				_sp_jizo_row(bs, bn, xf, ln, wd)
+			"lava_crack":
+				_sp_lava_crack(bs, bn, xf, ln, wd, rng)
+			"basalt":
+				_sp_basalt(bs, bn, xf, ln, wd, rng)
+			"screen":
+				_sp_screen(bs, bn, xf, ln, wd)
+			"seal":
+				_sp_seal(bs, bn, xf, ln, wd)
+			"scrolls":
+				_sp_scrolls(bs, bn, xf, ln, wd, rng)
+			"roots":
+				_sp_roots(bs, bn, xf, ln, wd, rng)
+			"sacred_rock":
+				_sp_sacred_rock(bs, bn, xf, ln, wd, rng)
+			"coral":
+				_sp_coral(bs, bn, xf, ln, wd, rng)
+			"clams":
+				_sp_clams(bs, bn, xf, ln, wd, rng)
+			"graves":
+				_sp_graves(bs, bn, xf, ln, wd, rng)
+			"lantern_row":
+				_sp_lantern_row(bs, bn, xf, ln, wd)
+			_:
+				_sp_base(bs, xf, ln, wd, STONE_DARK, 0.3)
+
+
+## Socle de la pièce : pavé bas cerné d'encre qui couvre toute l'empreinte.
+static func _sp_base(bs: Dictionary, xf: Transform3D, ln: float, wd: float, col: Color, h: float) -> void:
+	_add(bs, _toon(col, true, 0.02), _box(Vector3(ln - 0.06, h, wd - 0.06)), xf * _at(Vector3(0, h * 0.5, 0)))
+
+
+## Butte basse (mousse, sable, neige) à la taille de l'empreinte, sommet à `h`.
+static func _sp_mound(bs: Dictionary, xf: Transform3D, ln: float, wd: float, col: Color, h: float) -> void:
+	_add(bs, _toon(col, true, 0.02), _ball(0.5, 1.0, 12, 4), xf * _at(Vector3.ZERO, Vector3.ZERO, Vector3(ln, h * 2.0, wd)))
+
+
+## Monde 1 : plate-forme d'amarrage, deux ou trois bittes reliées d'un cordage, rouleau de corde.
+static func _sp_bollards(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_base(bs, xf, ln, wd, Color("#5A4632"), 0.06)
+	var seam := _toon(Color("#3A2C20"), false)
+	for k in int(ln / 0.32):
+		_add(bn, seam, _box(Vector3(0.025, 0.012, wd - 0.12)), xf * _at(Vector3(-ln * 0.5 + 0.2 + float(k) * 0.32, 0.066, 0)))
+	var rope := _toon(Decor.KOMO, false)
+	var n: int = 2 if ln < 1.3 else 3
+	var tops: Array[Vector3] = []
+	for k in n:
+		var lx := lerpf(-ln * 0.5 + 0.26, ln * 0.5 - 0.26, float(k) / float(n - 1))
+		var base: Vector3 = xf * Vector3(lx, 0.06, rng.randf_range(-0.08, 0.08) * wd)
+		tops.append(_bitt_into(bs, bn, base, rng.randf_range(0.55, 0.8)))
+	for k in tops.size() - 1:
+		_rope(bn, rope, tops[k] - Vector3(0, 0.12, 0), tops[k + 1] - Vector3(0, 0.12, 0), 0.12, 0.022)
+	_add(bn, rope, Decor.torus(0.08, 0.17, 10, 4), xf * _at(Vector3(rng.randf_range(-0.2, 0.2) * ln, 0.08, wd * 0.26)))
+
+
+## Monde 1 : fret du quai, caisse cerclée, tonneaux de saké (un sur la caisse).
+static func _sp_cargo(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_base(bs, xf, ln, wd, Color("#5A4632"), 0.05)
+	var crate := _toon(Color("#8A6A44"), true, 0.02)
+	var band := _toon(Color("#3A2C20"), false)
+	var cx := -ln * 0.5 + 0.34
+	_add(bs, crate, _box(Vector3(0.56, 0.5, 0.56)), xf * _at(Vector3(cx, 0.3, 0)))
+	_add(bn, band, _box(Vector3(0.58, 0.05, 0.58)), xf * _at(Vector3(cx, 0.42, 0)))
+	_add(bn, band, _box(Vector3(0.05, 0.52, 0.58)), xf * _at(Vector3(cx, 0.3, 0)))
+	Decor.sake_barrel_into(bs, bn, xf * _at(Vector3(cx, 0.55, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7))
+	Decor.sake_barrel_into(bs, bn, xf * _at(Vector3(ln * 0.5 - 0.3, 0.05, -wd * 0.2), Vector3(0, rng.randf_range(-0.5, 0.5), 0), Vector3.ONE * 0.85))
+	Decor.sake_barrel_into(bs, bn, xf * _at(Vector3(ln * 0.5 - 0.32, 0.05, wd * 0.24), Vector3(0, rng.randf_range(-0.5, 0.5), 0), Vector3.ONE * 0.8), Toon.PRUSSIAN)
+
+
+## Monde 1 : barque tirée au sec sur deux tréteaux, rame posée en travers.
+static func _sp_skiff(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float) -> void:
+	_sp_base(bs, xf, ln, wd, Color("#5A4632"), 0.05)
+	var trestle := _toon(Decor.PILE, true, 0.02)
+	for sx: float in [-1.0, 1.0]:
+		_add(bs, trestle, _box(Vector3(0.12, 0.2, wd - 0.16)), xf * _at(Vector3(sx * ln * 0.28, 0.15, 0)))
+	var s := Vector3(ln / 4.3, 0.62, (wd - 0.22) / 0.62)
+	_boat_into(bs, xf * _at(Vector3(-0.3 * s.x, 0.2, 0), Vector3.ZERO, s), 0)
+	_limb(bn, _toon(Color("#2A221C")), Vector3(-ln * 0.32, 0.1, wd * 0.4), Vector3(ln * 0.22, 0.09, wd * 0.3), 0.022, 0.022, 4, xf)
+
+
+## Monde 2 : bosquet de bambous sur un îlot de mousse, pousses au pied.
+static func _sp_grove(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_mound(bs, xf, ln, wd, MOSS_K, 0.16)
+	var stem := _toon(Decor.BAMBOO, true, 0.016)
+	var node_m := _toon(Decor.BAMBOO_NODE, false)
+	var leaf := _toon(Decor.BAMBOO_LEAF, false)
+	for k in rng.randi_range(5, 7):
+		var a := rng.randf() * TAU
+		var d := sqrt(rng.randf()) * 0.3
+		var base := Vector3(cos(a) * d * ln, 0.08, sin(a) * d * wd)
+		var h := rng.randf_range(1.1, 1.6)
+		var top := base + Vector3(base.x * 0.25, h, base.z * 0.25)
+		_limb(bs, stem, base, top, 0.04, 0.03, 6, xf)
+		for q in 2:
+			_add(bn, node_m, _cyl(0.05, 0.05, 0.025, 6), xf * _at(base.lerp(top, 0.35 + float(q) * 0.3)))
+		for j in 3:
+			var yaw := rng.randf() * TAU
+			var dir := Vector3(cos(yaw), rng.randf_range(-0.35, 0.2), sin(yaw)).normalized()
+			_limb(bn, leaf, top, top + dir * rng.randf_range(0.22, 0.32), 0.03, 0.0, 3, xf)
+	var shoot := _toon(Decor.SHOOT, true, 0.02)
+	for k in 2:
+		var q := Vector3(rng.randf_range(-0.32, 0.32) * ln, 0.1, rng.randf_range(-0.28, 0.28) * wd)
+		_limb(bs, shoot, q, q + Vector3(0, 0.18, 0), 0.06, 0.0, 6, xf)
+
+
+## Monde 2 : deux renards de pierre sur un socle, petite lanterne entre eux.
+static func _sp_fox_pair(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float) -> void:
+	_sp_base(bs, xf, ln, wd, STONE_DARK, 0.12)
+	for sx: float in [-1.0, 1.0]:
+		_kitsune_into(bs, xf * _at(Vector3(sx * (ln * 0.5 - 0.3), 0.12, 0), Vector3(0, -sx * 0.35, 0), Vector3.ONE * 0.62))
+	Decor.stone_lantern_into(bs, bn, xf * _at(Vector3(0, 0.12, -wd * 0.1), Vector3.ZERO, Vector3.ONE * 0.55))
+
+
+## Monde 3 : mare gelée (glace bleutée dans un bourrelet de neige), fissures claires, bosses de neige.
+static func _sp_frozen_pond(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	var snow := _toon(SNOW, true, 0.02)
+	_sp_mound(bs, xf, ln, wd, SNOW, 0.06)
+	_add(bs, snow, Decor.torus(0.4, 0.5, 16, 4), xf * _at(Vector3(0, 0.06, 0), Vector3.ZERO, Vector3(ln, 0.9, wd)))
+	_add(bn, _toon(Color("#6E9CBB"), false), _cyl(0.5, 0.5, 0.01, 18), xf * _at(Vector3(0, 0.062, 0), Vector3.ZERO, Vector3(ln * 0.84, 1.0, wd * 0.84)))
+	_add(bn, _toon(Color("#A9CBE0"), false), _cyl(0.5, 0.5, 0.01, 18), xf * _at(Vector3(0, 0.07, 0), Vector3.ZERO, Vector3(ln * 0.7, 1.0, wd * 0.66)))
+	var crack := _toon(Color("#E9F4FA"), false)
+	for k in 3:
+		_add(bn, crack, _box(Vector3(rng.randf_range(0.2, 0.36) * ln, 0.006, 0.022)),
+			xf * _at(Vector3(rng.randf_range(-0.18, 0.18) * ln, 0.078, rng.randf_range(-0.14, 0.14) * wd), Vector3(0, rng.randf() * PI, 0)))
+	for k in 2:
+		var a := rng.randf() * TAU
+		var r := rng.randf_range(0.12, 0.18)
+		_add(bs, snow, _ball(r, r * 1.1, 8, 4), xf * _at(Vector3(cos(a) * ln * 0.46, 0.08, sin(a) * wd * 0.46)))
+
+
+## Monde 3 : trois jizō enneigés sur un socle de pierre.
+static func _sp_jizo_row(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float) -> void:
+	_sp_base(bs, xf, ln, wd, STONE_DARK, 0.1)
+	_add(bn, _toon(SNOW, false), _box(Vector3(ln - 0.12, 0.03, wd - 0.12)), xf * _at(Vector3(0, 0.11, 0)))
+	for k in 3:
+		var lx := lerpf(-ln * 0.5 + 0.3, ln * 0.5 - 0.3, float(k) / 2.0)
+		_jizo_into(bs, xf * _at(Vector3(lx, 0.1, 0), Vector3(0, (float(k) - 1.0) * 0.2, 0), Vector3.ONE * 0.85))
+
+
+## Monde 4 : faille de lave entre deux lèvres de basalte (lueur en zigzag), éclats relevés.
+static func _sp_lava_crack(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_base(bs, xf, ln, wd, Color("#2A2422"), 0.05)
+	var halo := _glow(Color("#9E3412"), 0.6)
+	var hot := _glow(Color("#FF7A2E"), 1.8)
+	var core := _glow(FLAME_CORE, 2.2)
+	var n := 6
+	var pts: Array[Vector3] = []
+	for k in n + 1:
+		var lz := 0.0
+		if k > 0 and k < n:
+			lz = rng.randf_range(-0.16, 0.16) * wd
+		pts.append(Vector3(lerpf(-ln * 0.42, ln * 0.42, float(k) / float(n)), 0.0, lz))
+	for k in n:
+		var a: Vector3 = pts[k]
+		var b: Vector3 = pts[k + 1]
+		var d := b - a
+		var turn := atan2(-d.z, d.x)  # l'axe x du segment suit la faille
+		var l := d.length() + 0.04
+		var mid := (a + b) * 0.5
+		_add(bn, halo, _box(Vector3(l, 0.01, 0.3)), xf * _at(mid + Vector3(0, 0.052, 0), Vector3(0, turn, 0)))
+		_add(bn, hot, _box(Vector3(l, 0.012, 0.14)), xf * _at(mid + Vector3(0, 0.056, 0), Vector3(0, turn, 0)))
+		_add(bn, core, _box(Vector3(l * 0.9, 0.014, 0.05)), xf * _at(mid + Vector3(0, 0.06, 0), Vector3(0, turn, 0)))
+	var rock := _toon(BASALT, true, 0.02)
+	for k in 5:
+		var q := Vector3(rng.randf_range(-0.42, 0.42) * ln, 0.05, (0.34 if k % 2 == 0 else -0.34) * wd)
+		var h := rng.randf_range(0.12, 0.3)
+		_add(bs, rock, _cyl(rng.randf_range(0.07, 0.12), rng.randf_range(0.11, 0.16), h, 6), xf * _at(q + Vector3(0, h * 0.5, 0), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Monde 4 : orgues de basalte basses, auréole de braise au pied.
+static func _sp_basalt(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_add(bn, _glow(Color("#C07A2A"), 0.7), _cyl(0.5, 0.5, 0.01, 14), xf * _at(Vector3(0, 0.008, 0), Vector3.ZERO, Vector3(ln, 1.0, wd)))
+	var m := _toon(BASALT, true, 0.025)
+	var cap := _toon(Color("#4A4240"), false)
+	var s := minf(ln, wd)
+	var cols: Array = [[0.0, 0.0, 0.26, 0.95], [0.27, 0.12, 0.19, 0.6], [-0.26, 0.15, 0.18, 0.5], [0.1, -0.27, 0.17, 0.42], [-0.2, -0.22, 0.15, 0.7]]
+	for cd in cols:
+		var ca: Array = cd
+		var q := Vector3(float(ca[0]) * ln, 0.0, float(ca[1]) * wd)
+		var r: float = float(ca[2]) * s
+		var h: float = float(ca[3]) * rng.randf_range(0.85, 1.1)
+		var turn := rng.randf() * TAU
+		_add(bs, m, _cyl(r, r * 1.06, h, 6), xf * _at(q + Vector3(0, h * 0.5, 0), Vector3(0, turn, 0)))
+		_add(bn, cap, _cyl(r * 0.9, r * 0.9, 0.01, 6), xf * _at(q + Vector3(0, h + 0.006, 0), Vector3(0, turn, 0)))
+
+
+## Monde 5 : paravent à quatre feuilles (byōbu) sur un socle laqué.
+static func _sp_screen(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float) -> void:
+	_sp_base(bs, xf, ln, wd, Color("#2A1F1A"), 0.05)
+	_add(bn, _toon(Toon.SUMI, false), _box(Vector3(ln * 0.6, 0.006, 0.05)), xf * _at(Vector3(0, 0.054, wd * 0.3)))
+	_byobu_into(bs, xf * _at(Vector3(-0.02 * ln, 0.05, 0.09), Vector3.ZERO, Vector3(ln / 1.95, 1.0, 1.0)))
+
+
+## Monde 5 : grand sceau de peintre et son empreinte, sur une feuille de washi.
+static func _sp_seal(bs: Dictionary, _bn: Dictionary, xf: Transform3D, ln: float, wd: float) -> void:
+	_sp_base(bs, xf, ln, wd, Toon.WASHI, 0.03)
+	_seal_into(bs, xf * _at(Vector3(-0.2 * ln, 0.03, -0.05 * wd), Vector3.ZERO, Vector3.ONE * 0.8))
+
+
+## Monde 5 : table basse laquée, rouleaux de papier, pierre à encre et pinceau.
+static func _sp_scrolls(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_base(bs, xf, ln, wd, Color("#3A2A22"), 0.26)
+	var paper := _toon(Toon.WASHI, true, 0.012)
+	var rod := _toon(Color("#2A1F1A"), false)
+	for k in 3:
+		var lz := (float(k) - 1.0) * 0.17 * wd / 0.9
+		var l := ln * rng.randf_range(0.42, 0.6)
+		var lx := rng.randf_range(-0.12, 0.05) * ln
+		_add(bs, paper, _cyl(0.065, 0.065, l, 10), xf * _at(Vector3(lx, 0.33, lz), Vector3(0, 0, PI * 0.5)))
+		_add(bn, rod, _cyl(0.035, 0.035, l + 0.08, 6), xf * _at(Vector3(lx, 0.33, lz), Vector3(0, 0, PI * 0.5)))
+	_add(bs, _toon(Toon.SUMI, true, 0.012), _box(Vector3(0.24, 0.05, 0.16)), xf * _at(Vector3(ln * 0.34, 0.285, -wd * 0.12)))
+	_limb(bn, _toon(Color("#B89B5E"), false), Vector3(ln * 0.22, 0.29, wd * 0.22), Vector3(ln * 0.44, 0.29, wd * 0.12), 0.018, 0.018, 5, xf)
+
+
+## Monde 6 : souche de cèdre sur la mousse, racines noueuses qui rampent, jeune cèdre à côté.
+static func _sp_roots(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_mound(bs, xf, ln, wd, MOSS_K, 0.1)
+	var bark := _toon(CEDAR_BARK, true, 0.025)
+	var r := 0.2 * minf(ln, wd) + 0.08
+	var h := rng.randf_range(0.45, 0.65)
+	_add(bs, bark, _cyl(r, r * 1.25, h, 9), xf * _at(Vector3(0, h * 0.5, 0)))
+	_add(bn, _toon(Color("#B08A5E"), false), _cyl(r * 0.9, r * 0.9, 0.012, 9), xf * _at(Vector3(0, h + 0.006, 0)))
+	_add(bn, _toon(Color("#8A6A44"), false), Decor.torus(r * 0.4, r * 0.5, 9, 3), xf * _at(Vector3(0, h + 0.014, 0)))
+	for k in 6:
+		var a := TAU * float(k) / 6.0 + rng.randf_range(-0.3, 0.3)
+		var dir := Vector3(cos(a) * ln, 0.0, sin(a) * wd) * 0.5
+		var mid := dir * 0.55 + Vector3(0, 0.16, 0)
+		var tip := dir * 0.9 + Vector3(0, 0.03, 0)
+		_limb(bs, bark, Vector3(dir.x * 0.25, h * 0.45, dir.z * 0.25), mid, 0.11, 0.08, 6, xf)
+		_limb(bs, bark, mid, tip, 0.08, 0.03, 5, xf)
+	_sapling_into(bs, xf * _at(Vector3(ln * 0.3, 0.05, -wd * 0.28), Vector3.ZERO, Vector3.ONE * 0.6))
+
+
+## Monde 6 : rocher sacré moussu ceint d'une shimenawa, shide de papier.
+static func _sp_sacred_rock(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_mound(bs, xf, ln, wd, MOSS_K, 0.08)
+	Decor.rock_into(bs, xf * _at(Vector3(0, 0.04, 0), Vector3.ZERO, Vector3(ln * 0.74, 1.1, wd * 0.74)), rng.randi() % 100000, Color("#6E7A68"))
+	var rope := _toon(Decor.STRAW, true, 0.015)
+	_add(bs, rope, Decor.torus(0.36, 0.42, 16, 4), xf * _at(Vector3(0, 0.34, 0), Vector3.ZERO, Vector3(ln * 0.86, 1.0, wd * 0.86)))
+	var paper := _toon(Decor.SHIDE, false)
+	for k in 4:
+		var a := PI * 0.25 + PI * 0.5 * float(k)
+		var q := Vector3(cos(a) * ln * 0.34, 0.24, sin(a) * wd * 0.34)
+		_add(bn, paper, _box(Vector3(0.06, 0.16, 0.012)), xf * _at(q, Vector3(0, -a + PI * 0.5, 0)))
+
+
+## Monde 7 : coraux sur une butte de sable, coquillages.
+static func _sp_coral(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_mound(bs, xf, ln, wd, Color("#CDBB95"), 0.1)
+	var spots: Array = [Vector3(-0.18, 0.06, -0.12), Vector3(0.2, 0.06, 0.05), Vector3(-0.05, 0.06, 0.24)]
+	for k in spots.size():
+		var q: Vector3 = spots[k]
+		var col: Color = CORAL[(k + rng.randi_range(0, 3)) % CORAL.size()]
+		_coral_into(bs, xf * _at(Vector3(q.x * ln, q.y, q.z * wd), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.6, 0.8)), rng, col)
+	var shell := _toon(Color("#E7C9C0"), true, 0.012)
+	for k in 3:
+		var a := rng.randf() * TAU
+		_add(bn, shell, _ball(0.05, 0.05, 6, 3), xf * _at(Vector3(cos(a) * ln * 0.4, 0.06, sin(a) * wd * 0.4)))
+
+
+## Monde 7 : lit de bénitiers entrouverts (perles lumineuses) sur le sable.
+static func _sp_clams(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_mound(bs, xf, ln, wd, Color("#CDBB95"), 0.08)
+	for sx: float in [-1.0, 1.0]:
+		_clam_into(bs, bn, xf * _at(Vector3(sx * ln * 0.25, 0.04, rng.randf_range(-0.06, 0.06)), Vector3(0, rng.randf_range(-0.4, 0.4), 0), Vector3.ONE * 0.7))
+	_coral_into(bs, xf * _at(Vector3(0, 0.05, -wd * 0.22), Vector3.ZERO, Vector3.ONE * 0.45), rng, CORAL[rng.randi() % CORAL.size()])
+
+
+## Monde 8 : deux stèles et une gerbe de sotoba sur un socle de cendre, offrande et bougie.
+static func _sp_graves(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
+	_sp_base(bs, xf, ln, wd, ASH_DARK, 0.06)
+	var stone := _toon(GRAVE, true, 0.025)
+	var cap := _toon(ASH, true, 0.02)
+	for sx: float in [-1.0, 1.0]:
+		_stele_into(bs, stone, cap, xf * _at(Vector3(sx * ln * 0.27, 0.06, -wd * 0.05), Vector3(0, rng.randf_range(-0.12, 0.12), 0), Vector3.ONE * 0.85))
+	_sotoba_into(bs, xf * _at(Vector3(0, 0.06, -wd * 0.25), Vector3.ZERO, Vector3.ONE * 0.85), rng)
+	_offering_into(bs, bn, xf * _at(Vector3(0, 0.06, wd * 0.22), Vector3.ZERO, Vector3.ONE * 0.8))
+
+
+## Monde 8 : rangée de trois lanternes de pierre sur des dalles.
+static func _sp_lantern_row(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float) -> void:
+	_sp_base(bs, xf, ln, wd, ASH_DARK, 0.04)
+	for k in 3:
+		var lx := lerpf(-ln * 0.5 + 0.36, ln * 0.5 - 0.36, float(k) / 2.0)
+		Decor.stone_lantern_into(bs, bn, xf * _at(Vector3(lx, 0.04, 0), Vector3.ZERO, Vector3.ONE * 0.85))
 
 
 # --- alignements de bord

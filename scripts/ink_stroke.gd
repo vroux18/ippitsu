@@ -25,6 +25,7 @@ const FIG_INK := {"loop": Color("#3E9C8C"), "zigzag": Color("#D9A93A"), "return"
 	"hook": Color("#8A5BB0"), "straight": Color("#C8463A"), "enso": Color("#C2668F")}
 var figure := ""
 var probe_len := 0.0  # longueur au dernier test de figure (main)
+var lead_n := -1  # indice du point où le doigt a touché (avant : amorce depuis le héros)
 var _col := Color.BLACK
 var _goal := Color.BLACK
 var _pop := 0.0

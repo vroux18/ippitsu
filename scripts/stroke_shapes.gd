@@ -17,7 +17,7 @@ const ENSO_MIN_TURN := 245.0
 # Uzu (boucle)
 const LOOP_TURN := 300.0
 const LOOP_R_MIN := 0.6
-const LOOP_R_MAX := 2.5
+const LOOP_R_MAX := 3.5         # en combat on trace grand : une grosse boucle reste une boucle
 const LOOP_PAD := 4             # points ajoutés de part et d'autre de la boucle pour l'angle cumulé
 # Kaeshi (aller-retour)
 const RET_GAP := 1.2
@@ -25,18 +25,28 @@ const RET_FAR := 3.0
 const RET_DEV := 0.8
 const RET_SAMPLES := 24
 # Inazuma (zigzag)
-const ZZ_ANGLE := 85.0           # virage net (un Z dessiné vite tourne d'environ 110-150°)
+const ZZ_ANGLE := 75.0           # virage net (un Z dessiné vite tourne d'environ 110-150°, un N pressé ~80°)
 const ZZ_SEG_MIN := 0.6
-const ZZ_SEG_MAX := 9.0          # le pad agrandit le geste : les branches peuvent être longues
+const ZZ_SEG_MAX := 12.0         # le pad agrandit le geste : les branches peuvent être longues
 const ZZ_COUNT := 2              # un Z (2 virages) suffit
 # Ittō (trait droit)
-const ST_LEN := 7.0
+const ST_LEN := 6.0
 const ST_DEV := 0.4
 # Kagi (crochet) : changement de direction entre l'avant-dernier et le dernier segment
 const HK_LAST := 1.5
 const HK_PREV := 0.8
 const HK_MIN := 120.0
-const HK_MAX := 170.0
+const HK_MAX := 178.0  # l'aller-retour est testé avant : un retour court et replié reste un crochet
+
+
+## Trait de combat : il part du héros, puis suit le doigt. Le geste du joueur commence au point `lead_n`
+## (premier contact du doigt) : on lit d'abord ce geste seul, l'amorce depuis le héros ne doit pas casser la figure.
+static func detect_lead(points: PackedVector3Array, lead_n: int) -> Dictionary:
+	if lead_n > 0 and lead_n < points.size() - 2 and length(points.slice(0, lead_n + 1)) >= 1.0:
+		var r := detect(points.slice(lead_n))
+		if not r.is_empty():
+			return r
+	return detect(points)
 
 
 ## Détecte la forme du trait. Renvoie {} ou {"shape": String, ...infos}.
@@ -160,13 +170,17 @@ static func _detect_loop(p: PackedVector3Array) -> Dictionary:
 			if absf(turning_deg(p.slice(a, b + 1))) < LOOP_TURN:
 				continue
 			return {"shape": "loop", "center": c, "radius": st.x}
+	# petit cercle refermé sans se recouper (trop petit pour un ensō) : c'est une boucle
+	if absf(turning_deg(p)) >= LOOP_TURN:
+		var c2 := _centroid(p)
+		var st2 := _radius_stats(p, c2)
+		if st2.x >= LOOP_R_MIN and st2.x < ENSO_MIN_R and st2.y / st2.x < ENSO_ROUND 				and p[0].distance_to(p[n - 1]) < maxf(0.6, st2.x * 0.8):
+			return {"shape": "loop", "center": c2, "radius": st2.x}
 	return {}
 
 
 static func _detect_return(p: PackedVector3Array) -> Dictionary:
 	var start := p[0]
-	if start.distance_to(p[p.size() - 1]) > RET_GAP:
-		return {}
 	var k := 0
 	var far := 0.0
 	for i in range(p.size()):
@@ -175,6 +189,9 @@ static func _detect_return(p: PackedVector3Array) -> Dictionary:
 			far = d
 			k = i
 	if far < RET_FAR:
+		return {}
+	# un long aller-retour tracé vite revient moins précisément : tolérances proportionnelles à l'aller
+	if start.distance_to(p[p.size() - 1]) > _ret_gap(far):
 		return {}
 	# aller (début -> point le plus loin) vs retour retourné (fin -> point le plus loin)
 	var aller := _resample_n(p.slice(0, k + 1), RET_SAMPLES)
@@ -185,9 +202,17 @@ static func _detect_return(p: PackedVector3Array) -> Dictionary:
 	for s in range(RET_SAMPLES):
 		dev += aller[s].distance_to(retour[s])
 	dev /= float(RET_SAMPLES)
-	if dev >= RET_DEV:
+	if dev >= _ret_dev(far):
 		return {}
 	return {"shape": "return", "far": p[k]}
+
+
+static func _ret_gap(far: float) -> float:
+	return maxf(RET_GAP, far * 0.3)
+
+
+static func _ret_dev(far: float) -> float:
+	return maxf(RET_DEV, far * 0.18)
 
 
 static func _detect_zigzag(s: PackedVector3Array) -> Dictionary:
@@ -211,10 +236,16 @@ static func _detect_straight(p: PackedVector3Array) -> Dictionary:
 		return {}
 	var a := p[0]
 	var b := p[p.size() - 1]
+	var tol := _st_dev(length(p))
 	for q: Vector3 in p:
-		if _seg_dist(q, a, b) >= ST_DEV:
+		if _seg_dist(q, a, b) >= tol:
 			return {}
 	return {"shape": "straight", "dir": _flat_dir(b - a)}
+
+
+## Un long trait à main levée ondule un peu : l'écart toléré suit la longueur.
+static func _st_dev(l: float) -> float:
+	return maxf(ST_DEV, l * 0.05)
 
 
 static func _detect_hook(s: PackedVector3Array) -> Dictionary:
@@ -471,9 +502,9 @@ static func _miss_return(p: PackedVector3Array) -> Dictionary:
 		dev += aller[s].distance_to(retour[s])
 	dev /= float(RET_SAMPLES)
 	var checks := [
-		[RET_GAP / maxf(gap, EPS), "reviens jusqu'au départ"],
+		[_ret_gap(far) / maxf(gap, EPS), "reviens jusqu'au départ"],
 		[far / RET_FAR, "aller trop court"],
-		[RET_DEV / maxf(dev, EPS), "retour trop écarté de l'aller"],
+		[_ret_dev(far) / maxf(dev, EPS), "retour trop écarté de l'aller"],
 	]
 	return _worst("return", checks, back / 0.3)
 
@@ -518,7 +549,7 @@ static func _miss_straight(p: PackedVector3Array) -> Dictionary:
 		dev = maxf(dev, _seg_dist(q, a, b))
 	var checks := [
 		[length(p) / ST_LEN, "trop court"],
-		[ST_DEV / maxf(dev, EPS), "trop sinueux pour un trait droit"],
+		[_st_dev(length(p)) / maxf(dev, EPS), "trop sinueux pour un trait droit"],
 	]
 	# un trait franchement courbe ou cassé n'est pas « presque droit »
 	return _worst("straight", checks, (1.6 - dev) / 1.2)
@@ -604,6 +635,21 @@ static func self_test() -> Array:
 	_check(fails, "zigzag Z", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(6, 0), Vector2(0.5, 4), Vector2(6.5, 4)])), step), "zigzag")
 	var hk := deg_to_rad(30.0)
 	_check(fails, "hook", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(5.0 - 1.8 * cos(hk), 1.8 * sin(hk))])), step), "hook")
+	# petit cercle refermé (r 1.1) sans croisement : boucle
+	var sc := PackedVector3Array()
+	for k in range(61):
+		var t3 := (TAU - 0.3) * float(k) / 60.0
+		sc.append(Vector3(1.1 * cos(t3), 0.0, 1.1 * sin(t3)))
+	_check(fails, "petite boucle fermée", _resample_step(sc, step), "loop")
+	# aller-retour long et approximatif (combat)
+	_check(fails, "return large", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(8, 0), Vector2(8.3, 1.0), Vector2(1.2, 1.6)])), step), "return")
+	# ensō tracé loin du héros : amorce droite depuis le héros, puis le cercle du doigt
+	var lead := _resample_step(_poly(PackedVector2Array([Vector2(-4, -5), Vector2(5.5, 1.0)])), step)
+	var nl := lead.size() - 1
+	lead.append_array(_resample_step(circ.slice(0), step).slice(1))
+	var rl := detect_lead(lead, nl)
+	if String(rl.get("shape", "")) != "enso":
+		fails.append("enso avec amorce : attendu 'enso', obtenu '%s'" % String(rl.get("shape", "")))
 	# gribouillis court
 	var scr := PackedVector3Array()
 	for k in range(18):

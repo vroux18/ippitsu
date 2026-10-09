@@ -157,6 +157,8 @@ const COACH_MARKS := ["stroke", "cut", "dodge", "ink", "figure", "ult", "run"]  
 var coach_seen := {}  # id de bulle -> true : déjà montrée
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var world_best := {}  # monde -> meilleure salle atteinte
+var world_score := {}  # monde -> meilleur score (score.gd)
+var world_chain := {}  # monde -> plus longue chaîne atteinte
 var seal_owned := {}  # id de don -> true
 var owned_prints := {}  # id de Vue -> true
 var look := {"cape": "", "trail": "", "ink": ""}  # apparence portée : id de Vue ("" = d'origine)
@@ -194,6 +196,8 @@ func load_data() -> void:
 	start_power_id = String(cf.get_value("meta", "start_power", ""))
 	for wid in range(1, WORLD_COUNT + 1):
 		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
+		world_score[wid] = maxi(0, int(cf.get_value("scores", str(wid), 0)))
+		world_chain[wid] = maxi(0, int(cf.get_value("chains", str(wid), 0)))
 	for id in ORDER:
 		ranks[id] = clampi(int(cf.get_value("stone", id, 0)), 0, max_rank(id))
 	for id in SEAL_ORDER:
@@ -263,6 +267,10 @@ func save_data() -> void:
 	cf.set_value("meta", "start_power", start_power_id)
 	for wid in world_best.keys():
 		cf.set_value("worlds", str(wid), int(world_best[wid]))
+	for wid in world_score.keys():
+		cf.set_value("scores", str(wid), int(world_score[wid]))
+	for wid in world_chain.keys():
+		cf.set_value("chains", str(wid), int(world_chain[wid]))
 	for id in ORDER:
 		cf.set_value("stone", id, rank(id))
 	for id in SEAL_ORDER:
@@ -882,3 +890,23 @@ func record_world(world_id: int, room_reached: int, victory: bool) -> Dictionary
 			res["family"] = String(Data.UNLOCK_NAMES[power_tier])
 	save_data()
 	return res
+
+
+## Meilleur score d'un monde (0 : jamais marqué).
+func world_score_of(world_id: int) -> int:
+	return int(world_score.get(world_id, 0))
+
+
+func world_chain_of(world_id: int) -> int:
+	return int(world_chain.get(world_id, 0))
+
+
+## Score d'une partie dans un monde : garde le meilleur score et la plus longue chaîne, sauvegarde.
+## Renvoie vrai si le score bat l'ancien record.
+func record_score(world_id: int, pts: int, chain: int) -> bool:
+	var rec := pts > world_score_of(world_id)
+	if rec:
+		world_score[world_id] = pts
+	world_chain[world_id] = maxi(world_chain_of(world_id), chain)
+	save_data()
+	return rec

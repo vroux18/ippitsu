@@ -5,10 +5,12 @@ extends Control
 ## au doigt (inertie douce) ou aux flèches, PARTIR lance le monde centré.
 ## Après une victoire qui ouvre un monde (open(..., reveal)), le rouleau part du monde vaincu, se déroule
 ## jusqu'au nouveau, brise son cadenas (encre et or), puis sa carte se lève ; PARTIR vient ensuite.
+## Chaque monde déjà joué porte son meilleur score et le sceau de son rang (score.gd) : de quoi y revenir.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const Score = preload("res://scripts/score.gd")
 
 # teintes du paysage par monde (indice = id - 1) : ciel, plan lointain, premier plan
 const SKY := [Color("#D3DEE6"), Color("#DCE2C8"), Color("#C3CCD6"), Color("#AFC2D0"), Color("#DCCBC4"),
@@ -41,6 +43,7 @@ var _best: Dictionary = {}
 var _rooms := 8  # étapes d'une partie (record affiché sur « _rooms » points)
 var _wins: Dictionary = {}  # Vues gagnées ("w4_win", "w4_mini"...) ou id -> true
 var _stamp_at: Dictionary = {}  # id -> instant (_t) où le sceau ACCOMPLI frappe
+var scores: Dictionary = {}  # id -> meilleur score du monde (meta.world_score), posé par main avant open()
 static var _stamps_seen := {}  # sceaux déjà frappés pendant la session (pas de nouvelle animation)
 
 var _t := 0.0  # temps réel depuis l'ouverture
@@ -237,6 +240,12 @@ func _won(i: int) -> bool:
 	if _id(i) > 5 and _id(i) < _unlocked:
 		return true  # mondes 6 et plus (sans Vue « w<id>_win ») : le suivant ne s'ouvre qu'en le gagnant
 	return _wins.is_empty() and _best_of(i) >= _rooms
+
+
+func _score_of(i: int) -> int:
+	var id := _id(i)
+	var v: Variant = scores.get(id, scores.get(str(id), 0))
+	return maxi(0, int(v))
 
 
 func _mini_done(i: int) -> bool:
@@ -1265,7 +1274,13 @@ func _station(ci: Control, i: int) -> void:
 	var y_sub := y_name + float(sfs) + 5.0 * u * sc
 	var y_path := y_sub + 13.0 * u * sc
 	var y_rec := y_path + 9.0 * u * sc + float(rfs) * 0.85
-	var cbot := y_rec + 8.0 * u * sc
+	# meilleur score et rang : une ligne de plus sur la cartouche complète
+	var pts := 0 if locked else _score_of(i)
+	var rank := Score.rank_of(pts, _id(i))
+	var y_score := y_rec
+	if pts > 0:
+		y_score = y_rec + (float(rfs) + 6.0 * u * sc) * a_full
+	var cbot := y_score + 8.0 * u * sc
 	# épinglée au bord du papier tant que le monde est voisin du centre
 	var pin := 1.0 - _smooth((absf(dd) - 1.0) * 2.0)
 	var lim_l := _cx - _half + cw / 2.0 + 6.0 * u
@@ -1321,6 +1336,13 @@ func _station(ci: Control, i: int) -> void:
 				rec = "Jamais exploré"
 				rc = Color(Toon.SUMI, 0.45)
 			_centered_fit(ci, _ui, rec, Vector2(cx, y_rec), rfs, inner, Color(rc, rc.a * a_full))
+			if pts > 0:
+				var stx := "Meilleur score %s" % Score.fmt(pts)
+				var scol := Color(Toon.SUMI, 0.7)
+				if rank > 0:
+					stx += "  ·  rang " + Score.rank_name(rank).to_lower()
+					scol = Score.rank_color(rank).darkened(0.15)
+				_centered_fit(ci, _ui, stx, Vector2(cx, y_score), rfs, inner, Color(scol, scol.a * a_full))
 
 	# version resserrée : nom sur deux lignes au besoin, état en un mot
 	if a_comp > 0.01:
@@ -1361,6 +1383,13 @@ func _station(ci: Control, i: int) -> void:
 		var e := _stamp_elapsed(_id(i), focus)
 		if e >= 0.0:
 			_stamp(ci, p + Vector2(r * 0.05, r * 0.15), r, e)
+
+	# sceau du rang, en haut à droite du médaillon
+	if rank > 0:
+		var hs := 22.0 * u * sc
+		var hr := Rect2(p + Vector2(r * 0.72 - hs / 2.0, -r * 0.72 - hs / 2.0), Vector2(hs, hs))
+		ci.draw_style_box(UiKit.box(_box, Color(Toon.SUMI, 0.25), maxi(1, int(3.0 * u))), Rect2(hr.position + Vector2(0, 2.0 * u), hr.size))
+		UiKit.hanko(ci, hr, Score.rank_glyph(rank), Score.rank_color(rank), Toon.WASHI, 1.0, u, float(_id(i)))
 
 	# cadenas brisé : éclats, gouttes d'encre et gerbe d'or
 	if rv_e >= 0.0 and rv_e < 1.4:

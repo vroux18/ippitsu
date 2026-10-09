@@ -2,7 +2,7 @@ extends Control
 ## Interface de jeu dessinée à la main.
 ## En haut, une bande de washi : à gauche la vie (grand cœur + gélule épaisse) et le niveau (hexagone + barre d'XP),
 ## au centre le sceau du monde + « ÉTAPE x / 8 », à droite l'or puis la pause ; la barre du boss se glisse dessous,
-## le badge de chaîne sous le bandeau.
+## le badge de chaîne sous le bandeau ; sous l'or, le score de la partie et son multiplicateur de chaîne.
 ## Bord droit : jauge d'encre verticale et sceau de l'ultime ; à gauche, la colonne de progression de l'étape.
 ## Par-dessus : bandeaux d'annonce, compteur de combo, sceaux de figure, barres de vie des ennemis,
 ## voile de mort, rideau de transition et lavis du torii.
@@ -11,6 +11,7 @@ const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
+const Score = preload("res://scripts/score.gd")
 const BAR_N := 24  # segments des barres au pinceau
 
 signal pause_pressed
@@ -54,6 +55,8 @@ var chain_left := 1.0  # temps restant avant extinction (0..1)
 var chain_mult := 1.0
 var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
 var chain_lost := 0
+var score := -1  # points de la partie (-1 : pas de score, dojo)
+var score_mult := 1.0  # multiplicateur de points de la chaîne en cours
 var enemy_bars: Array = []  # [position écran, ratio de vie, (ratio de bouclier, élite)]
 const SHIELD_BAR := Color("#6FB7FF")
 const ELITE_MARK := Color("#FFB23E")
@@ -106,6 +109,13 @@ var _chain_shown := 0
 var _chain_pop := 0.0  # bond du badge de chaîne à chaque maillon (1 -> 0)
 var _gold_shown := -1
 var _gold_pop := 0.0  # la pastille d'or bondit quand on ramasse (1 -> 0)
+var _score_shown := 0.0  # le compteur rattrape le score
+var _score_pop := 0.0  # bond de la pastille de score à chaque gain (1 -> 0)
+var _mult_shown := 1.0
+var _mult_pop := 0.0  # le multiplicateur monte d'un palier (1 -> 0)
+var _mult_lost := 1.0  # multiplicateur perdu (chaîne brisée ou éteinte), barré quelques instants
+var _mult_lost_t := 0.0  # 1 -> 0
+var _score_pops: Array = []  # primes annoncées sous le bandeau : [libellé, points, âge]
 var _band_k := 80.0  # hauteur de la bande du haut (en u, sous la marge) : s'allonge sous la barre du boss
 const BOSS_Y := 100.0  # haut de la barre de vie du boss (en u, sous la marge)
 
@@ -275,6 +285,7 @@ func _draw() -> void:
 		# pouvoirs : plus affichés en jeu (lisibilité) — rangée sur la carte de pause et bilan de fin
 		_draw_shape_pop(sz, u)
 		_draw_chain(u)
+		_draw_score(sz, u)
 		_draw_room(sz, u)
 		if boss_name != "":
 			_draw_boss(sz, u)
@@ -415,6 +426,27 @@ func _tick_status(real: float) -> void:
 		_gold_pop = 1.0
 	_gold_shown = gold
 	_gold_pop = maxf(0.0, _gold_pop - real * 3.0)
+	# score : le compteur monte vers sa valeur (la pastille bondit), il repart de zéro à la partie suivante
+	var sc := float(maxi(score, 0))
+	if sc < _score_shown:
+		_score_shown = sc
+	elif sc > _score_shown + 0.5:
+		if _score_pop < 0.5:
+			_score_pop = 1.0
+		_score_shown = minf(sc, lerpf(_score_shown, sc, 1.0 - exp(-real * 9.0)) + 600.0 * real)
+	_score_pop = maxf(0.0, _score_pop - real * 4.0)
+	# multiplicateur : bond quand il monte d'un palier, gardé barré un instant quand il retombe
+	if score_mult > _mult_shown + 0.01:
+		_mult_pop = 1.0
+	elif score_mult < _mult_shown - 0.01 and _mult_shown >= 1.5:
+		_mult_lost = _mult_shown
+		_mult_lost_t = 1.0
+	_mult_shown = score_mult
+	_mult_pop = maxf(0.0, _mult_pop - real * 3.5)
+	_mult_lost_t = maxf(0.0, _mult_lost_t - real * 1.1)
+	for sp in _score_pops:
+		sp[2] = float(sp[2]) + real
+	_score_pops = _score_pops.filter(func(sp): return float(sp[2]) < 1.6)
 
 
 ## Gélule : contour d'un rectangle aux bouts ronds (pour les remplissages en dégradé).
@@ -827,6 +859,95 @@ func _draw_chain(u: float) -> void:
 		for j in 6:
 			var a := TAU * j / 6.0
 			draw_rect(Rect2(p + Vector2(40, 14) * u + Vector2(cos(a), sin(a)) * 40.0 * u * k, Vector2(6, 3) * u), Color(Toon.VERMILION, chain_break))
+
+
+## Prime de points annoncée sous le bandeau, à droite (« SANS DÉGÂT  +500 ») ;
+## la même prime répétée de près se cumule au lieu de s'empiler.
+func score_pop(label: String, pts: int) -> void:
+	if pts <= 0 or score < 0:
+		return
+	var lb := plain(label)
+	for sp in _score_pops:
+		if String(sp[0]) == lb and float(sp[2]) < 0.8:
+			sp[1] = int(sp[1]) + pts
+			sp[2] = 0.0
+			return
+	_score_pops.append([lb, pts, 0.0])
+	if _score_pops.size() > 3:
+		_score_pops.pop_front()
+
+
+## Score : pastille d'encre sous l'or et la pause (« SCORE » + chiffres qui montent) ;
+## à sa gauche, le multiplicateur de la chaîne dès ×1,5, qui bondit à chaque palier
+## et reste barré un instant quand la chaîne se perd. Primes de points dessous, sous le bandeau.
+func _draw_score(sz: Vector2, u: float) -> void:
+	if score < 0:
+		return
+	var pop := _score_pop * _score_pop
+	var stxt := Score.fmt(int(_score_shown))
+	var nfs := int(14 * u)
+	var lfs := int(7.5 * u)
+	var nw := UiKit.TITLE_FONT.get_string_size(stxt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	var lw := UiKit.UI_FONT.get_string_size("SCORE", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
+	var h := 20.0 * u
+	var w := 10.0 * u + lw + 6.0 * u + nw + 10.0 * u
+	var right := sz.x - 14.0 * u
+	var pill := Rect2(Vector2(right - w, 57.0 * u), Vector2(w, h))
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.22), 999), Rect2(pill.position + Vector2(0, 2.0 * u), pill.size))
+	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92), 999, Color(Toon.WASHI, 0.35 + 0.5 * pop), maxi(1, int(1.2 * u))), pill)
+	var cy := pill.get_center().y
+	draw_string(UiKit.UI_FONT, Vector2(pill.position.x + 10.0 * u, cy + lfs * 0.36), "SCORE", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(Toon.WASHI, 0.6))
+	var tcol := Toon.WASHI.lerp(HUD_GOLD.lightened(0.3), pop)
+	draw_string(UiKit.TITLE_FONT, Vector2(pill.end.x - 10.0 * u - nw, cy + nfs * 0.36), stxt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, tcol)
+	# multiplicateur : pastille à la couleur du palier de la chaîne
+	var mx := pill.position.x - 5.0 * u
+	if score_mult >= 1.5:
+		var mcol := _mult_color(score_mult)
+		var mtxt := Score.mult_text(score_mult)
+		var mfs := int(14 * u)
+		var mw := UiKit.TITLE_FONT.get_string_size(mtxt, HORIZONTAL_ALIGNMENT_LEFT, -1, mfs).x + 14.0 * u
+		var mr := Rect2(Vector2(mx - mw, pill.position.y), Vector2(mw, h))
+		var mp := 1.0 + 0.35 * _mult_pop * _mult_pop
+		var anchor := mr.get_center()
+		draw_set_transform(Vector2(0, top_off) + anchor * (1.0 - mp), 0.0, Vector2(mp, mp))  # bond autour de son centre (garde la marge de l'encoche)
+		if _mult_pop > 0.01:
+			draw_style_box(UiKit.box(_sb, Color(mcol, 0.35 * _mult_pop), 999), mr.grow(4.0 * u * _mult_pop))
+		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.22), 999), Rect2(mr.position + Vector2(0, 2.0 * u), mr.size))
+		draw_style_box(UiKit.box(_sb, mcol, 999, Color(Toon.SUMI, 0.9), maxi(1, int(1.5 * u))), mr)
+		UiKit.text(self, UiKit.TITLE_FONT, mtxt, Vector2(anchor.x, cy + mfs * 0.36), mfs, Toon.SUMI)
+		draw_set_transform(Vector2(0, top_off))
+	elif _mult_lost_t > 0.0:
+		# chaîne perdue : l'ancien multiplicateur pâlit, barré d'un trait vermillon
+		var la := clampf(_mult_lost_t * 1.4, 0.0, 1.0)
+		var ltxt := Score.mult_text(_mult_lost)
+		var lfs2 := int(13 * u)
+		var ltw := UiKit.TITLE_FONT.get_string_size(ltxt, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2).x
+		var lp := Vector2(mx - ltw - 4.0 * u, cy + lfs2 * 0.36 + 6.0 * u * (1.0 - _mult_lost_t))
+		draw_string(UiKit.TITLE_FONT, lp, ltxt, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2, Color(Toon.ui_ink, 0.55 * la))
+		draw_line(lp + Vector2(-2.0 * u, -lfs2 * 0.3), lp + Vector2(ltw + 2.0 * u, -lfs2 * 0.42), Color(Toon.VERMILION, la), 2.0 * u, true)
+	# primes : sous le bandeau et l'annonce, à droite (en deçà de la jauge d'encre), elles montent et s'effacent
+	var py := (_below_k() + 64.0) * u
+	var pr := sz.x - 48.0 * u
+	for i in _score_pops.size():
+		var sp: Array = _score_pops[_score_pops.size() - 1 - i]
+		var age := float(sp[2])
+		var a := clampf(minf(age / 0.12, (1.6 - age) / 0.4), 0.0, 1.0)
+		var ptxt := "%s  +%s" % [String(sp[0]), Score.fmt(int(sp[1]))]
+		var pfs := int(12 * u)
+		var pw := UiKit.UI_FONT.get_string_size(ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x
+		var pp := Vector2(pr - pw, py + float(i) * 18.0 * u - 8.0 * u * UiKit.ease_out(clampf(age / 1.6, 0.0, 1.0)))
+		_ink_text(UiKit.UI_FONT, pp, ptxt, pfs, Color(HUD_GOLD.lightened(0.3), a), u)
+
+
+## Couleur du multiplicateur : celle du palier de chaîne correspondant (badge de chaîne).
+func _mult_color(m: float) -> Color:
+	if m >= 4.0:
+		return Color("#B98CFF")
+	if m >= 3.0:
+		return HUD_HOT
+	if m >= 2.0:
+		return Color("#FF8A3D")
+	return Color("#F2B544")
 
 
 ## Flamme : goutte pointe en haut, base ronde en c, la pointe vacille (phase ph).

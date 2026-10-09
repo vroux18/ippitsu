@@ -77,7 +77,9 @@ func begin_room(room: int, hero_pos: Vector3, boss := false, zone := Rect2(), ke
 		for attempt in 30:
 			var r := randf_range(0.8, 1.15)
 			var c := Vector3(randf_range(_zone.position.x + 1.4, _zone.end.x - 1.4), 0, randf_range(_zone.position.y + 2.0, _zone.end.y - 2.0))
-			var ok: bool = c.distance_to(hero_pos) > 3.0 and main.arena.walkable(c, r + 0.4) and not main.arena.is_bridge(c, r + 1.0)
+			# (ni contre une pièce de décor : bateau, bosquet… on ne lirait plus le trou)
+			var ok: bool = c.distance_to(hero_pos) > 3.0 and main.arena.walkable(c, r + 0.4) and not main.arena.is_bridge(c, r + 1.0) \
+				and not main.arena.on_set_piece(c, r + 0.7)
 			for h in holes:
 				var hc: Vector3 = h[0]
 				if hc.distance_to(c) < float(h[1]) + r + 1.5:
@@ -1030,12 +1032,12 @@ func danger(p: Vector3, eta: float) -> bool:
 
 
 func update(dt: float) -> void:
-	# ennemis projetés dans un trou : à l'eau
+	# ennemis projetés dans un trou : à l'eau (pas contre une pièce de décor : elle les arrête)
 	for e in main.enemies:
 		if not is_instance_valid(e) or e.dead or e.kind == "brute" or e.kind == "funa":
 			continue
 		var kn: Vector3 = e._knock
-		if kn.length() > 2.0 and is_hole(e.position, 0.2):
+		if kn.length() > 2.0 and is_hole(e.position, 0.2) and not main.arena.on_set_piece(e.position, 0.45):
 			main.drown(e)
 	# déferlante
 	if _wave_on:

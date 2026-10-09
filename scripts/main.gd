@@ -70,6 +70,7 @@ const Refuge = preload("res://scripts/refuge.gd")
 const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const Score = preload("res://scripts/score.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 const CURSES := {
 	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus", "icon": "c_dry"},
@@ -258,6 +259,7 @@ const CHAIN_TIMEOUT := 6.0
 const CHAIN_TIERS := {5: "FLUIDE", 10: "TRANCHANT", 20: "MAÎTRE"}
 var chain := 0
 var max_chain := 0
+var score: RefCounted = Score.new()  # points de la partie (score.gd), multipliés par la chaîne
 var shape_counts := {}  # figures réalisées pendant la partie (forme -> nombre)
 var _chain_t := 0.0
 var _stroke_hit := false
@@ -331,6 +333,7 @@ func _ready() -> void:
 	menu.sound_toggled.connect(_on_sound)
 	meta = Meta.new()
 	meta.load_data()
+	score.hud = hud
 	var ref_layer := CanvasLayer.new()
 	ref_layer.layer = 4
 	add_child(ref_layer)
@@ -659,6 +662,7 @@ func _open_worlds(center := -1, reveal := 0, reveal_powers := []) -> void:
 	for k in meta.world_best.keys():
 		best[k] = stage_of(int(meta.world_best[k]))
 	var c: int = center if center >= 1 else current_world
+	worldmap.scores = meta.world_score.duplicate()
 	worldmap.open(Worlds.WORLDS, unlocked, best, c, STAGE_PLAN.size(), meta.owned_prints, reveal, reveal_powers)
 
 
@@ -721,6 +725,7 @@ func _on_pause() -> void:
 	menu.world_color = w.color
 	menu.stat_room = maxi(stage_i + 1, 1)
 	menu.stat_combo = chain
+	menu.stat_score = int(score.points)
 	menu.stat_time = run_time
 	menu.pause_powers = powers.levels.keys()
 	hud.pause_enabled = false
@@ -1711,6 +1716,7 @@ func _start(hub := true, tutorial := false) -> void:
 	pickups.clear()
 	chain = 0
 	max_chain = 0
+	score.reset()
 	shape_counts = {}
 	_chain_t = 0.0
 	_scratched = false
@@ -1741,6 +1747,7 @@ func elan_max() -> float:
 func _begin_room() -> void:
 	room += 1
 	_room_done = false
+	score.on_room_start()
 	_alive_prev = 0
 	foam = powers.foam_per_room()
 	powers.on_room_start(room)
@@ -1979,6 +1986,7 @@ func boss_killed(b: Node3D) -> void:
 		if clean:
 			_flawless_boss = true
 			float_text(b.position, "SANS UNE ÉGRATIGNURE", Toon.GOLD)
+	score.on_boss(is_mini_boss(String(b.kind)), clean, chain)
 	shake = 0.7
 	sfx.play("kill", 0.6)
 	feel("boss_death")
@@ -2087,6 +2095,8 @@ func _on_enemy_killed(e: Node3D) -> void:
 	if e.dummy:
 		return  # mannequin : pas de butin
 	var k := String(e.kind)
+	if state != "tuto":
+		score.on_kill(int(KIND_XP.get(k, 1)), e.has_meta("elite"), not _fig_mods.is_empty() or float(score.fig_t) > 0.0, chain)
 	_last_kill_pos = e.position
 	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
 	if randf() < (0.8 if k == "brute" else 0.4):
@@ -2100,6 +2110,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 
 
 func _room_cleared() -> void:
+	score.on_room_clear(room)
 	_cancel_stroke()
 	for b in bullets:
 		b.node.queue_free()
@@ -3130,10 +3141,13 @@ func _land_safe() -> void:
 			break
 	if hazards.is_hole(safe, 0.2):
 		safe = arena.clamp_walk(hero.position, 0.5)
-	_splash(hero.position, Toon.FOAM, 8)
+	var on_piece: bool = arena.on_set_piece(hero.position, 0.3)  # buté contre un décor : pas d'éclaboussure
+	if not on_piece:
+		_splash(hero.position, Toon.FOAM, 8)
 	hero.position = Vector3(safe.x, 0, safe.z)
 	_prev_hero = hero.position
-	sfx.play("empty", 0.7)
+	if not on_piece:
+		sfx.play("empty", 0.7)
 
 
 func drown(e: Node3D) -> void:
@@ -3164,6 +3178,7 @@ func _finish_run() -> void:
 	var won := _ending_victory
 	menu.victory = won
 	_award(won)
+	_award_score()
 	# victoire : le bouton principal mène au monde suivant (REJOUER sur le dernier monde, et en cas de défaite)
 	menu.next_label = ""
 	if won and current_world < Worlds.WORLDS.size():
@@ -3208,6 +3223,18 @@ func _finish_run() -> void:
 				menu.killer_name = ""
 				menu.killer_kind = String(e.kind)
 	_set_state("over")
+
+
+## Score de la partie : record du monde, rang, prime d'encre (ajoutée aux gains de la feuille de résultats).
+func _award_score() -> void:
+	var r: Dictionary = score.finish(meta, current_world, max_chain)
+	menu.stat_score = int(r.get("score", 0))
+	menu.best_score = int(r.get("best", 0))
+	menu.score_record = bool(r.get("record", false))
+	menu.score_rank = int(r.get("rank", 0))
+	menu.score_next = Score.next_rank_pts(int(r.get("score", 0)), current_world)
+	menu.gain_sumi += int(r.get("sumi", 0))
+	menu.sumi = meta.sumi
 
 
 # ------------------------------------------------------------------ aides pour les pouvoirs
@@ -3314,6 +3341,7 @@ func _apply_shape() -> void:
 		return
 	var sh: Dictionary = _shape
 	_shape = {}
+	score.figure_used()
 	shape_counts[String(sh.shape)] = int(shape_counts.get(String(sh.shape), 0)) + 1
 	var label: String = powers.figure_end(String(sh.shape), sh)
 	hud.shape_pop(String(sh.shape), label)
@@ -3522,12 +3550,14 @@ func _touch_move(sp: Vector2) -> void:
 	# hors combat : encre illimitée, trait deux fois plus long
 	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan
 	var used: float = stroke.extend_to(target, budget)
+	if stroke.lead_n < 0 and used > 0.0:
+		stroke.lead_n = stroke.points.size() - 1  # fin de l'amorce héros -> doigt
 	if not _explore:
 		elan -= used
 	# figure reconnue en direct : l'encre se teinte (testé tous les 30 cm de trait)
 	if used > 0.0 and float(stroke.length) - float(stroke.probe_len) >= 0.3:
 		stroke.probe_len = stroke.length
-		var live: Dictionary = StrokeShapes.detect(stroke.points) if float(stroke.length) >= 2.0 else {}
+		var live: Dictionary = StrokeShapes.detect_lead(stroke.points, int(stroke.lead_n)) if float(stroke.length) >= 2.0 else {}
 		stroke.set_figure(String(live.get("shape", "")))
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
@@ -3770,7 +3800,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
-	_shape = StrokeShapes.detect(s.points) if s.length >= 2.0 else {}
+	_shape = StrokeShapes.detect_lead(s.points, int(s.lead_n)) if s.length >= 2.0 else {}
 	s.set_figure(String(_shape.get("shape", "")))
 	_fig_mods = {}
 	if not _shape.is_empty():
@@ -3804,6 +3834,8 @@ func _on_dash_finished() -> void:
 		if is_instance_valid(bo):
 			bo.end_stroke(stroke_id)
 	powers.on_dash_end(hero.position, _stroke_kills)
+	if state != "tuto":
+		score.on_stroke(_stroke_kills, chain)
 	if combo >= 3:
 		elan = elan_max()
 	_reset_stroke_state()
@@ -3938,6 +3970,7 @@ func _hurt_hero() -> void:
 	hero.hurt()
 	_scratched = true
 	_break_chain()
+	score.on_hurt()
 	hud.hurt_flash = 1.0
 	shake = 0.45
 	sfx.play("hurt")
@@ -4304,6 +4337,7 @@ func _process(_delta: float) -> void:
 			_chain_t += real
 			if _chain_t > CHAIN_TIMEOUT:
 				chain = 0
+		score.update(dt)
 		_update_moves(dt)
 		powers.update(dt)
 		hazards.update(dt)
@@ -4460,6 +4494,8 @@ func _process(_delta: float) -> void:
 	hud.gold = run_gold
 	hud.chain_left = 1.0 - _chain_t / CHAIN_TIMEOUT
 	hud.chain_mult = chain_mult()
+	hud.score = int(score.points) if state != "tuto" else -1
+	hud.score_mult = Score.mult(chain) if state != "tuto" else 1.0
 	var bars: Array = []
 	for e in enemies:
 		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):
