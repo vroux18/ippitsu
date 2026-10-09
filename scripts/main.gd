@@ -3842,7 +3842,7 @@ func _finish_run() -> void:
 	# victoire : le bouton principal mène au monde suivant (REJOUER sur le dernier monde, et en cas de défaite)
 	menu.next_label = ""
 	if won and current_world < Worlds.WORLDS.size():
-		menu.next_label = "DÉCOUVRIR LE MONDE SUIVANT" if int(menu.unlock_world) > 0 else "MONDE SUIVANT"
+		menu.next_label = "MONDE SUIVANT"
 	menu.new_record = room > record
 	if room > record:
 		record = room
