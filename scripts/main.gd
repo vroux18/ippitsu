@@ -306,6 +306,8 @@ var xp := 0
 var level := 1
 var run_gold := 0
 var _pending_levels := 0
+var _lv_cele := -1.0  # fête de montée de niveau en cours (s), < 0 : aucune
+const LV_CELE := 0.9  # durée de la fête avant les rouleaux
 var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
 var _bot: Node = null  # robot testeur (CI)
@@ -5136,12 +5138,25 @@ func _process(_delta: float) -> void:
 	# rouleaux de niveau : tout de suite, même en plein combat (le jeu se fige pendant le choix),
 	# dès que le héros a fini sa ruée et que le doigt est levé
 	if state == "play" and _pending_levels > 0 and not game_over and not hero.dashing and not touching and bosses_intro_done():
-		_pending_levels -= 1
-		_pick_context = "level"
-		hud.toast("NIVEAU %d  ·  CHOISIS TON ROULEAU" % level)
-		vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 2.2)
-		_set_state("pick")
-		_open_upgrades()
+		if _lv_cele < 0.0:
+			# montée de niveau : d'abord la fête (bandeau or, anneaux, éclat du héros), les rouleaux viennent après
+			_lv_cele = 0.0
+			hud.banner("NIVEAU %d" % level, "", Toon.GOLD, LV_CELE + 0.3)
+			var hp := Vector3(hero.position.x, 0.05, hero.position.z)
+			vfx.ring(hp, Toon.GOLD, 2.4)
+			vfx.ring(hp, Toon.WASHI, 1.4)
+			hero.ch.set_glow(1.0, Toon.GOLD)
+		else:
+			_lv_cele += real
+			if _lv_cele > LV_CELE * 0.45 and _lv_cele - real <= LV_CELE * 0.45:
+				vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 3.2)
+			if _lv_cele >= LV_CELE:
+				_lv_cele = -1.0
+				hero.ch.set_glow(0.0)
+				_pending_levels -= 1
+				_pick_context = "level"
+				_set_state("pick")
+				_open_upgrades()
 	if state == "play":
 		run_time += real
 		if chain > 0:

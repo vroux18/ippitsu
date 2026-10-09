@@ -79,7 +79,7 @@ var pad_alpha := 1.0  # le pad s'efface après les premiers traits (option)
 var pad_trail := PackedVector2Array()  # geste en cours dans le pad (coordonnées écran)
 var _shapes: Array = []  # figures enchaînées : [forme, âge]
 # sceaux de pouvoir : petit cachet rond (couleur de l'élément + pictogramme) au-dessus de l'effet qui vient d'agir
-const POP_LIFE := 0.55
+const POP_LIFE := 1.15  # assez long pour être lu (les sceaux brefs agaçaient)
 const POP_MAX := 2  # sceaux visibles en même temps
 const POP_CD := 1200  # ms : un même pouvoir ne ressort pas avant
 var _pops: Array = []  # [clé, pictogramme, couleur, position monde, âge, majeur]
@@ -967,8 +967,8 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 ## Au plus une fois par POP_CD et par pouvoir, POP_MAX à l'écran ; un sceau mineur (déclencheur fréquent, à la touche)
 ## ne chasse pas un sceau affiché, un majeur remplace le plus ancien.
 func power_pop(key: String, icon: String, col: Color, wpos: Vector3, major := true) -> void:
-	if not in_play:
-		return
+	if not in_play or not major:
+		return  # les déclencheurs fréquents (à chaque touche) ne font plus clignoter de sceau
 	var now := Time.get_ticks_msec()
 	if int(_pop_cd.get(key, 0)) > now:
 		return

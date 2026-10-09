@@ -63,6 +63,10 @@ static func detect(points: PackedVector3Array) -> Dictionary:
 	r = _detect_return(p)
 	if not r.is_empty():
 		return r
+	# boucle ouverte (le trait tourne presque un tour complet sans se recouper) : une boucle, jamais un zigzag
+	r = _detect_loop_open(p)
+	if not r.is_empty():
+		return r
 	var s := simplify(p, SIMPLIFY_TOL)
 	r = _detect_zigzag(s)
 	if r.is_empty():
@@ -181,6 +185,57 @@ static func _detect_loop(p: PackedVector3Array) -> Dictionary:
 	return {}
 
 
+## Boucle ouverte : une boucle tracée vite ne se recoupe pas toujours (un « ρ » ou un « e » ouvert). Si une
+## portion du trait tourne dans le même sens d'au moins LOOP_OPEN_TURN, avec un rayon de boucle, c'est une boucle.
+## Testé avant le zigzag : les joueurs voyaient leurs boucles prises pour des zigzags (deux demi-virages).
+const LOOP_OPEN_TURN := 250.0
+const LOOP_OPEN_STEP := 0.15
+
+
+static func _detect_loop_open(p: PackedVector3Array) -> Dictionary:
+	var q := _resample_step(p, LOOP_OPEN_STEP)
+	var run := _same_sign_run(q)
+	if float(run[0]) < LOOP_OPEN_TURN:
+		return {}
+	var sub := q.slice(int(run[1]), int(run[2]) + 1)
+	if sub.size() < 4:
+		return {}
+	var c := _centroid(sub)
+	var st := _radius_stats(sub, c)
+	if st.x < LOOP_R_MIN or st.x > LOOP_R_MAX or st.y / maxf(st.x, EPS) > 0.6:
+		return {}
+	return {"shape": "loop", "center": c, "radius": st.x}
+
+
+## Plus grand virage cumulé dans un même sens le long de q : [degrés, indice de début, indice de fin].
+static func _same_sign_run(q: PackedVector3Array) -> Array:
+	var best := 0.0
+	var b0 := 0
+	var b1 := 0
+	var acc := 0.0
+	var a0 := 0
+	var prev := Vector2.ZERO
+	var has_prev := false
+	for i in range(1, q.size()):
+		var d := Vector2(q[i].x - q[i - 1].x, q[i].z - q[i - 1].z)
+		if d.length_squared() < EPS:
+			continue
+		if has_prev:
+			var t := rad_to_deg(atan2(prev.cross(d), prev.dot(d)))
+			if acc == 0.0 or signf(t) == signf(acc) or absf(t) < 2.0:
+				acc += t
+			else:
+				acc = t
+				a0 = i - 1
+			if absf(acc) > absf(best):
+				best = acc
+				b0 = a0
+				b1 = i
+		prev = d
+		has_prev = true
+	return [absf(best), b0, b1]
+
+
 static func _detect_return(p: PackedVector3Array) -> Dictionary:
 	var start := p[0]
 	var k := 0
@@ -246,6 +301,9 @@ static func _detect_zigzag_soft(p: PackedVector3Array) -> Dictionary:
 	if length(p) < 3.5:
 		return {}
 	var q := _resample_step(p, ZZ_STEP)
+	# un virage cumulé de plus d'un demi-tour dans le même sens : c'est une courbe (boucle ratée), pas un zigzag
+	if float(_same_sign_run(q)[0]) > 200.0:
+		return {}
 	var n := q.size()
 	if n < ZZ_WIN * 2 + 3:
 		return {}
@@ -697,6 +755,13 @@ static func self_test() -> Array:
 		lp.append(Vector3(sp * t - R * sin(t), 0.0, R - R * cos(t)))
 	lp.append(Vector3(sp * PI + 4.0, 0.0, 2.0 * R))
 	_check(fails, "loop", _resample_step(lp, step), "loop")
+	# Uzu ouverte : amorce droite, 300° d'arc de rayon 1,2, sortie sans se recouper (un « ρ » tracé vite)
+	var lo := PackedVector3Array([Vector3(-3.0, 0.0, 0.0), Vector3(-1.5, 0.0, 0.0)])
+	for k in range(61):
+		var t3 := -PI / 2.0 + deg_to_rad(300.0) * float(k) / 60.0
+		lo.append(Vector3(1.2 * cos(t3), 0.0, 1.2 + 1.2 * sin(t3)))
+	lo.append(Vector3(-2.4, 0.0, 3.2))
+	_check(fails, "boucle ouverte", _resample_step(lo, step), "loop")
 	# Kaeshi : aller-retour légèrement décalé
 	_check(fails, "return", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(5, 0.4), Vector2(0.3, 0.5)])), step), "return")
 	# Inazuma : 3 angles vifs
