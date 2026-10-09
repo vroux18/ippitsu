@@ -2154,7 +2154,8 @@ func _piece_ok(fp: Rect2, dz: float) -> bool:
 		var rr: Rect2 = r
 		if rr.intersects(fp):
 			hit = true
-			if not rr.grow(-PIECE_GAP).encloses(fp):
+			# plateforme trop étroite pour garder le passage autour : pas de décor ici
+			if minf(rr.size.x, rr.size.y) <= 2.0 * PIECE_GAP or not rr.grow(-PIECE_GAP).encloses(fp):
 				return false
 	return hit
 
