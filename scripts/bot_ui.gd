@@ -295,8 +295,9 @@ func _step_first_intro() -> bool:
 	return true
 
 
-## Tutoriel en jeu (coach) : au sanctuaire du monde 1, la bulle du premier trait (temps ralenti) ; un trait
-## la lève et elle est enregistrée comme vue ; puis « PASSER » termine le tutoriel et l'on rentre.
+## Tutoriel en jeu (coach) : au sanctuaire du monde 1, la bulle du premier trait arrive en arrêt sur image
+## (jeu figé) ; un toucher après l'invite le lève sans tracer, puis temps ralenti ; un trait lève la bulle,
+## enregistrée comme vue ; puis « PASSER » termine le tutoriel et l'on rentre.
 func _step_coach(label: String) -> bool:
 	var coach = main.coach
 	if not await _until(func(): return String(main.state) == "play" and String(coach.mark) == "stroke", "coach (%s) : bulle « trace un trait » affichée" % label):
@@ -304,6 +305,19 @@ func _step_coach(label: String) -> bool:
 	_ok("coach (%s) : bulle 1 « trace un trait »" % label)
 	await _frames(10)
 	var ts := Engine.time_scale
+	_check(ts < 0.01 and bool(coach.frozen()), "coach : arrêt sur image à la première bulle (%.2f)" % ts, "jeu non figé (%.2f)" % ts)
+	# « TOUCHE POUR CONTINUER » : ce toucher lève l'arrêt sur image, sans lancer de trait
+	if bool(coach.frozen()):
+		if not await _until(func(): return bool(coach.hint_shown()) or not bool(coach.frozen()), "coach : invite « touche pour continuer »", 5.0):
+			return false
+		var tap := main.get_viewport().get_visible_rect().size * Vector2(0.5, 0.45)
+		main._touch_down(tap)
+		main._touch_move(tap + Vector2(40, -30))
+		main._touch_up(tap + Vector2(40, -30))
+		await _frames(5)
+		_check(not bool(coach.frozen()) and not bool(main.touching) and main.stroke == null and not bool(main.hero.dashing) and String(coach.mark) == "stroke",
+			"coach : le toucher lève l'arrêt sur image (sans trait)", "figé %s, trait %s, ruée %s" % [str(coach.frozen()), str(main.stroke != null), str(main.hero.dashing)])
+	ts = Engine.time_scale
 	_check(ts < 0.6, "coach : temps ralenti avant le premier trait (%.2f)" % ts, "temps normal (%.2f)" % ts)
 	if not await _until(func(): return _hero_still(), "héros posé (coach)", 10.0):
 		return false

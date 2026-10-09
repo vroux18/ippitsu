@@ -569,8 +569,8 @@ func _draw_tip(y0: float, w: float, u: float, fade: float) -> void:
 	var lines: Array = [
 		"Un rouleau = un pouvoir, gardé toute la partie",
 		when + ex if ex != "" else "En haut = QUAND le pouvoir agit",
-		"2 pouvoirs du même élément = bonus d'élément",
-		"NIV 1/3 : reprends-le plus tard pour le monter",
+		"Points près de l'élément : 2 du même = bonus",
+		"Crans dorés : reprends-le plus tard pour le monter",
 	]
 	for k in lines.size():
 		var by := box.position.y + pad + lh * float(k) + float(fs)
@@ -1015,9 +1015,13 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 			lt = "NIVEAU UNIQUE"
 		elif cur > 0:
 			lt = "NIV %d → %d" % [cur, lv]
-		y += float(cap)
-		if really:
-			UiKit.text(self, _ui, lt, Vector2(cx, y), cap, Color(ink, 0.8 * a * _rv(y + 3.0 * s)))
+		# carte allégée : le texte du niveau seulement pour une amélioration (une nouveauté : les crans suffisent)
+		if cur > 0:
+			y += float(cap)
+			if really:
+				UiKit.text(self, _ui, lt, Vector2(cx, y), cap, Color(ink, 0.8 * a * _rv(y + 3.0 * s)))
+		else:
+			y += 2.0 * s
 		if mx > 1:
 			y += 5.0 * s
 			var bw := minf(r.size.x - 28.0 * s, 22.0 * s * float(mx))
@@ -1082,13 +1086,28 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		draw_line(Vector2(r.position.x + 10.0 * s, y), Vector2(r.end.x - 10.0 * s, y), Color(ink, 0.18 * a * _rv(y + 2.0 * s)), 1.0)
 	y += 4.0 * s
 	var sd: Dictionary = Data.SCHOOLS.get(school, {})
-	var el := "Technique" if school == "fig" else ("Encre" if school == "ink" else "Élément " + String(sd.get("word", "")))
+	var el := "Technique" if school == "fig" else ("Encre" if school == "ink" else String(sd.get("word", "")))
+	var goal := int(info.get("aff_goal", 0))
+	# progression du bonus d'élément : des points à droite du nom (pleins = pouvoirs de cet élément)
+	var pips := goal if goal > 0 and school != "ink" and school != "fig" and not bool(info.get("aff_hit", false)) else 0
+	var pw := float(pips) * 9.0 * s + (6.0 * s if pips > 0 else 0.0)
 	if really:
 		var scol := UiKit.school_color(school)
 		var ka2 := a * _rv(y + 15.0 * s)
-		_icon_line(el, school, scol, cx, y + 9.0 * s, r.size.x - 12.0 * s, cap, s, Color(ink, 0.88 * ka2), ka2, dark)
+		_icon_line(el, school, scol, cx - pw / 2.0, y + 9.0 * s, r.size.x - 12.0 * s - pw, cap, s, Color(ink, 0.88 * ka2), ka2, dark)
+		if pips > 0:
+			var tw2 := _ui.get_string_size(el, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 19.0 * s
+			var px := cx - pw / 2.0 + tw2 / 2.0 + 6.0 * s + 4.5 * s
+			var filled := mini(int(info.get("aff_next", 0)), goal)
+			if bool(info.get("aff_done", false)):
+				filled = goal
+			for k in pips:
+				var pc := Vector2(px + float(k) * 9.0 * s, y + 9.0 * s)
+				if k < filled:
+					draw_circle(pc, 3.4 * s, Color(scol, ka2))
+				else:
+					draw_arc(pc, 3.0 * s, 0.0, TAU, 14, Color(ink, 0.45 * ka2), maxf(1.0, 1.2 * s), true)
 	y += 18.0 * s
-	var goal := int(info.get("aff_goal", 0))
 	if goal > 0 and school != "ink" and school != "fig":
 		if bool(info.get("aff_hit", false)):
 			# le bonus d'élément tombe avec ce choix : gélule d'or
@@ -1108,11 +1127,7 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 				draw_style_box(UiKit.box(_sb, Color(GOLD_HI, kb * (0.85 + 0.15 * pulse)), 999), pl)
 				UiKit.text(self, _ui, bonus, Vector2(cx, pl.get_center().y + float(bf) * 0.36), bf, Color(LEG_BODY, kb))
 			y += 20.0 * s
-		else:
-			var at := "Bonus d'élément : max" if bool(info.get("aff_done", false)) else "Bonus d'élément %d/%d" % [mini(int(info.get("aff_next", 0)), goal), goal]
-			if really:
-				_fit_center(at, cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(ink, 0.7 * a * _rv(y + 15.0 * s)))
-			y += 17.0 * s
+		# sinon : les points à côté du nom de l'élément suffisent (le détail est dans la fiche)
 	if bool(info.get("synergy_on", false)) or _has_link(i, "syn"):
 		if really:
 			_fit_center("+ Élément actif" if school == "fig" else "+ Synergie active", cx, y + 12.0 * s, r.size.x - 10.0 * s, cap, Color(GOLD_HI if dark or Toon.ui_dark else Color("#9A6B12"), a * _rv(y + 15.0 * s)))
@@ -1183,7 +1198,7 @@ func _at_level(src: String, d: Dictionary, lv: int) -> String:
 		if not arr.is_empty():
 			val = _fr(arr[clampi(lv - 1, 0, arr.size() - 1)])
 		txt = txt.replace(tag, val)
-	return _p(txt)
+	return _p(UiKit.dmg_pct(txt))
 
 
 ## Nombre à la française (virgule décimale).

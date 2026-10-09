@@ -1239,3 +1239,18 @@ static func stat_icon(txt: String) -> String:
 	if t.contains("%"):
 		return "t_luck"
 	return "t_always"
+
+
+## Dégâts en pourcentage d'un coup de sabre (1 dégât = 100 %) : « 0,8 dégât » -> « 80 % des dégâts ».
+static var _dmg_re: RegEx = null
+
+
+static func dmg_pct(txt: String) -> String:
+	if _dmg_re == null:
+		_dmg_re = RegEx.new()
+		_dmg_re.compile("([0-9]+(?:,[0-9]+)?) dégâts?")
+	var out := txt
+	for m in _dmg_re.search_all(txt):
+		var f := m.get_string(1).replace(",", ".").to_float()
+		out = out.replace(m.get_string(0), "%d %% des dégâts" % int(roundf(f * 100.0)))
+	return out

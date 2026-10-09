@@ -126,8 +126,8 @@ var _score_pops: Array = []  # primes annoncées sous les pastilles du haut : [l
 var _band_k := 72.0  # bas des pastilles du haut (en u, sous la marge), lissé : s'allonge sous la barre du boss
 const BOSS_Y := 104.0  # haut de la barre de vie du boss (en u, sous la marge)
 const TOP_K := 72.0  # bas des pastilles du haut sans boss (en u, sous la marge)
-const HP_W := 16.0  # largeur de la jauge de vie (en u), celle de la jauge d'encre
-const XP_W := 8.0  # largeur de la jauge d'expérience (en u), plus fine, côté terrain
+const HP_W := 13.0  # largeur de la jauge de vie (en u), celle de la jauge d'encre
+const XP_W := 6.0  # largeur de la jauge d'expérience (en u), plus fine, côté terrain
 
 
 func _ready() -> void:
@@ -475,8 +475,9 @@ func top_clear() -> float:
 ## De 0,3 à 0,6 de la hauteur ; en mode pad, il s'arrête au-dessus du pad, avec la place de la goutte
 ## d'encre et du sceau de niveau (qu'on garde même quand le pad s'efface : pas de saut).
 func _gauge_span(sz: Vector2, u: float) -> Vector2:
-	var gy := sz.y * 0.3
-	var bot := sz.y * 0.6
+	# jauges hautes et compactes : juste sous les pastilles (place du sceau / du cœur au-dessus)
+	var gy := top_off + (_band_k + 36.0) * u
+	var bot := gy + sz.y * 0.24
 	if pad.size.x >= 10.0:
 		bot = minf(bot, pad.position.y - 42.0 * u)
 	return Vector2(gy, maxf(bot - gy, 60.0 * u))
@@ -496,8 +497,7 @@ func life_rect() -> Rect2:
 	var u := size.x / 400.0
 	var sp := _gauge_span(size, u)
 	var bot := sp.x + sp.y
-	var top := maxf(sp.x, top_off + (_band_k + 82.0) * u)  # badge de chaîne (~40u) + le cœur au-dessus
-	top = minf(top, bot - 60.0 * u)
+	var top := sp.x  # le badge de chaîne est à droite des jauges : la vie monte aussi haut que l'encre
 	return Rect2(Vector2(12.0 * u, top), Vector2(HP_W * u, bot - top))
 
 
@@ -827,7 +827,7 @@ func _draw_symbol(shape: String, c: Vector2, r: float, a: float) -> void:
 ## flamme à la couleur du palier, « ×n » en grand, bonus dessous, temps restant en filet ;
 ## elle bondit à chaque ruée, éclate en se brisant.
 func _draw_chain(u: float) -> void:
-	var p := Vector2(8.0 * u, _below_k() * u)  # sous les pastilles, ou sous la barre du boss ; life_rect() descend la vie d'autant
+	var p := Vector2(xp_rect().end.x + 8.0 * u, _below_k() * u)  # sous les pastilles, à droite des jauges de vie et d'XP
 	if chain >= 2:
 		var tier_col := Color("#F2B544")
 		if chain >= 20:

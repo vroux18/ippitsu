@@ -717,14 +717,22 @@ func _fill(id: String, s: String, a: int, b: int) -> String:
 		var tag := "{%s}" % key
 		if not out.contains(tag):
 			continue
-		var after := _fr(_level_value(id, key, b))
+		# « {v} dégâts » : valeur en % d'un coup de sabre
+		var pct := out.contains(tag + " dégât")
+		var after := _pct(_level_value(id, key, b)) if pct else _fr(_level_value(id, key, b))
 		var txt := after
 		if a > 0 and a != b:
-			var before := _fr(_level_value(id, key, a))
+			var before := _pct(_level_value(id, key, a)) if pct else _fr(_level_value(id, key, a))
 			if before != after:
 				txt = before + " → " + after
+		if pct:
+			out = out.replace(tag + " dégâts", txt + " des dégâts").replace(tag + " dégât", txt + " des dégâts")
 		out = out.replace(tag, txt)
-	return out
+	return UiKit.dmg_pct(out)
+
+
+func _pct(v) -> String:
+	return "%d %%" % int(roundf(float(v) * 100.0))
 
 
 ## Nombre à la française (virgule décimale).

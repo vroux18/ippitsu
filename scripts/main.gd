@@ -3650,6 +3650,8 @@ func _touch_down(sp: Vector2) -> void:
 	if coach.is_over_ui(sp):
 		coach.skip()  # « PASSER » du tutoriel
 		return
+	if coach.freeze_tap(sp):
+		return  # arrêt sur image du tutoriel : ce toucher le lève (jamais un trait ; relâché et glissé sans effet)
 	if game_over:
 		return
 	# on trace n'importe où sur l'écran (hors boutons du HUD) : le trait part du héros et suit le doigt au sol
@@ -4415,6 +4417,11 @@ func _process(_delta: float) -> void:
 
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):
+		Engine.time_scale = 0.0
+		return
+	# tutoriel : arrêt sur image le temps de lire une bulle du coach (figé comme la pause ; le coach compte
+	# en temps réel, se lève au toucher ou seul au bout de quelques secondes)
+	if state == "play" and not game_over and coach.frozen():
 		Engine.time_scale = 0.0
 		return
 
