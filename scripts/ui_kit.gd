@@ -427,7 +427,8 @@ static func _shape(name: String) -> PackedVector2Array:
 
 ## Polygone plein, bord adouci d'un fin contour.
 static func _poly(ci: CanvasItem, pts: PackedVector2Array, col: Color) -> void:
-	if pts.size() < 3:
+	# polygone minuscule (pictogramme qui apparaît à l'échelle 0) : la triangulation échouerait
+	if pts.size() < 3 or absf(poly_area(pts)) < 0.6:
 		return
 	ci.draw_colored_polygon(pts, col)
 	var loop := pts.duplicate()
