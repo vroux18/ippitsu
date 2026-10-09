@@ -22,6 +22,7 @@ const Vfx = preload("res://scripts/vfx.gd")
 const FOX_COLOR := Color("#B58BFF")  # feu de renard : lilas (école de l'ombre)
 const FLAME_COLOR := Color("#FF5A1F")  # = Vfx.FIRE
 const WIND_COLOR := Color("#5FD6A8")  # = Vfx.WIND
+const InkStroke = preload("res://scripts/ink_stroke.gd")
 
 var main: Node3D
 var levels := {}  # id -> niveau (1..max)
@@ -796,6 +797,8 @@ func time_mult() -> float:
 	if touching and not _was_touching and lvl("wind_stillness") > 0 and now >= _slow_cd:
 		_slow(val("wind_stillness"), 0.35)
 		_slow_cd = now + 5000
+		if is_instance_valid(main.hero):
+			_tag("wind_stillness", main.hero.position)
 	_was_touching = touching
 	if now < _slow_until:
 		return _slow_scale
@@ -837,8 +840,51 @@ func _crit(pos: Vector3) -> float:
 		main.vfx.smoke(pos, 0.3, 5)
 		main.sfx.play("puff", randf_range(1.1, 1.3), -6.0)
 		main.splash(pos, Vfx.SHADOW, 6)
+		_tag("shadow", pos, false)
 		return 2.0 if t == 1 else 2.5
 	return 1.0
+
+
+# ------------------------------------------------------------------ lisibilité : sceau du pouvoir, éclat d'élément
+# Chaque déclenchement passe par _tag (sceau du pouvoir au-dessus de l'effet, HUD) ; chaque dégât de pouvoir
+# sur un ennemi passe par _dmg (éclat bref à la couleur de l'élément sur l'ennemi touché).
+
+## Sceau du pouvoir `id` qui vient d'agir, au-dessus de `pos` (id : un pouvoir, ou une école pour les affinités).
+## major = false : déclencheur fréquent (à chaque touche) qui ne chasse pas un sceau déjà affiché.
+func _tag(id: String, pos: Vector3, major := true) -> void:
+	if main == null:
+		return
+	var h = main.hud
+	if h == null or not is_instance_valid(h):
+		return
+	var icon := UiKit.icon_of(id) if Data.POWERS.has(id) else id
+	h.power_pop(id, icon, _elem_color(id), pos + Vector3(0, 2.3, 0), major)
+
+
+## Couleur vive de l'élément d'un pouvoir (ou d'une école) : celle de ses effets ; figures : encre de la figure.
+func _elem_color(id: String) -> Color:
+	var school := UiKit.power_school(id) if Data.POWERS.has(id) else id
+	if school == "fig":
+		for f in InkStroke.FIG_INK.keys():
+			if id.begins_with("fig_" + String(f)):
+				var fc: Color = InkStroke.FIG_INK[f]
+				return fc
+		return Toon.SUMI
+	var c: Color = Vfx.SCHOOL_FX.get(school, Vfx.INK)
+	return c
+
+
+## Éclat de touche à la couleur de l'élément (encre : l'éclat blanc habituel suffit).
+func _flash_e(e, id: String) -> void:
+	if id == "ink" or not _alive(e) or not e.has_method("elem_flash"):
+		return
+	e.elem_flash(_elem_color(id))
+
+
+## Dégâts d'un pouvoir sur un ennemi, avec l'éclat de son élément.
+func _dmg(e, dmg: float, id: String) -> void:
+	_flash_e(e, id)
+	main.damage_enemy(e, dmg)
 
 
 # ------------------------------------------------------------------ hooks de combat
@@ -860,12 +906,15 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		if dir.normalized().dot(fwd) > 0.5:
 			out *= val("shadow_back")
 			main.float_text(e.position, "×" + _num(val("shadow_back")), FOX_COLOR)
+			_tag("shadow_back", e.position, false)
 	out *= _crit(e.position)
 	if lvl("bolt_thunder") > 0 and combo >= 3:
 		out += val("bolt_thunder") * _bolt_mult()
 		_stun(e)
 		main.vfx.sparks(e.position + Vector3(0, 0.9, 0), Vector3.UP, 4, Vfx.BOLT)
 		main.sfx.play("zap", 1.3, -6.0)
+		_flash_e(e, "bolt")
+		_tag("bolt_thunder", e.position)
 	# Kaishaku : sous le seuil, le coup achève
 	if lvl("shadow_execute") > 0:
 		var th := val("shadow_execute") + (10.0 if lvl("shadow_back") > 0 else 0.0)
@@ -874,28 +923,39 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		if left > 0.0 and left <= mx * th / 100.0:
 			out = float(e.hp) + 0.01
 			main.shape_text(e.position, "斬")
+			_tag("shadow_execute", e.position)
 	# brûlure
 	var burn := val("fire_burn")
 	if _tier_of("fire") >= 2:
 		burn = maxf(burn, 0.6)
 	if burn > 0.0:
 		_ignite(e, burn, 3.0)
+		_flash_e(e, "fire")
+		_tag("fire_burn" if lvl("fire_burn") > 0 else "fire", e.position, false)
 	if lvl("water_push") > 0:
 		var side := Vector3(-dir.z, 0, dir.x).normalized()
 		if side.dot(e.position - main.hero.position) < 0.0:
 			side = -side
 		e.push(side * val("water_push") * 3.0 * _wave_mult())
 		main.vfx.wave_arc(e.position, side, 0.7, true)
+		_flash_e(e, "water")
+		_tag("water_push", e.position, false)
 	_storm(e.position)
 	if lvl("bolt_arc") > 0:
-		for o in main.nearest_enemies(e.position, 3.0, int(val("bolt_arc")), e):
+		var arcs: Array = main.nearest_enemies(e.position, 3.0, int(val("bolt_arc")), e)
+		for o in arcs:
 			main.zap(e.position, o.position)
-			main.damage_enemy(o, 0.5 * _bolt_mult())
+			_dmg(o, 0.5 * _bolt_mult(), "bolt")
+		if not arcs.is_empty():
+			_tag("bolt_arc", e.position, false)
 	if lvl("bolt_raijin") > 0:
 		var n := 2 + (1 if lvl("bolt_arc") > 0 else 0)
-		for o in main.nearest_enemies(e.position, 4.0, n, e):
+		var forks: Array = main.nearest_enemies(e.position, 4.0, n, e)
+		for o in forks:
 			main.zap(e.position, o.position)
-			main.damage_enemy(o, 1.0 * _bolt_mult())
+			_dmg(o, 1.0 * _bolt_mult(), "bolt")
+		if not forks.is_empty():
+			_tag("bolt_raijin", e.position, false)
 	_common_hit(e.position)
 	return out
 
@@ -916,7 +976,7 @@ func on_boss_hit(pos: Vector3, _dmg: float = 1.0) -> void:
 	if lvl("bolt_arc") > 0:
 		for o in main.nearest_enemies(pos, 3.0, int(val("bolt_arc")), null):
 			main.zap(pos, o.position)
-			main.damage_enemy(o, 0.5 * _bolt_mult())
+			_dmg(o, 0.5 * _bolt_mult(), "bolt")
 	if lvl("bolt_raijin") > 0:
 		var hits: Array = main.damage_bosses(pos, 2.5, 0.6 * _bolt_mult(), false)
 		if not hits.is_empty():
@@ -931,9 +991,12 @@ func _common_hit(pos: Vector3) -> void:
 	if _tier_of("bolt") >= 2:
 		_aff_hits += 1
 		if _aff_hits % 5 == 0:
-			for o in main.nearest_enemies(pos, 5.0, 2, null):
+			var near: Array = main.nearest_enemies(pos, 5.0, 2, null)
+			for o in near:
 				_bolt_strike(o.position, false)
-				main.damage_enemy(o, 1.0 * _bolt_mult())
+				_dmg(o, 1.0 * _bolt_mult(), "bolt")
+			if not near.is_empty():
+				_tag("bolt", pos)
 	if _tier_of("wind") >= 2:
 		main.elan = minf(float(main.elan_max()), float(main.elan) + 1.0)
 	if lvl("shadow_stolen") > 0 and combo >= 4 and _stolen_stroke != int(main.stroke_id):
@@ -941,7 +1004,7 @@ func _common_hit(pos: Vector3) -> void:
 		_slow(val("shadow_stolen"), 0.3)
 		main.vfx.shadow_burst(pos, 2.0)
 		main.sfx.play("puff", 0.8, -3.0)
-		main.vfx.school_kanji(pos, "shadow")
+		_tag("shadow_stolen", main.hero.position)
 
 
 ## Orage : toutes les N touches, la foudre tombe sur les 3 ennemis les plus proches.
@@ -955,10 +1018,10 @@ func _storm(pos: Vector3) -> void:
 	for o in main.nearest_enemies(pos, 7.0, 3, null):
 		# orage : la foudre tombe du ciel sur chaque cible
 		main.vfx.sky_bolt(o.position, false)
-		main.damage_enemy(o, 1.0 * _bolt_mult())
+		_dmg(o, 1.0 * _bolt_mult(), "bolt")
 		struck = true
 	if struck:
-		main.vfx.school_kanji(pos, "bolt")
+		_tag("bolt_storm", pos)
 	main.damage_bosses(pos, 3.0, 1.0 * _bolt_mult())
 
 
@@ -966,6 +1029,8 @@ func on_kill(e: Node3D) -> void:
 	_kills += 1
 	if lvl("water_dew") > 0 and _kills % int(val("water_dew")) == 0:
 		main.heal(1)
+		if is_instance_valid(main.hero):
+			_tag("water_dew", main.hero.position)
 	if not is_instance_valid(e):
 		return
 	var eid := e.get_instance_id()
@@ -981,10 +1046,10 @@ func on_kill(e: Node3D) -> void:
 		var p: Vector3 = e.position
 		var dmg := val("fire_spark") * _fire_mult()
 		main.fire_ring(p, 1.6)
-		main.vfx.school_kanji(p, "fire")
+		_tag("fire_spark", p)
 		for o in main.nearest_enemies(p, 1.6, 99, e):
 			_ignite(o, maxf(val("fire_burn"), 0.5), 3.0)
-			main.damage_enemy(o, dmg)
+			_dmg(o, dmg, "fire")
 		main.damage_bosses(p, 1.6, dmg)
 	_kill_depth -= 1
 
@@ -994,31 +1059,36 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 	if lvl("fire_hearth") > 0:
 		var hd := val("fire_hearth") * _fire_mult()
 		main.fire_ring(pos, 1.8)
+		_tag("fire_hearth", pos)
 		for o in main.nearest_enemies(pos, 1.8, 99, null):
-			main.damage_enemy(o, hd)
+			_dmg(o, hd, "fire")
 		main.damage_bosses(pos, 1.8, hd)
 	if lvl("shadow_veil") > 0 and kills >= 2:
 		main.hero.invuln = maxf(float(main.hero.invuln), val("shadow_veil"))
 		main.vfx.shadow_burst(pos, 1.4)
 		main.sfx.play("puff", 0.9, -5.0)
+		_tag("shadow_veil", pos)
 	if lvl("water_tide") > 0:
 		var td := val("water_tide") * _wave_mult()
 		main.vfx.water_burst(pos, 1.75, true)
-		_burst(pos, 2.6, td, 9.0)
+		_tag("water_tide", pos)
+		_burst(pos, 2.6, td, 9.0, "water")
 	if lvl("water_uzushio") > 0 and combo >= 3:
 		_add_whirl(pos)
 	if _charge > 0.05:
 		var cd := _charge * _bolt_mult()
 		_charge = 0.0
 		main.vfx.ring(Vector3(pos.x, 0.07, pos.z), Vfx.BOLT, 1.5)
+		_tag("bolt_charge", pos)
 		for o in main.nearest_enemies(pos, 2.2, 99, null):
 			main.zap(pos, o.position)
-			main.damage_enemy(o, cd)
+			_dmg(o, cd, "bolt")
 		main.damage_bosses(pos, 2.2, cd)
 	if lvl("wind_fujin") > 0:
 		# l'arrivée souffle : repousse et blesse un peu
 		main.vfx.wind_burst(pos, 1.6)
-		_burst(pos, 2.4, 0.8, 12.0)
+		_tag("wind_fujin", pos)
+		_burst(pos, 2.4, 0.8, 12.0, "wind")
 	if lvl("water_kanagawa") > 0 and _strokes % 3 == 0 and _last_pts.size() > 1:
 		_add_wave(_last_pts)
 	if lvl("bolt_raijin") > 0 and _strokes % 4 == 0:
@@ -1027,6 +1097,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		_ippitsu_next = true
 		main.vfx.ink_wave(pos, 1.6, true)
 		main.shape_text(pos, "筆")
+		_tag("ink_ippitsu", pos)
 	_ippitsu_now = false
 
 
@@ -1042,6 +1113,7 @@ func on_stroke_release(points: PackedVector3Array) -> void:
 	var length := _length(points)
 	if lvl("fire_trail") > 0:
 		_add_trail(points, 3.0, val("fire_trail"))
+		_tag("fire_trail", points[points.size() - 1], false)
 	if lvl("bolt_charge") > 0:
 		_charge += length * val("bolt_charge")
 	if lvl("wind_fujin") > 0 and length >= 4.0:
@@ -1084,9 +1156,11 @@ func _fig_r(r: float) -> float:
 
 
 ## Coup de technique sur un ennemi, avec la saveur des écoles (feu, foudre, eau ; ombre : dégâts).
-func _fig_hit(e, dmg: float, fx := true) -> void:
+func _fig_hit(e, dmg: float, fx := true, fid := "") -> void:
 	if not _alive(e):
 		return
+	if fx and fid != "":
+		_flash_e(e, fid)
 	var p: Vector3 = e.position
 	var el := _fig_elems()
 	if "fire" in el:
@@ -1095,7 +1169,7 @@ func _fig_hit(e, dmg: float, fx := true) -> void:
 		for o in main.nearest_enemies(p, 3.0, 1, e):
 			var oq: Vector3 = o.position
 			main.zap(p, oq)
-			main.damage_enemy(o, 0.5 * _bolt_mult())
+			_dmg(o, 0.5 * _bolt_mult(), "bolt")
 	main.damage_enemy(e, dmg * _fig_mult(), fx)
 	if "water" in el and _alive(e):
 		var away: Vector3 = p - main.hero.position
@@ -1138,6 +1212,7 @@ func figure_end(shape: String, info: Dictionary) -> String:
 	var hp: Vector3 = main.hero.position
 	if lvl("ink_enso") > 0 and shape != "enso":
 		_ink_wave(hp, 2.2, 1.5)
+		_tag("ink_enso", hp)
 	match shape:
 		"loop":
 			_fig_loop(info, hp)
@@ -1181,7 +1256,7 @@ func figure_update(dt: float) -> void:
 				var r := _fig_r(1.9)
 				for o in main.nearest_enemies(hp, r, 99, null):
 					var op: Vector3 = o.position
-					_fig_hit(o, _fig_spin_dmg)
+					_fig_hit(o, _fig_spin_dmg, true, "fig_loop")
 					main._slash_mark(op, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)))
 				_fig_boss(hp, r, _fig_spin_dmg)
 	for i in range(_fig_cuts.size() - 1, -1, -1):
@@ -1208,7 +1283,7 @@ func figure_landed(pos: Vector3) -> void:
 	var push := 4.0 if lvl("fig_enso_big") == 0 else 8.0
 	for o in main.nearest_enemies(pos, r + 0.4, 99, null):
 		var op: Vector3 = o.position
-		_fig_hit(o, dmg)
+		_fig_hit(o, dmg, true, "fig_enso")
 		if _alive(o):
 			var away := op - pos
 			away.y = 0.0
@@ -1218,13 +1293,14 @@ func figure_landed(pos: Vector3) -> void:
 	if lvl("fig_enso_heal") > 0 and _enso_heal_room != _room:
 		_enso_heal_room = _room
 		main.heal(int(val("fig_enso_heal")))
+		_tag("fig_enso_heal", pos)
 	if lvl("ink_enso") > 0:
 		# Ensō parfait : grande onde d'encre et cercle d'encre qui blesse
 		var rr := r * 1.4 + 0.4
 		main.vfx.ink_wave(pos, rr / 1.5, true)
-		main.vfx.school_kanji(pos, "ink")
+		_tag("ink_enso", pos)
 		main.shake = maxf(float(main.shake), 0.6)
-		_burst(pos, rr, val("ink_enso"), 8.0)
+		_burst(pos, rr, val("ink_enso"), 8.0, "ink")
 		_add_inkring(pos, minf(rr, 4.0))
 
 
@@ -1255,6 +1331,7 @@ func _fig_loop(info: Dictionary, hp: Vector3) -> void:
 	if lvl("fire_kasha") > 0:
 		var c: Vector3 = info.get("center", hp)
 		_add_wheel(Vector3(c.x, 0, c.z))
+		_tag("fire_kasha", Vector3(c.x, 0, c.z))
 
 
 ## Inazuma : éclair en chaîne ; Chaîne longue ; Kanashibari (étourdit, plus fort).
@@ -1274,12 +1351,12 @@ func _fig_zigzag(hp: Vector3) -> void:
 		main.zap(from, op)
 		if stun:
 			_stun(o)
-		_fig_hit(o, dmg)
+		_fig_hit(o, dmg, true, "fig_zigzag")
 		from = op
 	for bp in _fig_boss(hp, rng, dmg):
 		main.zap(from, bp)
 	if stun and not list.is_empty():
-		main.vfx.school_kanji(hp, "bolt")
+		_tag("bolt_inazuma", hp)
 	main.sfx.play("strike", 1.6, -2.0)
 
 
@@ -1322,7 +1399,7 @@ func _fig_cut(pts: PackedVector3Array, dmg: float, width: float) -> void:
 			hits.append(e)
 	for e in hits:
 		var ep: Vector3 = e.position
-		_fig_hit(e, dmg)
+		_fig_hit(e, dmg, true, "fig_straight")
 		main._dmg_text(ep, dmg * _fig_mult(), false)
 	main.damage_bosses_line(pts, width, dmg * _fig_mult())
 
@@ -1331,7 +1408,7 @@ func _fig_cut(pts: PackedVector3Array, dmg: float, width: float) -> void:
 func _fig_return(hp: Vector3) -> void:
 	var d := _fv("fig_return")
 	main.hero.guard(d)
-	main.splash(hp, Toon.GOLD, 12)
+	main.splash(hp, _elem_color("fig_return"), 10)
 	main.vfx.guard(hp, _fig_r(2.4) if lvl("fig_return_counter") > 0 else 1.3)
 	if lvl("fig_return_counter") > 0:
 		_fig_counter_t = d + 0.15
@@ -1362,8 +1439,9 @@ func _fig_counter(hp: Vector3) -> void:
 		_stun(e)
 		main.shadow_stab(hp, ep2)
 		main.float_text(ep2, "CONTRE", Toon.GOLD)
-		_fig_hit(e, dmg)
+		_fig_hit(e, dmg, true, "fig_return")
 	if not targets.is_empty():
+		_tag("fig_return_counter", hp)
 		main.shake = maxf(float(main.shake), 0.3)
 		main.sfx.play("strike", 1.2, -3.0)
 
@@ -1391,7 +1469,8 @@ func _fig_reflect(pts: PackedVector3Array) -> void:
 				to.y = 0.0
 				b["vel"] = to.normalized() * speed
 			b["friendly"] = true
-			main.splash(n.position, Toon.GOLD, 6)
+			main.splash(n.position, _elem_color("fig_return"), 6)
+			_tag("fig_return_reflect", n.position, false)
 			break
 
 
@@ -1427,8 +1506,9 @@ func _fig_hook(info: Dictionary, hp: Vector3) -> void:
 			if mult > 0.0 and _fig_exposed(o, op - hp):
 				d *= mult
 				main.float_text(op, "×" + _num(mult), FOX_COLOR)
+				_tag("fig_hook_back", op, false)
 			main.shadow_stab(hp, op)
-			_fig_hit(o, d)
+			_fig_hit(o, d, true, "fig_hook")
 		main.shake = maxf(float(main.shake), 0.25)
 		return
 	var bh: Array = _fig_boss(tip, rng, dmg)
@@ -1458,6 +1538,7 @@ func on_dodge(from: Vector3, to: Vector3) -> void:
 	if lvl("wind_tsumuji") == 0:
 		return
 	var d := val("wind_tsumuji") * (1.5 if lvl("wind_feather") > 0 else 1.0)
+	_tag("wind_tsumuji", from)
 	_whirl_burst(from, 1.5, d)
 	_whirl_burst(to, 1.5, d)
 
@@ -1475,9 +1556,10 @@ func on_hurt() -> bool:
 		main.shake = maxf(float(main.shake), 0.3)
 		main.sfx.play("whoosh", 0.7)
 		var d := val2("shadow_utsusemi")
+		_tag("shadow_utsusemi", p)
 		for o in main.nearest_enemies(p, 2.4, 99, null):
 			main.vfx.shadow_stab(p, o.position, true)
-			main.damage_enemy(o, d)
+			_dmg(o, d, "shadow")
 		main.damage_bosses(p, 2.4, d)
 		return true
 	if lvl("fire_hoo") > 0 and not _hoo_used and int(h.hp) <= 1:
@@ -1495,9 +1577,10 @@ func on_hurt() -> bool:
 		main.shake = 0.7
 		main.sfx.play("strike", 0.6)
 		main.float_text(p2, "+%d" % int(h.hp), Toon.VERMILION)
+		_tag("fire_hoo", p2)
 		for o in main.nearest_enemies(p2, 3.5, 99, null):
 			_ignite(o, 1.0, 4.0)
-			main.damage_enemy(o, 3.0)
+			_dmg(o, 3.0, "fire")
 		main.damage_bosses(p2, 3.5, 3.0)
 		return true
 	return false
@@ -1612,7 +1695,8 @@ func _watch_foam() -> void:
 	if f < _foam_seen and lvl("water_foam") > 0:
 		var p: Vector3 = main.hero.position
 		main.vfx.water_burst(p, 1.5, true)
-		_burst(p, 2.2, val2("water_foam") * _wave_mult(), 10.0)
+		_tag("water_foam", p)
+		_burst(p, 2.2, val2("water_foam") * _wave_mult(), 10.0, "water")
 	_foam_seen = f
 
 
@@ -1627,9 +1711,10 @@ func _blades(p: Vector3) -> void:
 			continue
 		if Vector2(e.position.x - p.x, e.position.z - p.z).length() < 1.75 + float(e.radius):
 			_blade_hit[eid] = true
-			main.damage_enemy(e, d)
 			# lame de vent : croissant jade
 			main.vfx.wind_slash(e.position, e.position - p, 0.9, true)
+			_tag("wind_blades", e.position, false)
+			_dmg(e, d, "wind")
 
 
 ## Kagami : la ruée renvoie les boules qu'elle frôle vers l'ennemi le plus proche.
@@ -1654,6 +1739,7 @@ func _mirror(p: Vector3) -> void:
 		b["friendly"] = true
 		main.splash(n.position, Vfx.WATER, 5)
 		main.vfx.ring(Vector3(n.position.x, 0.07, n.position.z), Vfx.WATER, 0.6)
+		_tag("water_mirror", n.position, false)
 
 
 ## Fudō Myōō : halo de flammes, 4 ticks par seconde.
@@ -1692,7 +1778,8 @@ func _fox_hits(dt: float, hero) -> void:
 		for fp in _fox_pos:
 			if Vector2(e.position.x - fp.x, e.position.z - fp.z).length() < 0.45 + float(e.radius):
 				_fox_cd[eid] = 0.5
-				main.damage_enemy(e, 1.0)
+				_tag("shadow_kitsunebi", e.position, false)
+				_dmg(e, 1.0, "shadow")
 				if ignite:
 					_ignite(e, val("fire_burn"), 3.0)
 				break
@@ -1715,7 +1802,8 @@ func _raiju(dt: float, p: Vector3) -> void:
 		var o = near[0]
 		_bolt_strike(o.position, true)
 		_stun(o)
-		main.damage_enemy(o, dmg)
+		_tag("bolt_raiju", o.position)
+		_dmg(o, dmg, "bolt")
 		return
 	var hits: Array = main.damage_bosses(p, 8.0, dmg)
 	if not hits.is_empty():
@@ -1740,12 +1828,12 @@ func _drum() -> void:
 	for o in targets:
 		_bolt_strike(o.position, false)
 		_stun(o)
-		main.damage_enemy(o, dmg)
+		_dmg(o, dmg, "bolt")
 	var hits: Array = main.damage_bosses(p, 7.0, dmg)
 	for i in mini(2, hits.size()):
 		_bolt_strike(hits[i], false)
 	_drum_pulse = 1.0
-	main.vfx.school_kanji(p, "bolt")
+	_tag("bolt_raijin", p)
 	main.shake = maxf(float(main.shake), 0.3)
 	main.sfx.play("strike", 1.3, -2.0)
 
@@ -1766,17 +1854,17 @@ func _fujin_pull(points: PackedVector3Array) -> void:
 	var step := maxi(1, int(points.size() / 4.0))
 	for i in range(0, points.size(), step):
 		main.vfx.swirl(points[i], 0.7)
-	main.vfx.school_kanji(points[points.size() - 1], "wind")
+	_tag("wind_fujin", points[points.size() - 1])
 
 
-## Dégâts et recul en cercle autour de `p` (ennemis et boss).
-func _burst(p: Vector3, r: float, dmg: float, push: float) -> void:
+## Dégâts et recul en cercle autour de `p` (ennemis et boss) ; `school` : couleur de l'éclat sur les touchés.
+func _burst(p: Vector3, r: float, dmg: float, push: float, school := "ink") -> void:
 	for o in main.nearest_enemies(p, r, 99, null):
 		var away: Vector3 = o.position - p
 		away.y = 0
 		if away.length_squared() > 0.0001:
 			o.push(away.normalized() * push)
-		main.damage_enemy(o, dmg)
+		_dmg(o, dmg, school)
 	main.damage_bosses(p, r, dmg)
 
 
@@ -1786,14 +1874,14 @@ func _ink_wave(p: Vector3, r: float, dmg: float) -> void:
 	if lvl("fire_hearth") > 0:
 		for o in main.nearest_enemies(p, r, 99, null):
 			_ignite(o, maxf(val("fire_burn"), 0.6), 3.0)
-	_burst(p, r, dmg, 6.0)
+	_burst(p, r, dmg, 6.0, "ink")
 
 
 func _whirl_burst(p: Vector3, r: float, dmg: float) -> void:
 	# tourbillon tranchant : spirale jade et lames de vent
 	main.vfx.swirl(p, r)
 	main.vfx.wind_slash(p, Vector3(randf_range(-1, 1), 0, randf_range(-1, 1)), 1.1, true)
-	_burst(p, r, dmg, 7.0)
+	_burst(p, r, dmg, 7.0, "wind")
 
 
 func _ignite(e, dps: float, dur: float) -> void:
@@ -1877,7 +1965,7 @@ func _add_whirl(p: Vector3) -> void:
 	var sw := _part(spin, main.vfx.swirl_mesh(), main.vfx.glow_mat(Vfx.WATER_FOAM, 1.6))
 	sw.scale = Vector3(1.9, 1, 1.9)
 	sw.position.y = 0.09
-	main.vfx.school_kanji(p, "water")
+	_tag("water_uzushio", p)
 	var dur := 3.0 + (1.0 if lvl("water_tide") > 0 else 0.0)
 	_zones.append({"kind": "whirl", "pos": Vector3(p.x, 0, p.z), "t": dur, "tick": 0.0, "r": 2.2,
 		"dps": val("water_uzushio") * _wave_mult(), "node": node, "spin": spin})
@@ -1980,6 +2068,7 @@ func _add_wave(points: PackedVector3Array) -> void:
 	var dmg := (3.0 + (1.0 if lvl("water_push") > 0 else 0.0)) * _wave_mult()
 	_sweeps.append(_sweep(points, "wave", node, 22.0, 0.0, 1.3, dmg))
 	main.shape_text(points[0], "波")
+	_tag("water_kanagawa", points[0])
 	main.sfx.play("whoosh", 0.5)
 	main.sfx.play("splash", 0.7, -2.0)
 	main.shake = maxf(float(main.shake), 0.35)
@@ -2029,6 +2118,7 @@ func _update_sweeps(dt: float) -> void:
 				if kind == "clone":
 					main.vfx.smoke(node.position, 0.35, 5)
 					main.sfx.play("puff", 1.0, -6.0)
+					_tag("shadow_bunshin", node.position)
 				if kind == "clone" and lvl("fire_trail") > 0:
 					_add_trail(s["pts"], 2.5, val("fire_trail"))
 			continue
@@ -2054,9 +2144,9 @@ func _update_sweeps(dt: float) -> void:
 					if side.dot(e.position - b) < 0.0:
 						side = -side
 					e.push(side * 10.0 + dir.normalized() * 4.0)
-					main.damage_enemy(e, dmg)
+					_dmg(e, dmg, "water")
 				else:
-					main.damage_enemy(e, dmg * _global_mult())
+					_dmg(e, dmg * _global_mult(), "shadow")
 					main.vfx.smoke(e.position, 0.25, 4)
 					main.sfx.play("stab", randf_range(1.1, 1.3), -8.0)
 		if not bool(s["boss_done"]):

@@ -3080,7 +3080,7 @@ func _update_pockets() -> void:
 					shake = maxf(shake, 0.25)
 					pickups.drop(p, "coin", randi_range(6, 9))
 					pickups.drop(p, "xp", randi_range(3, 5))
-					_splash(p + Vector3(0, 0.3, 0), Toon.GOLD, 16)
+					vfx.chest_burst(p)
 					sfx.play("coin", 0.8, -2.0)
 					sfx.play("shot", 1.6, -6.0)
 					hud.toast("COFFRE  ·  OR ET EXPÉRIENCE")
@@ -3663,16 +3663,17 @@ func damage_enemy(e: Node3D, dmg: float, fx := true) -> void:
 	if not is_instance_valid(e) or e.dead:
 		return
 	var killed: bool = e.hurt_dot(dmg)
-	if fx:
-		_splash(e.position, Toon.GOLD, 5)
+	if fx and not killed:
+		_splash(e.position, Toon.SUMI, 3)
 	if killed:
+		var kp: Vector3 = e.position
+		var kd: Vector3 = kp - hero.position if is_instance_valid(hero) else Vector3.FORWARD
+		vfx.kill_burst(kp, kd, false, _ink_tint(e))
 		kills += 1
 		powers.on_kill(e)
 		_on_enemy_killed(e)
 		sfx.play("kill", randf_range(1.1, 1.3), -6.0)
 		feel("hit")
-		_splash(e.position, Toon.VERMILION, 14)
-		_blot(e.position, Toon.VERMILION, 0.45, 2.5)
 
 
 func nearest_enemies(pos: Vector3, r: float, n: int, exclude: Node3D) -> Array:
@@ -3702,7 +3703,7 @@ func damage_bosses(center: Vector3, r: float, dmg: float, fx := true) -> Array:
 		hits.append(p)
 		if fx:
 			_dmg_text(p, dmg, false)
-			_splash(p, Toon.GOLD, 6)
+			_splash(p, Toon.SUMI, 4)
 	return hits
 
 
@@ -3716,7 +3717,7 @@ func damage_bosses_line(pts: PackedVector3Array, r: float, dmg: float, fx := tru
 			if p != Vector3.INF:
 				if fx:
 					_dmg_text(p, dmg, false)
-					_splash(p, Toon.GOLD, 6)
+					_splash(p, Toon.SUMI, 4)
 				break
 
 
@@ -4521,8 +4522,8 @@ func _check_slashes() -> void:
 			vfx.impact(p, dir, killed)
 			if killed:
 				_on_enemy_killed(e)
-				# le grand 斬 ne vient que sur une belle série
-				vfx.kill_burst(p, dir, combo >= 3)
+				# le grand 斬 ne vient que sur une belle série ; quelques gouttes à la couleur du yōkai
+				vfx.kill_burst(p, dir, combo >= 3, _ink_tint(e))
 				hud.screen_flash = maxf(hud.screen_flash, 0.12)
 			if killed:
 				kills += 1
@@ -4532,10 +4533,9 @@ func _check_slashes() -> void:
 			shake = maxf(shake, 0.11 if killed else 0.05)
 			sfx.play("kill" if killed else "slash", 1.0 + 0.08 * (combo - 1) + randf_range(-0.04, 0.04))
 			feel("multi" if killed and _stroke_kills == 3 else ("kill" if killed else "hit"))
-			_splash(p, Toon.VERMILION, 8 if killed else 4)
-			# tache d'encre au sol seulement à la mise à mort
-			if killed:
-				_blot(p, Color(Toon.SUMI, 0.6), randf_range(0.25, 0.38) * (1.4 if e.kind == "brute" else 1.0), 1.8)
+			# touche : quelques gouttes d'encre (la mise à mort a sa giclée et sa tache, vfx.kill_burst)
+			if not killed:
+				_splash(p, Toon.SUMI, 3)
 			_slash_mark(p, dir)
 			if combo >= 3:
 				_combo_label(p, combo)
@@ -4555,7 +4555,7 @@ func _check_slashes() -> void:
 			shake = maxf(shake, 0.22)
 			sfx.play("slash", 0.85 + 0.08 * (combo - 1))
 			feel("boss_hit")
-			_splash(bo.position + Vector3(0, 0.6, 0), Toon.VERMILION, 6)
+			_splash(bo.position + Vector3(0, 0.6, 0), Toon.SUMI, 5)
 			_slash_mark(bo.position, bdir)
 			vfx.impact(bo.position, bdir, false)
 
@@ -4610,17 +4610,16 @@ func _splash(pos: Vector3, color: Color, amount: int) -> void:
 		p = CPUParticles3D.new()
 		p.set_meta("pool", key)
 	if not _fx_cache.has(key):
-		var m := Toon.sphere(0.07)
-		m.radial_segments = 8
-		m.rings = 4
 		var mt := StandardMaterial3D.new()
 		mt.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mt.cull_mode = BaseMaterial3D.CULL_DISABLED
 		mt.albedo_color = color
-		m.material = mt
+		var m := _drop_mesh()
+		m.surface_set_material(0, mt)
 		_fx_cache[key] = m
 	p.mesh = _fx_cache[key]
 	p.amount = amount
-	p.lifetime = 0.55
+	p.lifetime = 0.5
 	p.one_shot = true
 	p.explosiveness = 1.0
 	p.direction = Vector3(0, 1, 0)
@@ -4628,8 +4627,9 @@ func _splash(pos: Vector3, color: Color, amount: int) -> void:
 	p.initial_velocity_min = 3.0
 	p.initial_velocity_max = 7.5
 	p.gravity = Vector3(0, -20, 0)
-	p.scale_amount_min = 0.5
-	p.scale_amount_max = 1.5
+	p.particle_flag_align_y = true  # goutte étirée dans le sens de sa course (pas de bille ni de carré)
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.3
 	p.position = pos + Vector3(0, 0.6, 0)
 	if fresh:
 		add_child(p)
@@ -4638,6 +4638,38 @@ func _splash(pos: Vector3, color: Color, amount: int) -> void:
 		p.visible = true
 		p.restart()
 	effects.append({"node": p, "t": 0.0, "life": 1.0, "kind": "none"})
+
+
+## Goutte (deux plans croisés le long de +y : tête ronde, queue effilée) ; une par couleur (cache de _splash).
+func _drop_mesh() -> ArrayMesh:
+	var prof: Array = [Vector2(0.0, 0.11), Vector2(0.055, 0.085), Vector2(0.07, 0.05), Vector2(0.04, -0.01), Vector2(0.0, -0.12)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for plane in 2:
+		for i in prof.size() - 1:
+			var a: Vector2 = prof[i]
+			var b: Vector2 = prof[i + 1]
+			var ar := Vector3(a.x, a.y, 0.0) if plane == 0 else Vector3(0.0, a.y, a.x)
+			var al := Vector3(-a.x, a.y, 0.0) if plane == 0 else Vector3(0.0, a.y, -a.x)
+			var br := Vector3(b.x, b.y, 0.0) if plane == 0 else Vector3(0.0, b.y, b.x)
+			var bl := Vector3(-b.x, b.y, 0.0) if plane == 0 else Vector3(0.0, b.y, -b.x)
+			st.add_vertex(al)
+			st.add_vertex(ar)
+			st.add_vertex(br)
+			st.add_vertex(al)
+			st.add_vertex(br)
+			st.add_vertex(bl)
+	return st.commit()
+
+
+## Teinte des quelques gouttes de couleur d'une mise à mort : la lueur du yōkai (vermillon par défaut).
+func _ink_tint(e) -> Color:
+	var c := Toon.VERMILION
+	if is_instance_valid(e):
+		var gc = e.get("_glow_c")
+		if gc is Color:
+			c = gc
+	return c
 
 
 ## Gerbe finie : cachée et rangée par couleur (au plus SPLASH_POOL_MAX), sinon libérée.

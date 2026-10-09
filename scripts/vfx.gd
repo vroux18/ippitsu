@@ -55,7 +55,6 @@ var _ring_torus: TorusMesh
 var _mats := {}  # matériaux plats partagés (clé -> StandardMaterial3D)
 var _meshes := {}  # maillages partagés (clé -> Mesh)
 var _tmat := {}  # matériaux des annonces
-var _kanji_cd := {}  # école -> instant (ms) avant le prochain idéogramme
 var _flame_ramp: Gradient
 var _smoke_ramp: Gradient
 var _flame_curve: Curve
@@ -2267,32 +2266,6 @@ func dress_wave(node: Node3D) -> void:
 		var side := _mi(node, _curl_mesh(), m)
 		side.scale = Vector3(1.3, 0.85, 0.9)
 		side.position = Vector3(sg * 1.25, 0.0, 0.35)
-
-
-# ------------------------------------------------------------------ idéogramme d'école
-
-## Petit kanji d'école au-dessus d'un gros déclenchement (rare : une fois par 1.5 s et par école).
-func school_kanji(pos: Vector3, school: String) -> void:
-	if not SCHOOL_KANJI.has(school):
-		return
-	var now := Time.get_ticks_msec()
-	if int(_kanji_cd.get(school, 0)) > now:
-		return
-	_kanji_cd[school] = now + 1500
-	var l := Label3D.new()
-	l.font = UiKit.TITLE_FONT
-	l.text = String(SCHOOL_KANJI[school])
-	l.font_size = 120
-	l.pixel_size = 0.0034
-	var c: Color = SCHOOL_FX[school]
-	l.modulate = c
-	l.outline_modulate = Toon.SUMI if school != "ink" else Toon.WASHI
-	l.outline_size = 18
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.no_depth_test = true
-	l.position = pos + Vector3(-0.5, 1.9, 0)
-	add_child(l)
-	_fx.append({"node": l, "t": 0.0, "life": 0.6, "kind": "kanji"})
 
 
 ## Préchauffage (main._warmup) : joue une fois chaque effet riche en `p` (caché), sans son ni secousse,

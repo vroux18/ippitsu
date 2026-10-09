@@ -179,7 +179,7 @@ func _process(delta: float) -> void:
 			if to.length() < GRAB:
 				main.collect(String(it.kind), int(it.value))
 				if main.vfx != null:
-					main.vfx.sparks(n.position, Vector3.UP, 4, JADE if it.kind == "xp" else Toon.GOLD)
+					main.vfx.sparks(n.position, Vector3.UP, 2, JADE if it.kind == "xp" else Toon.GOLD, 3.0, 6.0, 40.0)
 				_free_item(it)
 				_items.remove_at(i)
 				continue

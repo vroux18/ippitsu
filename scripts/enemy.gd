@@ -70,6 +70,7 @@ var last_stroke := -1
 var body: Node3D
 var ch: Node3D
 var _flash := 0.0
+var flash_c := Color.WHITE  # teinte de l'éclat de touche (élément du pouvoir, elem_flash) ; blanc sinon
 var _spawn := SPAWN_TIME
 var _knock := Vector3.ZERO
 var _t := 0.0
@@ -1343,6 +1344,14 @@ func _probe() -> Vector3:
 	return hero.position
 
 
+## Éclat de touche à la couleur d'un élément (pouvoirs, powers._dmg) : bref, il remplace l'éclat blanc.
+func elem_flash(c: Color) -> void:
+	if dead:
+		return
+	flash_c = c
+	_flash = maxf(_flash, 0.1)
+
+
 ## Dégâts « indirects » (brûlure, foudre, feu) : pas de recul ni d'animation de coup.
 func hurt_dot(dmg: float) -> bool:
 	if dead or is_harmless():
@@ -1449,7 +1458,13 @@ func _process(delta: float) -> void:
 	if _flash > 0.0:
 		_flash -= delta
 		# éclat blanc qui retombe (plus net qu'un simple allumé / éteint)
-		ch.set_flash(0.35 + 0.65 * clampf(_flash / 0.12, 0.0, 1.0) if _flash > 0.0 else 0.0)
+		var fa := 0.35 + 0.65 * clampf(_flash / 0.12, 0.0, 1.0) if _flash > 0.0 else 0.0
+		if _flash > 0.0 and flash_c != Color.WHITE:
+			ch.set_glow(fa * 1.6, flash_c)  # éclat à la couleur de l'élément
+		else:
+			ch.set_flash(fa)
+		if _flash <= 0.0:
+			flash_c = Color.WHITE
 		if _flash <= 0.0 and _glow_a > 0.0:
 			_base_glow()
 	if _bubble != null or _aura != null:
