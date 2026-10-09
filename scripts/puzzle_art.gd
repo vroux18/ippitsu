@@ -33,8 +33,8 @@ const WORLD_STONE := {
 	3: {"stone": Color("#9A9EAC"), "moss": Color("#C7CFD8"), "pebble": Color("#A9AFBE")},
 	4: {"stone": Color("#5E5753"), "moss": Color("#6E5A48"), "pebble": Color("#4A4542")},
 	5: {"stone": Color("#8C8780"), "moss": Color("#6E6A62"), "pebble": Color("#9A958D")},
-	6: {"stone": Color("#8A8873"), "moss": Color("#4A6440"), "pebble": Color("#8E8C78")},
-	7: {"stone": Color("#9E9A88"), "moss": Color("#3E6E66"), "pebble": Color("#A8A492")},
+	6: {"stone": Color("#8A7A78"), "moss": Color("#7E5A3E"), "pebble": Color("#8C7C7A")},
+	7: {"stone": Color("#AE9E84"), "moss": Color("#4E6E7E"), "pebble": Color("#A89C86")},
 	8: {"stone": Color("#6E6A70"), "moss": Color("#5A5660"), "pebble": Color("#7A7680")},
 }
 static var _wid := 0

@@ -35,13 +35,14 @@ const HOLE_STYLES := {
 	4: {"deep": Color("#120C0A"), "near": Color("#2A1C14"), "centre": Color("#4A3418"), "rim": Color("#C49A45"),
 		"wall0": Color("#4A423E"), "wall1": Color("#2E2522"), "wall2": Color("#8A6A2A"),
 		"ink": Color("#1A1412"), "d_total": 0.42, "glint": Color("#F2DCA0")},
-	# mondes 6, 7, 8 : dalles de Kurama (granit moussu), du palais (nacre, eau turquoise), de Yomi (cendre)
-	6: {"deep": Color("#030806"), "near": Color("#0E1E14"), "rim": Color("#4A7A5A"), "lip": Color("#A8A690"),
-		"face": Color("#767460"), "face2": Color("#4A4A3C"), "dark": Color("#1A1E18"), "abyss": Color("#040806"),
-		"ink": Color("#1A1E1A"), "d_slab": 0.22, "d_total": 0.62, "glint": Color("#CFE0B8")},
-	7: {"deep": Color("#02141A"), "near": Color("#0E4650"), "rim": Color("#5AB8B0"), "lip": Color("#C8C4B2"),
-		"face": Color("#8A8676"), "face2": Color("#5A5A4E"), "dark": Color("#1A2426"), "abyss": Color("#031014"),
-		"ink": Color("#14181C"), "d_slab": 0.22, "d_total": 0.55, "glint": Color("#DFF6F2")},
+	# mondes 6, 7, 8 : dalles de Kurama (granit rose-gris sur le ravin bleu-noir du soir), du palais
+	# (bois flotté et sable sur l'outremer), de Yomi (cendre)
+	6: {"deep": Color("#040408"), "near": Color("#141424"), "rim": Color("#6A5478"), "lip": Color("#A89896"),
+		"face": Color("#7A6A68"), "face2": Color("#4E4244"), "dark": Color("#1A1618"), "abyss": Color("#06060C"),
+		"ink": Color("#14121A"), "d_slab": 0.22, "d_total": 0.62, "glint": Color("#E8C8A8")},
+	7: {"deep": Color("#030A20"), "near": Color("#102A5A"), "rim": Color("#4E8AC8"), "lip": Color("#C8BCA0"),
+		"face": Color("#8A7E68"), "face2": Color("#5A5246"), "dark": Color("#1A1E2C"), "abyss": Color("#040A1C"),
+		"ink": Color("#0C1024"), "d_slab": 0.22, "d_total": 0.55, "glint": Color("#DDEAFF")},
 	8: {"deep": Color("#040208"), "near": Color("#120E1A"), "rim": Color("#5A4E72"), "lip": Color("#8A868E"),
 		"face": Color("#5A575E"), "face2": Color("#38363C"), "dark": Color("#141218"), "abyss": Color("#06040A"),
 		"ink": Color("#0E0C10"), "d_slab": 0.22, "d_total": 0.62, "glint": Color("#C9B8E8")},
