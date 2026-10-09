@@ -563,6 +563,14 @@ func _ready() -> void:
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
 	if "intro" in wsearch:
 		_open_intro(false)
+	# `?mondes` (captures) : la carte des mondes ; `?mondes&reveal=N` : le monde N se révèle (rouleaux compris)
+	if "mondes" in wsearch:
+		var rv := wsearch.find("reveal=")
+		if rv >= 0:
+			var rid := clampi(int(wsearch.substr(rv + 7).get_slice("&", 0)), 1, Worlds.WORLDS.size())
+			_open_worlds(rid - 1, rid, ["fire_burn", "water_tide", "fire_spark", "fire_kasha"])  # rouleaux de démonstration
+		else:
+			_open_worlds()
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
