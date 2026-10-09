@@ -531,6 +531,10 @@ func _ready() -> void:
 		if ps >= 0:
 			picker.style = clampi(int(wsearch.substr(ps + 10).get_slice("&", 0)), 0, 2)
 		_open_upgrades()
+		# `?pick&sel=N` : la carte N déjà levée (capture de la bulle de description)
+		var sl := wsearch.find("sel=")
+		if sl >= 0:
+			picker.set("_sel", clampi(int(wsearch.substr(sl + 4).get_slice("&", 0)), 0, 2))
 	if "atelier" in wsearch:
 		_on_atelier()
 	if "dojo" in wsearch:

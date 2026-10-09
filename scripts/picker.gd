@@ -3011,12 +3011,24 @@ func _v2_bubble(box: Rect2, info: Dictionary, id: String, u: float, a: float, re
 	# la phrase
 	var bfs := int(13.5 * u)
 	var lh := float(bfs) * 1.35
-	var lines := _wrap(_ui, UiKit.fx_line(id), bfs, tw)
+	var short_line := UiKit.fx_line(id)
+	var lines := _wrap(_ui, short_line, bfs, tw)
 	y += 4.0 * u
 	for k in mini(lines.size(), 3):
 		y += lh
 		if really:
 			draw_string(_ui, Vector2(x, y), lines[k], HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(UIColors.WASHI, a))
+	# l'explication complète du pouvoir (power_data « text »), plus petite et en retrait, jusqu'à 3 lignes
+	var long_txt := _p(String(info.get("text", "")))
+	if long_txt != "" and long_txt != short_line:
+		var dfs := int(11.5 * u)
+		var dlh := float(dfs) * 1.3
+		var dl := _wrap(_ui, long_txt, dfs, tw)
+		y += 3.0 * u
+		for k in mini(dl.size(), 3):
+			y += dlh
+			if really:
+				draw_string(_ui, Vector2(x, y), dl[k], HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(UIColors.WASHI, 0.7 * a))
 	# harmonie : anneau (après le choix), flèche, pastille HARMONIE ou compte et bonus visé
 	var school := String(info.get("school", ""))
 	var goal := int(info.get("aff_goal", 0))
