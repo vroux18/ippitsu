@@ -56,19 +56,19 @@ func _build() -> void:
 	ch.idle = "Idle_Combat"
 	ch.play("Idle_Combat")
 	# tête de corbeau : bec d'or, tokin vermillon
-	var beak := Toon.part(body, Toon.cyl(0.0, 0.13, 0.55, 6), Toon.mat(Toon.GOLD), Vector3(0, 2.25, -0.5))
+	var beak := Toon.part(body, Toon.cyl(0.0, 0.13, 0.55, 6), Toon.mat_shared(Toon.GOLD), Vector3(0, 2.25, -0.5))
 	beak.rotation.x = -PI / 2.0
-	Toon.part(body, Toon.box(Vector3(0.22, 0.18, 0.22)), Toon.mat(Toon.VERMILION), Vector3(0, 2.75, -0.1))
+	Toon.part(body, Toon.box(Vector3(0.22, 0.18, 0.22)), Toon.mat_shared(Toon.VERMILION), Vector3(0, 2.75, -0.1))
 	# grandes ailes noires dans le dos
 	for s in [-1.0, 1.0]:
 		var sx := float(s)
 		var pv := Node3D.new()
 		body.add_child(pv)
 		pv.position = Vector3(sx * 0.35, 1.9, 0.3)
-		var wing := Toon.part(pv, Toon.box(Vector3(1.6, 0.08, 0.7)), Toon.mat(FEATHER), Vector3(sx * 0.8, 0, 0.1))
+		var wing := Toon.part(pv, Toon.box(Vector3(1.6, 0.08, 0.7)), Toon.mat_shared(FEATHER), Vector3(sx * 0.8, 0, 0.1))
 		wing.rotation.y = sx * 0.25
 		for k in 4:
-			var f := Toon.part(pv, Toon.box(Vector3(0.18, 0.06, 0.6)), Toon.mat(FEATHER_HI), Vector3(sx * (0.4 + 0.35 * float(k)), -0.05, 0.55))
+			var f := Toon.part(pv, Toon.box(Vector3(0.18, 0.06, 0.6)), Toon.mat_shared(FEATHER_HI), Vector3(sx * (0.4 + 0.35 * float(k)), -0.05, 0.55))
 			f.rotation.y = sx * 0.1 * float(k)
 		_wings.append(pv)
 	# manteau de plumes (le bouclier) : collerette de plumes sombres
@@ -77,7 +77,7 @@ func _build() -> void:
 	_cloak.position = Vector3(0, 1.6, 0)
 	for k in 10:
 		var a := TAU * float(k) / 10.0
-		var pl := Toon.part(_cloak, Toon.box(Vector3(0.22, 0.9, 0.06)), Toon.mat(FEATHER), Vector3(cos(a) * 0.62, -0.2, sin(a) * 0.62))
+		var pl := Toon.part(_cloak, Toon.box(Vector3(0.22, 0.9, 0.06)), Toon.mat_shared(FEATHER), Vector3(cos(a) * 0.62, -0.2, sin(a) * 0.62))
 		pl.rotation = Vector3(0.25, PI * 0.5 - a, 0.0)
 	_hint = Loop.hint_ring(self, HINT_R, Toon.GOLD)
 	_make_stars(body, 3.0)

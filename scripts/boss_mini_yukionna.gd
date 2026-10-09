@@ -53,9 +53,9 @@ func _build() -> void:
 	body = Node3D.new()
 	add_child(body)
 	# kimono blanc sans pieds : un pan qui s'évase vers le sol, ourlet lavande, obi bleu de Prusse
-	Toon.part(body, Toon.cyl(0.3, 0.6, 1.15, 10), Toon.mat(SNOW), Vector3(0, 0.62, 0))
-	Toon.part(body, Toon.cyl(0.61, 0.52, 0.06, 10), Toon.mat(LAVENDER), Vector3(0, 0.07, 0))
-	Toon.part(body, Toon.cyl(0.32, 0.34, 0.14, 10), Toon.mat(Toon.PRUSSIAN), Vector3(0, 1.08, 0))
+	Toon.part(body, Toon.cyl(0.3, 0.6, 1.15, 10), Toon.mat_shared(SNOW), Vector3(0, 0.62, 0))
+	Toon.part(body, Toon.cyl(0.61, 0.52, 0.06, 10), Toon.mat_shared(LAVENDER), Vector3(0, 0.07, 0))
+	Toon.part(body, Toon.cyl(0.32, 0.34, 0.14, 10), Toon.mat_shared(Toon.PRUSSIAN), Vector3(0, 1.08, 0))
 	ch = Character.new()
 	body.add_child(ch)
 	ch.position = Vector3(0, 1.1, 0)
@@ -65,7 +65,7 @@ func _build() -> void:
 	ch.play("Idle")
 	_ghostify()
 	# longs cheveux noirs dans le dos
-	Toon.part(body, Toon.box(Vector3(0.5, 1.25, 0.1)), Toon.mat(Toon.SUMI), Vector3(0, 1.85, 0.28))
+	Toon.part(body, Toon.box(Vector3(0.5, 1.25, 0.1)), Toon.mat_shared(Toon.SUMI), Vector3(0, 1.85, 0.28))
 	# voile de givre
 	_veil = Node3D.new()
 	body.add_child(_veil)
@@ -112,8 +112,8 @@ func _spawn_path() -> void:
 		Toon.disc(n, 0.3 + 0.12 * float(i), Color(ICE, 0.45), 0.02)
 		var spike := Node3D.new()
 		n.add_child(spike)
-		Toon.part(spike, Toon.cyl(0.0, 0.22, 1.0, 5), Toon.mat(ICE), Vector3(0, 0.5, 0))
-		var side := Toon.part(spike, Toon.cyl(0.0, 0.12, 0.6, 5), Toon.mat(SNOW), Vector3(0.16, 0.28, 0.05))
+		Toon.part(spike, Toon.cyl(0.0, 0.22, 1.0, 5), Toon.mat_shared(ICE), Vector3(0, 0.5, 0))
+		var side := Toon.part(spike, Toon.cyl(0.0, 0.12, 0.6, 5), Toon.mat_shared(SNOW), Vector3(0.16, 0.28, 0.05))
 		side.rotation.z = -0.5
 		spike.scale = Vector3.ONE * size
 		_crys.append({"node": n, "spike": spike, "pos": p, "lit": false, "size": size})

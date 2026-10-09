@@ -108,9 +108,9 @@ func _ready() -> void:
 	hp *= max_hp_mult
 	max_hp = hp
 	_unit = max_hp / 150.0
-	_m_ink = Toon.mat(INK)
-	_m_foam = Toon.mat(FOAM)
-	_m_shade = Toon.mat(FOAM_SHADE)
+	_m_ink = Toon.mat_shared(INK)
+	_m_foam = Toon.mat_shared(FOAM)
+	_m_shade = Toon.mat_shared(FOAM_SHADE)
 	_build_wave()
 	_build_fingers()
 	_build_eye()
@@ -127,8 +127,8 @@ func _build_wave() -> void:
 	add_child(_wave)
 	_wave.position = Vector3(0, 0, -11.0)
 	# le Fuji minuscule au loin, comme chez Hokusai
-	Toon.part(_wave, Toon.cyl(0.0, 3.2, 2.6, 7), Toon.mat(Toon.PRUSSIAN), Vector3(-3.0, 1.0, -6.0))
-	Toon.part(_wave, Toon.cyl(0.0, 1.0, 0.82, 7), Toon.mat(Toon.WASHI), Vector3(-3.0, 1.9, -6.0))
+	Toon.part(_wave, Toon.cyl(0.0, 3.2, 2.6, 7), Toon.mat_shared(Toon.PRUSSIAN), Vector3(-3.0, 1.0, -6.0))
+	Toon.part(_wave, Toon.cyl(0.0, 1.0, 0.82, 7), Toon.mat_shared(Toon.WASHI), Vector3(-3.0, 1.9, -6.0))
 	# mer d'encre entre la vague et l'arène
 	var sea := Toon.part(_wave, Toon.box(Vector3(19.0, 0.004, 3.4)), Toon.flat(Color(INK, 0.9)), Vector3(0, 0.02, 1.2))
 	sea.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -189,13 +189,13 @@ func _build_eye() -> void:
 	ring.outer_radius = 1.02
 	ring.rings = 24
 	ring.ring_segments = 6
-	Toon.part(_eye, ring, Toon.mat(Toon.VERMILION), Vector3(0, 0.12, 0), Vector3(1, 0.6, 1))
+	Toon.part(_eye, ring, Toon.mat_shared(Toon.VERMILION), Vector3(0, 0.12, 0), Vector3(1, 0.6, 1))
 	_eye_ball = Node3D.new()
 	_eye.add_child(_eye_ball)
-	Toon.part(_eye_ball, Toon.sphere(0.72), Toon.mat(Toon.SUMI), Vector3(0, 0.25, 0), Vector3(1.0, 0.55, 1.0))
+	Toon.part(_eye_ball, Toon.sphere(0.72), Toon.mat_shared(Toon.SUMI), Vector3(0, 0.25, 0), Vector3(1.0, 0.55, 1.0))
 	_eye_iris = Node3D.new()
 	_eye_ball.add_child(_eye_iris)
-	Toon.part(_eye_iris, Toon.sphere(0.3), Toon.mat(Toon.VERMILION, false), Vector3(0, 0.58, 0), Vector3(1.0, 0.35, 1.0))
+	Toon.part(_eye_iris, Toon.sphere(0.3), Toon.mat_shared(Toon.VERMILION, false), Vector3(0, 0.58, 0), Vector3(1.0, 0.35, 1.0))
 	Toon.part(_eye_iris, Toon.sphere(0.11), Toon.flat(FOAM), Vector3(0.1, 0.68, -0.1))
 	# petites crêtes qui tournent en spirale autour de l'œil
 	_orbit = Node3D.new()

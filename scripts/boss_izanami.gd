@@ -70,11 +70,11 @@ func _build() -> void:
 	_hair = Node3D.new()
 	body.add_child(_hair)
 	_hair.position = Vector3(0, 2.6, 0.3)
-	Toon.part(_hair, Toon.box(Vector3(1.0, 2.2, 0.15)), Toon.mat(HAIR), Vector3(0, -0.6, 0.05))
+	Toon.part(_hair, Toon.box(Vector3(1.0, 2.2, 0.15)), Toon.mat_shared(HAIR), Vector3(0, -0.6, 0.05))
 	for sx: float in [-1.0, 1.0]:
-		var lock := Toon.part(_hair, Toon.box(Vector3(0.22, 1.6, 0.12)), Toon.mat(HAIR), Vector3(sx * 0.42, -0.2, -0.35))
+		var lock := Toon.part(_hair, Toon.box(Vector3(0.22, 1.6, 0.12)), Toon.mat_shared(HAIR), Vector3(sx * 0.42, -0.2, -0.35))
 		lock.rotation.z = sx * 0.06
-	Toon.part(body, Toon.cyl(0.9, 1.4, 1.4, 10), Toon.mat(ROBE, true, 0.04), Vector3(0, 0.7, 0))
+	Toon.part(body, Toon.cyl(0.9, 1.4, 1.4, 10), Toon.mat_shared(ROBE, true, 0.04), Vector3(0, 0.7, 0))
 	for k in 6:
 		var a := TAU * float(k) / 6.0
 		var spike := Toon.part(body, Toon.cyl(0.0, 0.06, 0.4, 4), main.vfx.glow_mat(BOLT, 2.0), Vector3(cos(a) * 0.32, 3.75, sin(a) * 0.32))
@@ -95,10 +95,10 @@ func _build() -> void:
 		tm.outer_radius = 0.46
 		tm.rings = 16
 		tm.ring_segments = 4
-		var drum := Toon.part(n, tm, Toon.mat(Color("#2A2430")), Vector3.ZERO)
+		var drum := Toon.part(n, tm, Toon.mat_shared(Color("#2A2430")), Vector3.ZERO)
 		drum.rotation.x = PI * 0.5
 		for k in 3:
-			var sp := Toon.part(n, Toon.cyl(0.0, 0.05, 0.3, 4), Toon.mat(Toon.GOLD, false), Vector3(0, 0.35, 0))
+			var sp := Toon.part(n, Toon.cyl(0.0, 0.05, 0.3, 4), Toon.mat_shared(Toon.GOLD, false), Vector3(0, 0.35, 0))
 			sp.rotation.z = (float(k) - 1.0) * 0.6
 		var th := Toon.part(self, Toon.cyl(0.035, 0.035, 1.0, 4), main.vfx.glow_mat(BOLT, 2.4), Vector3.ZERO)
 		th.top_level = true

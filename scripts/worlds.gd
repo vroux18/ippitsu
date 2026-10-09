@@ -452,7 +452,10 @@ static func _basis_y(d: Vector3) -> Basis:
 
 
 ## Ajoute une primitive au lot du matériau `m` (1 draw call par matériau au final).
+## Lot marqué « sans encre » (voir _no_ink) : le contour est retiré, le matériau de base est gardé.
 static func _add(b: Dictionary, m: Material, mesh: Mesh, xf: Transform3D) -> void:
+	if b.get(NO_INK, false):
+		m = _without_ink(m)
 	var k := m.get_instance_id()
 	if not b.has(k):
 		var st0 := SurfaceTool.new()
@@ -463,8 +466,43 @@ static func _add(b: Dictionary, m: Material, mesh: Mesh, xf: Transform3D) -> voi
 	Decor.merge_into(st, mesh, xf)  # copie CPU : pas de relecture GPU par pièce
 
 
+# Rendu allégé : les grands props du fond (z < NO_INK_Z, loin de la caméra) perdent leur contour
+# d'encre, soit une passe de dessin de moins par matériau ; un trait d'un demi-pixel à cette distance.
+const NO_INK := "_no_ink"  # drapeau posé dans les lots bs/bn le temps de bâtir un prop
+const NO_INK_Z := -10.0
+static var _no_ink_mats := {}  # matériau à contour -> même matériau sans contour
+
+
+## Marque (ou non) les lots du contexte : les pièces ajoutées ensuite seront sans contour d'encre.
+static func _no_ink(ctx: Dictionary, on: bool) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	if on:
+		bs[NO_INK] = true
+		bn[NO_INK] = true
+	else:  # clé retirée : hors rendu allégé, les lots ne contiennent que des matériaux
+		bs.erase(NO_INK)
+		bn.erase(NO_INK)
+
+
+static func _without_ink(m: Material) -> Material:
+	var sm := m as StandardMaterial3D
+	if sm == null or sm.next_pass == null:
+		return m
+	var k := sm.get_instance_id()
+	if _no_ink_mats.has(k):
+		var cached: StandardMaterial3D = _no_ink_mats[k]
+		return cached
+	var twin := sm.duplicate() as StandardMaterial3D
+	twin.next_pass = null
+	_no_ink_mats[k] = twin
+	return twin
+
+
 static func _flush(b: Dictionary, parent: Node3D, shadow := false) -> void:
 	for k in b:
+		if k is String:
+			continue  # drapeau NO_INK, pas un lot
 		var entry: Array = b[k]
 		var st: SurfaceTool = entry[0]
 		var m: Material = entry[1]
@@ -1722,7 +1760,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
-	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": [], "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
+	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# grands props dans le vide autour de l'arène
 	for i in rng.randi_range(13, 17):
@@ -1730,7 +1768,9 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 		if p == NONE2:
 			continue
 		_take(ctx, p)
+		_no_ink(ctx, Toon.lite and p.y < NO_INK_Z)
 		_prop_big(wid, ctx, p, rng)
+		_no_ink(ctx, false)
 		_contact(ctx, p, 1.5)
 	# alignements de bord : clôtures, cordes sacrées, fanions…
 	for i in rng.randi_range(2, 4):
@@ -1795,9 +1835,38 @@ static func _contact(ctx: Dictionary, p: Vector2, r: float) -> void:
 	_inst(ctx, "contact_ao", Toon.blob_mesh(), Toon.blob_mat(0.34), _at(Vector3(p.x, PIT_Y + 0.004, p.y), Vector3.ZERO, Vector3(r, 1.0, r)))
 
 
+## Les emplacements pris sont rangés dans une grille (ctx["taken"] : case Vector2i -> points) :
+## le test d'espacement ne parcourt que les cases voisines, pas tous les props de la salle.
+const TAKEN_CELL := 2.0
+
+
 static func _take(ctx: Dictionary, p: Vector2) -> void:
-	var taken: Array = ctx["taken"]
-	taken.append(p)
+	var taken: Dictionary = ctx["taken"]
+	var cell := Vector2i(floori(p.x / TAKEN_CELL), floori(p.y / TAKEN_CELL))
+	if not taken.has(cell):
+		taken[cell] = PackedVector2Array()
+	var pts: PackedVector2Array = taken[cell]
+	pts.append(p)
+	taken[cell] = pts  # tableau compact copié à l'écriture : on repose la version remplie
+
+
+## Vrai si un emplacement pris est à moins de `spacing` de `p` (cases voisines seulement).
+static func _taken_near(ctx: Dictionary, p: Vector2, spacing: float) -> bool:
+	var taken: Dictionary = ctx["taken"]
+	if taken.is_empty():
+		return false
+	var reach := ceili(spacing / TAKEN_CELL)
+	var c := Vector2i(floori(p.x / TAKEN_CELL), floori(p.y / TAKEN_CELL))
+	for dy in range(-reach, reach + 1):
+		for dx in range(-reach, reach + 1):
+			var cell := Vector2i(c.x + dx, c.y + dy)
+			if not taken.has(cell):
+				continue
+			var pts: PackedVector2Array = taken[cell]
+			for q in pts:
+				if q.distance_to(p) < spacing:
+					return true
+	return false
 
 
 ## Vrai si `p` est hors de toutes les zones jouables (élargies de `margin`), loin des props déjà
@@ -1808,12 +1877,8 @@ static func _ok(ctx: Dictionary, p: Vector2, margin: float, spacing: float) -> b
 		var rr: Rect2 = r
 		if rr.grow(margin).has_point(p):
 			return false
-	if spacing > 0.0:
-		var taken: Array = ctx["taken"]
-		for q in taken:
-			var qq: Vector2 = q
-			if qq.distance_to(p) < spacing:
-				return false
+	if spacing > 0.0 and _taken_near(ctx, p, spacing):
+		return false
 	var avoid: Array = ctx["avoid"]
 	for a in avoid:
 		var av: Vector3 = a
@@ -6052,7 +6117,7 @@ static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int
 	var root := Node3D.new()
 	root.name = "Sanctuaire"
 	parent.add_child(root)
-	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": [], "avoid": [], "bs": {}, "bn": {}, "mm": {},
+	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {},
 		"zone": Rect2(), "max_lights": 1 if lit else 0, "pieces": []}
 	match wid:
 		1:

@@ -2323,7 +2323,7 @@ func _process(delta: float) -> void:
 		var sdt := gdt if fx.has("game") else dt
 		fx.t = float(fx.t) + sdt
 		var k: float = float(fx.t) / float(fx.life)
-		match String(fx.kind):
+		match fx.kind:  # déjà une String : pas de copie par effet et par image
 			"anim":
 				_anim_step(fx, node, k, sdt)
 			"bolt":

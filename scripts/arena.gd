@@ -2889,7 +2889,7 @@ func _build_gate(_w: Dictionary) -> void:
 	rope.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	Toon.part(_gate, Toon.sphere(0.08), _gate_rope_mat, Vector3(0, 1.15, -0.3))
 	# shide : papiers en zigzag qui pendent de la corde (ils frémissent quand le torii s'éveille)
-	var paper := Toon.mat(Color("#F6F0E2"), false)
+	var paper := Toon.mat_shared(Color("#F6F0E2"), false)
 	var bit := Toon.box(Vector3(0.07, 0.085, 0.01))
 	for i in 4:
 		var pv := Node3D.new()

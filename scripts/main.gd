@@ -213,6 +213,12 @@ var _cam_full := Transform3D()
 var _cam_pad := Transform3D()  # mode pad : arène cadrée au-dessus du pad
 
 var state := "menu"  # menu | worlds | intro | play | boss_intro | pick | transit | paused | dying | over | tuto
+# groupes d'états testés à chaque image : constantes (un `state in [...]` littéral allouerait le tableau à chaque appel)
+const ST_FIGHT := ["play", "tuto"]  # en jeu, trait actif
+const ST_HOLD := ["transit", "boss_intro", "pick", "intro"]  # séquences où le retour système est ignoré
+const ST_SCENE := ["play", "pick", "transit", "boss_intro", "tuto"]  # la scène 3D vit (caméra, décor)
+const ST_RING_OFF := ["menu", "worlds", "sail"]  # anneau du héros caché
+const ST_HUD := ["play", "transit", "pick", "tuto", "paused", "boss_intro"]  # HUD de jeu affiché
 var menu: Control
 var record := 0
 var _state_t := 0.0
@@ -311,6 +317,7 @@ var in_hub := false  # sanctuaire de départ (avant la salle 1)
 var _pause_pending := false  # l'appli a été quittée pendant une transition : pause au retour en jeu
 var _web_hidden_t := 0.0
 var ult := 0.0  # jauge d'ultime (0..1), double tap quand elle est pleine
+var _ult_sent := -1.0  # dernière valeur passée au HUD (évite un set() par image)
 var _dodge_cd := 0.0
 var _touch_ms := 0
 var _last_tap_ms := 0
@@ -677,7 +684,7 @@ func _warmup() -> void:
 	el.give_shield(1.0)
 	var b := Node3D.new()
 	w.add_child(b)
-	Toon.part(b, Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Vector3.ZERO)
+	Toon.part(b, Toon.sphere(0.3), Toon.mat_shared(Toon.VERMILION, true, 0.05), Vector3.ZERO)
 	var st := InkStroke.new(Vector3.ZERO, 0)
 	w.add_child(st)
 	st.extend_to(Vector3(2, 0, 0), 3.0)
@@ -901,7 +908,7 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_APPLICATION_PAUSED or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT or what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		if _bot != null:
 			return
-		if what != NOTIFICATION_WM_GO_BACK_REQUEST and state in ["transit", "boss_intro", "pick", "intro"]:
+		if what != NOTIFICATION_WM_GO_BACK_REQUEST and state in ST_HOLD:
 			_pause_pending = true  # pause dès que la partie reprend la main
 		if menu == null or hud == null:
 			return
@@ -1130,7 +1137,7 @@ func _build_menu_boat() -> void:
 	_boat_lantern = Node3D.new()
 	menu_boat.add_child(_boat_lantern)
 	_boat_lantern.position = Vector3(-0.42, 1.36, -1.93)
-	var dark := Toon.mat(Color("#2E221B"), false)
+	var dark := Toon.mat_shared(Color("#2E221B"), false)
 	Toon.part(_boat_lantern, Toon.box(Vector3(0.012, 0.16, 0.012)), dark, Vector3(0, -0.08, 0))
 	_boat_lan_mat = Toon.mat(Color("#F4C27A"), true, 0.015)
 	_boat_lan_mat.emission_enabled = true
@@ -2599,7 +2606,7 @@ func feel(kind: String, boost := 0.0) -> void:
 ## Arrêt sur image après un coup : `base` + un cran par touche de la série (plafonds par coup et par trait).
 ## Jamais pour le robot, ni hors du jeu (pause, rouleaux, mort), ni pendant le pas de côté automatique.
 func _add_hitstop(base: float) -> void:
-	if _bot != null or _auto_step or game_over or not (state in ["play", "tuto"]):
+	if _bot != null or _auto_step or game_over or not (state in ST_FIGHT):
 		return
 	var want := minf(HITSTOP_MAX, base + HITSTOP_STEP * float(clampi(combo - 1, 0, 5)))
 	want = minf(want, _hitstop + maxf(0.0, HITSTOP_STROKE - _stroke_stop))
@@ -2808,9 +2815,9 @@ func _spawn_shrine() -> void:
 	_shrine = Node3D.new()
 	add_child(_shrine)
 	_shrine.position = Vector3(p.x, 0, p.z)
-	var stone := Toon.mat(Color("#8C8A86"))
-	var red := Toon.mat(Color("#7A1F1A"))
-	var roof := Toon.mat(Toon.SUMI)
+	var stone := Toon.mat_shared(Color("#8C8A86"))
+	var red := Toon.mat_shared(Color("#7A1F1A"))
+	var roof := Toon.mat_shared(Toon.SUMI)
 	Toon.part(_shrine, Toon.box(Vector3(0.8, 0.18, 0.7)), stone, Vector3(0, 0.09, 0))
 	Toon.part(_shrine, Toon.box(Vector3(0.56, 0.5, 0.46)), red, Vector3(0, 0.43, 0))
 	Toon.part(_shrine, Toon.box(Vector3(0.82, 0.08, 0.7)), roof, Vector3(0, 0.72, 0))
@@ -3157,8 +3164,8 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 	match kind:
 		"chest":
 			# karabitsu laqué : coffre à pieds, ferrures d'or aux angles, couvercle à gradin, mon d'or en façade
-			var lac := Toon.mat(Color("#7A1F17"))
-			var dark := Toon.mat(Color("#2A0E0B"))
+			var lac := Toon.mat_shared(Color("#7A1F17"))
+			var dark := Toon.mat_shared(Color("#2A0E0B"))
 			var gold := Toon.mat(Color("#E0B04E"))
 			gold.emission_enabled = true
 			gold.emission = Color("#8A5A10")
@@ -3195,19 +3202,19 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			gd.name = "Glow"
 		"spring":
 			# chōzubachi : bassin de pierre taillée, filet d'eau d'un tuyau de bambou, louche de bois
-			var stone := Toon.mat(Color("#8E8A84"))
-			var dark_st := Toon.mat(Color("#6E6A64"))
+			var stone := Toon.mat_shared(Color("#8E8A84"))
+			var dark_st := Toon.mat_shared(Color("#6E6A64"))
 			Toon.part(n, Toon.box(Vector3(0.95, 0.12, 0.7)), dark_st, Vector3(0, 0.06, 0))
 			Toon.part(n, Toon.box(Vector3(0.85, 0.42, 0.6)), stone, Vector3(0, 0.33, 0))
 			var water := Toon.flat(Color("#6FD0DA", 0.95))
 			var w := Toon.part(n, Toon.box(Vector3(0.66, 0.02, 0.42)), water, Vector3(0, 0.55, 0))
 			w.name = "Water"
 			w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var bam := Toon.mat(Color("#7FA65A"))
+			var bam := Toon.mat_shared(Color("#7FA65A"))
 			var pipe := Toon.part(n, Toon.cyl(0.04, 0.04, 0.7, 8), bam, Vector3(0.18, 0.78, -0.22))
 			pipe.rotation = Vector3(deg_to_rad(65), 0, 0)
 			Toon.part(n, Toon.cyl(0.05, 0.05, 0.75, 8), bam, Vector3(0.18, 0.42, -0.52))
-			var ladle := Toon.mat(Color("#B08A5A"))
+			var ladle := Toon.mat_shared(Color("#B08A5A"))
 			var stick := Toon.part(n, Toon.cyl(0.015, 0.015, 0.6, 6), ladle, Vector3(-0.15, 0.6, 0.0))
 			stick.rotation = Vector3(0, 0, deg_to_rad(80))
 			Toon.part(n, Toon.cyl(0.07, 0.06, 0.08, 10), ladle, Vector3(0.14, 0.62, 0.0))
@@ -3215,10 +3222,10 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			var glint := _disc(n, 0.85, Toon.flat(Color("#9FE8C8", 0.22)), 0.02)
 			glint.name = "Glint"
 		"elite":
-			var stone2 := Toon.mat(Color("#55525A"))
+			var stone2 := Toon.mat_shared(Color("#55525A"))
 			Toon.part(n, Toon.box(Vector3(0.5, 0.12, 0.4)), stone2, Vector3(0, 0.06, 0))
 			Toon.part(n, Toon.box(Vector3(0.34, 0.9, 0.16)), stone2, Vector3(0, 0.55, 0))
-			Toon.part(n, Toon.box(Vector3(0.2, 0.3, 0.02)), Toon.mat(Toon.VERMILION, false), Vector3(0, 0.65, 0.09))
+			Toon.part(n, Toon.box(Vector3(0.2, 0.3, 0.02)), Toon.mat_shared(Toon.VERMILION, false), Vector3(0, 0.65, 0.09))
 			_disc(n, 1.2, Toon.flat(Color(Toon.VERMILION, 0.18)), 0.02)
 			var l := Label3D.new()
 			l.font = KANJI_FONT
@@ -3247,7 +3254,10 @@ func _update_pockets() -> void:
 		var n: Node3D = pk["node"]
 		match kind:
 			"chest":
-				var gl := n.get_node_or_null("Glow") as MeshInstance3D
+				# lueur retrouvée une fois (plus de recherche par nom à chaque image), null si absente
+				if not pk.has("glow"):
+					pk["glow"] = n.get_node_or_null("Glow") as MeshInstance3D
+				var gl: MeshInstance3D = pk["glow"]
 				if gl != null:
 					var gk := 0.5 + 0.5 * sin(run_time * 3.0)
 					(gl.material_override as StandardMaterial3D).albedo_color = Color(Toon.GOLD, 0.12 + 0.2 * gk)
@@ -4529,7 +4539,7 @@ func spawn_bullet(pos: Vector3, dir: Vector3) -> void:
 	add_child(n)
 	n.position = pos
 	if not _fx_cache.has("bullet"):
-		_fx_cache["bullet"] = [Toon.sphere(0.3), Toon.mat(Toon.VERMILION, true, 0.05), Toon.sphere(0.13), Toon.mat(Toon.WASHI, false), Toon.flat(Color(0, 0, 0, 0.2))]
+		_fx_cache["bullet"] = [Toon.sphere(0.3), Toon.mat_shared(Toon.VERMILION, true, 0.05), Toon.sphere(0.13), Toon.mat_shared(Toon.WASHI, false), Toon.flat(Color(0, 0, 0, 0.2))]
 	var bc: Array = _fx_cache["bullet"]
 	Toon.part(n, bc[0], bc[1], Vector3.ZERO)
 	Toon.part(n, bc[2], bc[3], Vector3(0, 0.12, -0.12))
@@ -5050,7 +5060,7 @@ func _process(_delta: float) -> void:
 	# arrêt sur image d'un coup (temps réel) : le temps se fige net, sans fondu, puis reprend son cours
 	if _hitstop > 0.0:
 		_hitstop = maxf(0.0, _hitstop - real)
-	if _hitstop > 0.0 and _bot == null and not game_over and state in ["play", "tuto"]:
+	if _hitstop > 0.0 and _bot == null and not game_over and state in ST_FIGHT:
 		Engine.time_scale = HITSTOP_SCALE
 	elif target < Engine.time_scale:
 		Engine.time_scale = lerpf(Engine.time_scale, target, minf(1.0, real * 18.0))
@@ -5059,7 +5069,9 @@ func _process(_delta: float) -> void:
 	var dt := real * Engine.time_scale
 
 	_dodge_cd = maxf(0.0, _dodge_cd - real)
-	hud.set("ult", ult)  # jauge d'ultime (dessinée par le HUD si elle existe)
+	if ult != _ult_sent:  # jauge d'ultime (dessinée par le HUD si elle existe) : reposée seulement si elle a bougé
+		_ult_sent = ult
+		hud.set(&"ult", ult)
 	if not touching and not hero.dashing:
 		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real)
 	# hors combat : l'encre se recharge aussitôt, et le doigt posé fait courir
@@ -5220,7 +5232,7 @@ func _process(_delta: float) -> void:
 				_set_state("play")
 
 	# caméra le long de l'étape (et le lointain avec elle)
-	if state in ["play", "pick", "transit", "boss_intro", "tuto"]:
+	if state in ST_SCENE:
 		_cam_dz = lerpf(_cam_dz, _cam_target(), minf(1.0, real * 2.6))
 	arena.follow_camera(_cam_dz)
 	var cb := _cam_base.translated(Vector3(0, 0, _cam_dz))
@@ -5237,7 +5249,7 @@ func _process(_delta: float) -> void:
 
 	# barque (accueil, carte, départ) : pas d'anneau au sol sous le héros
 	if is_instance_valid(hero):
-		hero.ring_off = state in ["menu", "worlds", "sail"] or (state == "intro" and not _intro_swapped)
+		hero.ring_off = state in ST_RING_OFF or (state == "intro" and not _intro_swapped)
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
 	if state == "menu":
 		# la barque tangue doucement, le héros avec elle ; garde-robe : la caméra glisse vers la proue
@@ -5291,7 +5303,7 @@ func _process(_delta: float) -> void:
 		hud.pad_active = touching
 		var show_pad := pad_show == "always" or (pad_show == "start" and (state == "tuto" or _strokes_done < PAD_STROKES))
 		hud.pad_alpha = move_toward(float(hud.pad_alpha), 1.0 if show_pad else 0.0, real * 1.5)
-	if state in ["play", "transit", "pick", "tuto", "paused", "boss_intro"]:
+	if state in ST_HUD:
 		# cadrage de jeu (efface le rapproché de la mort) ; mode pad : l'arène descend quand le pad s'efface
 		_cam_base = _cam_mix()
 	hud.in_play = state in IN_PLAY_STATES

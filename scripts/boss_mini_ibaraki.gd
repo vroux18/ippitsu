@@ -62,7 +62,7 @@ func _build() -> void:
 	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 1.4, 0.0)
 	# cornes d'oni
 	for sx in [-1.0, 1.0]:
-		var horn := Toon.part(body, Toon.cyl(0.0, 0.1, 0.5, 6), Toon.mat(Toon.GOLD), Vector3(float(sx) * 0.3, 3.05, -0.05))
+		var horn := Toon.part(body, Toon.cyl(0.0, 0.1, 0.5, 6), Toon.mat_shared(Toon.GOLD), Vector3(float(sx) * 0.3, 3.05, -0.05))
 		horn.rotation.z = -float(sx) * 0.4
 	# anneau de forge qui le lie (son armure)
 	_bind = Node3D.new()
@@ -73,7 +73,7 @@ func _build() -> void:
 	tm.outer_radius = 0.97
 	tm.rings = 32
 	tm.ring_segments = 6
-	Toon.part(_bind, tm, Toon.mat(Toon.GOLD), Vector3.ZERO, Vector3(1, 0.6, 1))
+	Toon.part(_bind, tm, Toon.mat_shared(Toon.GOLD), Vector3.ZERO, Vector3(1, 0.6, 1))
 	for k in 4:
 		var a := TAU * float(k) / 4.0
 		Toon.part(_bind, Toon.sphere(0.13), Toon.flat(EMBER), Vector3(cos(a) * 0.91, 0, sin(a) * 0.91))
@@ -83,12 +83,12 @@ func _build() -> void:
 ## Massue d'oni : fût de fer, pointes or.
 func _kanabo() -> Node3D:
 	var k := Node3D.new()
-	Toon.part(k, Toon.cyl(0.04, 0.04, 0.4, 8), Toon.mat(Color("#4A3A2C")), Vector3(0, 0.0, 0))
-	Toon.part(k, Toon.cyl(0.14, 0.09, 1.2, 8), Toon.mat(IRON), Vector3(0, 0.75, 0))
+	Toon.part(k, Toon.cyl(0.04, 0.04, 0.4, 8), Toon.mat_shared(Color("#4A3A2C")), Vector3(0, 0.0, 0))
+	Toon.part(k, Toon.cyl(0.14, 0.09, 1.2, 8), Toon.mat_shared(IRON), Vector3(0, 0.75, 0))
 	for i in 4:
 		for j in 4:
 			var a := TAU * float(j) / 4.0 + float(i) * 0.4
-			Toon.part(k, Toon.sphere(0.045), Toon.mat(Toon.GOLD, false), Vector3(cos(a) * 0.13, 0.35 + 0.22 * float(i), sin(a) * 0.13))
+			Toon.part(k, Toon.sphere(0.045), Toon.mat_shared(Toon.GOLD, false), Vector3(cos(a) * 0.13, 0.35 + 0.22 * float(i), sin(a) * 0.13))
 	return k
 
 
@@ -104,7 +104,7 @@ func _make_seal(idx: int, p: Vector3) -> Dictionary:
 	orb.position.y = 0.9
 	Toon.part(orb, Toon.sphere(0.34), Toon.flat(Toon.GOLD), Vector3.ZERO)
 	Toon.part(orb, Toon.sphere(0.5), Toon.flat(Color(EMBER, 0.35)), Vector3.ZERO)
-	var ink := Toon.mat(Toon.SUMI, false)
+	var ink := Toon.mat_shared(Toon.SUMI, false)
 	for k in idx + 1:
 		var x := (float(k) - float(idx) * 0.5) * 0.2
 		Toon.part(n, Toon.box(Vector3(0.08, 0.05, 0.4)), ink, Vector3(x, 1.6, 0))

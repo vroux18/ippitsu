@@ -153,7 +153,7 @@ func _crack(parent: Node3D, pos: Vector3, size: Vector3, rz := 0.0) -> void:
 
 func _build() -> void:
 	_rock_mat = Toon.mat(BASALT, true, 0.05)
-	var hi := Toon.mat(BASALT_HI, true, 0.04)
+	var hi := Toon.mat_shared(BASALT_HI, true, 0.04)
 	_crack_mat = _glow_mat(LAVA, 0.6)
 	_eye_mat = _glow_mat(EMBER, 1.2)
 

@@ -59,9 +59,9 @@ func _build() -> void:
 	ch.idle = "Idle_Combat"
 	ch.play("Idle_Combat")
 	# ventre gonflé de l'affamé, cornes, collier de fer
-	_belly = Toon.part(body, Toon.sphere(0.62), Toon.mat(Color("#A89E8A")), Vector3(0, 1.05, -0.25), Vector3(1.0, 0.95, 0.85))
+	_belly = Toon.part(body, Toon.sphere(0.62), Toon.mat_shared(Color("#A89E8A")), Vector3(0, 1.05, -0.25), Vector3(1.0, 0.95, 0.85))
 	for sx: float in [-1.0, 1.0]:
-		var horn := Toon.part(body, Toon.cyl(0.0, 0.09, 0.45, 6), Toon.mat(BONE), Vector3(sx * 0.22, 2.75, -0.05))
+		var horn := Toon.part(body, Toon.cyl(0.0, 0.09, 0.45, 6), Toon.mat_shared(BONE), Vector3(sx * 0.22, 2.75, -0.05))
 		horn.rotation.z = -sx * 0.5
 	_collar = Node3D.new()
 	body.add_child(_collar)
@@ -71,9 +71,9 @@ func _build() -> void:
 	tm.outer_radius = 0.56
 	tm.rings = 24
 	tm.ring_segments = 6
-	Toon.part(_collar, tm, Toon.mat(IRON), Vector3.ZERO, Vector3(1, 0.7, 1))
+	Toon.part(_collar, tm, Toon.mat_shared(IRON), Vector3.ZERO, Vector3(1, 0.7, 1))
 	# pieux de fer et leurs chaînes
-	var iron := Toon.mat(IRON, true, 0.03)
+	var iron := Toon.mat_shared(IRON, true, 0.03)
 	for k in STAKES.size():
 		var sp: Vector3 = STAKES[k]
 		var stake := Node3D.new()
@@ -83,7 +83,7 @@ func _build() -> void:
 		Toon.part(stake, Toon.cyl(0.12, 0.16, 1.6, 6), iron, Vector3(0, 0.8, 0))
 		Toon.part(stake, Toon.cyl(0.2, 0.2, 0.1, 6), iron, Vector3(0, 1.6, 0))
 		Toon.disc(stake, 0.45, Color(Toon.SUMI, 0.25), 0.02)
-		var link := Toon.part(self, Toon.cyl(0.05, 0.05, 1.0, 5), Toon.mat(IRON, true, 0.02), Vector3.ZERO)
+		var link := Toon.part(self, Toon.cyl(0.05, 0.05, 1.0, 5), Toon.mat_shared(IRON, true, 0.02), Vector3.ZERO)
 		link.top_level = true
 		link.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_chains.append({"stake": Vector3(sp.x, 0, sp.z), "stake_node": stake, "mesh": link, "cut": false})
