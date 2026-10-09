@@ -45,6 +45,7 @@ var path_i := 0
 var facing := Vector3(0, 0, -1)
 
 var body: Node3D
+var _shield: Node3D  # bulle d'invincibilité (_make_shield)
 var ch: Node3D
 var _lean := 0.0
 var _flash := 0.0
@@ -114,6 +115,46 @@ func _ready() -> void:
 	ch.paint(null, 0.65, 0.12)
 	_make_tails()
 	_make_ring()
+	_make_shield()
+
+
+## Bulle d'invincibilité : sphère de papier translucide cerclée d'or autour du héros, visible tant que `invuln`
+## court (coup reçu, voile d'ombre, garde). Le corps reste visible : plus de clignotement.
+func _make_shield() -> void:
+	_shield = Node3D.new()
+	add_child(_shield)
+	_shield.position.y = 0.95
+	var sph := SphereMesh.new()
+	sph.radius = 0.95
+	sph.height = 1.9
+	sph.radial_segments = 20
+	sph.rings = 10
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(Toon.WASHI, 0.16)
+	m.cull_mode = BaseMaterial3D.CULL_BACK
+	var mi := MeshInstance3D.new()
+	mi.mesh = sph
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_shield.add_child(mi)
+	# anneau d'or à l'équateur, légèrement incliné vers la caméra
+	var ring := TorusMesh.new()
+	ring.inner_radius = 0.9
+	ring.outer_radius = 0.98
+	ring.rings = 28
+	ring.ring_segments = 4
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.albedo_color = Toon.GOLD
+	var ri := MeshInstance3D.new()
+	ri.mesh = ring
+	ri.material_override = rm
+	ri.rotation.x = 0.35
+	ri.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_shield.add_child(ri)
+	_shield.visible = false
 
 
 func _katana() -> Node3D:
@@ -400,11 +441,19 @@ func _process(delta: float) -> void:
 			_dust()
 			landed.emit()
 
-	if invuln > 0.0 and not dead:
+	if invuln > 0.0 and not dead and invuln < 500.0:
 		invuln -= delta
-		body.visible = dashing or fmod(invuln, 0.16) > 0.07
+		# bulle qui respire, et qui s'efface sur le dernier quart de seconde
+		_shield.visible = true
+		var sa := clampf(invuln / 0.25, 0.0, 1.0)
+		var pulse := 1.0 + 0.04 * sin(invuln * 9.0)
+		_shield.scale = Vector3.ONE * pulse * (0.6 + 0.4 * sa)
+		_shield.rotation.y += delta * 1.6
 	else:
-		body.visible = true
+		if invuln > 0.0 and not dead:
+			invuln -= delta
+		_shield.visible = false
+	body.visible = true
 	if _flash > 0.0:
 		_flash -= delta
 		# éclat blanc qui retombe (plus net qu'un simple allumé / éteint)
