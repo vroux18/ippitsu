@@ -624,6 +624,7 @@ func describe(id: String) -> Dictionary:
 		"when": _fill(id, String(d.get("when", "")), next, next),
 		"text": _fill(id, String(d.get("text", "")), next, next),
 		"stat": _fill(id, String(d.get("stat", "")), cur, next),
+		"fx": UiKit.fx_rows(id, cur, next),  # effet en pastilles : [pictogramme, valeur, libellé]
 		"level": next, "kanji": String(d.get("kanji", sd["kanji"])),
 		"color": UiKit.power_color(id), "school": school, "school_name": sd["name"], "school_kanji": sd["kanji"],
 		"rarity": rar, "rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),
@@ -650,6 +651,7 @@ func recap_info(id: String) -> Dictionary:
 		"when": _fill(id, String(d.get("when", "")), cur, cur),
 		"text": _fill(id, String(d.get("text", "")), cur, cur),
 		"stat": _fill(id, String(d.get("stat", "")), cur, cur),
+		"fx": UiKit.fx_rows(id, 0, cur),
 		"level": cur, "max_level": max_level(id), "kanji": String(d.get("kanji", sd["kanji"])),
 		"color": UiKit.power_color(id), "school": school, "school_name": sd["name"],
 		"rarity_name": rd["name"], "rarity_color": rd["color"], "rarity_rank": int(rd["rank"]),

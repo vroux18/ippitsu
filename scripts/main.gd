@@ -68,6 +68,7 @@ const Worlds = preload("res://scripts/worlds.gd")
 const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
+const Bestiary = preload("res://scripts/bestiary.gd")  # bestiaire (bouton BESTIAIRE de l'accueil)
 const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -122,6 +123,20 @@ const KIND_ROOM := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 4,
 	"sumidama": 2, "kasa": 3, "moryo": 5,
 	"karasu": 2, "yamabushi": 4, "konoha": 3, "kani": 3, "ningyo": 2, "fugu": 3, "gaki": 2, "gokusotsu": 5, "shiryo": 3,
 	"shinobi": 2, "shuriken": 3, "kemuri": 4, "kunoichi": 4}
+# rythme des rencontres : dans chaque monde, ses ennemis propres arrivent par étapes (STAGE_PLAN) :
+# quelques-uns dès l'étape 1, d'autres à l'étape 3, le reste à l'étape 5 (après le gardien).
+# Remplace KIND_ROOM dans ce monde ; ailleurs (ennemi qui revient), KIND_ROOM s'applique.
+# Monde 1 en douceur : rien de neuf avant la salle 2, puis un ou deux par étape.
+const KIND_STAGE := {
+	1: {"kappa_yumi": 2, "umibozu": 3, "ika": 5, "umi_nyobo": 5},
+	2: {"kitsunebi": 1, "kamaitachi": 1, "tanuki": 3, "shinobi": 3, "kitsune_tsukai": 5, "shuriken": 5},
+	3: {"yukionna": 1, "yuki_warashi": 1, "onryo": 3, "tsurara": 5},
+	4: {"kasha": 1, "hinotama": 1, "teppo": 3, "tengu": 3, "kanabo": 5, "moryo": 5},
+	5: {"kagebo": 1, "sumidama": 1, "kasa": 3, "kemuri": 3, "kunoichi": 5},
+	6: {"karasu": 1, "konoha": 3, "yamabushi": 5},
+	7: {"kani": 1, "ningyo": 3, "fugu": 5},
+	8: {"gaki": 1, "shiryo": 3, "gokusotsu": 5},
+}
 const UNLOCK_ALL := false  # vrai : tous les mondes ouverts (prototype) ; sinon un monde vaincu ouvre le suivant
 const SAVE_PATH := "user://ippitsu.cfg"
 
@@ -196,6 +211,10 @@ var _boat_birds: Node3D
 var _boat_bird_t := 5.0
 var _drift_t := 0.0  # dérive lente de la caméra d'accueil
 var wardrobe: Control  # garde-robe (wardrobe.gd)
+var bestiary: Control  # bestiaire (bestiary.gd)
+var _new_kinds: Array = []  # ennemis rencontrés pour la première fois : bandeau « NOUVEAU YOKAI » à venir
+var _new_kind_t := 0.0
+var _bestiary_dirty := false  # victoires comptées depuis la dernière sauvegarde
 var _wardrobe_on := false
 var _wardrobe_k := 0.0
 var _env: Environment
@@ -366,6 +385,7 @@ func _ready() -> void:
 	ref_layer.add_child(refuge)
 	refuge.closed.connect(_on_refuge_closed)
 	_setup_wardrobe()
+	_setup_bestiary()
 	menu.atelier_pressed.connect(_on_atelier)
 	menu.worlds_pressed.connect(_on_home_worlds)
 	menu.world_step.connect(_on_home_world_step)
@@ -842,6 +862,8 @@ func _notification(what: int) -> void:
 			intro.close()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and wardrobe != null and wardrobe.visible:
 			wardrobe.call("close")
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and bestiary != null and bestiary.visible:
+			bestiary.call("back")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
 			get_tree().quit()  # Retour depuis l'accueil : on quitte, comme toute appli
 		else:
@@ -947,6 +969,7 @@ func _on_refuge_closed() -> void:
 
 
 func _on_home() -> void:
+	_save_bestiary()
 	_start()
 	_set_state("menu")
 
@@ -1605,9 +1628,9 @@ func _home_scene(id: int) -> void:
 	_env.fog_light_color = w.fog
 	_env.fog_density = float(w.fog_density) * 0.7
 	_env.ambient_light_color = w.ambient_color
-	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.0)
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.75 if _light_mode else 1.35)
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy) * 0.86
+	_sun.light_energy = float(w.sun_energy) * 1.08
 	arena.set_world(id)
 	arena.hide_shore(true)
 
@@ -1679,6 +1702,105 @@ func _on_wardrobe_closed() -> void:
 		menu.show_mode("home")
 
 
+## Bestiaire (bouton de l'accueil) : écran plein par-dessus l'accueil, portraits 3D des ennemis rencontrés.
+func _setup_bestiary() -> void:
+	var bl := CanvasLayer.new()
+	bl.layer = 4
+	add_child(bl)
+	bestiary = Bestiary.new()
+	bestiary.set("meta", meta)
+	bestiary.set("main", self)
+	bestiary.set("minis", MINI_BOSS)
+	bestiary.set("bosses", WORLD_BOSS)
+	bl.add_child(bestiary)
+	bestiary.connect("closed", _on_bestiary_closed)
+	menu.bestiary_pressed.connect(_open_bestiary)
+
+
+func _open_bestiary() -> void:
+	if state != "menu":
+		return
+	_save_bestiary()
+	sfx.play("whoosh", 0.9, -4.0)
+	menu.show_mode("hidden")
+	bestiary.call("open")
+
+
+func _on_bestiary_closed() -> void:
+	meta.save_data()  # fiches ouvertes (points vermillon)
+	if state == "menu":
+		menu.show_mode("home")
+
+
+## Salle d'arrivée d'un ennemi dans un monde (KIND_STAGE du monde, sinon KIND_ROOM).
+func kind_room(k: String, w: int) -> int:
+	var sched: Dictionary = KIND_STAGE.get(w, {})
+	if sched.has(k):
+		var st := clampi(int(sched[k]), 1, STAGE_PLAN.size())
+		var rooms: Array = STAGE_PLAN[st - 1]
+		return int(rooms[0])
+	return int(KIND_ROOM.get(k, 1))
+
+
+## Un ennemi entre en jeu : première rencontre -> fiche du bestiaire, et bandeau (sauf boss et tutoriel).
+func _discover(k: String, boss := false) -> void:
+	if meta == null or state == "tuto":
+		return
+	var key: String = ("boss_" + k) if boss else Bestiary.base_kind(k)
+	if key == "":
+		return
+	if not bool(meta.see_kind(key, current_world)):
+		return
+	meta.save_data()
+	if boss or _gentle_room():
+		return  # le carton du boss le présente déjà ; premiers combats du tutoriel : pas de surcharge
+	if not key in _new_kinds:
+		_new_kinds.append(key)
+		_new_kind_t = maxf(_new_kind_t, 0.6)  # le temps qu'il sorte de sa flaque d'encre
+
+
+func _count_kill(k: String, boss := false) -> void:
+	if meta == null:
+		return
+	var key: String = ("boss_" + k) if boss else Bestiary.base_kind(k)
+	if key == "":
+		return
+	meta.kill_kind(key)
+	_bestiary_dirty = true
+
+
+func _save_bestiary() -> void:
+	if _bestiary_dirty and meta != null:
+		meta.save_data()
+	_bestiary_dirty = false
+
+
+## Bandeau bref (1,5 s, sans pause) pour chaque ennemi nouveau, un à la fois, quand le bandeau est libre.
+func _tick_discovery(real: float) -> void:
+	if _new_kinds.is_empty():
+		return
+	_new_kind_t -= real
+	if _new_kind_t > 0.0 or state != "play" or _intro_boss != null:
+		return
+	if float(hud.get("_banner_t")) >= 0.0 or float(hud.get("_card_t")) >= 0.0:
+		return
+	var k := String(_new_kinds.pop_front())
+	var kj := Bestiary.kanji_of(k)
+	var sub := "NOUVEAU NINJA" if Bestiary.is_ninja(k) else "NOUVEAU YOKAI"
+	if kj != "" and _font_has(kj):
+		sub += "  ·  " + kj
+	hud.banner(UiKit.plain(Bestiary.name_of(k)), sub, Toon.VERMILION, 1.5)
+	sfx.play("levelup", 1.5, -14.0)
+	_new_kind_t = 1.7
+
+
+func _font_has(chars: String) -> bool:
+	for i in chars.length():
+		if not UiKit.UI_FONT.has_char(chars.unicode_at(i)):
+			return false
+	return true
+
+
 # ------------------------------------------------------------------ décor
 
 func _build_world() -> void:
@@ -1699,7 +1821,7 @@ func _build_world() -> void:
 	# palette plus sobre et moderne : saturation presque neutre, le contraste fait ressortir les personnages
 	e.adjustment_saturation = 1.04
 	e.adjustment_contrast = 1.14
-	e.adjustment_brightness = 0.92
+	e.adjustment_brightness = 1.06  # plus lumineux (le jeu manquait de lumière)
 	e.glow_enabled = true
 	e.glow_intensity = 0.6
 	e.glow_strength = 1.1
@@ -1721,7 +1843,7 @@ func _build_world() -> void:
 	sun.light_color = Color(1.0, 0.9, 0.78)
 	sun.shadow_enabled = true
 	sun.shadow_blur = 1.5
-	sun.shadow_opacity = 0.6
+	sun.shadow_opacity = 0.5
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
@@ -1779,9 +1901,9 @@ func apply_world(id: int) -> void:
 	_env.fog_density = float(w.fog_density) * 0.7  # brume plus légère : couleurs moins délavées
 	_env.ambient_light_color = w.ambient_color
 	# sans contre-jour (téléphone), un peu plus de lumière ambiante compense
-	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.0)
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.75 if _light_mode else 1.35)
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy) * 0.86
+	_sun.light_energy = float(w.sun_energy) * 1.08
 	arena.set_world(id)
 	if fresh:
 		perf_mark("world_build", Time.get_ticks_usec() - t0)  # lointain du monde (ou monde gardé en mémoire)
@@ -1953,6 +2075,7 @@ func _start(hub := true, tutorial := false) -> void:
 	_shrine = null
 	in_hub = hub
 	gentle = false  # (posé ensuite par _start_first_run)
+	_new_kinds.clear()
 	if coach != null:
 		coach.clear()
 	stage_i = 0
@@ -2062,12 +2185,22 @@ func _begin_room() -> void:
 	if room >= (6 if current_world == 1 else 3):
 		list.append("brute")
 		budget -= 3
+	# mondes 2 et suivants : on tire parmi les ennemis déjà arrivés (sinon trop d'oni en début de monde) ;
+	# monde 1 : un ennemi pas encore arrivé devient un oni (combats plus doux)
+	var pool: Dictionary = weights
+	if current_world > 1:
+		pool = {}
+		for wk in weights.keys():
+			if room >= kind_room(String(wk), current_world):
+				pool[wk] = weights[wk]
+		if pool.is_empty():
+			pool = {"oni": 1}
 	var guard := 0
 	while budget > 0 and guard < 100:
 		guard += 1
-		var k := _weighted_kind(weights)
+		var k := _weighted_kind(pool)
 		var cost := int(KIND_COST.get(k, 1))
-		if room < int(KIND_ROOM.get(k, 1)) or cost > budget:
+		if room < kind_room(k, current_world) or cost > budget:
 			k = "oni"
 			cost = 1
 		list.append(k)
@@ -2122,6 +2255,7 @@ func _spawn_boss(k: String) -> Node3D:
 	var t0 := Time.get_ticks_usec()
 	var b: Node3D = _boss_script(k).new()
 	b.setup(k, self)
+	_discover(k, true)
 	if is_mini_boss(k):
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
 	b.max_hp_mult = float(Worlds.world(current_world).hp_mult)
@@ -2265,6 +2399,7 @@ func is_mini_boss(k: String) -> bool:
 
 
 func boss_killed(b: Node3D) -> void:
+	_count_kill(String(b.kind), true)
 	pickups.drop(b.position, "xp", 8)
 	pickups.drop(b.position, "coin", 10)
 	var clean := not _scratched
@@ -2342,6 +2477,7 @@ func _spawn_list(list: Array) -> void:
 		idx += 1
 		var e := Enemy.new()
 		e.setup(String(k), hero, self)
+		_discover(String(k))
 		var p := Vector3.ZERO
 		for attempt in 30:
 			p = arena.random_point(hero.position, 4.5)
@@ -2379,7 +2515,7 @@ func collect(kind: String, value: int) -> void:
 			xp -= xp_need()
 			level += 1
 			_pending_levels += 1
-			hud.toast("NIVEAU %d  ·  ROULEAU À LA FIN DU COMBAT" % level)
+			hud.toast("NIVEAU %d" % level)
 			sfx.play("levelup", 1.0, -3.0)
 			feel("level")
 	else:
@@ -2393,6 +2529,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 		return  # mannequin : pas de butin
 	var k := String(e.kind)
 	if state != "tuto":
+		_count_kill(k)  # bestiaire : victoires
 		score.on_kill(int(KIND_XP.get(k, 1)), e.has_meta("elite"), not _fig_mods.is_empty() or float(score.fig_t) > 0.0, chain)
 	_last_kill_pos = e.position
 	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
@@ -2866,17 +3003,26 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			var gd := _disc(n, 1.35, glow, 0.02)
 			gd.name = "Glow"
 		"spring":
-			var stone := Toon.mat(Color("#8C8A86"))
-			for k in 7:
-				var a := TAU * float(k) / 7.0
-				var s := Toon.part(n, Toon.sphere(0.16), stone, Vector3(cos(a) * 0.62, 0.05, sin(a) * 0.5), Vector3(1.2, 0.6, 1.0))
-				s.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var water := Toon.flat(Color("#7FD3E0", 0.85))
-			var w := _disc(n, 0.55, water, 0.03)
+			# chōzubachi : bassin de pierre taillée, filet d'eau d'un tuyau de bambou, louche de bois
+			var stone := Toon.mat(Color("#8E8A84"))
+			var dark_st := Toon.mat(Color("#6E6A64"))
+			Toon.part(n, Toon.box(Vector3(0.95, 0.12, 0.7)), dark_st, Vector3(0, 0.06, 0))
+			Toon.part(n, Toon.box(Vector3(0.85, 0.42, 0.6)), stone, Vector3(0, 0.33, 0))
+			var water := Toon.flat(Color("#6FD0DA", 0.95))
+			var w := Toon.part(n, Toon.box(Vector3(0.66, 0.02, 0.42)), water, Vector3(0, 0.55, 0))
 			w.name = "Water"
-			w.scale = Vector3(0.55, 1, 0.45)
-			var glint := _disc(n, 0.6, Toon.flat(Color("#BFF2F5", 0.35)), 0.035)
-			glint.scale = Vector3(0.36, 1, 0.28)
+			w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			var bam := Toon.mat(Color("#7FA65A"))
+			var pipe := Toon.part(n, Toon.cyl(0.04, 0.04, 0.7, 8), bam, Vector3(0.18, 0.78, -0.22))
+			pipe.rotation = Vector3(deg_to_rad(65), 0, 0)
+			Toon.part(n, Toon.cyl(0.05, 0.05, 0.75, 8), bam, Vector3(0.18, 0.42, -0.52))
+			var ladle := Toon.mat(Color("#B08A5A"))
+			var stick := Toon.part(n, Toon.cyl(0.015, 0.015, 0.6, 6), ladle, Vector3(-0.15, 0.6, 0.0))
+			stick.rotation = Vector3(0, 0, deg_to_rad(80))
+			Toon.part(n, Toon.cyl(0.07, 0.06, 0.08, 10), ladle, Vector3(0.14, 0.62, 0.0))
+			# lueur de soin au sol (jade) : on comprend que c'est bénéfique
+			var glint := _disc(n, 0.85, Toon.flat(Color("#9FE8C8", 0.22)), 0.02)
+			glint.name = "Glint"
 		"elite":
 			var stone2 := Toon.mat(Color("#55525A"))
 			Toon.part(n, Toon.box(Vector3(0.5, 0.12, 0.4)), stone2, Vector3(0, 0.06, 0))
@@ -2945,6 +3091,9 @@ func _update_pockets() -> void:
 					var w := n.get_node_or_null("Water") as MeshInstance3D
 					if w != null:
 						w.material_override = Toon.flat(Color("#4E6E78", 0.6))
+					var gl2 := n.get_node_or_null("Glint") as Node3D
+					if gl2 != null:
+						gl2.visible = false
 					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
 					sfx.play("shrine", 1.4, -4.0)
 					hud.toast("SOURCE  ·  SOIN +2")
@@ -2962,6 +3111,7 @@ func _update_pockets() -> void:
 func _spawn_elite(p: Vector3) -> void:
 	var e := Enemy.new()
 	e.setup("brute", hero, self)
+	_discover("brute")
 	e.position = arena.clamp_walk(p, 0.8)
 	add_child(e)
 	e.hp *= float(Worlds.world(current_world).hp_mult)
@@ -3394,6 +3544,11 @@ func _take_curse(id: String) -> void:
 		"haste":
 			_extra_picks += 1
 			hero.hp = hero.max_hp
+
+
+## Pas de choix de rouleau pendant l'entrée d'un boss (caméra de présentation).
+func bosses_intro_done() -> bool:
+	return state != "boss_intro"
 
 
 ## Arrivée au-dessus du vide ou d'un trou : le héros s'arrête au bord (dernier point solide du trajet).
@@ -4664,6 +4819,7 @@ func _process(_delta: float) -> void:
 		if not is_instance_valid(bosses[i]):
 			bosses.remove_at(i)
 	_state_t += real
+	_tick_discovery(real)
 	if state == "dying":
 		# la caméra s'approche du héros, l'image se délave
 		if not _ending_victory:
@@ -4697,8 +4853,9 @@ func _process(_delta: float) -> void:
 		vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 2.6)
 		_set_state("pick")
 		_open_flawless()
-	# rouleaux de niveau : seulement une fois la salle nettoyée (jamais en plein combat)
-	if state == "play" and _pending_levels > 0 and _room_done and not hero.dashing and not touching:
+	# rouleaux de niveau : tout de suite, même en plein combat (le jeu se fige pendant le choix),
+	# dès que le héros a fini sa ruée et que le doigt est levé
+	if state == "play" and _pending_levels > 0 and not game_over and not hero.dashing and not touching and bosses_intro_done():
 		_pending_levels -= 1
 		_pick_context = "level"
 		hud.toast("NIVEAU %d  ·  CHOISIS TON ROULEAU" % level)

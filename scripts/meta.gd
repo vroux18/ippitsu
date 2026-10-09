@@ -167,6 +167,8 @@ var start_power_id := ""  # rouleau de départ choisi (don « scroll »)
 var outfit := "sumi"  # tenue portée (OUTFITS)
 var theme := "washi"  # thème de l'interface (THEMES)
 var bought := {}  # « outfit:kaki », « theme:nuit »… -> true : achats de la garde-robe
+# bestiaire : id -> [victoires, premier monde, fiche ouverte (0/1)] ; boss rangés en « boss_<id> »
+var seen := {}
 
 
 func _init() -> void:
@@ -218,6 +220,16 @@ func load_data() -> void:
 			bought[String(b)] = true
 	outfit = String(cf.get_value("wardrobe", "outfit", "sumi"))
 	theme = String(cf.get_value("wardrobe", "theme", "washi"))
+	# bestiaire (section absente des anciennes sauvegardes : rien de vu)
+	if cf.has_section("bestiary"):
+		for k in cf.get_section_keys("bestiary"):
+			var v = cf.get_value("bestiary", k, [])
+			if v is Array and (v as Array).size() >= 2:
+				var arr: Array = v
+				var fresh := 0
+				if arr.size() >= 3:
+					fresh = clampi(int(arr[2]), 0, 1)
+				seen[String(k)] = [maxi(0, int(arr[0])), clampi(int(arr[1]), 1, WORLD_COUNT), fresh]
 	# Vues déjà méritées d'après les records (salles atteintes, parties jouées)
 	_retro_prints()
 	# anciennes sauvegardes : les Vues n'étaient qu'un nombre ; on garde au moins autant d'estampes
@@ -285,7 +297,64 @@ func save_data() -> void:
 	cf.set_value("wardrobe", "outfit", outfit)
 	cf.set_value("wardrobe", "theme", theme)
 	cf.set_value("wardrobe", "bought", bought.keys())
+	for k in seen.keys():
+		cf.set_value("bestiary", String(k), seen[k])
 	cf.save(SAVE_PATH)
+
+
+# --- Bestiaire ---------------------------------------------------------------
+# k : type d'ennemi (main.KIND_XP), ou « boss_<id> » pour un gardien ou un boss.
+
+func kind_seen(k: String) -> bool:
+	return seen.has(k)
+
+
+## Première rencontre : vrai si l'ennemi est nouveau (main l'annonce).
+func see_kind(k: String, w: int) -> bool:
+	if k == "" or seen.has(k):
+		return false
+	seen[k] = [0, clampi(w, 1, WORLD_COUNT), 0]
+	return true
+
+
+## Un ennemi déjà rencontré tombe.
+func kill_kind(k: String) -> void:
+	if not seen.has(k):
+		return
+	var v: Array = seen[k]
+	v[0] = int(v[0]) + 1
+
+
+func kind_kills(k: String) -> int:
+	if not seen.has(k):
+		return 0
+	var v: Array = seen[k]
+	return int(v[0])
+
+
+## Monde de la première rencontre (0 : jamais vu).
+func kind_world(k: String) -> int:
+	if not seen.has(k):
+		return 0
+	var v: Array = seen[k]
+	return int(v[1])
+
+
+## Fiche jamais ouverte dans le bestiaire (point vermillon).
+func kind_fresh(k: String) -> bool:
+	if not seen.has(k):
+		return false
+	var v: Array = seen[k]
+	return v.size() < 3 or int(v[2]) == 0
+
+
+func kind_viewed(k: String) -> void:
+	if not seen.has(k):
+		return
+	var v: Array = seen[k]
+	while v.size() < 3:
+		v.append(0)
+	v[2] = 1
 
 
 # --- Coach (tutoriel en jeu) ------------------------------------------------

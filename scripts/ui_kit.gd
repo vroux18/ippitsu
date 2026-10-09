@@ -1112,6 +1112,42 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 			if cut:
 				_dot(ci, c, s, Vector2(0, 0.32), 0.13, b)
 				_box(ci, c, s, Vector2(-0.05, 0.36), Vector2(0.05, 0.62), b)
+		# ------------------------------------------------ pastilles d'effet (cartes de rouleau, bulles)
+		"fx_dmg":
+			# impact : éclat à pointes autour d'un cœur plein
+			var burst := PackedVector2Array()
+			for i in 16:
+				var t := -PI / 2.0 + PI * float(i) / 8.0
+				burst.append(c + Vector2.from_angle(t) * (0.95 if i % 2 == 0 else 0.5) * s)
+			_poly(ci, burst, k)
+			if cut:
+				_dot(ci, c, s, Vector2.ZERO, 0.22, b)
+		"fx_range":
+			# distance : double flèche entre deux bornes
+			_ln(ci, c, s, Vector2(-0.95, -0.55), Vector2(-0.95, 0.55), k, w)
+			_ln(ci, c, s, Vector2(0.95, -0.55), Vector2(0.95, 0.55), k, w)
+			_ln(ci, c, s, Vector2(-0.5, 0), Vector2(0.5, 0), k, w * 1.2)
+			_head(ci, c, s, Vector2(-0.82, 0), Vector2(-1, 0), 0.4, k)
+			_head(ci, c, s, Vector2(0.82, 0), Vector2(1, 0), 0.4, k)
+		"fx_pull":
+			# attraction : quatre flèches vers le centre
+			_dot(ci, c, s, Vector2.ZERO, 0.2, k)
+			for i in 4:
+				var dl := Vector2.from_angle(PI * 0.25 + PI * 0.5 * float(i))
+				_ln(ci, c, s, dl * 0.95, dl * 0.55, k, w)
+				_head(ci, c, s, dl * 0.36, -dl, 0.3, k)
+		"fx_radius":
+			# rayon : cercle et sa flèche du centre au bord
+			_arc(ci, c, s, Vector2.ZERO, 0.85, 0.0, TAU, k, w)
+			_dot(ci, c, s, Vector2.ZERO, 0.15, k)
+			_ln(ci, c, s, Vector2.ZERO, Vector2(0.45, -0.45), k, w)
+			_head(ci, c, s, Vector2(0.6, -0.6), Vector2(1, -1), 0.32, k)
+		"fx_heart":
+			_shp(ci, "heart", c, s, k, Vector2(0, 0.06), 0.95)
+		"fx_crit":
+			# coup critique : grande étoile à quatre branches et sa petite sœur
+			_shp(ci, "star4", c, s, k, Vector2(-0.12, 0.1), 0.85)
+			_shp(ci, "star4", c, s, k, Vector2(0.62, -0.6), 0.32)
 		_:
 			if name != "ink":
 				glyph(ci, "ink", c, r, col, bg, a)
@@ -1167,6 +1203,25 @@ static func hanger_icon(ci: CanvasItem, c: Vector2, s: float, col: Color) -> voi
 	ci.draw_line(c + Vector2(-s * 0.3, -s * 0.22), c + Vector2(s * 0.12, s * 0.4), hole, w * 0.8, true)
 	ci.draw_line(c + Vector2(s * 0.3, -s * 0.22), c + Vector2(-s * 0.02, s * 0.18), hole, w * 0.8, true)
 	ci.draw_line(c + Vector2(-s * 0.5, s * 0.52), c + Vector2(s * 0.5, s * 0.52), hole, w * 0.9, true)
+
+
+## Rouleau ouvert (makimono) du bestiaire tenant dans un rayon s : papier tendu entre deux baguettes,
+## colonnes d'écriture et petit sceau vermillon ; hole : couleur des colonnes (NONE : papier clair ou encre).
+static func scroll_icon(ci: CanvasItem, c: Vector2, s: float, col: Color, hole := NONE) -> void:
+	var w := maxf(1.2, s * 0.16)
+	ci.draw_rect(Rect2(c + Vector2(-s * 0.7, -s * 0.62), Vector2(s * 1.4, s * 1.24)), Color(col, col.a * 0.85))
+	for sx in [-1.0, 1.0]:
+		var x := c.x + float(sx) * s * 0.8
+		ci.draw_line(Vector2(x, c.y - s * 0.84), Vector2(x, c.y + s * 0.84), col, w * 1.6, true)
+		ci.draw_circle(Vector2(x, c.y - s * 0.84), w, col)
+		ci.draw_circle(Vector2(x, c.y + s * 0.84), w, col)
+	var hc := hole
+	if hc.a <= 0.0:
+		hc = Color(Toon.WASHI, col.a * 0.9) if col.v < 0.5 else Color(Toon.SUMI, col.a * 0.9)
+	for i in 3:
+		var x := c.x + s * (0.36 - 0.28 * float(i))
+		ci.draw_line(Vector2(x, c.y - s * 0.4), Vector2(x, c.y + s * (0.38 - 0.2 * float(i % 2))), hc, w * 0.8, true)
+	ci.draw_rect(Rect2(c + Vector2(-s * 0.5, s * 0.14), Vector2(s * 0.26, s * 0.26)), Color(Toon.VERMILION, col.a))
 
 
 # ------------------------------------------------------------------ pinceau et papier (accueil, pause, résultats)
@@ -1753,3 +1808,115 @@ static func dmg_pct(txt: String) -> String:
 		var f := m.get_string(1).replace(",", ".").to_float()
 		out = out.replace(m.get_string(0), "%d %% des dégâts" % int(roundf(f * 100.0)))
 	return out
+
+
+# ------------------------------------------------------------------ effet d'un pouvoir en pastilles
+
+## Nombre à la française (virgule décimale, deux décimales au plus).
+static func fr_num(v: float) -> String:
+	if absf(v - roundf(v)) < 0.001:
+		return str(int(roundf(v)))
+	return str(snappedf(v, 0.01)).replace(".", ",")
+
+
+## Valeur d'un pouvoir au niveau l pour la clé "v" / "w" ; pct : dégâts en % d'un coup de sabre (0,5 -> 50).
+static func _fx_val(d: Dictionary, key: String, l: int, pct: bool) -> String:
+	var arr: Array = d.get(key, [])
+	if arr.is_empty():
+		return "?"
+	var f := float(arr[clampi(l - 1, 0, arr.size() - 1)])
+	if pct:
+		return str(int(roundf(f * 100.0)))
+	return fr_num(f)
+
+
+## Remplit « {v} », « {w} », « {v%} », « {w%} » au niveau b ; « avant → après » si a > 0 et la valeur change.
+static func _fx_fill(d: Dictionary, src: String, a: int, b: int) -> String:
+	var out := src
+	for tag in ["{v%}", "{w%}", "{v}", "{w}"]:
+		var tg := String(tag)
+		if not out.contains(tg):
+			continue
+		var key := tg.substr(1, 1)
+		var pct := tg.contains("%")
+		var after := _fx_val(d, key, b, pct)
+		var txt := after
+		if a > 0 and a != b:
+			var before := _fx_val(d, key, a, pct)
+			if before != after:
+				# « ×2 → ×2,5 », « +20 → +30 % » : le signe collé à la valeur se répète après la flèche
+				var at := out.find(tg)
+				var sg := out.substr(at - 1, 1) if at > 0 else ""
+				txt = before + " → " + (sg if sg == "×" or sg == "+" else "") + after
+		out = out.replace(tg, txt)
+	return out
+
+
+## Libellé accordé à une valeur unique : « +1 cibles » -> « +1 cible », « 1 ennemis tués » -> « 1 ennemi tué ».
+static func _fx_one(val: String, lab: String) -> String:
+	if val != "1" and val != "+1":
+		return lab
+	var words := lab.split(" ")
+	for k in words.size():
+		var wd := String(words[k])
+		if wd.length() > 2 and wd.ends_with("s"):
+			words[k] = wd.substr(0, wd.length() - 1)
+	return " ".join(words)
+
+
+## Effet d'un pouvoir en pastilles : [[pictogramme, valeur, libellé], …] (niveau b ; « avant → après » depuis le
+## niveau a > 0). Sans fiche dans Data.EFFECTS : la ligne chiffrée « stat » en une pastille. Jamais le nom du pouvoir.
+static func fx_rows(id: String, a: int, b: int) -> Array:
+	var out: Array = []
+	var d: Dictionary = Data.POWERS.get(id, {})
+	if d.is_empty():
+		return out
+	var e: Dictionary = Data.EFFECTS.get(id, {})
+	var rows: Array = e.get("fx", [])
+	var name_l := power_label(id).to_lower()
+	for row in rows:
+		var rw: Array = row
+		if rw.size() < 3:
+			continue
+		var lab := plain(String(rw[2]))
+		if lab.to_lower() == name_l:
+			lab = ""
+		var val := plain(_fx_fill(d, String(rw[1]), a, b))
+		out.append([String(rw[0]), val, _fx_one(val, lab)])
+	if out.is_empty():
+		var st := String(d.get("stat", ""))
+		if st != "":
+			var line := plain(dmg_pct(_fx_fill(d, st, a, b)))
+			out.append([stat_icon(line), line, ""])
+	return out
+
+
+## Déclencheur d'un pouvoir en 1-2 mots (bulle de détail), sinon le mot du déclencheur.
+static func fx_when(id: String) -> String:
+	var e: Dictionary = Data.EFFECTS.get(id, {})
+	var tw := String(e.get("tw", ""))
+	if tw != "":
+		return plain(tw)
+	var w := trigger_word(id)
+	return w.substr(0, 1) + w.substr(1).to_lower()
+
+
+## Une phrase courte qui explique le pouvoir (bulle de détail), sinon son texte complet.
+static func fx_line(id: String) -> String:
+	var e: Dictionary = Data.EFFECTS.get(id, {})
+	var ln := String(e.get("line", ""))
+	if ln != "":
+		return plain(ln)
+	var d: Dictionary = Data.POWERS.get(id, {})
+	return plain(String(d.get("text", "")))
+
+
+## Effet en une ligne compacte : « 0,5 s invulnérable · 50 % éclat » (listes étroites).
+static func fx_compact(rows: Array) -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	for row in rows:
+		var rw: Array = row
+		var v := String(rw[1])
+		var l := String(rw[2])
+		parts.append((v + " " + l).strip_edges() if v != "" else l)
+	return " · ".join(parts)

@@ -27,7 +27,7 @@ var lead_icon := "":  # icône dessinée à gauche du texte (play, replay, home�
 		if v != lead_icon:
 			lead_icon = v
 			queue_redraw()
-var icon := "":  # sound_on | sound_off | home | replay | pause | play | gear | help | brush | dojo | hanger | back
+var icon := "":  # sound_on | sound_off | home | replay | pause | play | gear | help | brush | dojo | hanger | back | bestiary
 	set(v):
 		if v != icon:
 			icon = v
@@ -397,6 +397,9 @@ func _icon(kind: String, c: Vector2, s: float, ink: Color) -> void:
 				UiKit.text(self, UiKit.TITLE_FONT, "道", c + Vector2(0, dfs * 0.36), dfs, ink)
 		"hanger":
 			UiKit.hanger_icon(self, c, s * 1.15, ink)
+		"bestiary":
+			# Bestiaire : le rouleau des yōkai
+			UiKit.scroll_icon(self, c, s * 1.1, ink, _hole)
 		"back":
 			# retour : flèche vermillon (même dessin que UiKit.back_button)
 			UiKit.back_arrow(self, c, s, Toon.VERMILION)

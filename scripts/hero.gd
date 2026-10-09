@@ -1,14 +1,20 @@
 extends Node3D
-## Le ronin (KayKit Rogue encapuchonné) : il fonce le long du trait.
-## Tenue de shinobi (yokai_parts.hero_parts) : cagoule et yeux, écharpe à deux pans qui flottent (couleur de
-## l'écharpe de la garde-robe), obi noué, tekko, kyahan, sabre au fourreau dans le dos (tiré pendant l'action).
+## Le ronin : il fonce le long du trait.
+## Par défaut (USE_NINJA_RIG) : ninja modelé et animé en code (ninja_rig.gd) — cagoule à fente unique,
+## hachimaki, veste croisée, obi, tekko, hakama et kyahan, katana au fourreau dans le dos (tiré pendant l'action),
+## palette tirée de la tenue de la garde-robe. Sinon : ancien rōdeur KayKit habillé (yokai_parts.hero_parts).
+## Écharpe à deux pans qui flottent (couleur de l'écharpe de la garde-robe), simulée ici.
 ## Lisibilité : liseré de lumière, anneau au sol dessiné par-dessus le décor (no_depth_test), qui respire au repos.
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
+const NinjaRig = preload("res://scripts/ninja_rig.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
-const MODEL = preload("res://assets/kaykit/Rogue_Hooded.glb")
-const CAPE_TEX = preload("res://assets/kaykit/tex/rogue_cape.png")
+## Vrai : ninja procédural ; faux : retour au modèle KayKit (un seul interrupteur).
+const USE_NINJA_RIG := true
+# modèle KayKit : chargé seulement si le ninja procédural est coupé
+const MODEL_PATH := "res://assets/kaykit/Rogue_Hooded.glb"
+const CAPE_TEX_PATH := "res://assets/kaykit/tex/rogue_cape.png"
 
 signal dash_finished
 signal landed  # fin d'un bond (ensō)
@@ -54,6 +60,7 @@ var _drawn_t := 0.0
 var _life := 0.0
 var _scarf_col := SCARF_DEF
 var _scarf_mat: StandardMaterial3D  # col de l'écharpe (sommets blancs teintés)
+var _outfit_id := "sumi"  # tenue de la garde-robe (palette du ninja procédural)
 var _knot: Node3D  # nœud de l'écharpe dans la nuque : point d'attache des pans
 var _tails: MeshInstance3D
 var _tails_mesh: ImmediateMesh
@@ -70,17 +77,24 @@ func _ready() -> void:
 	Toon.blob(self, 0.5, 0.32)  # ombre de contact douce
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
-	body.add_child(ch)
-	ch.setup(MODEL, 1.75, [
-		["Cape", CAPE_TEX],
-		["Rogue", load("res://assets/kaykit/tex/rogue_ink.png")],
-	], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
-	# l'écharpe à deux pans remplace la cape KayKit (même couleur de garde-robe)
-	ch.hide_meshes(["Cape"])
-	_blade_hand = _katana()
-	ch.attach("handslot.r", _blade_hand)
-	_dress()
+	if USE_NINJA_RIG:
+		ch = NinjaRig.new()
+		body.add_child(ch)
+		ch.setup(NinjaRig.hero_config(_outfit_id), 1.75)
+		ch.spin_self = false  # la toupie fait déjà tourner le corps (_process)
+		_dress_rig()
+	else:
+		ch = Character.new()
+		body.add_child(ch)
+		ch.setup(load(MODEL_PATH) as PackedScene, 1.75, [
+			["Cape", load(CAPE_TEX_PATH)],
+			["Rogue", load("res://assets/kaykit/tex/rogue_ink.png")],
+		], ["Knife", "Knife_Offhand", "1H_Crossbow", "2H_Crossbow", "Throwable"])
+		# l'écharpe à deux pans remplace la cape KayKit (même couleur de garde-robe)
+		ch.hide_meshes(["Cape"])
+		_blade_hand = _katana()
+		ch.attach("handslot.r", _blade_hand)
+		_dress()
 	# liseré clair et franc : la silhouette se détache des sols sombres (indigo des mondes 1, 7, 8)
 	ch.paint(null, 0.65, 0.12)
 	_make_tails()
@@ -120,8 +134,22 @@ func _dress() -> void:
 	ch.attach("chest", _knot)
 
 
+## Ninja procédural : katana tiré en main, poignée au fourreau, col de l'écharpe, nœud des pans dans la nuque.
+func _dress_rig() -> void:
+	_blade_hand = ch.blade
+	_hilt = ch.hilt
+	_scarf_mat = Toon.mat(_scarf_col, true, 0.026)
+	_scarf_mat.vertex_color_use_as_albedo = true
+	_scarf_mat.vertex_color_is_srgb = true
+	ch.attach_mesh("neck", NinjaRig.collar_mesh(), _scarf_mat, not Toon.lite)
+	_knot = ch.knot
+
+
 ## Course (ruée, trajets) : l'animation de course si le modèle l'a gardée, sinon la marche accélérée.
 func run_anim(speed: float, blend := 0.08) -> void:
+	if USE_NINJA_RIG:
+		ch.play("Running_A", speed, blend)
+		return
 	if ch.anim != null and ch.anim.has_animation("Running_A"):
 		ch.play("Running_A", speed, blend)
 	else:
@@ -357,7 +385,8 @@ func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
 	_scarf_col = cape if cape_on else SCARF_DEF
 	if _scarf_mat != null:
 		_scarf_mat.albedo_color = _scarf_col
-	if ch != null and ch.model != null:
+	if not USE_NINJA_RIG and ch != null and ch.model != null:
+		var cape_tex := load(CAPE_TEX_PATH) as Texture2D
 		for n in ch.model.find_children("*", "MeshInstance3D", true, false):
 			var mi := n as MeshInstance3D
 			if mi == null or mi.mesh == null or not ("Cape" in String(mi.name)):
@@ -370,7 +399,7 @@ func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
 					m.albedo_texture = null
 					m.albedo_color = cape
 				else:
-					m.albedo_texture = CAPE_TEX
+					m.albedo_texture = cape_tex
 					m.albedo_color = Color.WHITE
 	if is_instance_valid(_trail):
 		_trail.queue_free()
@@ -387,9 +416,18 @@ func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
 		add_child(_trail)
 
 
-## Tenue de la garde-robe : atlas recoloré (corps, bras, jambes, capuche), la cape garde le sien.
+## Tenue de la garde-robe : ninja procédural -> palette de la tenue (id tiré du nom de l'atlas,
+## « rogue_<id>.png », cf. meta.OUTFITS) ; KayKit -> atlas recoloré (corps, bras, jambes, capuche).
 func set_outfit(tex: Texture2D) -> void:
-	if tex == null or ch == null or ch.model == null:
+	if tex == null:
+		return
+	if USE_NINJA_RIG:
+		var id := tex.resource_path.get_file().get_basename().trim_prefix("rogue_")
+		_outfit_id = id if NinjaRig.OUTFIT_PAL.has(id) else "sumi"
+		if ch != null:
+			ch.set_palette(NinjaRig.hero_config(_outfit_id))
+		return
+	if ch == null or ch.model == null:
 		return
 	for n in ch.model.find_children("*", "MeshInstance3D", true, false):
 		var mi := n as MeshInstance3D

@@ -13,7 +13,9 @@ extends Control
 ## s'effaçant ; les autres se réenroulent et s'effacent.
 ## Toute première ouverture : une petite feuille au-dessus des cartes explique les rouleaux (COMPRIS, ou un choix).
 ## Trois styles de cartes à comparer (`style`, `?pickstyle=N` sur le web) : 0 kakemono épuré (ci-dessus),
-## 1 ofuda (talisman de laque, sceau vermillon, pictogramme d'or), 2 estampe (tableau ukiyo-e, cartouche du nom).
+## 1 ofuda (talisman de laque, sceau vermillon, pictogramme d'or), 2 estampe (tableau ukiyo-e, cartouche du nom ;
+## style par défaut). L'effet se lit en pastilles (pictogramme, chiffre en couleur, libellé court : Data.EFFECTS),
+## le déclencheur en pictogramme dans le coin du tableau ; la bulle de détail reprend les pastilles.
 ## Ofuda et estampe ne se déroulent pas : chaque carte est donnée face cachée (elle monte), puis se retourne.
 ## Le sanctuaire (pactes) reste toujours en kakemono.
 
@@ -67,7 +69,7 @@ signal picked(id: String)
 signal reroll
 
 var rerolls := 0  # relances disponibles (Atelier : Choix, Omamori)
-var style := 0  # style des cartes : 0 kakemono épuré, 1 ofuda, 2 estampe
+var style := 2  # style des cartes : 0 kakemono épuré, 1 ofuda, 2 estampe (par défaut)
 
 var _ids: Array = []
 var _infos: Array = []
@@ -494,6 +496,14 @@ func _draw() -> void:
 	_big = minf(cw * 0.3, 38.0 * u)
 	var ch := 0.0
 	var bub_h := 70.0 * u  # place réservée à la bulle de détail (la mise en page ne saute pas au toucher)
+	# hauteur commune des pastilles d'effet (la plus haute des cartes) : mesures et dessin la partagent
+	var fs_s := minf(u, cw / 116.0)
+	var fx_res := 0.0
+	for i in n:
+		var inf: Dictionary = _infos[i]
+		if int(inf.get("rarity_rank", -1)) >= 0:
+			fx_res = maxf(fx_res, _fx_lay_h(_fx_lay(_fx_of(_id(i), inf), _fx_w(cw, fs_s), fs_s), fs_s))
+	_fx_res = fx_res
 	for i in n:
 		ch = maxf(ch, _need_h(_infos[i], _id(i), cw, u, i))
 		bub_h = maxf(bub_h, _bubble_h(_infos[i], _id(i), w - 28.0 * u, u))
@@ -705,7 +715,7 @@ func _draw_tip(y0: float, w: float, u: float, fade: float) -> void:
 	var lines: Array = [
 		"Un rouleau = un pouvoir, gardé toute la partie",
 		"En bas : son élément, ou la figure à tracer",
-		"Points près de l'élément : 2 du même = bonus",
+		"Points près de l'élément : 2 du même = harmonie",
 		"Crans dorés : reprends-le plus tard pour le monter",
 	]
 	for k in lines.size():
@@ -1375,30 +1385,148 @@ func _name_block(font: Font, nm: String, cx: float, y0: float, maxw: float, fs0:
 	return y
 
 
-## Valeur (unités en clair, chiffres en couleur) : une seule ligne si elle tient (rétrécie d'un rien), sinon
-## coupée en lignes ; jamais coupée au bord. Première ligne de base en y ; renvoie la ligne de base de la
-## dernière ligne (au moins `reserve` lignes : les pieds restent alignés d'une carte à l'autre).
-func _value_block(ef: String, cx: float, y: float, tw: float, fs0: int, ink: Color, accent: Color, a: float, really: bool, reserve: int) -> float:
-	var efs := fs0
-	var lines := PackedStringArray([ef])
-	var one := _fit_fs(_ui, ef, fs0, tw, maxi(10, fs0 - 2))
-	if _ui.get_string_size(ef, HORIZONTAL_ALIGNMENT_LEFT, -1, one).x <= tw:
-		efs = one
-	else:
-		lines = _wrap(_ui, ef, efs, tw)
-		while lines.size() > 3 and efs > 10:
-			efs -= 1
-			lines = _wrap(_ui, ef, efs, tw)
-		lines = lines.slice(0, 4)
-		for k in lines.size():
-			efs = _fit_fs(_ui, lines[k], efs, tw)
-	var lh := float(efs) * 1.25
-	var nl := lines.size()
+# ------------------------------------------------------------------ effet en pastilles (cartes et bulle)
+
+var _fx_res := 0.0  # hauteur commune du bloc d'effet des cartes (les pieds restent alignés d'une carte à l'autre)
+
+
+## Effet de la carte en pastilles [pictogramme, valeur, libellé] (fourni par powers.describe, sinon calculé).
+func _fx_of(id: String, info: Dictionary) -> Array:
+	var rows: Array = info.get("fx", [])
+	if rows.is_empty():
+		rows = UiKit.fx_rows(id, int(info.get("cur_level", 0)), int(info.get("level", 1)))
+	return rows
+
+
+## Largeur des pastilles sur une carte de largeur cw (la même pour les trois styles : mesure commune).
+func _fx_w(cw: float, s: float) -> float:
+	return cw - 14.0 * s
+
+
+## Valeur d'une pastille en (x, y) : le chiffre en gras et en couleur ; « avant → » plus petit et pâle (amélioration).
+## Renvoie sa largeur ; really = false : mesure seulement.
+func _fx_val(v: String, x: float, y: float, fs: int, ink: Color, accent: Color, really: bool) -> float:
+	var head := ""
+	var tail := v
+	var k := v.find(" → ")
+	if k >= 0:
+		head = v.substr(0, k + 3)
+		tail = v.substr(k + 3)
+	var sfs := maxi(9, int(float(fs) * 0.72))
+	var hw := _ui.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x if head != "" else 0.0
+	var tw := _ui.get_string_size(tail, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 0.7
 	if really:
-		for k in nl:
-			var ka := a * _rv(y + float(k) * lh + float(efs) * 0.3)
-			_rich(lines[k], cx, y + float(k) * lh, efs, Color(ink, ink.a * ka), Color(accent, accent.a * ka))
-	return y + float(maxi(nl, reserve) - 1) * lh
+		if head != "":
+			draw_string(_ui, Vector2(x, y), head, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(ink, ink.a * 0.6))
+		draw_string(_ui, Vector2(x + hw, y), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, accent)
+		draw_string(_ui, Vector2(x + hw + 0.7, y), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, accent)
+	return hw + tw
+
+
+## Mise en page d'une pastille dans la largeur w (chiffre de taille `big` × s) :
+## [valeur, libellé, taille du chiffre, libellé à côté ?, hauteur, taille du libellé].
+## Sans chiffre (« étourdit ») : le libellé tient lieu de valeur.
+func _fx_fit(row: Array, w: float, s: float, big: float) -> Array:
+	var v := String(row[1])
+	var lab := String(row[2])
+	var vfs := _fs(big, s)
+	if v == "":
+		v = lab
+		lab = ""
+		vfs = _fs(big * 0.82, s)
+	var pad := 5.0 * s
+	var ir := big * 0.43 * s
+	var room := w - 2.0 * pad - 2.0 * ir - 4.0 * s
+	while vfs > 11 and _fx_val(v, 0.0, 0.0, vfs, Color.WHITE, Color.WHITE, false) > room:
+		vfs -= 1
+	var vw := _fx_val(v, 0.0, 0.0, vfs, Color.WHITE, Color.WHITE, false)
+	var lfs := _fs(big * 0.68, s)
+	var lw := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x if lab != "" else 0.0
+	var inl := lab == "" or vw + 5.0 * s + lw <= room
+	if not inl:
+		lfs = _fit_fs(_ui, lab, lfs, w - 2.0 * pad, 9)
+	var h := float(vfs) * 1.1 + 7.0 * s
+	if not inl:
+		h = float(vfs) + float(lfs) + 8.0 * s
+	return [v, lab, vfs, inl, h, lfs]
+
+
+## Une pastille (rect) : fond teinté, pictogramme et chiffre centrés, libellé à côté ou dessous (encre pâle).
+func _fx_draw(icon: String, lay: Array, rect: Rect2, s: float, big: float, ink: Color, accent: Color, icol: Color, tint: Color, bg: Color, ka: float) -> void:
+	if ka <= 0.01:
+		return
+	draw_style_box(UiKit.box(_sb, Color(tint, tint.a * ka), maxi(1, int(6.0 * s))), rect)
+	var v := String(lay[0])
+	var lab := String(lay[1])
+	var vfs := int(lay[2])
+	var inl := bool(lay[3])
+	var lfs := int(lay[5])
+	var ir := big * 0.43 * s
+	var vw := _fx_val(v, 0.0, 0.0, vfs, ink, accent, false)
+	var lw := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x if lab != "" else 0.0
+	var cw := 2.0 * ir + 4.0 * s + vw
+	if inl and lab != "":
+		cw += 5.0 * s + lw
+	var x := rect.get_center().x - cw / 2.0
+	var cy := rect.get_center().y if inl else rect.position.y + 4.0 * s + float(vfs) * 0.5
+	UiKit.glyph(self, icon, Vector2(x + ir, cy), ir, icol, bg, ka)
+	_fx_val(v, x + 2.0 * ir + 4.0 * s, cy + float(vfs) * 0.36, vfs, Color(ink, ink.a * ka), Color(accent, accent.a * ka), true)
+	if lab == "":
+		return
+	var lc := Color(ink, ink.a * 0.68 * ka)
+	if inl:
+		draw_string(_ui, Vector2(x + 2.0 * ir + 4.0 * s + vw + 5.0 * s, cy + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, lc)
+	else:
+		UiKit.text(self, _ui, lab, Vector2(rect.get_center().x, rect.position.y + 5.0 * s + float(vfs) + float(lfs) * 0.8), lfs, lc)
+
+
+## Pastilles d'une carte (les 2 premières), mises en page dans la largeur w.
+func _fx_lay(rows: Array, w: float, s: float) -> Array:
+	var out: Array = []
+	for k in mini(rows.size(), 2):
+		out.append(_fx_fit(rows[k], w, s, 15.0))
+	return out
+
+
+## Hauteur naturelle des pastilles d'une carte (écart de 4 × s entre deux).
+func _fx_lay_h(lay: Array, s: float) -> float:
+	var hh := 0.0
+	for k in lay.size():
+		var lk: Array = lay[k]
+		hh += float(lk[4]) + (4.0 * s if k > 0 else 0.0)
+	return hh
+
+
+## Bloc d'effet d'une carte à partir de y (haut), centré en cx : au plus 2 pastilles l'une sous l'autre, centrées
+## dans la hauteur commune _fx_res. icol : pictogrammes ; tint : fond des pastilles ; bg : découpes des pictogrammes.
+## Renvoie le bas du bloc ; really = false : mesure seulement.
+func _fx_block(id: String, info: Dictionary, cx: float, y: float, w: float, s: float, ink: Color, accent: Color, icol: Color, tint: Color, bg: Color, a: float, really: bool) -> float:
+	var rows := _fx_of(id, info)
+	var lay := _fx_lay(rows, w, s)
+	var hh := _fx_lay_h(lay, s)
+	if really:
+		var yy := y + maxf(0.0, _fx_res - hh) * 0.5
+		for k in lay.size():
+			var lk: Array = lay[k]
+			var rw: Array = rows[k]
+			var rect := Rect2(Vector2(cx - w / 2.0, yy), Vector2(w, float(lk[4])))
+			_fx_draw(String(rw[0]), lk, rect, s, 15.0, ink, accent, icol, tint, bg, a * _rv(rect.end.y))
+			yy += float(lk[4]) + 4.0 * s
+	return y + maxf(hh, _fx_res)
+
+
+## Déclencheur en pictogramme seul (coin du tableau, bord du médaillon) : sceau de la figure, sinon pastille d'encre.
+func _trig_badge(id: String, c: Vector2, rr: float, leg: bool, a: float) -> void:
+	if a <= 0.01:
+		return
+	var fig := UiKit.trigger_figure(id)
+	if fig != "":
+		UiKit.figure(self, fig, c, rr, a)
+		return
+	var disc: Color = GOLD_HI if leg else Toon.SUMI
+	draw_circle(c, rr + maxf(1.0, rr * 0.14), Color(Toon.PAPER, 0.95 * a))
+	draw_circle(c, rr, Color(disc, a))
+	UiKit.trigger_icon(self, id, c, rr * 0.62, LEG_BODY if leg else Toon.WASHI, disc, a)
 
 
 ## Crans de niveau en points : pris (encre), gagné maintenant (or), à venir (cercle). Rien au niveau unique.
@@ -1449,7 +1577,8 @@ func _footer(r: Rect2, info: Dictionary, id: String, i: int, cx: float, y0: floa
 		var ef := cap
 		while ef > 10 and _ui.get_string_size(el, HORIZONTAL_ALIGNMENT_LEFT, -1, ef).x + 19.0 * s > maxw:
 			ef -= 1
-		_icon_line(el, school, scol, cx - pw / 2.0, y + 9.0 * s, maxw, ef, s, Color(ink, 0.88 * ka2), ka2, dark)
+		if school != "ink":  # pouvoir général (sans élément) : pied vide, la carte garde sa hauteur
+			_icon_line(el, school, scol, cx - pw / 2.0, y + 9.0 * s, maxw, ef, s, Color(ink, 0.88 * ka2), ka2, dark)
 		if pips > 0:
 			var tw2 := _ui.get_string_size(el, HORIZONTAL_ALIGNMENT_LEFT, -1, ef).x + 19.0 * s
 			var px := cx - pw / 2.0 + tw2 / 2.0 + 6.0 * s + 4.5 * s
@@ -1544,6 +1673,9 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		var gcol: Color = GOLD_HI if leg else (Toon.WASHI if rank < 0 else mcol.darkened(0.08))
 		UiKit.glyph(self, gname, mc, big * 0.6, gcol, wash, ma)
 		draw_set_transform_matrix(_xf)
+		if rank >= 0:
+			# déclencheur : pictogramme seul, en haut à droite du médaillon
+			_trig_badge(id, mc + Vector2(big * 0.8, -big * 0.8), 7.5 * s, leg, ma)
 	y = mc.y + big + 12.0 * s
 
 	# crans de niveau (même place sur toutes les cartes : tout reste aligné)
@@ -1562,9 +1694,12 @@ func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	if rank < 0:
 		y = _curse_lines(String(info.get("text", "")), cx, y, tw, cap, 14.5 * s, ta, is_curse, really)
 		return y - r.position.y + _chi(s, false) + 6.0 * s
-	# une ligne de valeur
+	# l'effet en pastilles (pictogramme, chiffre, libellé)
 	var accent: Color = GOLD_HI if dark or Toon.ui_dark else Toon.VERMILION.darkened(0.12)
-	y = _value_block(_card_effect(id, info), cx, y, tw, _fs(12.5, s), Color(ink, 0.92), accent, ta, really, 2)
+	var icol: Color = GOLD_HI if leg else (col.lightened(0.25) if Toon.ui_dark else col)
+	var tint := Color(icol, 0.1)
+	var body := _body_col(info)
+	y = _fx_block(id, info, cx, y - 10.0 * s, _fx_w(r.size.x, s), s, Color(ink, 0.92), accent, icol, tint, body.lerp(icol, 0.1), ta, really)
 	y += 12.0 * s + ex * 0.25
 	# pied discret : élément et points
 	y = _footer(r, info, id, i, cx, y, s, ink, dark, Color(ink, 0.14), ta, really)
@@ -1655,12 +1790,14 @@ func _content_ofuda(r: Rect2, info: Dictionary, id: String, u: float, a: float, 
 				draw_line(mc + d * (big + 4.0 * s), mc + d * (big + 9.0 * s), Color(GOLD_HI, 0.45 * ma), maxf(1.0, 1.3 * s))
 		UiKit.glyph(self, UiKit.icon_of(id), mc, big * 0.56, GOLD_HI, OFUDA_BODY, ma)
 		draw_set_transform_matrix(_xf)
+		if rank >= 0:
+			_trig_badge(id, mc + Vector2(big * 0.8, -big * 0.8), 7.5 * s, leg, ma)
 	y = mc.y + big + 12.0 * s
 	# nom en blanc de washi, valeur dessous
 	y = _name_block(UiKit.TITLE_FONT, UiKit.power_label(id), cx, y, r.size.x - 18.0 * s, int(16 * s), Toon.WASHI, ta, really)
-	y += 18.0 * s
-	y = _value_block(_card_effect(id, info), cx, y, r.size.x - 18.0 * s, _fs(12.0, s), Color(Toon.WASHI, 0.78), GOLD_HI, ta, really, 2)
-	y += 14.0 * s
+	y += 8.0 * s
+	y = _fx_block(id, info, cx, y, _fx_w(r.size.x, s), s, Color(Toon.WASHI, 0.85), GOLD_HI, GOLD_HI, Color(Toon.WASHI, 0.06), OFUDA_BODY, ta, really)
+	y += 10.0 * s
 	if really:
 		_pips(info, cx, y, s, Toon.WASHI, ta, pulse)
 	y += 10.0 * s + ex * 0.3
@@ -1691,8 +1828,9 @@ func _face_print(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: 
 	_sheen_pass(r, u, a, rank)
 
 
-## Contenu de l'estampe : tableau peint (moitié haute) et son pictogramme, étiquette dans le coin, cartouche du
-## nom à cheval sur le bas du tableau, puis sur le washi : valeur, crans, pied, rareté. really = false : mesure.
+## Contenu de l'estampe : tableau peint (moitié haute) et son pictogramme, étiquette et déclencheur dans les coins,
+## cartouche du nom à cheval sur le bas du tableau, puis sur le washi : effet en pastilles, crans, pied, rareté.
+## really = false : mesure.
 func _content_print(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int, really: bool) -> float:
 	var rank := int(info.get("rarity_rank", -1))
 	var leg := rank == 3
@@ -1733,10 +1871,12 @@ func _content_print(r: Rect2, info: Dictionary, id: String, u: float, a: float, 
 		draw_arc(mc, big - 3.0 * s, 0.0, TAU, 40, Color(GOLD_HI if leg else col, 0.55 * ma), maxf(1.0, 0.8 * s), true)
 		UiKit.glyph(self, UiKit.icon_of(id), mc, big * 0.6, GOLD_HI.darkened(0.25) if leg else col, Toon.PAPER, ma)
 		draw_set_transform_matrix(_xf)
-		# étiquette NOUVEAU / NIV dans le coin du tableau : petit cartouche vermillon (vert d'eau : amélioration)
+		# étiquette NOUVEAU / NIV dans le coin du tableau : petit cartouche vermillon (vert d'eau : amélioration) ;
+		# le déclencheur en pictogramme seul dans l'autre coin (sceau de la figure, ou pastille d'encre)
 		if rank >= 0:
+			_trig_badge(id, Vector2(pr.end.x - 11.0 * s, pr.position.y + 11.0 * s), 8.0 * s, leg, ma)
 			var rt := _tag_text(info)
-			var rf := _fit_fs(_ui, rt, maxi(9, cap - 2), pr.size.x - 18.0 * s, 8)
+			var rf := _fit_fs(_ui, rt, maxi(9, cap - 2), pr.size.x - 38.0 * s, 8)
 			var tw0 := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rf).x + 10.0 * s
 			var tag := Rect2(pr.position + Vector2(4.0, 4.0) * s, Vector2(tw0, float(rf) + 5.0 * s))
 			var tb: Color = GOLD_HI if leg else (Toon.VERMILION if bool(info.get("is_new", true)) else UP_COL)
@@ -1752,11 +1892,14 @@ func _content_print(r: Rect2, info: Dictionary, id: String, u: float, a: float, 
 		for k in nl.size():
 			yy += float(nfs) * (0.95 if k == 0 else 1.1)
 			UiKit.text(self, UiKit.TITLE_FONT, nl[k], Vector2(cx, yy), nfs, Color(Toon.SUMI, ta))
-	var y := cart.end.y + 18.0 * s
-	# washi : valeur, crans, pied, rareté
+	var y := cart.end.y + 7.0 * s
+	# washi : effet en pastilles (pictogramme, chiffre en couleur, libellé court), crans, pied, rareté
 	var accent: Color = GOLD_HI if leg or Toon.ui_dark else Toon.VERMILION.darkened(0.12)
-	y = _value_block(_card_effect(id, info), cx, y, r.size.x - 16.0 * s, _fs(12.5, s), Color(ink, 0.92), accent, ta, really, 2)
-	y += 13.0 * s
+	var icol: Color = GOLD_HI if leg else (col.lightened(0.25) if Toon.ui_dark else col)
+	var tint := Color(icol, 0.12 if leg else 0.1)
+	var paper: Color = LEG_BODY if leg else Toon.ui_paper
+	y = _fx_block(id, info, cx, y, _fx_w(r.size.x, s), s, Color(ink, 0.92), accent, icol, tint, paper.lerp(icol, tint.a), ta, really)
+	y += 10.0 * s
 	if really:
 		_pips(info, cx, y, s, ink, ta, pulse)
 	y += 9.0 * s + ex * 0.2
@@ -1945,59 +2088,6 @@ func _fit_center(txt: String, cx: float, y: float, maxw: float, fs: int, c: Colo
 	UiKit.text(self, _ui, txt, Vector2(cx, y), f, c)
 
 
-## Valeur de la carte : la ligne chiffrée (« stat », unités en clair) au niveau proposé ; à défaut la ligne courte.
-func _card_effect(id: String, info: Dictionary) -> String:
-	var d: Dictionary = Data.POWERS.get(id, {})
-	var txt := String(d.get("stat", ""))
-	if txt == "":
-		txt = String(d.get("short", info.get("sub", "")))
-	return _at_level(txt, d, int(info.get("level", 1)))
-
-
-## Remplace {v} / {w} par la valeur du niveau donné (nombre à la française).
-func _at_level(src: String, d: Dictionary, lv: int) -> String:
-	var txt := src
-	for key in ["v", "w"]:
-		var tag := "{%s}" % key
-		if not txt.contains(tag):
-			continue
-		var arr: Array = d.get(key, [])
-		var val := "?"
-		if not arr.is_empty():
-			val = _fr(arr[clampi(lv - 1, 0, arr.size() - 1)])
-		txt = txt.replace(tag, val)
-	return _p(UiKit.dmg_pct(txt))
-
-
-## Nombre à la française (virgule décimale).
-func _fr(v) -> String:
-	var f := float(v)
-	if absf(f - roundf(f)) < 0.001:
-		return str(int(roundf(f)))
-	return str(snappedf(f, 0.01)).replace(".", ",")
-
-
-## Une ligne centrée : les mots chiffrés (nombres, ×, %) en couleur et en gras.
-func _rich(line: String, cx: float, y: float, fs: int, ink: Color, accent: Color) -> void:
-	var words := line.split(" ", false)
-	var sp := _ui.get_string_size(" ", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var total := sp * float(maxi(words.size() - 1, 0))
-	for wd in words:
-		total += _ui.get_string_size(String(wd), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var x := cx - total / 2.0
-	for wd in words:
-		var word := String(wd)
-		var hot := false
-		for ci in word.length():
-			if "0123456789×%".contains(word[ci]):
-				hot = true
-		var c: Color = accent if hot else ink
-		draw_string(_ui, Vector2(x, y), word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-		if hot:
-			draw_string(_ui, Vector2(x + 0.7, y), word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-		x += _ui.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + sp
-
-
 ## Début de ligne d'une carte de sanctuaire : malus « - », récompense « + » (« Passer » : pas de malus).
 func _lead(k: int, is_curse: bool) -> String:
 	if k == 0:
@@ -2037,22 +2127,6 @@ func _bubble_h(info: Dictionary, id: String, bw: float, u: float) -> float:
 	return _bubble_body(Rect2(Vector2.ZERO, Vector2(bw, 4000.0)), info, id, u, 0.0, false)
 
 
-## Lignes de valeur : « Explosion : 3 dégâts · éclat : 2 » -> [["Explosion", "3 dégâts"], ["Éclat", "2"]].
-func _stat_rows(stat: String) -> Array:
-	var out: Array = []
-	for part in stat.split("·", false):
-		var p := String(part).strip_edges()
-		if p == "":
-			continue
-		var k := p.find(" : ")
-		if k > 0:
-			var lab := p.substr(0, k)
-			out.append([lab.substr(0, 1).to_upper() + lab.substr(1), p.substr(k + 3)])
-		else:
-			out.append(["", p.substr(0, 1).to_upper() + p.substr(1)])
-	return out
-
-
 ## Bulle de détail sous les cartes : la carte levée en clair (titre, déclencheur, effet, valeurs, bonus, synergie).
 func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: float) -> void:
 	if a <= 0.01:
@@ -2070,7 +2144,50 @@ func _bubble(bub: Rect2, info: Dictionary, id: String, px: float, u: float, a: f
 	_bubble_body(box, info, id, u, a, true)
 
 
+## Pastilles de la bulle côte à côte (toutes, jusqu'à 3), de même hauteur ; renvoie le bas de la rangée.
+func _bubble_fx(rows: Array, x: float, y: float, tw: float, u: float, ink: Color, accent: Color, icol: Color, tint: Color, bg: Color, a: float, really: bool) -> float:
+	var n := mini(rows.size(), 3)
+	if n == 0:
+		return y
+	var gap := 6.0 * u
+	var cwd := (tw - gap * float(n - 1)) / float(n)
+	var lay: Array = []
+	var hh := 0.0
+	for k in n:
+		var lk := _fx_fit(rows[k], cwd, u, 17.0)
+		lay.append(lk)
+		hh = maxf(hh, float(lk[4]))
+	if really:
+		for k in n:
+			var lk2: Array = lay[k]
+			var rw: Array = rows[k]
+			var rect := Rect2(Vector2(x + float(k) * (cwd + gap), y), Vector2(cwd, hh))
+			_fx_draw(String(rw[0]), lk2, rect, u, 17.0, ink, accent, icol, tint, bg, a)
+	return y + hh
+
+
+## Bonus d'élément en une ligne courte : « Harmonie 1/2 → Feu +25 % », « Harmonie ! Feu +25 % » ; [texte, atteint ?].
+func _harmony_line(info: Dictionary) -> Array:
+	var goal := int(info.get("aff_goal", 0))
+	var school := String(info.get("school", ""))
+	if goal <= 0:
+		return ["", false]
+	var tiers: Array = Data.AFF_TIERS
+	var tier := maxi(0, tiers.find(goal))
+	var shorts: Array = Data.AFF_SHORT.get(school, [])
+	var bonus := _p(String(shorts[tier])) if tier < shorts.size() else _p(String(info.get("aff_text", "")))
+	if bonus == "":
+		return ["", false]
+	if bool(info.get("aff_hit", false)):
+		return ["Harmonie ! " + bonus, true]
+	if bool(info.get("aff_done", false)):
+		return ["Harmonie complète : " + bonus, true]
+	return ["Harmonie %d/%d → %s" % [mini(int(info.get("aff_next", 0)), goal), goal, bonus], false]
+
+
 ## Contenu de la bulle ; really = false : mesure seulement. Renvoie la hauteur occupée.
+## Pouvoir : titre, pastilles d'effet (avant → après pour une amélioration), déclencheur (pictogramme et 1-2 mots)
+## suivi d'une phrase courte, puis harmonie et synergie en une ligne chacune. Sanctuaire : le texte du pacte.
 func _bubble_body(box: Rect2, info: Dictionary, id: String, u: float, a: float, really: bool) -> float:
 	var rank := int(info.get("rarity_rank", -1))
 	var pad := 14.0 * u
@@ -2113,86 +2230,65 @@ func _bubble_body(box: Rect2, info: Dictionary, id: String, u: float, a: float, 
 			if not bool(info.get("is_new", true)):
 				tcol = UP_COL.lightened(0.15) if nite else UP_COL.darkened(0.25)
 			draw_string(_ui, Vector2(box.end.x - pad - tag_w, y), tag, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(tcol, a))
-	if rank >= 0:
-		# déclencheur : la figure (ou le pictogramme) et la phrase complète
-		y += 9.0 * u
-		var when := _p(String(info.get("when", "")))
-		var fig := UiKit.trigger_figure(id)
-		var chip_w := minf(_ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 34.0 * u, tw)
-		var chip := Rect2(Vector2(x, y), Vector2(chip_w, 22.0 * u))
-		if really:
-			draw_style_box(UiKit.box(_sb, Color(ink, a), 999), chip)
-			var ic := Vector2(chip.position.x + 12.0 * u, chip.get_center().y)
-			if fig != "":
-				UiKit.figure(self, fig, ic, 8.0 * u, a)
-			else:
-				UiKit.trigger_icon(self, id, ic, 6.5 * u, Toon.ui_wash, ink, a)
-			draw_string(_ui, Vector2(chip.position.x + 25.0 * u, chip.get_center().y + float(cap) * 0.36), when, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(Toon.ui_wash, a))
-		y = chip.end.y
-	# ce que ça fait, en une ou deux phrases
-	var body := _wrap(_ui, _p(String(info.get("text", ""))), bfs, tw)
-	var lh := float(bfs) * 1.3
-	y += 2.0 * u
-	for k in mini(body.size(), 3):
-		y += lh
-		if really:
-			draw_string(_ui, Vector2(x, y), body[k], HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(ink, 0.85 * a))
 	if rank < 0:
+		# sanctuaire : le pacte en une ou deux phrases
+		var body := _wrap(_ui, _p(String(info.get("text", ""))), bfs, tw)
+		var lh := float(bfs) * 1.3
+		y += 2.0 * u
+		for k in mini(body.size(), 3):
+			y += lh
+			if really:
+				draw_string(_ui, Vector2(x, y), body[k], HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(ink, 0.85 * a))
 		return y - box.position.y + pad * 0.9
-	# valeurs : une rangée par valeur, libellé et chiffre (avant → après pour une amélioration)
-	var stat := _p(String(info.get("stat", "")))
-	if stat != "":
-		y += 6.0 * u
-		var rows := _stat_rows(stat)
-		for k in mini(rows.size(), 3):
-			var row: Array = rows[k]
-			var rr := Rect2(Vector2(x - 4.0 * u, y), Vector2(tw + 8.0 * u, 21.0 * u))
-			if really:
-				draw_style_box(UiKit.box(_sb, Color(col, 0.1 * a), int(6 * u)), rr)
-				var cy := rr.get_center().y
-				UiKit.glyph(self, UiKit.stat_icon(String(row[0]) + " " + String(row[1])), Vector2(x + 7.0 * u, cy), 6.0 * u, accent, Toon.ui_paper, a)
-				var lx := x + 20.0 * u
-				var lab := String(row[0])
-				if lab != "":
-					draw_string(_ui, Vector2(lx, cy + float(cap) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, cap, Color(ink, 0.65 * a))
-					lx += _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 10.0 * u
-				_bold_fit(String(row[1]), Vector2(lx, cy + float(bfs) * 0.36), box.end.x - pad - lx, bfs, Color(accent, a))
-			y = rr.end.y + 3.0 * u
-	# bonus d'élément : où tu en es, ce que ça donne
-	var goal := int(info.get("aff_goal", 0))
+	# l'effet en pastilles, côte à côte
+	y += 10.0 * u
+	var icol: Color = col.lightened(0.25) if nite else col
+	y = _bubble_fx(_fx_of(id, info), x - 2.0 * u, y, tw + 4.0 * u, u, ink, accent, icol, Color(icol, 0.1), Toon.ui_paper.lerp(icol, 0.1), a, really)
+	# déclencheur (pictogramme et 1-2 mots), puis une phrase courte à côté
+	y += 8.0 * u
+	var when := UiKit.fx_when(id)
+	var fig := UiKit.trigger_figure(id)
+	var chip_w := minf(_ui.get_string_size(when, HORIZONTAL_ALIGNMENT_LEFT, -1, cap).x + 34.0 * u, tw * 0.45)
+	var chip := Rect2(Vector2(x, y), Vector2(chip_w, 22.0 * u))
+	if really:
+		draw_style_box(UiKit.box(_sb, Color(ink, a), 999), chip)
+		var ic := Vector2(chip.position.x + 12.0 * u, chip.get_center().y)
+		if fig != "":
+			UiKit.figure(self, fig, ic, 8.0 * u, a)
+		else:
+			UiKit.trigger_icon(self, id, ic, 6.5 * u, Toon.ui_wash, ink, a)
+		_line_fit(when, Vector2(chip.position.x + 25.0 * u, chip.get_center().y + float(cap) * 0.36), chip.size.x - 31.0 * u, cap, Color(Toon.ui_wash, a))
+	var lx := chip.end.x + 9.0 * u
+	var lines := _wrap(_ui, UiKit.fx_line(id), bfs, box.end.x - pad - lx)
+	var nl := mini(lines.size(), 2)
+	var llh := float(bfs) * 1.2
+	var by := chip.get_center().y + float(bfs) * 0.36 - llh * 0.5 * float(maxi(nl - 1, 0))
+	if really:
+		for k in nl:
+			_line_fit(lines[k], Vector2(lx, by + float(k) * llh), box.end.x - pad - lx, bfs, Color(ink, 0.8 * a))
+	y = maxf(chip.end.y, by + float(maxi(nl - 1, 0)) * llh + float(bfs) * 0.3)
+	# harmonie (bonus d'élément) : une ligne, pastille de l'élément
 	var school := String(info.get("school", ""))
-	if goal > 0:
-		var at := _p(String(info.get("aff_text", "")))
-		var sname := String(info.get("school_name", ""))
-		var line := ""
-		var on := false
-		if bool(info.get("aff_hit", false)):
-			line = "Bonus d'élément %s activé : %s" % [sname, at]
-			on = true
-		elif bool(info.get("aff_done", false)):
-			line = "Élément %s au complet : %s" % [sname, at]
-			on = true
-		elif at != "":
-			line = "Bonus d'élément %s : %d/%d pouvoirs → %s" % [sname, mini(int(info.get("aff_next", 0)), goal), goal, at]
-		if line != "":
-			y += 18.0 * u
-			if really:
-				var scol := UiKit.school_color(school)
-				draw_circle(Vector2(x + 7.0 * u, y - 4.0 * u), 7.0 * u, Color(scol, a))
-				UiKit.school_icon(self, school, Vector2(x + 7.0 * u, y - 4.0 * u), 4.5 * u, Toon.WASHI, a)
-				_line_fit(line, Vector2(x + 20.0 * u, y), tw - 20.0 * u, cap, Color(gold_ink if on else Color(ink, 0.7), a))
+	var hl := _harmony_line(info)
+	if String(hl[0]) != "":
+		y += 18.0 * u
+		if really:
+			var scol := UiKit.school_color(school)
+			draw_circle(Vector2(x + 7.0 * u, y - 4.0 * u), 7.0 * u, Color(scol, a))
+			UiKit.school_icon(self, school, Vector2(x + 7.0 * u, y - 4.0 * u), 4.5 * u, Toon.WASHI, a)
+			_line_fit(String(hl[0]), Vector2(x + 20.0 * u, y), tw - 20.0 * u, cap, Color(gold_ink if bool(hl[1]) else Color(ink, 0.7), a))
 	# synergie : active (partenaire possédé) en or, sinon une piste
 	var syn_line := ""
 	var syn_on := false
 	if school == "fig":
 		if bool(info.get("synergy_on", false)):
-			syn_line = "+ Élément de tes techniques : " + _p(String(info.get("synergy", "")))
+			syn_line = "+ Élément : " + _p(String(info.get("synergy", "")))
 			syn_on = true
 	else:
 		var sy := _syn_of(id)
 		if not sy.is_empty():
 			syn_on = bool(sy[2])
-			syn_line = ("+ Synergie avec %s : %s" if syn_on else "Synergie possible avec %s : %s") % [String(sy[0]), String(sy[1])]
+			syn_line = ("+ Avec %s : %s" if syn_on else "Avec %s : %s") % [String(sy[0]), String(sy[1])]
 	if syn_line != "":
 		y += 17.0 * u
 		if really:
@@ -2249,15 +2345,6 @@ func _line_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> voi
 	while f > 10 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
 		f -= 1
 	draw_string(_ui, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
-
-
-## Valeur en gras (deux passes décalées), rétrécie si elle déborde.
-func _bold_fit(txt: String, pos: Vector2, maxw: float, fs: int, c: Color) -> void:
-	var f := fs
-	while f > 10 and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x + 1.0 > maxw:
-		f -= 1
-	draw_string(_ui, pos, txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
-	draw_string(_ui, pos + Vector2(0.7, 0), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f, c)
 
 
 ## Reflet en biais qui traverse la carte une seule fois (ph 0 -> 1), doux aux bords ; core : filet vif au milieu.

@@ -35,6 +35,8 @@ func run() -> void:
 		await _recover()
 	if not await _step_wardrobe():
 		await _recover()
+	if not await _step_bestiary():
+		await _recover()
 	if not await _step_dojo():
 		await _recover()
 	for w in range(1, Worlds.WORLDS.size() + 1):
@@ -167,6 +169,8 @@ func _recover() -> void:
 	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker, main.wardrobe]:
 		c.visible = false
 	main._wardrobe_on = false
+	if main.bestiary != null and bool(main.bestiary.visible):
+		main.bestiary.close()
 	main.tuto.abort_dojo()
 	main.tuto.visible = false
 	main.coach.clear()
@@ -682,6 +686,44 @@ func _step_wardrobe() -> bool:
 	return true
 
 
+# ------------------------------------------------------------------ bestiaire
+
+## Bestiaire : ouvert depuis l'accueil, la liste défile au doigt, la fiche de l'oni s'ouvre et se referme,
+## une fiche inconnue reste fermée, puis la maison ramène à l'accueil.
+func _step_bestiary() -> bool:
+	var bs = main.bestiary
+	if bs == null:
+		return true
+	main.meta.see_kind("oni", 1)
+	await _press(main.menu._bestiary, "BESTIAIRE")
+	if not await _until(func(): return bool(bs.visible) and float(bs._t) >= 0.4 and bs._cards.size() > 0, "BESTIAIRE ouvre le bestiaire"):
+		return false
+	_ok("bestiaire ouvert (%d fiches, %d vues)" % [bs._cards.size(), int(bs._found)])
+	var vr: Rect2 = bs._view
+	await _drag(bs, vr.get_center() + Vector2(0, vr.size.y * 0.3), vr.get_center() - Vector2(0, vr.size.y * 0.3))
+	_check(float(bs._scroll) > 0.0, "bestiaire : la liste défile au doigt", "défilement %.1f" % float(bs._scroll))
+	bs.reset_scroll()
+	await _frames(3)
+	var r: Rect2 = bs.card_rect("oni")
+	if not _check(r.has_area(), "bestiaire : fiche de l'oni à l'écran", "fiche introuvable"):
+		return false
+	_tap(bs, r.get_center())
+	await _frames(3)
+	if not _check(String(bs._detail) == "oni", "bestiaire : fiche de l'oni ouverte", "fiche « %s »" % String(bs._detail)):
+		return false
+	await _frames(10)
+	var cr: Rect2 = bs._close_rect
+	_tap(bs, cr.get_center())
+	await _frames(2)
+	if not _check(String(bs._detail) == "", "bestiaire : fiche refermée", "fiche « %s » encore ouverte" % String(bs._detail)):
+		return false
+	await _press(bs._back, "RETOUR")
+	if not await _until(func(): return not bool(bs.visible) and String(main.state) == "menu" and bool(main.menu.visible), "bestiaire : RETOUR -> accueil"):
+		return false
+	_ok("bestiaire : RETOUR")
+	return true
+
+
 # ------------------------------------------------------------------ dojo
 
 ## Dojo : entrée depuis l'accueil, quelques figures et traits ratés (verdict), un trait à travers trois
@@ -831,7 +873,11 @@ func _home_pick(w: int) -> bool:
 		# glissé vers la gauche sur le paysage : monde suivant
 		var s0 := int(main._home_sel)
 		var msz: Vector2 = mn.size
-		var c := Vector2(msz.x / 2.0, msz.y * 0.45)
+		# point du glissé : au milieu de la zone de paysage (sous les icônes du haut, au-dessus du sélecteur)
+		var uu := msz.x / 400.0
+		var ztop: float = float(mn.call("_top_y", uu)) + 60.0 * uu
+		var sr: Rect2 = mn.call("_sel_rect", msz.x, msz.y, uu)
+		var c := Vector2(msz.x / 2.0, (ztop + sr.position.y) / 2.0)
 		_swipe(mn, c, c + Vector2(-140.0 * msz.x / 400.0, 0.0))
 		await _frame()
 		_check(int(main._home_sel) == s0 % Worlds.WORLDS.size() + 1, "accueil : glissé -> monde suivant", "choisi %d (avant %d)" % [int(main._home_sel), s0])

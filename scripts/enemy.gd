@@ -36,7 +36,11 @@ extends Node3D
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
+const NinjaRig = preload("res://scripts/ninja_rig.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
+## Vrai : le clan des ninjas (NINJA_KINDS) prend le ninja procédural (ninja_rig.gd) à leur palette ;
+## faux : rōdeur KayKit habillé (yokai_parts).
+const NINJA_ENEMIES_RIG := true
 const ROGUE = preload("res://assets/kaykit/Rogue_Hooded.glb")  # (aussi le héros : chargé au démarrage)
 # squelettes : pas préchargés (démarrage plus court), lus en arrière-plan pendant l'accueil (request_models)
 const MINION_PATH := "res://assets/kaykit/Skeleton_Minion.glb"
@@ -256,6 +260,7 @@ var _selfkill := false  # explosion volontaire, leurre dissipé : pas de butin
 var _h := 1.7  # hauteur du modèle
 var _rogue := false
 var _custom := false  # corps modelé (pas de squelette KayKit)
+var _rig := false  # ninja procédural (NinjaRig) au lieu du rōdeur KayKit
 var _scale_in := 0.0  # apparition par mise à l'échelle (durée)
 var _base_hp := 1.0
 var _summons: Array = []  # invocations (peuvent être libérées : jamais typées)
@@ -316,7 +321,11 @@ func _ready() -> void:
 	_t = randf() * 10.0
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
+	_rig = NINJA_ENEMIES_RIG and kind in NINJA_KINDS
+	if _rig:
+		ch = NinjaRig.new()
+	else:
+		ch = Character.new()
 	body.add_child(ch)
 	_deco = Node3D.new()
 	body.add_child(_deco)
@@ -438,7 +447,7 @@ func _ready() -> void:
 			_timer = randf_range(2.0, 3.0)
 		_:
 			_setup_extra()
-	if not _custom:
+	if not _custom and not _rig:
 		_dress()
 	# rythme un peu plus posé : marche -10 %, annonces des coups +15 %
 	speed *= 0.9
@@ -755,8 +764,11 @@ func _setup_extra() -> void:
 			_walk = "Walking_A"
 			_h = 1.7
 			_rogue = true
-			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_indigo.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
-			_tint(Color("#9AA2C8"), 1.0)
+			if _rig:
+				ch.setup(NinjaRig.enemy_config(kind), _h)
+			else:
+				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_indigo.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				_tint(Color("#9AA2C8"), 1.0)
 			_timer = randf_range(0.8, 1.4)
 		"shuriken":
 			# lanceur de shuriken : garde d'encre grise, bandoulière d'étoiles, une étoile en main
@@ -766,8 +778,11 @@ func _setup_extra() -> void:
 			_walk = "Walking_A"
 			_h = 1.6
 			_rogue = true
-			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_ink.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
-			_tint(Color("#A8B0C0"), 1.0)
+			if _rig:
+				ch.setup(NinjaRig.enemy_config(kind), _h)
+			else:
+				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_ink.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				_tint(Color("#A8B0C0"), 1.0)
 			_timer = randf_range(1.6, 2.4)
 		"kemuri":
 			# ninja des fumées : garde glycine sombre, bombes à la ceinture
@@ -777,8 +792,11 @@ func _setup_extra() -> void:
 			_walk = "Walking_B"
 			_h = 1.65
 			_rogue = true
-			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_glycine.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
-			_tint(Color("#9A90B0"), 1.0)
+			if _rig:
+				ch.setup(NinjaRig.enemy_config(kind), _h)
+			else:
+				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_glycine.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				_tint(Color("#9A90B0"), 1.0)
 			_timer = randf_range(1.8, 2.6)
 		"kunoichi":
 			# kunoichi : garde sakura sombre, queue de cheval, kusarigama
@@ -788,8 +806,11 @@ func _setup_extra() -> void:
 			_walk = "Walking_B"
 			_h = 1.65
 			_rogue = true
-			ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_sakura.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
-			_tint(Color("#D88A8A"), 1.0)
+			if _rig:
+				ch.setup(NinjaRig.enemy_config(kind), _h)
+			else:
+				ch.setup(ROGUE, _h, [["", load("res://assets/kaykit/tex/rogue_sakura.png")]], ROGUE_GEAR.duplicate(), Toon.GOLD)
+				_tint(Color("#D88A8A"), 1.0)
 			_timer = randf_range(1.4, 2.2)
 		"gokusotsu":
 			# gokusotsu : geôlier des enfers à tête de bœuf (gozu), chaîne de fer ; armure de départ

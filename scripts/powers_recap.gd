@@ -434,7 +434,7 @@ func _draw_list() -> void:
 	# bonus d'école
 	var sy := _sec_y + oy
 	# titre de section commun (sceau 流 : l'école, trait de pinceau, shuriken), puis la règle en légende
-	UiKit.section(_list, _ui, UiKit.plain("BONUS D'ÉCOLE"), 6.0 * u, W - 6.0 * u, sy + 18.0 * u, u, Toon.ui_ink, 1.0, "流")
+	UiKit.section(_list, _ui, UiKit.plain("HARMONIES"), 6.0 * u, W - 6.0 * u, sy + 18.0 * u, u, Toon.ui_ink, 1.0, "流")
 	UiKit.text(_list, _ui, "2 ou 4 pouvoirs d'une école : un bonus", Vector2(W / 2.0, sy + 38 * u), int(UiKit.FS_CAPTION * u), Color(Toon.ui_ink, UiKit.A_CAPTION))
 	for k in _school_c.size():
 		var c: Vector2 = _school_c[k]
@@ -626,16 +626,18 @@ func _bubble(key: int, pos: Vector2, bw: float, paint: bool, a: float) -> float:
 	var x := pos.x + pad
 	var tw := bw - pad * 2.0
 	var y := pos.y + pad
-	# déclencheur : pictogramme et « quand » en clair
+	# déclencheur : pictogramme (sceau de la figure) et 1-2 mots
 	var chip := 20.0 * u
 	if paint:
 		var tc := Vector2(x + chip * 0.5, y + chip * 0.5)
-		var tcol: Color = GOLD_HI if leg else Toon.VERMILION
-		_list.draw_circle(tc, chip * 0.5, Color(tcol, a))
-		UiKit.trigger_icon(_list, id, tc, 6.2 * u, BUB_BODY if leg else Toon.WASHI, tcol, a)
-		var when := _p(String(info.get("when", "")))
-		if when != "":
-			_fit(when, Vector2(x + chip + 7.0 * u, tc.y + 4.0 * u), tw - chip - 7.0 * u, int(11 * u), Color(Toon.WASHI, 0.92 * a))
+		var fig := UiKit.trigger_figure(id)
+		if fig != "":
+			UiKit.figure(_list, fig, tc, chip * 0.42, a)
+		else:
+			var tcol: Color = GOLD_HI if leg else Toon.VERMILION
+			_list.draw_circle(tc, chip * 0.5, Color(tcol, a))
+			UiKit.trigger_icon(_list, id, tc, 6.2 * u, BUB_BODY if leg else Toon.WASHI, tcol, a)
+		_fit(UiKit.fx_when(id), Vector2(x + chip + 7.0 * u, tc.y + 4.0 * u), tw - chip - 7.0 * u, int(11 * u), Color(Toon.WASHI, 0.92 * a))
 	y += chip + 4.0 * u
 	# nom japonais et sous-titre
 	var nfs := int(15 * u)
@@ -658,13 +660,12 @@ func _bubble(key: int, pos: Vector2, bw: float, paint: bool, a: float) -> float:
 		else:
 			tag += "  ·  UNIQUE"
 		_fit(tag, Vector2(x, y), tw, int(8.5 * u), Color(GOLD_HI if leg else rc.lightened(0.35), a))
-	y += 2.0 * u
-	# effet en clair
-	y = _lines(_p(String(info.get("text", ""))), x, y, tw, int(11 * u), 14.5 * u, 5, Color(Toon.WASHI, 0.85 * a), paint, false)
-	# valeur actuelle
-	var stat := _p(String(info.get("stat", "")))
-	if stat != "":
-		y = _lines(stat, x, y + 4.0 * u, tw, int(12 * u), 16.0 * u, 2, Color(STAT_TXT, a), paint, true)
+	# l'effet au niveau actuel en pastilles (pictogramme, chiffre, libellé), puis une phrase courte
+	var rows: Array = info.get("fx", [])
+	if rows.is_empty():
+		rows = UiKit.fx_rows(id, 0, int(info.get("level", 1)))
+	y = _fx_chips(rows, x, y + 8.0 * u, tw, UiKit.power_color(id).lerp(Toon.WASHI, 0.4), paint, a)
+	y = _lines(UiKit.fx_line(id), x, y + 1.0 * u, tw, int(11 * u), 14.5 * u, 2, Color(Toon.WASHI, 0.8 * a), paint, false)
 	# synergie active
 	var syn := _p(String(info.get("synergy", "")))
 	if syn != "":
@@ -724,6 +725,64 @@ func _bubble_school(k: int, pos: Vector2, bw: float, paint: bool, a: float) -> f
 		var note := UiKit.power_label("ink_rakkan") + " : +1 dans chaque école commencée."
 		y = _lines(note, x, y + 2.0 * u, tw, int(9 * u), 13.0 * u, 2, Color(Toon.WASHI, 0.5 * a), paint, false)
 	return y - pos.y + pad * 0.8
+
+
+## Pastilles d'effet côte à côte (jusqu'à 3) sur la bulle d'encre : pictogramme et chiffre (en gras, « avant → »
+## plus petit), libellé dessous. Renvoie le bas de la rangée ; ne dessine que si `paint`.
+func _fx_chips(rows: Array, x: float, y: float, tw: float, icol: Color, paint: bool, a: float) -> float:
+	var n := mini(rows.size(), 3)
+	if n == 0:
+		return y
+	var u := _u
+	var gap := 6.0 * u
+	var cwd := (tw - gap * float(n - 1)) / float(n)
+	var vfs0 := maxi(10, int(15.0 * u))
+	var lfs0 := maxi(8, int(10.0 * u))
+	var hh := float(vfs0) + float(lfs0) + 9.0 * u
+	if not paint:
+		return y + hh
+	var ir := 6.0 * u
+	for k in n:
+		var rw: Array = rows[k]
+		var v := String(rw[1])
+		var lab := String(rw[2])
+		if v == "":
+			v = lab
+			lab = ""
+		var r := Rect2(Vector2(x + float(k) * (cwd + gap), y), Vector2(cwd, hh))
+		_list.draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, 0.07 * a), int(6 * u)), r)
+		# chiffre : « avant → » plus petit et pâle, la valeur en gras ; rétréci s'il déborde
+		var head := ""
+		var tail := v
+		var arrow := v.find(" → ")
+		if arrow >= 0:
+			head = v.substr(0, arrow + 3)
+			tail = v.substr(arrow + 3)
+		var vfs := vfs0
+		var room := cwd - 2.0 * ir - 12.0 * u
+		var hw := 0.0
+		var vw := 0.0
+		while true:
+			var sfs := maxi(7, int(float(vfs) * 0.72))
+			hw = _ui.get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x if head != "" else 0.0
+			vw = hw + _ui.get_string_size(tail, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs).x
+			if vw <= room or vfs <= 8:
+				break
+			vfs -= 1
+		var cy := r.position.y + 4.0 * u + float(vfs0) * 0.5
+		var x0 := r.get_center().x - (2.0 * ir + 4.0 * u + vw) / 2.0
+		UiKit.glyph(_list, String(rw[0]), Vector2(x0 + ir, cy), ir, icol, BUB_BODY, a)
+		var vx := x0 + 2.0 * ir + 4.0 * u
+		if head != "":
+			_list.draw_string(_ui, Vector2(vx, cy + float(vfs) * 0.36), head, HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(7, int(float(vfs) * 0.72)), Color(Toon.WASHI, 0.55 * a))
+		_list.draw_string(_ui, Vector2(vx + hw, cy + float(vfs) * 0.36), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(STAT_TXT, a))
+		_list.draw_string(_ui, Vector2(vx + hw + 0.7, cy + float(vfs) * 0.36), tail, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(STAT_TXT, a))
+		if lab != "":
+			var lf := lfs0
+			while lf > 7 and _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lf).x > cwd - 8.0 * u:
+				lf -= 1
+			UiKit.text(_list, _ui, lab, Vector2(r.get_center().x, r.position.y + 5.0 * u + float(vfs0) + float(lfs0) * 0.8), lf, Color(Toon.WASHI, 0.62 * a))
+	return y + hh
 
 
 # ------------------------------------------------------------------ texte

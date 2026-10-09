@@ -98,11 +98,38 @@ const BRIDGE_W := 2.7  # un rectangle plus étroit que ça est une passerelle (p
 const WOOD := [Color("#8E6B3E"), Color("#A88452"), Color("#7A5A34")]
 const MIN_AREA := 70.0  # surface jouable minimale d'une forme (m²)
 
-# hub de départ, un chemin d'un seul tenant du bas (arrivée) au torii (haut) : place d'arrivée (0), allée
-# centrale (1), dojo accolé à l'allée (2), jardinet en face (3), sanctuaire du torii (4) ; ni vide ni pont
-const HUB_RECTS := [Rect2(-3.4, 2.4, 6.8, 6.2), Rect2(-1.6, -6.0, 3.2, 9.0), Rect2(-4.6, -3.6, 4.4, 6.2),
-	Rect2(1.0, -1.0, 3.6, 3.6), Rect2(-2.6, -8.6, 5.2, 3.2)]
-const HUB_DOJO := 2
+# sanctuaire de départ, un par monde : un chemin d'un seul tenant du bas (arrivée, où le héros pose le pied)
+# au torii (haut), sans vide au milieu ; l'eau du monde de part et d'autre (pas de fosse) et le décor
+# d'arrivée posé dedans (Worlds.build_hub). Ordre : arrivée, parvis du torii, puis allée et paliers ; tous
+# les morceaux chevauchent l'allée centrale (au moins x ∈ [-1.1, 1.1] de bout en bout : un trait droit
+# du départ au torii reste sur la terre ferme). Un rectangle plus étroit que BRIDGE_W est une passerelle.
+const HUBS := {
+	# quai du port, ponton de planches, embarcadère à mi-chemin, tête de ponton du torii
+	1: [Rect2(-3.4, 3.4, 6.8, 5.2), Rect2(-2.6, -8.6, 5.2, 3.6), Rect2(-1.2, -6.0, 2.4, 9.8), Rect2(-3.2, -1.4, 6.4, 2.8)],
+	# allée de pierre de la bambouseraie, deux alcôves décalées (petits sanctuaires des vœux)
+	2: [Rect2(-3.2, 3.6, 6.4, 5.0), Rect2(-2.6, -8.6, 5.2, 3.0), Rect2(-1.5, -7.2, 3.0, 11.2),
+		Rect2(-3.8, -2.8, 3.0, 2.8), Rect2(0.8, 0.4, 3.0, 2.8)],
+	# allée enneigée coupée d'un pont de planches au-dessus de l'eau gelée, parvis du sanctuaire
+	3: [Rect2(-3.4, 3.4, 6.8, 5.2), Rect2(-3.0, -8.6, 6.0, 3.4), Rect2(-1.4, -7.0, 2.8, 4.6),
+		Rect2(-1.1, -2.8, 2.2, 3.0), Rect2(-1.4, -0.2, 2.8, 4.0)],
+	# escalier de basalte en zigzag : volées droites, paliers alternés à gauche puis à droite
+	4: [Rect2(-3.4, 3.8, 6.8, 4.8), Rect2(-2.8, -8.6, 5.6, 3.2), Rect2(-1.4, -7.0, 2.8, 11.2),
+		Rect2(-3.6, 0.0, 5.0, 2.8), Rect2(-1.4, -4.4, 5.0, 2.8)],
+	# porte, grande cour de papier, véranda du pavillon jusqu'au torii
+	5: [Rect2(-2.6, 4.4, 5.2, 4.2), Rect2(-2.2, -8.6, 4.4, 5.6), Rect2(-3.0, -3.4, 6.0, 8.2)],
+	# escalier de pierre de Kurama entre les cèdres, palier de repos à mi-pente
+	6: [Rect2(-3.2, 4.0, 6.4, 4.6), Rect2(-2.6, -8.6, 5.2, 3.2), Rect2(-1.5, -7.2, 3.0, 11.6), Rect2(-3.0, -2.0, 6.0, 2.8)],
+	# porte de corail du palais, allée laquée, cour des récifs
+	7: [Rect2(-3.2, 3.8, 6.4, 4.8), Rect2(-2.8, -8.6, 5.6, 3.4), Rect2(-1.4, -7.0, 2.8, 11.2), Rect2(-3.4, -3.0, 6.8, 3.2)],
+	# allée de cendre sous les torii noirs de Yomi, palier des lanternes
+	8: [Rect2(-3.0, 4.0, 6.0, 4.6), Rect2(-2.6, -8.6, 5.2, 3.0), Rect2(-1.5, -7.4, 3.0, 11.8), Rect2(-2.8, -1.6, 5.6, 2.8)],
+}
+# marches peintes du sanctuaire (Vector3(x0, x1, z), comme les terrasses des étapes ; volées de trois à Kurama)
+const HUB_STEPS := {
+	4: [Vector3(-1.4, 1.4, 3.3), Vector3(-1.4, 1.4, -0.8), Vector3(-1.4, 1.4, -4.9)],
+	6: [Vector3(-1.5, 1.5, 1.4), Vector3(-1.5, 1.5, 2.8), Vector3(-1.5, 1.5, -4.8), Vector3(-1.5, 1.5, -3.4)],
+}
+const SHORE_KEYS := ["shore_b", "shore_c", "shore_d", "shore_e", "shore_f"]  # rectangles d'écume en plus (water.gdshader)
 
 # étapes (expéditions) : plusieurs tronçons de la taille d'une salle, empilés vers le fond (z négatif)
 const CHUNK_L := 17.2  # profondeur d'un tronçon (= HALF.y * 2)
@@ -128,8 +155,6 @@ var _pending_us := 0  # temps passé sur le décor différé de l'étape (mesure
 var _pending_max := 0
 var _pit_states: Array = []
 var _stage_seed := 0
-var hub_training_center := Vector3(-2.0, 0, -1.1)
-var hub_training_radius := 2.0
 var pieces: Array = []  # sol découpé sans recouvrement : [Rect2, passerelle ?]
 var bridges: Array = []  # morceaux de passerelle au-dessus du vide (Rect2)
 var layout := "full"
@@ -254,15 +279,24 @@ func follow_camera(dz: float) -> void:
 ## Cadre de l'arène (ou de l'étape) transmis à l'eau : l'écume lèche le pied des plateformes.
 ## À l'accueil (barque en pleine mer), pas de cadre : on rejette le rectangle très loin.
 var shore_hidden := false
+var _shore_extra: Array = []  # sanctuaire : l'écume suit ses morceaux de chemin (au plus SHORE_KEYS.size())
 
 
 func _push_shore() -> void:
 	if _void_mat == null:
 		return
-	if shore_hidden:
-		_void_mat.set_shader_parameter("shore_rect", Vector4(9000.0, 9000.0, 9001.0, 9001.0))
-		return
-	_void_mat.set_shader_parameter("shore_rect", Vector4(stage_rect.position.x, stage_rect.position.y, stage_rect.end.x, stage_rect.end.y))
+	var far := Vector4(9000.0, 9000.0, 9001.0, 9001.0)
+	var extra: Array = [] if shore_hidden else _shore_extra
+	if shore_hidden or not extra.is_empty():
+		_void_mat.set_shader_parameter("shore_rect", far)
+	else:
+		_void_mat.set_shader_parameter("shore_rect", Vector4(stage_rect.position.x, stage_rect.position.y, stage_rect.end.x, stage_rect.end.y))
+	for i in SHORE_KEYS.size():
+		var v := far
+		if i < extra.size():
+			var r: Rect2 = extra[i]
+			v = Vector4(r.position.x, r.position.y, r.end.x, r.end.y)
+		_void_mat.set_shader_parameter(String(SHORE_KEYS[i]), v)
 
 
 func hide_shore(on: bool) -> void:
@@ -303,6 +337,7 @@ func _clear_room() -> void:
 	set_pieces = []
 	_steps = []
 	_gaps = []
+	_shore_extra = []
 
 
 ## Salle unique : cadre classique autour de l'origine (boss, hub, tutoriel).
@@ -1269,8 +1304,9 @@ func join_center(j: int) -> Vector3:
 	return Vector3((best.x + best.y) / 2.0, 0, -HALF.y - float(j) * CHUNK_L)
 
 
-## Le hub de départ : grande place, dojo d'entraînement (cercle de sable) à gauche,
-## passerelle vers le sanctuaire du torii en haut. Le torii reste fermé (open_gate() côté main).
+## Le sanctuaire de départ du monde (HUBS) : le héros pose le pied sur l'arrivée, en bas, et remonte le
+## chemin jusqu'au torii, en haut. Pas de fosse : l'eau du monde de part et d'autre, l'écume au pied du
+## chemin, le décor d'arrivée du monde posé dans l'eau (Worlds.build_hub). Torii ouvert côté main.
 func build_hub(rng_seed: int) -> void:
 	_clear_room()
 	var rng := RandomNumberGenerator.new()
@@ -1279,17 +1315,31 @@ func build_hub(rng_seed: int) -> void:
 	mirrored = false
 	_used.clear()
 	_last = ""
-	rects = []
-	for r in HUB_RECTS:
-		rects.append(r)
+	var shape: Array = HUBS.get(world_id, HUBS[1])
+	rects = shape.duplicate()
 	floor_rects = rects
-	var dojo: Rect2 = HUB_RECTS[HUB_DOJO]
-	hub_training_center = Vector3(dojo.get_center().x, 0, dojo.get_center().y + 0.2)
-	hub_training_radius = minf(dojo.size.x, dojo.size.y) * 0.5 - 0.55
+	var steps: Array = HUB_STEPS.get(world_id, [])
+	for s in steps:
+		var sv: Vector3 = s
+		_steps.append(sv)
+	_shore_extra = rects.slice(0, SHORE_KEYS.size())
 	_single_frame()
 	var w: Dictionary = Worlds.world(world_id)
-	_finish_room(w, rng, rng_seed)
-	_build_dojo()
+	_build_floor(w, rng)
+	_flush_tiles()
+	# départ au bas de l'arrivée (face au torii), torii au haut du parvis
+	var ends: Array = _ends(floor_rects)
+	start = ends[0]
+	gate_pos = ends[1]
+	var high: Rect2 = ends[3]
+	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
+	# décor du monde hors du cadre (comme une salle), puis le décor d'arrivée dans l'eau du sanctuaire :
+	# rendu allégé, une seule lumière ponctuelle en tout
+	var lights: int = 1 if Toon.lite else Worlds.MAX_LIGHTS - 1
+	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights)
+	Worlds.build_hub(world_id, _room_root, floor_rects, rng_seed, not Toon.lite)
+	_pits = {}
+	_build_gate(w)
 
 
 ## Sol, décor, départ et torii pour les `rects` courants.
@@ -1310,38 +1360,6 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> v
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
 	_pits = Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed)
 	_build_gate(w)
-
-
-## Dojo du hub : cercle de sable cerné d'encre, deux poteaux et une corde sacrée au nord.
-func _build_dojo() -> void:
-	var c := hub_training_center
-	var rad := hub_training_radius
-	# au-dessus des dalles et des bosses de neige (sommet ~0.04)
-	_flat_disc(c, rad + 0.18, Toon.SUMI, 0.05)
-	_flat_disc(c, rad, Color("#E3CC98"), 0.058)
-	# râteau zen : sillons concentriques (du plus grand au plus petit, chacun un peu plus haut)
-	for k in 3:
-		var rr := rad * (0.78 - 0.22 * k)
-		_flat_disc(c, rr + 0.05, Color("#C9AD74"), 0.066 + 0.016 * k)
-		_flat_disc(c, rr, Color("#E3CC98"), 0.074 + 0.016 * k)
-	var wood := Toon.mat(Color("#6B4A2B"))
-	var top_y := 1.15
-	var pa := Vector3(c.x - 1.3, 0, c.z - rad - 0.25)
-	var pb := Vector3(c.x + 1.3, 0, c.z - rad - 0.25)
-	for p in [pa, pb]:
-		var pp: Vector3 = p
-		Toon.part(_room_root, Toon.cyl(0.09, 0.11, top_y + 0.1, 8), wood, pp + Vector3(0, (top_y + 0.1) / 2.0, 0))
-	var bs := {}
-	var bn := {}
-	Decor.shimenawa_into(bs, bn, pa + Vector3(0, top_y - 0.1, 0), pb + Vector3(0, top_y - 0.1, 0))
-	Decor._flush(bs, _room_root, true)
-	Decor._flush(bn, _room_root, false)
-
-
-func _flat_disc(c: Vector3, r: float, col: Color, y: float) -> void:
-	var m := _shared_mat(col, true)
-	var d := Toon.part(_room_root, Toon.cyl(r, r, 0.004, 40), m, Vector3(c.x, y, c.z))
-	d.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 ## Choisit la forme de la salle : pleine pour les boss, facile mais en relief pour la salle 1,
@@ -3525,7 +3543,24 @@ static func check_layouts() -> Array:
 	var sets := {}
 	for k in LAYOUTS.keys():
 		sets[String(k)] = LAYOUTS[k]
-	sets["hub"] = HUB_RECTS
+	for wid in range(1, Worlds.WORLDS.size() + 1):
+		if not HUBS.has(wid):
+			fails.append("sanctuaire du monde %d manquant" % wid)
+			continue
+		var hr: Array = HUBS[wid]
+		sets["hub%d" % wid] = hr
+		if hr.size() > SHORE_KEYS.size():
+			fails.append("sanctuaire du monde %d : trop de morceaux pour l'écume" % wid)
+		# chemin droit du départ au torii sur la terre ferme (robot, trait tracé tout droit)
+		var he: Array = _ends(hr)
+		var hs: Vector3 = he[0]
+		var hg: Vector3 = he[1]
+		var nseg := 40
+		for i in nseg + 1:
+			var q: Vector3 = hs.lerp(hg, float(i) / nseg)
+			if not _walk_r(hr, Vector2(q.x, q.z), 0.15):
+				fails.append("sanctuaire du monde %d : chemin coupé en %s" % [wid, str(q)])
+				break
 	var box := Rect2(-HALF.x - 0.001, -HALF.y - 0.001, HALF.x * 2.0 + 0.002, HALF.y * 2.0 + 0.002)
 	for key in sets.keys():
 		var tag := String(key)
