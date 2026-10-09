@@ -10,12 +10,31 @@ extends "res://scripts/boss_mini_base.gd"
 ##  Attaques : chaque dieu encore lié appelle la foudre sous le héros (disque r1.0, 1.0 s) à tour de rôle ;
 ##  mains de Yomi (4 disques r0.8 autour du héros, 1.2 s) ; souffle de décomposition (cône 8 m, 1.1 s).
 
-const MAGE = preload("res://assets/kaykit/Skeleton_Mage.glb")
+##  Apparence (direction « Masque d'encre ») : reine d'encre violacée modelée en primitives fusionnées
+##  (Yokai.Mesher, couleurs de sommets) : long kimono d'encre qui s'évase jusqu'au sol, semé de flammes
+##  d'âme lilas, obi violet à seigaiha liseré d'or ; MASQUE DE NŌ DE FEMME FENDU (moitié belle de washi pâle
+##  au sourcil fin et aux lèvres prune, moitié décharnée grise à l'orbite creuse et aux dents d'os, fente sumi
+##  au milieu) ; couronne d'or à pendeloques ; longue chevelure noire ; manches longues et MAINS LONGUES pâles
+##  aux doigts effilés ; TRAÎNE D'ENCRE derrière elle, terminée par des flammes lilas qui s'étirent.
+##  Les huit dieux du tonnerre, les fils et l'ensō (mécanique) ne changent pas.
+
+const Yokai = preload("res://scripts/yokai_parts.gd")
 const Loop = preload("res://scripts/boss_loop.gd")
-const ROBE := Color("#3A3440")
-const HAIR := Color("#0E0C10")
+const INK_IZA := Color("#241A30")  # encre violacée de la reine
+const HAIR := Color("#14101A")
+const CLOTH := Color("#5A3A7A")  # violet des haies (étoffe du monde 8)
+const WAVE := Color("#B9A8E8")  # lilas des âmes
+const SOUL_CORE := Color("#F0E8FF")
+const MASK_IZA := Color("#F4EEF2")  # moitié belle : washi pâle rosé
+const MASK_DEAD := Color("#C9C2C4")  # moitié décharnée : gris de cendre
+const BONE := Color("#D8D2C4")
+const HAND := Color("#E8E0EC")  # mains pâles de morte
+const LIPS := Color("#8A2E4A")  # prune (le vermillon reste aux dangers)
 const BOLT := Color("#C9B8FF")
 const DEAD_GOD := Color("#4A464E")
+const U := 2.1  # échelle du modelé (H_REF 1,75 m -> ~3,7 m)
+const REST_R := Vector3(0.9, 0, 0.5)  # bras au repos : mains tendues en avant, paumes ouvertes
+const REST_L := Vector3(0.9, 0, -0.5)
 const GOD_N := 8
 const GOD_R := 4.0  # rayon de la couronne des dieux
 const THREAD_IN := 1.0  # le fil part à cette distance d'elle (on ne le tranche pas dans son corps)
@@ -28,7 +47,12 @@ const HAND_R := 0.8
 const BREATH_HALF := 0.45
 const BREATH_LEN := 8.0
 
+static var _ink_mat: StandardMaterial3D = null
+
 var _hair: Node3D
+var _head: Node3D
+var _arms: Array = []  # [droit, gauche] (pivots d'épaule)
+var _flames: Array = []  # flammes lilas au bout de la traîne (pivots)
 var _hint: Node3D
 var _gods: Array = []  # {node, orb_mat, thread, angle, cut, fall}
 var _pts: Array = []
@@ -56,54 +80,211 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ construction
 
+## Toon à contour épais (boss) aux couleurs de sommets : un seul matériau pour l'encre, le washi, l'or, l'os.
+static func ink_mat() -> StandardMaterial3D:
+	if _ink_mat == null:
+		_ink_mat = Toon.mat(Color.WHITE, true, 0.04)
+		_ink_mat.vertex_color_use_as_albedo = true
+		_ink_mat.vertex_color_is_srgb = true
+	return _ink_mat
+
+
+## Pièce fusionnée posée sur `parent` : surface toon, et aplat lumineux si `f` n'est pas vide.
+static func piece(parent: Node3D, a: Yokai.Mesher, f: Yokai.Mesher = null) -> MeshInstance3D:
+	var m: ArrayMesh = a.mesh() if f == null else Yokai.two(a, f)
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.set_surface_override_material(0, Yokai.ink_flat_mat() if a.arrays().is_empty() else ink_mat())
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	parent.add_child(mi)
+	return mi
+
+
+## Demi-ellipsoïde (côté +X, ouvert en x = 0) ajouté à `m` comme surface à part (couleurs de sommets, même toon) :
+## la moitié décharnée du masque, posée juste au-dessus de la plaque pâle. Rend l'indice de la surface.
+static func half_surface(m: ArrayMesh, pos: Vector3, radii: Vector3, col: Color, u: float) -> int:
+	var sm := SphereMesh.new()
+	sm.radius = 1.0
+	sm.height = 1.0
+	sm.is_hemisphere = true
+	sm.radial_segments = 10
+	sm.rings = 5
+	var src := sm.get_mesh_arrays()
+	# l'hémisphère pointe vers +Y : tourné vers +X (son Y devient X, son X devient -Y)
+	var b := Basis.from_euler(Vector3(0, 0, -PI / 2.0)) * Basis.from_scale(Vector3(radii.y, radii.x, radii.z))
+	var nb := b.inverse().transposed()
+	var xf := Transform3D(b.scaled(Vector3.ONE * u), pos * u)
+	var vs: PackedVector3Array = src[Mesh.ARRAY_VERTEX]
+	var ns: PackedVector3Array = src[Mesh.ARRAY_NORMAL]
+	var v := PackedVector3Array()
+	var n := PackedVector3Array()
+	var c := PackedColorArray()
+	for k in vs.size():
+		v.append(xf * vs[k])
+		n.append((nb * ns[k]).normalized())
+		c.append(col)
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = v
+	arr[Mesh.ARRAY_NORMAL] = n
+	arr[Mesh.ARRAY_COLOR] = c
+	arr[Mesh.ARRAY_INDEX] = src[Mesh.ARRAY_INDEX]
+	var idx := m.get_surface_count()
+	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return idx
+
+
 func _build() -> void:
+	var lite := Toon.lite
 	Toon.disc(self, 1.3, Color(0, 0, 0, 0.22))
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
-	body.add_child(ch)
-	var ink: Texture2D = load("res://assets/kaykit/tex/skeleton_ink.png")
-	ch.setup(MAGE, 3.6, [["", ink]], ["Skeleton_Mage_Hat"], BOLT)
-	ch.idle = "Idle_Combat"
-	ch.play("Idle_Combat")
-	# longue chevelure noire, voile de deuil, couronne de foudre
+	body.rotation.y = PI  # elle apparaît déjà tournée vers le héros (le modèle regarde vers -Z)
+	# kimono d'encre : dôme de tête, épaules, buste, jupe qui s'évase jusqu'au sol, ourlet d'or
+	var b := Yokai.Mesher.new(U)
+	b.ball(Vector3(0, 1.17, 0), Vector3(0.36, 0.32, 0.34), HAIR, Vector3.ZERO, 10)
+	for s in [-1.0, 1.0]:
+		b.ball(Vector3(float(s) * 0.3, 1.0, 0), Vector3(0.14, 0.1, 0.13), INK_IZA)
+	b.cyl(Vector3(0, 0.9, 0), Vector3(0.33, 0.3, 0.3), INK_IZA, Vector3.ZERO, 0.95, 12)
+	b.cyl(Vector3(0, 0.4, 0), Vector3(0.6, 0.72, 0.54), INK_IZA, Vector3.ZERO, 0.52, 14)
+	b.cyl(Vector3(0, 0.06, 0), Vector3(0.61, 0.035, 0.55), Toon.GOLD, Vector3.ZERO, 1.0, 14)
+	# col (eri) de washi croisé sur la poitrine
+	for s in [-1.0, 1.0]:
+		b.box(Vector3(float(s) * 0.09, 0.98, -0.29), Vector3(0.06, 0.3, 0.025), Toon.WASHI, Vector3(0.15, 0, float(s) * 0.55))
+	# obi violet à seigaiha lilas, liserés d'or
+	b.cyl(Vector3(0, 0.76, 0), Vector3(0.36, 0.22, 0.33), CLOTH, Vector3.ZERO, 1.0, 12)
+	b.cyl(Vector3(0, 0.875, 0), Vector3(0.375, 0.03, 0.345), Toon.GOLD, Vector3.ZERO, 1.0, 12)
+	b.cyl(Vector3(0, 0.645, 0), Vector3(0.385, 0.03, 0.355), Toon.GOLD, Vector3.ZERO, 1.0, 12)
+	var n := 6 if lite else 9
+	for i in n:
+		var ang := TAU * float(i) / float(n)
+		b.ball(Vector3(sin(ang) * 0.365, 0.78, cos(ang) * 0.335), Vector3(0.075, 0.042, 0.018), WAVE, Vector3(0, ang, 0), 6)
+	# flammes d'âme lilas semées sur la jupe (deux rangs décalés, un seul en mode léger)
+	var rows := 1 if lite else 2
+	for row in rows:
+		var y := 0.42 - 0.2 * float(row)
+		var rr := 0.43 + 0.065 * float(row)
+		var nn := 8 if lite else 10
+		for i in nn:
+			var ang := TAU * (float(i) + 0.5 * float(row)) / float(nn)
+			b.spike(Vector3(sin(ang) * rr, y, cos(ang) * rr * 0.9), 0.045, 0.14, WAVE, Vector3(0, ang, 0), 0.0, 4, 0.3)
+	# traîne d'encre : nappe qui s'étale derrière elle (+Z), bord lilas
+	b.ball(Vector3(0, 0.05, 0.75), Vector3(0.5, 0.06, 0.85), INK_IZA, Vector3.ZERO, 10)
+	b.ball(Vector3(0, 0.04, 1.4), Vector3(0.32, 0.05, 0.55), INK_IZA, Vector3.ZERO, 8)
+	if not lite:
+		for s in [-1.0, 1.0]:
+			b.ball(Vector3(float(s) * 0.38, 0.03, 1.1), Vector3(0.14, 0.03, 0.3), INK_IZA, Vector3(0, -float(s) * 0.3, 0), 6)
+	piece(body, b)
+	# flammes lilas au bout de la traîne (pivots : elles s'étirent au rythme des gouttes)
+	var fpts := [Vector3(0, 0.06, 1.85), Vector3(0.24, 0.05, 1.55), Vector3(-0.26, 0.05, 1.5)]
+	if lite:
+		fpts = [Vector3(0, 0.06, 1.85), Vector3(0.24, 0.05, 1.5)]
+	for p: Vector3 in fpts:
+		var piv := Node3D.new()
+		body.add_child(piv)
+		piv.position = p * U
+		var t := Yokai.Mesher.new(U)
+		var c := Yokai.Mesher.new(U)
+		t.ball(Vector3.ZERO, Vector3(0.11, 0.06, 0.11), INK_IZA, Vector3.ZERO, 6)
+		t.spike(Vector3.ZERO, 0.13, 0.55, WAVE, Vector3.ZERO, 0.0, 6)
+		c.spike(Vector3(0, 0.03, 0), 0.065, 0.34, SOUL_CORE, Vector3.ZERO, 0.0, 5)
+		piece(piv, t, c)
+		_flames.append(piv)
+	# tête : masque de femme fendu, couronne d'or, chevelure
+	_head = Node3D.new()
+	body.add_child(_head)
+	_head.position = Vector3(0, 1.22, 0) * U
+	var a := Yokai.Mesher.new(U)
+	var f := Yokai.Mesher.new(U)
+	Yokai.mask_plate(a, MASK_IZA, 1.0, 1.0, true)
+	# moitié belle (-X) : sourcil fin et haut, œil lilas mi-clos, demi-lèvres prune
+	a.box(Vector3(-0.11, 0.2, Yokai.FACE_Z), Vector3(0.12, 0.02, 0.02), Toon.SUMI, Vector3(0, 0, 0.25))
+	f.ball(Vector3(-0.115, 0.06, Yokai.FACE_Z), Vector3(0.05, 0.026, 0.012), WAVE, Vector3.ZERO, 8)
+	f.ball(Vector3(-0.115, 0.06, Yokai.FACE_Z - 0.012), Vector3(0.018, 0.02, 0.01), Toon.SUMI, Vector3.ZERO, 6)
+	a.ball(Vector3(-0.035, -0.16, Yokai.FACE_Z), Vector3(0.045, 0.022, 0.012), LIPS, Vector3.ZERO, 6)
+	# moitié décharnée (+X) : orbite creuse à lueur lilas, joue creuse, mâchoire béante aux dents d'os
+	a.ball(Vector3(0.12, 0.07, Yokai.FACE_Z + 0.005), Vector3(0.085, 0.1, 0.025), Toon.SUMI, Vector3.ZERO, 8)
+	f.ball(Vector3(0.12, 0.06, Yokai.FACE_Z - 0.018), Vector3(0.03, 0.03, 0.01), WAVE, Vector3.ZERO, 6)
+	a.box(Vector3(0.2, -0.08, Yokai.FACE_Z + 0.012), Vector3(0.07, 0.14, 0.02), Color("#A8A0A4"), Vector3(0, 0, 0.2))
+	a.ball(Vector3(0.09, -0.17, Yokai.FACE_Z), Vector3(0.1, 0.07, 0.02), Toon.SUMI, Vector3.ZERO, 8)
+	var teeth := 3 if lite else 5
+	for i in teeth:
+		var x := 0.02 + 0.15 * float(i) / float(teeth - 1)
+		a.spike(Vector3(x, -0.12, Yokai.FACE_Z - 0.015), 0.013, 0.045, BONE, Vector3(PI, 0, 0), 0.0, 4)
+		a.spike(Vector3(x + 0.012, -0.23, Yokai.FACE_Z - 0.015), 0.011, 0.035, BONE, Vector3.ZERO, 0.0, 4)
+	# fente sumi en zigzag au milieu du visage
+	for i in 6:
+		var y := 0.3 - 0.12 * float(i)
+		a.box(Vector3(0.012 * (1.0 if i % 2 == 0 else -1.0), y, Yokai.FACE_Z - 0.01), Vector3(0.016, 0.13, 0.015), Toon.SUMI, Vector3(0, 0, 0.2 * (1.0 if i % 2 == 0 else -1.0)))
+	# couronne d'or (tenkan) : bandeau, pointes plates en éventail, flamme haute au centre, pendeloques
+	a.cyl(Vector3(0, 0.3, Yokai.MASK_Z + 0.1), Vector3(0.27, 0.06, 0.26), Toon.GOLD, Vector3(0.2, 0, 0), 0.9, 12)
+	var pts := 3 if lite else 5
+	for i in pts:
+		var ang := -1.0 + 2.0 * float(i) / float(pts - 1)
+		var base := Vector3(sin(ang) * 0.25, 0.33 - 0.04 * absf(ang), Yokai.MASK_Z + 0.1 - cos(ang) * 0.23)
+		a.spike(base, 0.045, 0.16, Toon.GOLD, Vector3(0.1 - 0.15 * absf(ang), 0, -ang * 0.35), 0.0, 4, 0.35)
+	a.spike(Vector3(0, 0.36, Yokai.MASK_Z + 0.12), 0.04, 0.32, Toon.GOLD, Vector3(0.1, 0, 0), 0.0, 5, 0.45)
+	f.ball(Vector3(0, 0.33, Yokai.MASK_Z - 0.14), Vector3(0.035, 0.04, 0.02), WAVE, Vector3.ZERO, 6)
+	for s in [-1.0, 1.0]:
+		a.stick(Vector3(float(s) * 0.3, 0.26, Yokai.MASK_Z + 0.04), Vector3(0.014, 0.4, 0.014), Toon.GOLD, Vector3(PI, 0, float(s) * 0.1))
+		a.ball(Vector3(float(s) * 0.34, -0.14, Yokai.MASK_Z + 0.04), Vector3.ONE * 0.03, Toon.GOLD, Vector3.ZERO, 6)
+	piece(_head, a, f)
+	# moitié décharnée : demi-plaque grise posée juste au-dessus de la plaque pâle (surface à part)
+	var hm: MeshInstance3D = _head.get_child(_head.get_child_count() - 1)
+	var hi := half_surface(hm.mesh, Vector3(0, 0, Yokai.MASK_Z), Vector3(0.306, 0.366, 0.106), MASK_DEAD, U)
+	hm.set_surface_override_material(hi, ink_mat())
+	# longue chevelure noire : nappe dans le dos jusqu'à la taille, deux mèches devant les épaules
 	_hair = Node3D.new()
 	body.add_child(_hair)
-	_hair.position = Vector3(0, 2.6, 0.3)
-	Toon.part(_hair, Toon.box(Vector3(1.0, 2.2, 0.15)), Toon.mat_shared(HAIR), Vector3(0, -0.6, 0.05))
-	for sx: float in [-1.0, 1.0]:
-		var lock := Toon.part(_hair, Toon.box(Vector3(0.22, 1.6, 0.12)), Toon.mat_shared(HAIR), Vector3(sx * 0.42, -0.2, -0.35))
-		lock.rotation.z = sx * 0.06
-	Toon.part(body, Toon.cyl(0.9, 1.4, 1.4, 10), Toon.mat_shared(ROBE, true, 0.04), Vector3(0, 0.7, 0))
-	for k in 6:
-		var a := TAU * float(k) / 6.0
-		var spike := Toon.part(body, Toon.cyl(0.0, 0.06, 0.4, 4), main.vfx.glow_mat(BOLT, 2.0), Vector3(cos(a) * 0.32, 3.75, sin(a) * 0.32))
-		spike.rotation = Vector3(sin(a) * 0.3, 0, -cos(a) * 0.3)
+	_hair.position = Vector3(0, 1.22, 0.1) * U
+	var h := Yokai.Mesher.new(U)
+	h.stick(Vector3(0, 0.26, 0.2), Vector3(0.6, 1.15, 0.14), HAIR, Vector3(PI - 0.08, 0, 0))
+	for s in [-1.0, 1.0]:
+		h.stick(Vector3(float(s) * 0.34, 0.1, -0.08), Vector3(0.14, 0.95, 0.1), HAIR, Vector3(PI, 0, float(s) * 0.05))
+	if not lite:
+		h.ball(Vector3(0, 0.3, 0.1), Vector3(0.3, 0.12, 0.3), HAIR, Vector3.ZERO, 8)
+	piece(_hair, h)
+	# bras : manches longues d'encre bordées de lilas, mains pâles aux longs doigts
+	for sx: float in [1.0, -1.0]:
+		var piv := Node3D.new()
+		body.add_child(piv)
+		piv.position = Vector3(sx * 0.3, 1.0, 0) * U
+		var am := Yokai.Mesher.new(U)
+		am.cyl(Vector3(0, -0.2, 0), Vector3(0.075, 0.4, 0.075), INK_IZA, Vector3(PI, 0, 0), 0.75, 7)
+		am.cyl(Vector3(0, -0.5, 0), Vector3(0.15, 0.4, 0.1), INK_IZA, Vector3.ZERO, 0.5, 8)
+		am.cyl(Vector3(0, -0.69, 0), Vector3(0.155, 0.03, 0.105), WAVE, Vector3.ZERO, 1.0, 8)
+		am.ball(Vector3(0, -0.78, 0), Vector3(0.06, 0.1, 0.04), HAND, Vector3.ZERO, 8)
+		for k in 3:
+			var kx := (float(k) - 1.0) * 0.035
+			am.spike(Vector3(kx, -0.84, 0), 0.013, 0.18 - 0.03 * absf(float(k) - 1.0), HAND, Vector3(PI, 0, kx * 2.0), 0.0, 4)
+		piece(piv, am)
+		_arms.append(piv)
 	# huit dieux du tonnerre en couronne, chacun lié par un fil
 	for i in GOD_N:
 		var ang := TAU * float(i) / float(GOD_N) + PI / float(GOD_N)
-		var n := Node3D.new()
-		n.top_level = true
-		add_child(n)
+		var gn := Node3D.new()
+		gn.top_level = true
+		add_child(gn)
 		var om := Toon.mat(BOLT, true, 0.03)
 		om.emission_enabled = true
 		om.emission = BOLT
 		om.emission_energy_multiplier = 1.4
-		Toon.part(n, Toon.sphere(0.32), om, Vector3.ZERO)
+		Toon.part(gn, Toon.sphere(0.32), om, Vector3.ZERO)
 		var tm := TorusMesh.new()
 		tm.inner_radius = 0.36
 		tm.outer_radius = 0.46
 		tm.rings = 16
 		tm.ring_segments = 4
-		var drum := Toon.part(n, tm, Toon.mat_shared(Color("#2A2430")), Vector3.ZERO)
+		var drum := Toon.part(gn, tm, Toon.mat_shared(Color("#2A2430")), Vector3.ZERO)
 		drum.rotation.x = PI * 0.5
 		for k in 3:
-			var sp := Toon.part(n, Toon.cyl(0.0, 0.05, 0.3, 4), Toon.mat_shared(Toon.GOLD, false), Vector3(0, 0.35, 0))
+			var sp := Toon.part(gn, Toon.cyl(0.0, 0.05, 0.3, 4), Toon.mat_shared(Toon.GOLD, false), Vector3(0, 0.35, 0))
 			sp.rotation.z = (float(k) - 1.0) * 0.6
 		var th := Toon.part(self, Toon.cyl(0.035, 0.035, 1.0, 4), main.vfx.glow_mat(BOLT, 2.4), Vector3.ZERO)
 		th.top_level = true
 		th.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_gods.append({"node": n, "orb": om, "thread": th, "angle": ang, "cut": false, "fall": 0.0})
+		_gods.append({"node": gn, "orb": om, "thread": th, "angle": ang, "cut": false, "fall": 0.0})
 	_hint = Loop.hint_ring(self, HINT_R, Toon.GOLD)
 	_hint.visible = false
 	_make_stars(body, 4.0)
@@ -204,7 +385,6 @@ func _on_die() -> void:
 		var gd: Dictionary = g
 		var th = gd["thread"]
 		th.visible = false
-	ch.set_glow(0.0)
 
 
 ## Bouclier brisé : effondrée, plus d'attaque jusqu'à la fin de la fenêtre.
@@ -212,8 +392,6 @@ func _on_shield_break() -> void:
 	_clear_zones()
 	_unbound_t = 0.0
 	_state = "open"
-	ch.set_glow(0.0)
-	ch.play_once("Hit_A", 0.8)
 
 
 ## Fin de la fenêtre : les fils repoussent, deux affamés sortent de terre.
@@ -369,6 +547,43 @@ func _animate(delta: float) -> void:
 				q = Quaternion(Vector3.UP, d.normalized())
 			th.global_transform = Transform3D(Basis(q) * Basis.from_scale(Vector3(1, l, 1)), (a + neck) * 0.5)
 	_hair.rotation.x = sin(_t * 1.3) * 0.05
+	# pose : mains tendues au repos ; levées puis abattues pour les mains de Yomi ; ouvertes et tête penchée
+	# pour le souffle ; bras ballants effondrée ; tête renversée à la mort ; flammes de la traîne qui s'étirent
+	var want_r := REST_R + Vector3(0.08 * sin(_t * 1.2), 0, 0.05 * sin(_t * 0.9))
+	var want_l := REST_L + Vector3(0.08 * sin(_t * 1.2 + 1.0), 0, -0.05 * sin(_t * 0.9))
+	var nod := 0.05 * sin(_t * 1.2)
+	for z in _zones:
+		var zd: Dictionary = z
+		var k := clampf(1.0 - float(zd["t"]) / float(zd["total"]), 0.0, 1.0)
+		var tag := String(zd["tag"])
+		if tag == "hand":
+			var lift := sin(k * PI)
+			want_r = Vector3(0.9 + 1.6 * lift, 0, 0.5)
+			want_l = Vector3(0.9 + 1.6 * lift, 0, -0.5)
+			nod = -0.15 * lift
+		elif tag == "breath":
+			want_r = Vector3(0.6, 0, 0.5 + 0.7 * k)
+			want_l = Vector3(0.6, 0, -0.5 - 0.7 * k)
+			nod = 0.35 * k
+	if _state == "open":
+		want_r = Vector3(0.15, 0, 0.3)
+		want_l = Vector3(0.15, 0, -0.3)
+		nod = 0.4
+	elif _state == "dying":
+		want_r = Vector3(2.4, 0, 0.6)
+		want_l = Vector3(2.4, 0, -0.6)
+		nod = -0.5
+	var k2 := minf(1.0, delta * 6.0)
+	var ar: Node3D = _arms[0]
+	var al: Node3D = _arms[1]
+	ar.rotation = ar.rotation.lerp(want_r, k2)
+	al.rotation = al.rotation.lerp(want_l, k2)
+	_head.rotation.x = lerpf(_head.rotation.x, nod, k2)
+	for i in _flames.size():
+		var fn: Node3D = _flames[i]
+		var ph := _t * 2.2 + float(i) * 1.9
+		fn.scale = Vector3(1, 1.0 + 0.35 * sin(ph), 1)
+		fn.rotation = Vector3(0.25 + 0.1 * sin(ph * 0.7), 0, 0.12 * cos(ph * 0.9 + 0.5))
 	_hint.visible = _state == "fight" and _unbound_t > 0.0
 	_hint.rotation.y = -_t * 0.5
 	if _state == "open":
