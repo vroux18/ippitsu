@@ -7,10 +7,23 @@ extends "res://scripts/boss_mini_base.gd"
 ##  bulle et les bulles se reforment ailleurs. Prépare les cinq perles de Ryūjin.
 ##  Attaques : bulles crachées (lueur 0.8 s) ; vague (bande en travers de l'arène, 1.2 s) ;
 ##  plongée sous le héros (disque r1.8, 1.2 s), intouchable sous l'eau.
+##  Apparence (direction « Masque d'encre ») : l'umibōzu commun (yokai_ink_w1.gd) en GÉANT d'encre outremer,
+##  modelé en primitives fusionnées (Yokai.Mesher, couleurs de sommets) : dôme lisse sans masque, deux yeux
+##  d'or immenses, kesa d'or en écharpe, chapelet d'or sur la poitrine, obi turquoise à grand seigaiha, bras
+##  d'encre aux bracelets d'or, gouttes qui s'étirent sous lui, collier d'écume au ras de l'eau.
+
+const Yokai = preload("res://scripts/yokai_parts.gd")
 
 const BLACK := Color("#1A2228")
-const BLACK_HI := Color("#2A3640")
 const FOAM_C := Color("#E9F4F2")
+const INK_ULTRA := Color("#151E44")  # encre outremer de l'abysse
+const CLOTH := Color("#145060")  # turquoise profond (étoffe du monde 7)
+const WAVE := Color("#9EE0DA")  # écume turquoise du seigaiha
+const LINE := Color("#C86E7E")  # corail rose
+const U := 2.1  # échelle du modelé (H_REF 1,75 m -> ~3,7 m)
+const HEAD_TILT := 0.45  # dôme relevé vers la caméra (vue plongeante)
+const REST_R := Vector3(1.1, 0, 0.3)  # bras au repos (comme ink_rig.REST_ARMS["umibozu"])
+const REST_L := Vector3(0.35, 0, -0.3)
 const BUBBLE_HIT := 0.85  # distance trait-bulle pour la crever
 const SHIELD := 10.0
 const BUBBLE_CHIP := 0.8
@@ -21,8 +34,12 @@ const DIVE_R := 1.8
 const DIVE_TELE := 1.2
 const SINK_T := 0.6
 
+static var _ink_mat: StandardMaterial3D = null
+
 var _head: Node3D
 var _eyes: Array = []
+var _arms: Array = []  # [droit, gauche] (pivots d'épaule)
+var _drips: Array = []
 var _bubbles: Array = []  # {node, orb, base, pos, ph, lit}, dans l'ordre 1, 2, 3…
 var _order: Array = []
 var _seen := {}
@@ -46,31 +63,102 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ construction
 
+## Toon à contour épais (géant) aux couleurs de sommets : un seul matériau pour toute l'encre, l'or et l'étoffe.
+static func ink_mat() -> StandardMaterial3D:
+	if _ink_mat == null:
+		_ink_mat = Toon.mat(Color.WHITE, true, 0.04)
+		_ink_mat.vertex_color_use_as_albedo = true
+		_ink_mat.vertex_color_is_srgb = true
+	return _ink_mat
+
+
+## Pièce fusionnée posée sur `parent` : surface toon, et aplat lumineux si `f` n'est pas vide.
+static func piece(parent: Node3D, a: Yokai.Mesher, f: Yokai.Mesher = null) -> MeshInstance3D:
+	var m: ArrayMesh = a.mesh() if f == null else Yokai.two(a, f)
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	# `a` vide : la seule surface est l'aplat
+	mi.set_surface_override_material(0, Yokai.ink_flat_mat() if a.arrays().is_empty() else ink_mat())
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	parent.add_child(mi)
+	return mi
+
+
 func _build() -> void:
+	var lite := Toon.lite
 	Toon.disc(self, 1.3, Color(0, 0, 0, 0.18))
 	body = Node3D.new()
 	add_child(body)
-	var skin := Toon.mat_shared(BLACK, true, 0.05)
-	var hi := Toon.mat_shared(BLACK_HI, true, 0.04)
-	# épaules en robe de moine et tête chauve démesurée
-	Toon.part(body, Toon.sphere(1.0), skin, Vector3(0, 0.7, 0), Vector3(1.5, 0.8, 1.2))
+	body.rotation.y = PI  # il émerge déjà tourné vers le héros (le modèle regarde vers -Z)
+	# corps : dôme d'encre outremer, large (w 1,25), obi turquoise à seigaiha, liserés et oreilles d'or (élite)
+	var w := 1.25
+	var b := Yokai.Mesher.new(U)
+	Yokai.ink_body(b, w, INK_ULTRA, CLOTH, WAVE, Toon.GOLD, lite, true)
+	# kesa : écharpe d'or en biais à travers le corps, bord sumi
+	b.cyl(Vector3(0, 0.95, 0), Vector3(0.45 * w + 0.03, 0.08, 0.43 * w + 0.03), Toon.GOLD, Vector3(0, 0, 0.55), 1.0, 14)
+	b.cyl(Vector3(0, 0.95, 0), Vector3(0.45 * w + 0.045, 0.03, 0.43 * w + 0.045), Toon.SUMI, Vector3(0, 0, 0.55), 1.0, 14)
+	# chapelet (juzu) : grosses perles d'or en U sur la poitrine, perle mère en bas
+	var n := 7 if lite else 11
+	for i in n:
+		var ang := -1.25 + 2.5 * float(i) / float(n - 1)
+		b.ball(Vector3(sin(ang) * 0.47 * w, 1.1 - cos(ang) * 0.3, -0.42 - 0.1 * cos(ang)), Vector3.ONE * 0.055, Toon.GOLD, Vector3.ZERO, 6)
+	b.ball(Vector3(0, 0.78, -0.45), Vector3(0.08, 0.09, 0.07), Toon.GOLD, Vector3.ZERO, 8)
+	# collier d'écume au ras de l'eau (unités du monde / U)
+	var nf := 8 if lite else 12
+	for k in nf:
+		var a2 := TAU * float(k) / float(nf)
+		b.ball(Vector3(cos(a2) * 1.35, 0.15, sin(a2) * 1.1) / U, Vector3.ONE * (0.22 + 0.05 * float(k % 2)) / U, FOAM_C, Vector3.ZERO, 6)
+	piece(body, b)
+	# tête : dôme lisse qui prolonge le corps, cerne d'or à sa base, deux yeux d'or immenses (aplat séparé)
 	_head = Node3D.new()
 	body.add_child(_head)
-	_head.position = Vector3(0, 2.1, 0)
-	Toon.part(_head, Toon.sphere(1.0), skin, Vector3.ZERO, Vector3(1.0, 1.1, 0.95))
-	Toon.part(_head, Toon.box(Vector3(0.9, 0.12, 0.2)), hi, Vector3(0, 0.25, -0.88))
+	_head.position = Vector3(0, 1.22 * U, 0)
+	_head.rotation.x = HEAD_TILT
+	var h := Yokai.Mesher.new(U)
+	h.ball(Vector3(0, 0.08, -0.06), Vector3(0.5, 0.46, 0.48), INK_ULTRA, Vector3.ZERO, 12)
+	h.cyl(Vector3(0, -0.2, -0.06), Vector3(0.49, 0.04, 0.47), Toon.GOLD, Vector3.ZERO, 1.0, 14)
+	if not lite:
+		# six points de moxa d'or sur le crâne du moine
+		for k in 6:
+			var ang := -0.5 + 1.0 * float(k % 3) / 2.0
+			var zz := -0.22 - 0.16 * float(k / 3)
+			h.ball(Vector3(sin(ang) * 0.3, 0.47 - 0.1 * absf(ang) - 0.06 * float(k / 3), zz), Vector3(0.025, 0.012, 0.025), Toon.GOLD, Vector3.ZERO, 6)
+	var f := Yokai.Mesher.new(U)
 	for sx: float in [-1.0, 1.0]:
-		var eye := Toon.part(_head, Toon.sphere(0.2), main.vfx.glow_mat(Toon.GOLD, 2.4), Vector3(sx * 0.33, 0.05, -0.84))
-		_eyes.append(eye)
-		Toon.part(_head, Toon.sphere(0.08), Toon.mat_shared(Toon.SUMI, false), Vector3(sx * 0.33, 0.05, -1.0))
-	# collier d'écume au ras de l'eau
-	for k in 12:
-		var a := TAU * float(k) / 12.0
-		Toon.part(body, Toon.sphere(0.22), Toon.mat_shared(FOAM_C, false), Vector3(cos(a) * 1.35, 0.15, sin(a) * 1.1))
-	# chapelet (juzu) de perles d'or sur la poitrine
-	for k in 9:
-		var a2 := -0.9 + 1.8 * float(k) / 8.0
-		Toon.part(body, Toon.sphere(0.1), Toon.mat_shared(Toon.GOLD), Vector3(sin(a2) * 0.9, 1.15 - cos(a2) * 0.25, -0.95 + absf(sin(a2)) * 0.3))
+		# yeux posés SUR le dôme (z ≈ -0,50 à cette hauteur), tournés vers le haut : lisibles en vue plongeante
+		f.ball(Vector3(sx * 0.2, 0.14, -0.5), Vector3(0.16, 0.17, 0.06), Yokai.EYE_GOLD, Vector3(-0.3, 0, 0), 10)
+		f.ball(Vector3(sx * 0.2, 0.13, -0.555), Vector3(0.065, 0.085, 0.025), Toon.SUMI, Vector3(-0.3, 0, 0), 6)
+		# arcade sumi froncée au-dessus de chaque œil
+		h.ball(Vector3(sx * 0.2, 0.32, -0.45), Vector3(0.17, 0.035, 0.05), Toon.SUMI, Vector3(-0.4, 0, sx * 0.3), 6)
+	piece(_head, h)
+	# les yeux sont une pièce à part (aplat seul) : _on_die les éteint
+	_eyes.append(piece(_head, Yokai.Mesher.new(U), f))
+	# bras d'encre (pivot à l'épaule, pendent vers -Y), bracelet d'or au poignet
+	for sx: float in [1.0, -1.0]:
+		var piv := Node3D.new()
+		body.add_child(piv)
+		piv.position = Vector3(sx * 0.44 * w * U, 1.0 * U, -0.02 * U)
+		var am := Yokai.Mesher.new(U)
+		am.cyl(Vector3(0, -0.23, 0), Vector3(0.11, 0.46, 0.11), INK_ULTRA, Vector3(PI, 0, 0), 0.7, 7)
+		am.cyl(Vector3(0, -0.4, 0), Vector3(0.095, 0.04, 0.095), Toon.GOLD, Vector3.ZERO, 1.0, 8)
+		am.ball(Vector3(0, -0.5, 0), Vector3(0.13, 0.11, 0.13), INK_ULTRA)
+		piece(piv, am)
+		_arms.append(piv)
+	# gouttes d'encre sous le corps (étirées en code)
+	var pts := [Vector3(0.18, 0.36, -0.16), Vector3(-0.21, 0.35, 0.06), Vector3(0.06, 0.34, 0.2)]
+	if lite:
+		pts = [Vector3(0.18, 0.36, -0.16), Vector3(-0.19, 0.35, 0.1)]
+	for p: Vector3 in pts:
+		var piv := Node3D.new()
+		body.add_child(piv)
+		piv.position = p * U
+		var dm := Yokai.Mesher.new(U)
+		dm.ball(Vector3.ZERO, Vector3(0.08, 0.1, 0.08), INK_ULTRA, Vector3.ZERO, 6)
+		dm.spike(Vector3.ZERO, 0.07, 0.24, INK_ULTRA, Vector3(PI, 0, 0), 0.3, 5)
+		dm.ball(Vector3(0, -0.25, 0), Vector3(0.05, 0.06, 0.05), INK_ULTRA, Vector3.ZERO, 6)
+		piece(piv, dm)
+		_drips.append(piv)
 	_make_stars(body, 3.4)
 
 
@@ -381,13 +469,47 @@ func _bubble_touch(a: Vector3, b: Vector3) -> void:
 		main.small_hit(p2 + Vector3(0, 0.9, 0))
 
 
-## Tête qui respire, bulles qui dérivent doucement (blanches une fois crevées).
-func _animate(_delta: float) -> void:
+## Tête qui respire (tremble renversé), bras qui montent pour cracher et s'ouvrent renversé, gouttes qui
+## s'étirent, bulles qui dérivent doucement (blanches une fois crevées).
+func _animate(delta: float) -> void:
 	if _state != "dying":
 		body.position.y = _depth + sin(_t * 1.6) * 0.06
 	else:
 		body.position.y = _depth
-	_head.rotation.z = sin(_t * 12.0) * 0.08 if _state == "broken" else 0.0
+	var shake := sin(_t * 12.0) * 0.08 if _state == "broken" else 0.0
+	var nod := 0.1 * sin(_t * 1.6)
+	if _state == "spit":
+		nod = -0.15 * clampf(1.0 - _timer / SPIT_TELE, 0.0, 1.0)
+	elif _state == "broken":
+		nod = 0.3
+	_head.rotation = Vector3(HEAD_TILT + nod, 0, shake)
+	# bras : repos, levés pour cracher (charge), ouverts renversé, pendants à la mort
+	var want_r := REST_R
+	var want_l := REST_L
+	if _state == "spit":
+		var k := clampf(1.0 - _timer / SPIT_TELE, 0.0, 1.0)
+		want_r = Vector3(2.5 * k + REST_R.x * (1.0 - k), 0, 0.5)
+		want_l = Vector3(2.5 * k + REST_L.x * (1.0 - k), 0, -0.5)
+	elif _state == "broken":
+		want_r = Vector3(0.6, 0, 1.0 + 0.1 * sin(_t * 12.0))
+		want_l = Vector3(0.6, 0, -1.0 - 0.1 * sin(_t * 12.0))
+	elif _state == "dying":
+		want_r = Vector3(0.2, 0, 0.2)
+		want_l = Vector3(0.2, 0, -0.2)
+	else:
+		want_r += Vector3(0.08 * sin(_t * 1.6), 0, 0)
+		want_l += Vector3(0.08 * sin(_t * 1.6 + 1.0), 0, 0)
+	var k2 := minf(1.0, delta * 6.0)
+	var ar: Node3D = _arms[0]
+	var al: Node3D = _arms[1]
+	ar.rotation = ar.rotation.lerp(want_r, k2)
+	al.rotation = al.rotation.lerp(want_l, k2)
+	var stretch := 1.5 if _state == "sink" or _state == "rise" else 1.0
+	for i in _drips.size():
+		var n: Node3D = _drips[i]
+		var ph := _t * 2.6 + float(i) * 1.7
+		n.scale = Vector3(1, stretch * (1.0 + 0.3 * sin(ph)), 1)
+		n.rotation = Vector3(0.1 * sin(ph * 0.7), 0, 0.1 * cos(ph * 0.9 + 0.5))
 	body.visible = _depth > -2.4
 	var sc := 1.06 if _flash > 0.0 else 1.0
 	body.scale = Vector3.ONE * sc
