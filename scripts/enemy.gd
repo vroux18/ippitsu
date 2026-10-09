@@ -708,14 +708,7 @@ func _setup_extra() -> void:
 			radius = 0.42
 			_h = 1.0
 			_custom = true
-			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
-			for s in [-1.0, 1.0]:
-				var ksx := float(s)
-				var pivot := Node3D.new()
-				pivot.position = Vector3(ksx * 0.22, 0.6, 0.0)
-				body.add_child(pivot)
-				Toon.part(pivot, _ymesh("wing_l" if ksx < 0.0 else "wing_r"), Yokai.mat(), Vector3.ZERO)
-				_wings.append(pivot)
+			ch.setup(kind, _h)  # corbeau d'encre, bec d'or, ailes déployées (bras), plumes de queue (yokai_ink_w6)
 			_timer = randf_range(1.5, 2.3)
 		"yamabushi":
 			# yamabushi-tengu : visage rouge au long nez, tokin noir, pompons d'ascète, éventail de plumes
@@ -724,8 +717,7 @@ func _setup_extra() -> void:
 			radius = 0.48
 			_walk = "Walking_B"
 			_h = 1.8
-			ch.setup(MAGE, _h, [["Body", TEX_RED]], ["Skeleton_Mage_Hat"], Toon.GOLD)
-			_tint(Color("#E8DCC8"), 1.0)
+			ch.setup(kind, _h)  # masque rouge au long nez, crinière blanche, tokin, éventail levé (yokai_ink_w6)
 			_timer = randf_range(1.6, 2.4)
 		"konoha":
 			# konoha-tengu : petit tengu-feuille au bec jaune, ailes de feuilles ; feuilles lancées en éventail
@@ -734,9 +726,7 @@ func _setup_extra() -> void:
 			radius = 0.4
 			_walk = "Walking_A"
 			_h = 1.3
-			_rogue = true
-			ch.setup(ROGUE, _h, [], ROGUE_GEAR.duplicate(), Toon.GOLD)
-			_tint(Color("#7FA65A"), 1.0)
+			ch.setup(kind, _h)  # petit masque vert au bec, grande feuille en chapeau, feuilles en gouttes (yokai_ink_w6)
 			_timer = randf_range(1.4, 2.2)
 		"kani":
 			# heikegani : crabe rouge à carapace-masque de samouraï, pinces levées ; carapace de face
@@ -747,7 +737,7 @@ func _setup_extra() -> void:
 			_windup = 1.0
 			_h = 0.9
 			_custom = true
-			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
+			ch.setup(kind, _h)  # carapace-visage de samouraï sur la tête, pinces (yokai_ink_w7)
 		"ningyo":
 			# ningyo : sirène pâle à queue de poisson, longue chevelure ; jet d'eau en ligne
 			hp = 1.3
@@ -755,8 +745,7 @@ func _setup_extra() -> void:
 			radius = 0.45
 			_walk = "Walking_B"
 			_h = 1.7
-			ch.setup(MAGE, _h, [], ["Skeleton_Mage_Hat"], Color("#7FE8FF"))
-			_tint(Color("#BFE6DF"), 0.8)
+			ch.setup(kind, _h)  # masque de nacre, nageoires aux oreilles, chevelure, queue de poisson (yokai_ink_w7)
 			_glow_a = 0.2
 			_glow_c = Color("#7FE8FF")
 			ch.attach("handslot.r", _orb(0.12, Color("#9FF0E6")))
@@ -768,7 +757,7 @@ func _setup_extra() -> void:
 			radius = 0.5
 			_h = 1.0
 			_custom = true
-			Toon.part(body, _ymesh("body"), Yokai.mat(), Vector3.ZERO)
+			ch.setup(kind, _h)  # globe hérissé d'épines, gros yeux, nageoires (yokai_ink_w7)
 			body.position.y = 0.3
 			_timer = randf_range(1.0, 1.8)
 		"gaki":
@@ -779,8 +768,7 @@ func _setup_extra() -> void:
 			_zone_r = 0.85
 			_windup = 0.75
 			_h = 1.45
-			ch.setup(MINION, _h, [["", TEX_INK]], [], Color("#C9FF8A"))
-			_tint(Color("#BFB8A6"), 0.9)
+			ch.setup(kind, _h)  # fluet au ventre énorme, masque décharné aux yeux verts, os rongé (yokai_ink_w8)
 			_glow_a = 0.15
 			_glow_c = Color("#9AE070")
 		"shinobi":
@@ -848,8 +836,7 @@ func _setup_extra() -> void:
 			radius = 0.7
 			_walk = "Walking_A"
 			_h = 2.3
-			ch.setup(WARRIOR, _h, [["Helmet", TEX_INK], ["Cloak", TEX_INK]])
-			_tint(Color("#9A7A64"), 1.0)
+			ch.setup(kind, _h)  # tête de bœuf de fer, cornes, épaulières, chaîne et boulet (yokai_ink_w8)
 			_shield_frac = 0.25
 			_timer = randf_range(1.6, 2.4)
 		"shiryo":
@@ -859,12 +846,9 @@ func _setup_extra() -> void:
 			radius = 0.4
 			_h = 1.1
 			_custom = true
-			Toon.part(body, _sph(0.3), main.vfx.glow_mat(YOMI_C, 2.2), Vector3(0, 0.5, 0))
-			Toon.part(body, _sph(0.18), main.vfx.glow_mat(Color("#F0E8FF"), 2.4), Vector3(0, 0.52, -0.08))
-			var strail := Toon.part(body, _cyl(0.0, 0.26, 0.6, 7), main.vfx.glow_mat(YOMI_C, 1.6), Vector3(0, 0.55, 0.42))
-			strail.rotation.x = PI / 2.0
-			for e in [-1.0, 1.0]:
-				Toon.part(body, _sph(0.05), _pm(Toon.SUMI, false), Vector3(float(e) * 0.1, 0.56, -0.27))
+			ch.setup(kind, _h)  # encre violacée, masque lilas aux yeux creux, flammes de feu froid (yokai_ink_w8)
+			_glow_a = 0.35
+			_glow_c = YOMI_C
 			body.position.y = 0.9
 			_timer = randf_range(1.6, 2.4)
 
