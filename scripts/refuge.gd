@@ -4,7 +4,8 @@ extends Control
 ## - Améliorations : six tuiles (deux colonnes) = les lignes de la Pierre à encre (encre) ;
 ## - Sceaux : dons permanents et légendaires, tuiles dans une liste qui glisse au doigt ;
 ## - Estampes : la collection des Vues (filtre par apparence) ; toucher ouvre la fiche de l'estampe.
-## Toucher choisit (la barre du bas explique), toucher encore confirme : un sceau vermillon s'imprime.
+## Toucher choisit (le bouton de prix s'arme d'un contour vermillon), toucher encore confirme : un sceau
+## vermillon s'imprime. Un titre, des pictos, des chiffres : pas de paragraphe d'aide (UI v2).
 
 const Toon = preload("res://scripts/toon.gd")
 const Meta = preload("res://scripts/meta.gd")
@@ -447,7 +448,8 @@ func _layout() -> void:
 	_u = minf(w / 400.0, (h - _top - _bot) / 780.0)
 	var u := _u
 	var top := _top + (LIST_TOP_PRINTS if _tab == 2 else LIST_TOP) * u
-	_view = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(10.0, h - _bot - 84 * u - top)))
+	var reserve := 72.0 * u if _tab == 1 else 16.0 * u  # sceaux : place pour la ligne du don choisi
+	_view = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(10.0, h - _bot - reserve - top)))
 	_list.position = _view.position
 	_list.size = _view.size
 	_list.visible = _tab > 0
@@ -527,19 +529,25 @@ func _hot() -> Color:
 	return GOLD_HI if Toon.ui_dark else Toon.VERMILION.darkened(0.15)
 
 
-## Bouton de prix : « buy » (vermillon), « lack » (grisé), « owned » / « max » (liseré).
-## Contenu : libellé facultatif, pictogramme de monnaie, montant.
+## Bouton de prix (planche Boutons v2) : « buy » = coup de pinceau vermillon (picto de monnaie et montant) ;
+## armé (label non vide : le prochain toucher achète) = contour vermillon qui pulse, sans un mot ;
+## « lack » (grisé), « owned » (coche seule) ; « max » (MAX en liseré d'or). Jamais de phrase.
 func _button(ci: CanvasItem, r: Rect2, mode: String, label: String, glyph: String, amount: String, u: float, a: float, dark := false) -> void:
 	var rad := r.size.y / 2.0
 	var dk: bool = dark or Toon.ui_dark  # papier sombre (thème Nuit) : comme une carte légendaire
 	var fs := int(r.size.y * 0.46)
 	var ink: Color = Toon.WASHI
 	var gbg: Color = UiKit.NONE
+	var text := ""
 	match mode:
 		"buy":
-			_panel(ci, Rect2(r.position + Vector2(0, 2.5 * u), r.size), Color(Toon.VERMILION.darkened(0.4), a), rad)
-			_panel(ci, r, Color(Toon.VERMILION, a), rad)
-			ci.draw_rect(Rect2(r.position + Vector2(rad, 2.0 * u), Vector2(maxf(0.0, r.size.x - rad * 2.0), 1.5 * u)), Color(1, 1, 1, 0.2 * a))
+			# pilule au pinceau (bords irréguliers) : ombre portée, corps, reflet ; armé : contour vermillon autour
+			ci.draw_colored_polygon(_brush_pill(Rect2(r.position + Vector2(0, 2.5 * u), r.size), 1.0), Color(Toon.VERMILION.darkened(0.4), a))
+			ci.draw_colored_polygon(_brush_pill(r, 7.0), Color(Toon.VERMILION, a))
+			ci.draw_rect(Rect2(r.position + Vector2(rad, 2.0 * u), Vector2(maxf(0.0, r.size.x - rad * 2.0), 1.5 * u)), Color(1, 1, 1, 0.18 * a))
+			if label != "":
+				var pulse := 0.6 + 0.4 * sin(_t * 6.0)
+				_panel(ci, r.grow(4.0 * u), Color(0, 0, 0, 0), rad + 4.0 * u, Color(Toon.VERMILION, (0.5 + 0.5 * pulse) * a), 2.0 * u)
 			gbg = Toon.VERMILION
 		"lack":
 			var base: Color = Toon.WASHI if dk else Toon.ui_ink
@@ -548,29 +556,50 @@ func _button(ci: CanvasItem, r: Rect2, mode: String, label: String, glyph: Strin
 		"max":
 			_panel(ci, r, Color(GOLD_HI, 0.12 * a), rad, Color(GOLD_HI, a), 1.5 * u)
 			ink = GOLD_HI if dk else GOLD_INK
+			text = "MAX"
 		_:
 			_panel(ci, r, Color(0, 0, 0, 0), rad, Color(GOLD_HI if dk else Toon.VERMILION, a), 1.5 * u)
 			ink = GOLD_HI if dk else Toon.VERMILION
+			text = label
 	var gap := 5.0 * u
 	var lw := 0.0
-	if label != "":
-		lw = _ui.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + gap
+	if text != "":
+		lw = _ui.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + gap
 	var gr := float(fs) * 0.55
 	var gw := gr * 2.0 + gap if glyph != "" else 0.0
-	var aw := UiKit.UI_FONT.get_string_size(amount, HORIZONTAL_ALIGNMENT_LEFT, -1, fs + 1).x if amount != "" else 0.0
+	var nf := UiKit.num_font()
+	var aw := nf.get_string_size(amount, HORIZONTAL_ALIGNMENT_LEFT, -1, fs + 1).x if amount != "" else 0.0
 	var total := lw + gw + aw
 	if amount == "" and total > 0.0:
 		total -= gap  # pas d'écart après le dernier morceau
 	var x := r.get_center().x - total / 2.0
 	var by := r.get_center().y + float(fs) * 0.36
-	if label != "":
-		ci.draw_string(_ui, Vector2(x, by), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, ink.a * a))
+	if text != "":
+		ci.draw_string(_ui, Vector2(x, by), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(ink, ink.a * a))
 		x += lw
 	if glyph != "":
 		UiKit.glyph(ci, glyph, Vector2(x + gr, r.get_center().y), gr, ink, gbg, a)
 		x += gw
 	if amount != "":
-		ci.draw_string(UiKit.UI_FONT, Vector2(x, by + 0.5 * u), amount, HORIZONTAL_ALIGNMENT_LEFT, -1, fs + 1, Color(ink, ink.a * a))
+		ci.draw_string(nf, Vector2(x, by + 0.5 * u), amount, HORIZONTAL_ALIGNMENT_LEFT, -1, fs + 1, Color(ink, ink.a * a))
+
+
+## Contour d'une pilule posée au pinceau : demi-cercles aux deux bouts, bord qui ondule à peine (sd : graine).
+func _brush_pill(r: Rect2, sd: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var hh := r.size.y * 0.5
+	var n := 10
+	var c0 := Vector2(r.position.x + hh, r.get_center().y)
+	var c1 := Vector2(r.end.x - hh, r.get_center().y)
+	for i in n + 1:
+		var ang := PI * 0.5 + PI * float(i) / float(n)
+		var wob := 1.0 + 0.04 * (0.5 * sin(float(i) * 12.9898 + sd * 78.233) + 0.5 * sin(float(i) * 4.1 + sd * 3.7))
+		pts.append(c0 + Vector2.from_angle(ang) * hh * wob)
+	for i in n + 1:
+		var ang := -PI * 0.5 + PI * float(i) / float(n)
+		var wob := 1.0 + 0.04 * (0.5 * sin(float(i + 7) * 12.9898 + sd * 78.233) + 0.5 * sin(float(i + 7) * 4.1 + sd * 3.7))
+		pts.append(c1 + Vector2.from_angle(ang) * hh * wob)
+	return pts
 
 
 ## Sceau tamponné (achat, apparence portée) : grand carré vermillon qui se pose puis s'efface.
@@ -644,14 +673,14 @@ func _draw_bg(w: float, h: float, u: float) -> void:
 
 
 ## En-tête commun : bouton rond à la maison (comme la carte des mondes et la garde-robe), titre souligné
-## de vermillon et sceau 筆 (le pinceau).
+## de vermillon.
 func _draw_header(w: float, u: float) -> void:
 	var a := UiKit.ease_out(_t / 0.4)
 	var c := Vector2(UiKit.HEAD_X * u, _top + UiKit.HEAD_Y * u)
 	_back_rect = UiKit.back_rect(c, u)
 	UiKit.back_button(self, c, u, a, 1.0 if _pressed == "back" else 0.0, true)
 	var ty := _top + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)
-	UiKit.screen_title(self, _title, "ATELIER", Vector2(w / 2.0, ty), u, Toon.WASHI, a, "筆", w - 2.0 * 80.0 * u, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
+	UiKit.screen_title(self, _title, "ATELIER", Vector2(w / 2.0, ty), u, Toon.WASHI, a, "", w - 2.0 * 80.0 * u, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
 
 
 ## Encre, sceaux, Vues : jetons sombres (comme le HUD), pictogramme sur pastille, chiffre en gras.
@@ -741,7 +770,7 @@ func _draw_upgrades(w: float, h: float, u: float) -> void:
 	if meta == null:
 		return
 	var top := _top + LIST_TOP * u
-	var bottom := h - _bot - 84.0 * u
+	var bottom := h - _bot - 16.0 * u
 	var gap := 10.0 * u
 	var tw := (w - 28.0 * u - gap) / 2.0
 	var th := minf(184.0 * u, (bottom - top - gap * 2.0) / 3.0)
@@ -849,12 +878,12 @@ func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
 	# bouton de prix
 	var br := Rect2(Vector2(rr.position.x + 12 * s, y0 + 146 * s), Vector2(rr.size.x - 24 * s, 24 * s))
 	if maxed:
-		_button(self, br, "max", "", "star", "MAX", u, a)
+		_button(self, br, "max", "", "", "", u, a)
 	elif afford:
 		if sel:
 			var bk := 1.0 + 0.04 * pulse
 			br = Rect2(br.get_center() - br.size * bk / 2.0, br.size * bk)
-		_button(self, br, "buy", "ACHETER" if sel else "", "at_drop", str(cost), u, a)
+		_button(self, br, "buy", "armé" if sel else "", "at_drop", str(cost), u, a)
 	else:
 		_button(self, br, "lack", "", "at_drop", str(cost), u, a)
 	# achat : éclair blanc, onde d'or, sceau vermillon sur le médaillon
@@ -897,32 +926,42 @@ func _draw_filters(w: float, u: float) -> void:
 		UiKit.chip(self, _sb, rr, _p(String(FILTERS[i])), _tabf, fs, on, Toon.WASHI, Toon.SUMI, a)
 
 
-# ------------------------------------------------------------------ barre d'information
+# ------------------------------------------------------------------ ligne du bas
 
-## Barre fine du bas : ce que fait le choix en cours, ou le dernier achat.
+## Ligne fine du bas, seulement quand elle a quelque chose à dire : l'achat qui vient d'être fait (coche, titre),
+## ou le don des sceaux choisi (picto, nom, son effet en une ligne). Jamais de paragraphe.
 func _draw_info(w: float, h: float, u: float) -> void:
 	if meta == null:
 		return
-	var a := UiKit.ease_out((_t - 0.25) / 0.4)
-	var r := Rect2(Vector2(14 * u, h - _bot - 74 * u), Vector2(w - 28 * u, 60 * u))
 	var info := _banner_info()
+	if info.is_empty():
+		return
+	var a := UiKit.ease_out((_t - 0.25) / 0.4)
+	if _msg_t > 0.0:
+		a *= clampf(_msg_t / 0.3, 0.0, 1.0)
+	var r := Rect2(Vector2(14 * u, h - _bot - 62 * u), Vector2(w - 28 * u, 48 * u))
 	var title := String(info[0])
 	var detail := String(info[1])
 	var lit: bool = info[2]
-	_panel(self, r, Color(Toon.SUMI, 0.74 * a), 14 * u, Color(GOLD_HI, 0.8 * a) if lit else Color(Toon.WASHI, 0.1 * a), 1.5 * u, 0.3 * a, u)
-	var ic := r.position + Vector2(30 * u, r.size.y / 2.0)
+	_panel(self, r, Color(Toon.SUMI, 0.8 * a), 14 * u, Color(GOLD_HI, 0.8 * a) if lit else Color(Toon.WASHI, 0.1 * a), 1.5 * u, 0.3 * a, u)
+	var ic := r.position + Vector2(24 * u, r.size.y / 2.0)
 	var gi := _info_icon(lit)
 	var icol: Color = gi[1]
-	draw_circle(ic, 16 * u, Color(icol, a))
-	UiKit.glyph(self, String(gi[0]), ic, 9.5 * u, Toon.WASHI, icol, a)
-	var tx := r.position.x + 56 * u
+	draw_circle(ic, 13 * u, Color(icol, a))
+	UiKit.glyph(self, String(gi[0]), ic, 8.0 * u, Toon.WASHI, icol, a)
+	var tx := r.position.x + 46 * u
 	var tw := r.end.x - 12 * u - tx
-	var tfs := _fit(UiKit.TITLE_FONT, _p(title), int(13 * u), tw, int(10 * u))
-	draw_string(UiKit.TITLE_FONT, Vector2(tx, r.position.y + 23 * u), _p(title), HORIZONTAL_ALIGNMENT_LEFT, tw, tfs, Color(GOLD_HI if lit else Toon.WASHI, a))
-	draw_multiline_string(UiKit.UI_FONT, Vector2(tx, r.position.y + 39 * u), _p(detail), HORIZONTAL_ALIGNMENT_LEFT, tw, int(9.5 * u), 2, Color(Toon.WASHI, 0.68 * a))
+	if detail == "":
+		var tfs := _fit(UiKit.TITLE_FONT, _p(title), int(13 * u), tw, int(9 * u))
+		draw_string(UiKit.TITLE_FONT, Vector2(tx, r.get_center().y + tfs * 0.36), _p(title), HORIZONTAL_ALIGNMENT_LEFT, tw, tfs, Color(GOLD_HI if lit else Toon.WASHI, a))
+	else:
+		var tfs := _fit(UiKit.TITLE_FONT, _p(title), int(12 * u), tw, int(9 * u))
+		draw_string(UiKit.TITLE_FONT, Vector2(tx, r.position.y + 19 * u), _p(title), HORIZONTAL_ALIGNMENT_LEFT, tw, tfs, Color(Toon.WASHI, a))
+		var dfs := _fit(UiKit.UI_FONT, _p(detail), int(9.5 * u), tw, int(7 * u))
+		draw_string(UiKit.UI_FONT, Vector2(tx, r.position.y + 35 * u), _p(detail), HORIZONTAL_ALIGNMENT_LEFT, tw, dfs, Color(Toon.WASHI, 0.68 * a))
 
 
-## [pictogramme, couleur] de la pastille de la barre d'information.
+## [pictogramme, couleur] de la pastille de la ligne du bas.
 func _info_icon(lit: bool) -> Array:
 	if lit:
 		return ["check", Toon.VERMILION]
@@ -939,61 +978,18 @@ func _info_icon(lit: bool) -> Array:
 	return [String(TAB_GLYPHS[_tab]), Color(1, 1, 1, 0.1)]
 
 
-## [titre, détail, message d'achat ?]
+## [titre, détail (une ligne, ou vide), achat ?] ; vide : rien à dire (la ligne ne se dessine pas).
 func _banner_info() -> Array:
 	if _msg_t > 0.0:
-		return [_msg, _msg2, true]
-	if _sel != "":
-		var kind := _sel.get_slice(":", 0)
+		return [_msg, "", true]
+	if _sel.begins_with("seal:"):
 		var id := _sel.get_slice(":", 1)
-		match kind:
-			"line":
-				return _line_info(String(Meta.ORDER[int(id)]))
-			"seal":
-				return _seal_info(id)
-	match _tab:
-		1:
-			return ["Sceaux", "Gardien vaincu +1, boss +2, et +1 par malédiction à la victoire (3 au plus). Chaque don est acquis pour toujours.", false]
-		2:
-			return ["Les Vues", "Une estampe par exploit. Touche-la pour la voir, puis équipe son écharpe, son sillage ou son encre.", false]
-	return ["Pierre à encre", "L'encre se gagne à chaque partie. Touche une amélioration, puis touche encore pour l'acheter.", false]
-
-
-func _line_info(lid: String) -> Array:
-	var line: Dictionary = Meta.LINES[lid]
-	var r: int = meta.rank(lid)
-	var mx: int = meta.max_rank(lid)
-	var title := "%s · rang %d/%d" % [String(line["name"]), r, mx]
-	if r >= mx:
-		return [title, "Rang maximum : %s." % String(meta.effect_text(lid, r)), false]
-	var c: int = meta.cost(lid)
-	var have: int = meta.sumi
-	var detail := "Prochain rang : %s. " % String(meta.effect_text(lid))
-	if have >= c:
-		detail += "Touche encore pour acheter (%d encre)." % c
-	else:
-		detail += "Il manque %d encre." % (c - have)
-	return [title, detail, false]
-
-
-func _seal_info(id: String) -> Array:
-	var it: Dictionary = Meta.SEAL_ITEMS[id]
-	var title := String(it["name"])
-	var detail := String(it["text"])
-	if meta.owns_seal(id):
-		if id == "scroll":
-			detail = "Tu commences chaque partie avec : %s. Change-le avec les flèches." % _power_name(String(meta.start_power()))
-		else:
-			detail += " Acquis."
-		return [title, detail, false]
-	var c: int = meta.seal_cost(id)
-	var have: int = meta.seals
-	if have >= c:
-		detail += " Touche encore pour sceller (%d sceau%s)." % [c, "x" if c > 1 else ""]
-	else:
-		var miss := c - have
-		detail += " Il manque %d sceau%s." % [miss, "x" if miss > 1 else ""]
-	return [title, detail, false]
+		var it: Dictionary = Meta.SEAL_ITEMS[id]
+		var detail := String(it["text"])
+		if meta.owns_seal(id) and id == "scroll":
+			detail = _power_name(String(meta.start_power()))
+		return [String(it["name"]), detail, false]
+	return []
 
 
 func _power_name(id: String) -> String:
@@ -1034,8 +1030,8 @@ func _draw_list() -> void:
 
 
 ## Titre de section commun (UiKit.section) : sceau à kanji, petites capitales, trait de pinceau, shuriken.
-func _section(y: float, W: float, txt: String, u: float, kanji := "") -> void:
-	UiKit.section(_list, _tabf, txt, 4 * u, W - 6 * u, y + 13 * u, u, Toon.WASHI, 1.0, kanji)
+func _section(y: float, W: float, txt: String, u: float) -> void:
+	UiKit.section(_list, _tabf, txt, 4 * u, W - 6 * u, y + 13 * u, u, Toon.WASHI, 1.0)
 
 
 ## Sceaux : rouleau de départ (si acquis), dons permanents puis légendaires, en tuiles sur deux colonnes.
@@ -1057,10 +1053,9 @@ func _draw_seal_list(y0: float, W: float, u: float) -> float:
 			basics.append(String(id))
 	var gap := 10.0 * u
 	var tw := (W - 8 * u - gap) / 2.0
-	var th := 184.0 * u
-	# sceaux des sections : 印 (le sceau), 龍 (le dragon des légendaires)
-	for group in [["DONS PERMANENTS", basics, "印"], ["LÉGENDAIRES", legs, "龍"]]:
-		_section(y, W, _p(String(group[0])), u, String(group[2]))
+	var th := 150.0 * u
+	for group in [["DONS PERMANENTS", basics], ["LÉGENDAIRES", legs]]:
+		_section(y, W, _p(String(group[0])), u)
 		y += 26 * u
 		var ids: Array = group[1]
 		for i in ids.size():
@@ -1127,24 +1122,19 @@ func _seal_tile(id: String, r: Rect2, u: float) -> void:
 		_list.draw_circle(bc, 9.0 * u, body)
 		_list.draw_circle(bc, 7.5 * u, Toon.VERMILION)
 		UiKit.glyph(_list, "check", bc, 4.5 * u, Toon.WASHI)
-	# nom, effet
+	# nom (l'effet, en une ligne, se lit en bas de l'écran quand la tuile est choisie)
 	var nm := _p(String(it["name"]))
 	var nfs := _fit(UiKit.TITLE_FONT, nm, int(13.5 * u), rr.size.x - 14 * u, int(10 * u))
 	UiKit.text(_list, UiKit.TITLE_FONT, nm, Vector2(cx, mc.y + mr + 21 * u), nfs, GOLD_HI if leg else ink)
-	var desc := String(it["text"])
-	if owned and id == "scroll":
-		desc = "Choisis ton rouleau en haut de la liste."
-	_list.draw_multiline_string(UiKit.UI_FONT, Vector2(rr.position.x + 9 * u, mc.y + mr + 37 * u), _p(desc), HORIZONTAL_ALIGNMENT_CENTER,
-		rr.size.x - 18 * u, int(9.5 * u), 3, Color(ink, 0.68))
-	# prix, ou ACQUIS
+	# prix, ou acquis (coche)
 	var br := Rect2(Vector2(rr.position.x + 12 * u, rr.end.y - 34 * u), Vector2(rr.size.x - 24 * u, 24 * u))
 	if owned:
-		_button(_list, br, "owned", "ACQUIS", "check", "", u, 1.0, leg)
+		_button(_list, br, "owned", "", "check", "", u, 1.0, leg)
 	elif afford:
 		if sel:
 			var bk := 1.0 + 0.04 * pulse
 			br = Rect2(br.get_center() - br.size * bk / 2.0, br.size * bk)
-		_button(_list, br, "buy", "SCELLER" if sel else "", "at_seal", str(c), u, 1.0)
+		_button(_list, br, "buy", "armé" if sel else "", "at_seal", str(c), u, 1.0)
 	else:
 		_button(_list, br, "lack", "", "at_seal", str(c), u, 1.0, leg)
 	if _stamp_key == key and _stamp > 0.0:
@@ -1431,11 +1421,11 @@ func _draw_sheet() -> void:
 	if _pressed == _sel:
 		br = Rect2(br.get_center() - br.size * 0.485, br.size * 0.97)
 	if not owned:
-		_button(_sheet, br, "lack", _p("VERROUILLÉE"), "at_lock", "", u, 1.0)
+		_button(_sheet, br, "lack", "", "at_lock", "", u, 1.0)
 	elif worn:
-		_button(_sheet, br, "owned", "RETIRER", "", "", u, 1.0)
+		_button(_sheet, br, "owned", "", "cross", "", u, 1.0)
 	else:
-		_button(_sheet, br, "buy", _p("ÉQUIPER"), "", "", u, 1.0)
+		_button(_sheet, br, "buy", "", "check", "", u, 1.0)
 
 
 ## Pastille ronde d'une apparence : fond de papier, liseré d'encre, pictogramme à l'échelle du rayon.

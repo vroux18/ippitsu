@@ -541,6 +541,14 @@ func _ready() -> void:
 		if sl >= 0:
 			picker.set("_sel", clampi(int(wsearch.substr(sl + 4).get_slice("&", 0)), 0, 2))
 	if "atelier" in wsearch:
+		# `?atelier&tab=1` (captures) : l'onglet N ouvert ; `&fresh` : encre et rangs remis à zéro (prix visibles)
+		if "fresh" in wsearch:
+			meta.sumi = 60
+			meta.seals = 2
+			meta.ranks = {}
+		var tb := wsearch.find("tab=")
+		if tb >= 0:
+			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 2))
 		_on_atelier()
 	if "dojo" in wsearch:
 		_start_dojo()
