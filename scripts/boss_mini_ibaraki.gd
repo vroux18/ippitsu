@@ -185,6 +185,7 @@ func _build() -> void:
 	Toon.disc(self, 1.0, Color(0, 0, 0, 0.16))
 	body = Node3D.new()
 	add_child(body)
+	body.rotation.y = PI  # il entre face au héros (le corps regarde vers -Z ; _face le tourne ensuite)
 	ch = Rig.new()
 	body.add_child(ch)
 	ch.setup("ibaraki", HEIGHT)

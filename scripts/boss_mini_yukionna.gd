@@ -72,6 +72,11 @@ class Rig extends "res://scripts/ink_rig.gd":
 			_out[j] = _tgt[j]
 		_apply()
 
+	## Le masque regarde un peu plus la caméra que celui des communs (la couronne ne doit pas le cacher).
+	func _apply() -> void:
+		super._apply()
+		_head.rotation.x += 0.22
+
 	func _dress() -> void:
 		var key := 1 if Toon.lite else 0
 		if not _cache.has(key):
@@ -102,10 +107,10 @@ class Rig extends "res://scripts/ink_rig.gd":
 		var b := Yokai.Mesher.new(1.0)
 		# corps de la yukionna commune, en variante dorée (liserés et oreilles d'or de l'élite)
 		Yokai.ink_body(b, w, W3.INK_SNOW, W3.W3_CLOTH, W3.W3_WAVE, Toon.GOLD, lite, true)
-		# châle immense : grand cône plat de neige sur les épaules, bordé d'un liseré d'or ; deux pans qui tombent
-		# devant de chaque côté du masque ; longue traîne de neige dans le dos jusqu'à l'obi
-		b.cyl(Vector3(0, 1.06, 0.02), Vector3(0.74, 0.14, 0.68), SNOW, Vector3.ZERO, 0.55, 14)
-		b.cyl(Vector3(0, 0.985, 0.02), Vector3(0.77, 0.035, 0.71), Toon.GOLD, Vector3.ZERO, 1.0, 14)
+		# châle immense : cône de neige drapé des épaules jusqu'à l'obi, bordé d'un liseré d'or ; deux pans qui
+		# tombent devant de chaque côté du masque ; longue traîne de neige dans le dos
+		b.cyl(Vector3(0, 0.98, 0.02), Vector3(0.74, 0.36, 0.68), SNOW, Vector3.ZERO, 0.42, 14)
+		b.cyl(Vector3(0, 0.81, 0.02), Vector3(0.76, 0.035, 0.7), Toon.GOLD, Vector3.ZERO, 1.0, 14)
 		b.cyl(Vector3(0, 0.6, 0.44), Vector3(0.5, 1.0, 0.12), SNOW, Vector3(0.16, 0, 0), 0.72, 10)
 		for s in [-1.0, 1.0]:
 			var x := float(s)
@@ -114,7 +119,7 @@ class Rig extends "res://scripts/ink_rig.gd":
 			# flocons brodés sur le bord du châle (lisibles du dessus), broche d'or sur la poitrine
 			for i in 10:
 				var ang := TAU * (float(i) + 0.5) / 10.0
-				b.ball(Vector3(sin(ang) * 0.6, 1.12, 0.02 + cos(ang) * 0.55), Vector3(0.05, 0.018, 0.05), W3.ICE_L, Vector3.ZERO, 6)
+				b.ball(Vector3(sin(ang) * 0.66, 0.9, 0.02 + cos(ang) * 0.6), Vector3(0.05, 0.05, 0.02), W3.ICE_L, Vector3(0, ang, 0), 6)
 			b.ball(Vector3(0, 0.9, -0.44 * w), Vector3(0.07, 0.07, 0.03), Toon.GOLD, Vector3.ZERO, 8)
 		d["body"] = b.mesh()
 		var a := Yokai.Mesher.new(1.0)
@@ -138,18 +143,19 @@ class Rig extends "res://scripts/ink_rig.gd":
 			if not lite:
 				a.stick(Vector3(x * 0.2, -0.08, -0.32), Vector3(0.05, 0.55, 0.04), Yokai.HAIR, Vector3(PI + 0.1, 0, x * 0.1))
 		# couronne d'or : bandeau sur la chevelure, cristaux de glace plantés dedans, petites pointes d'or entre eux
-		a.cyl(Vector3(0, 0.3, 0.1), Vector3(0.31, 0.07, 0.29), Toon.GOLD, Vector3.ZERO, 0.88, 12)
+		# (posée en arrière du masque et penchée en arrière : vue en plongée, elle ne cache pas le visage)
+		a.cyl(Vector3(0, 0.27, 0.16), Vector3(0.31, 0.07, 0.29), Toon.GOLD, Vector3(-0.3, 0, 0), 0.88, 12)
 		var n := 3 if lite else 7
 		for i in n:
 			var k := (float(i) / float(n - 1) - 0.5) * 2.0
-			var h := 0.5 - 0.18 * absf(k)
-			a.spike(Vector3(k * 0.27, 0.33 - 0.06 * absf(k), 0.1 + 0.04 * absf(k)), 0.055, h, W3.ICE_L, Vector3(-0.2, 0, -k * 0.5), 0.0, 4)
+			var h := 0.44 - 0.16 * absf(k)
+			a.spike(Vector3(k * 0.27, 0.3 - 0.06 * absf(k), 0.18 + 0.04 * absf(k)), 0.055, h, W3.ICE_L, Vector3(-0.55, 0, -k * 0.5), 0.0, 4)
 		if not lite:
 			for i in 6:
 				var k2 := (float(i) / 5.0 - 0.5) * 2.0
-				a.spike(Vector3(k2 * 0.24, 0.33, 0.1 + 0.03 * absf(k2)), 0.025, 0.12, Toon.GOLD, Vector3(-0.2, 0, -k2 * 0.5), 0.0, 4)
+				a.spike(Vector3(k2 * 0.24, 0.3, 0.18 + 0.03 * absf(k2)), 0.025, 0.12, Toon.GOLD, Vector3(-0.55, 0, -k2 * 0.5), 0.0, 4)
 			# disque d'or (soleil pâle) derrière la pointe centrale
-			a.cyl(Vector3(0, 0.5, 0.2), Vector3(0.14, 0.02, 0.14), Toon.GOLD, Vector3(PI / 2.0 - 0.2, 0, 0), 1.0, 12)
+			a.cyl(Vector3(0, 0.42, 0.32), Vector3(0.14, 0.02, 0.14), Toon.GOLD, Vector3(PI / 2.0 - 0.55, 0, 0), 1.0, 12)
 		d["head"] = Yokai.two(a, f)
 		# bras d'encre (comme Yokai.ink_arm) avec un bracelet d'or
 		var ar := Yokai.Mesher.new(1.0)
@@ -176,6 +182,7 @@ func _build() -> void:
 	Toon.disc(self, 0.8, Color(0, 0, 0, 0.12))
 	body = Node3D.new()
 	add_child(body)
+	body.rotation.y = PI  # elle entre face au héros (le corps regarde vers -Z ; _face la tourne ensuite)
 	ch = Rig.new()
 	body.add_child(ch)
 	# le bas de l'encre s'effile à 0,6 m au-dessus de l'origine du rig : un peu enfoncé pour que les glaçons frôlent le sol
