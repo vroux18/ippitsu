@@ -62,6 +62,8 @@ const ROLL_R1 := 3.0  # rayon du rouleau du bas une fois déroulé (× u)
 const KNOB_R := 4.2  # demi-hauteur des coiffes du rouleau (× u)
 const CORD_H := 11.0  # hauteur du crochet du cordon au-dessus de la baguette (× u)
 const NO_CUT := 1.0e9  # pas de bord de papier : tout le contenu se voit
+# technique de chaque figure (étiquette des cartes de figure)
+const FIG_TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "return": "GARDE", "enso": "ENSŌ", "hook": "ESTOC"}
 const POP_AT := 0.08  # légendaire retourné : le médaillon « pope » (s après la mi-retournement)
 const POP_DUR := 0.26
 const TXT_AT := 0.14  # puis le texte se fond
@@ -2814,11 +2816,32 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(3.0 * s)), Rect2(cart.position + Vector2(0, 2.0 * s), cart.size))
 	draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI_LIGHT, a), int(3.0 * s), Color(UIColors.SUMI, a), maxi(1, int(1.5 * s))), cart)
 	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(cx, cart.get_center().y + float(nfs) * 0.36), nfs, Color(UIColors.SUMI, ta))
-	# lignes d'effet (variante C) : jusqu'à trois, 24 u chacune, panneau à 128 u
+	# technique de figure : on doit comprendre d'un coup d'œil QUELLE figure la carte concerne, et que c'est une
+	# technique à tracer. Grand trait fantôme de la figure dans la scène, puis sous le nom une étiquette
+	# « [figure] ZIGZAG → ÉCLAIR » : or plein pour la technique nouvelle, papier cerné pour une amélioration.
+	var fig := UiKit.trigger_figure(id)
+	var fx_y := o.y + 132.0 * s
+	var max_rows := 3
+	if school == "fig" and fig != "":
+		UiKit.figure(self, fig, Vector2(o.x + 26.0 * s, o.y + 50.0 * s), 17.0 * s, 0.55 * a)
+		var base_unlock := id == String(Data.FIG_UNLOCK.get(fig, ""))
+		var lab := "%s  →  %s" % [String(UiKit.FIG_WORD.get(fig, "FIGURE")), String(FIG_TECH.get(fig, ""))]
+		var lfs2 := maxi(1, int(8.5 * s))
+		var lw2 := _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2).x
+		var chip := Rect2(Vector2(cx - (lw2 + 34.0 * s) / 2.0, o.y + 122.0 * s), Vector2(lw2 + 34.0 * s, 18.0 * s))
+		if base_unlock:
+			draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, ta), int(9.0 * s), Color(UIColors.SUMI, ta), maxi(1, int(1.5 * s))), chip)
+		else:
+			draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI_LIGHT, ta), int(9.0 * s), Color(UIColors.SUMI, 0.8 * ta), maxi(1, int(1.2 * s))), chip)
+		UiKit.figure_icon(self, fig, Vector2(chip.position.x + 11.0 * s, chip.get_center().y), 13.0 * s, ta)
+		draw_string(_ui, Vector2(chip.position.x + 22.0 * s, chip.get_center().y + float(lfs2) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs2, Color(UIColors.SUMI, ta))
+		fx_y += 20.0 * s
+		max_rows = 2
+	# lignes d'effet (variante C) : jusqu'à trois, 24 u chacune, panneau à 128 u (148 sous l'étiquette de figure)
 	var rows := _fx_of(id, info)
-	for k in mini(rows.size(), 3):
+	for k in mini(rows.size(), max_rows):
 		var rw: Array = rows[k]
-		_v2_fx_row(rw, o.x + 8.0 * s, inner.end.x - 8.0 * s, o.y + 132.0 * s + 24.0 * s * float(k) + 12.0 * s, s, el, ta)
+		_v2_fx_row(rw, o.x + 8.0 * s, inner.end.x - 8.0 * s, fx_y + 24.0 * s * float(k) + 12.0 * s, s, el, ta)
 	# pied : crans de niveau (le cran gagné brille) et anneau d'harmonie (état après le choix ; aucun pour le neutre)
 	var fy := inner.end.y - 8.0 * s - 19.0 * s
 	var mx := int(info.get("max_level", 1))
