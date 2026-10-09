@@ -31,9 +31,20 @@ const HOLE_STYLES := {
 	3: {"deep": Color("#071725"), "near": Color("#1A4560"), "centre": Color("#0C2234"), "rim": Color("#79B9DA"),
 		"wall0": Color("#E2F4FB"), "wall1": Color("#86C5E2"), "wall2": Color("#245F86"),
 		"ink": Color("#3A3A48"), "d_total": 0.55, "glint": Color("#F2FBFF")},
-	4: {"deep": Color("#C2360E"), "near": Color("#F27A26"), "centre": Color("#FFD866"), "rim": Color("#FFF1A6"),
-		"wall0": Color("#22150F"), "wall1": Color("#6A2410"), "wall2": Color("#E4561A"),
-		"ink": Color("#1A0F0B"), "d_total": 0.42, "glint": Color("#FFF4B8")},
+	# monde 4 : lave sumi veinée d'or (jamais orange : le vermillon est aux annonces)
+	4: {"deep": Color("#120C0A"), "near": Color("#2A1C14"), "centre": Color("#4A3418"), "rim": Color("#C49A45"),
+		"wall0": Color("#4A423E"), "wall1": Color("#2E2522"), "wall2": Color("#8A6A2A"),
+		"ink": Color("#1A1412"), "d_total": 0.42, "glint": Color("#F2DCA0")},
+	# mondes 6, 7, 8 : dalles de Kurama (granit moussu), du palais (nacre, eau turquoise), de Yomi (cendre)
+	6: {"deep": Color("#030806"), "near": Color("#0E1E14"), "rim": Color("#4A7A5A"), "lip": Color("#A8A690"),
+		"face": Color("#767460"), "face2": Color("#4A4A3C"), "dark": Color("#1A1E18"), "abyss": Color("#040806"),
+		"ink": Color("#1A1E1A"), "d_slab": 0.22, "d_total": 0.62, "glint": Color("#CFE0B8")},
+	7: {"deep": Color("#02141A"), "near": Color("#0E4650"), "rim": Color("#5AB8B0"), "lip": Color("#C8C4B2"),
+		"face": Color("#8A8676"), "face2": Color("#5A5A4E"), "dark": Color("#1A2426"), "abyss": Color("#031014"),
+		"ink": Color("#14181C"), "d_slab": 0.22, "d_total": 0.55, "glint": Color("#DFF6F2")},
+	8: {"deep": Color("#040208"), "near": Color("#120E1A"), "rim": Color("#5A4E72"), "lip": Color("#8A868E"),
+		"face": Color("#5A575E"), "face2": Color("#38363C"), "dark": Color("#141218"), "abyss": Color("#06040A"),
+		"ink": Color("#0E0C10"), "d_slab": 0.22, "d_total": 0.62, "glint": Color("#C9B8E8")},
 	5: {"deep": Color("#040405"), "near": Color("#16141B"), "centre": Color("#0A090D"), "rim": Color("#3A3644"),
 		"wall0": Color("#D3C6A8"), "wall1": Color("#4A4038"), "wall2": Color("#09090B"),
 		"ink": Color("#1B1A1E"), "d_total": 0.2, "glint": Color("#F4F1FA")},
@@ -219,10 +230,12 @@ func _make_hole(c: Vector3, r: float) -> void:
 	add_child(n)
 	n.position = c
 	var w := 1
+	var wid := 1
 	if main != null:
-		# mondes 6 à 8 : sol de pierre (Kurama, palais de Ryūgū) ou d'encre (Yomi)
-		w = [1, 1, 2, 3, 4, 5, 2, 2, 5][clampi(int(main.current_world), 1, 8)]
-	var pal: Dictionary = HOLE_STYLES[w]
+		wid = clampi(int(main.current_world), 1, 8)
+		# allure (planches, dalles, glace, lave, encre) : mondes 6 à 8 en dalles, aux couleurs de leur sol
+		w = [1, 1, 2, 3, 4, 5, 2, 2, 2][wid]
+	var pal: Dictionary = HOLE_STYLES[wid] if HOLE_STYLES.has(wid) else HOLE_STYLES[w]
 	var flat := Mb.new()  # aplats : fond, parois, liserés, encre
 	var relief := Mb.new()  # reliefs cernés d'encre : échardes, cailloux, plaques
 	var sheet := Mb.new()  # feuilles souples sans contour : lèvre de neige, papier retroussé
@@ -579,15 +592,15 @@ func _hole_lava(c: Vector3, r: float, pal: Dictionary, flat: Mb, relief: Mb, lav
 	_pit_star(lava, lava, pts, pal, 0.45)
 	var s: float = float(pal["d_total"]) * K_PROJ
 	# lueur sous les plaques : elle ne se voit que dans les fissures
-	var hot := Color("#FF9A30")
-	var ember := Color("#B8400E")
+	var hot := Color("#C49A45")
+	var ember := Color("#5A4418")
 	for i in 28:
 		var j := (i + 1) % 28
 		lava.quad(_v(pts[i], Y_FOND), _v(pts[j], Y_FOND), _v(pts[j] * 1.1, Y_FOND), _v(pts[i] * 1.1, Y_FOND), hot, hot, ember, ember)
 	# sept plaques de croûte, relevées vers le puits
 	var charred := Color("#1C1412")
 	var crust := Color("#5A534D")
-	var side_hot := Color("#C2531C")
+	var side_hot := Color("#8A6A2A")
 	var side := Color("#2E2724")
 	for k in 7:
 		var poly := PackedVector3Array()
@@ -618,7 +631,7 @@ func _hole_lava(c: Vector3, r: float, pal: Dictionary, flat: Mb, relief: Mb, lav
 	for i in 2:
 		var sp := _star_spot(r * 0.85, s)
 		var rad := randf_range(0.07, 0.11)
-		_blob(lava, sp, rad * 1.3, Color("#FFC34A"), Y_LISERE, 6)
+		_blob(lava, sp, rad * 1.3, Color("#E0C27A"), Y_LISERE, 6)
 		_blob(flat, sp, rad, Color("#2A1E1A"), Y_DETAIL, 6)
 	for i in 3:
 		var sp := _star_spot(r * 0.85, s)

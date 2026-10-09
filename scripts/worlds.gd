@@ -34,10 +34,11 @@ const BASALT := Color("#3A3433")
 const IRON := Color("#3B3A3E")
 const BRAISE := Color("#8E2A1E")
 const LAVA := Color("#1E1517")
-const LAVA_GOLD := Color("#E0A84A")
-const EMBER := Color("#F29A3A")
-const FLAME_CORE := Color("#FFD27A")
-const SEAL_RED := Color("#B8352A")
+const LAVA_GOLD := Color("#C49A45")  # veines de la lave : l'or de la palette commune
+const EMBER := Color("#D9A64A")  # flammes des braseros et torches : ambre-or, jamais l'orange des annonces
+const FLAME_CORE := Color("#FFE2A0")
+const HALO := Color("#8A6A2A")  # auréole de braise au pied des roches (or éteint, faible)
+const SEAL_RED := Color("#9E3028")
 const HULL := Color("#4A3A2E")
 const CREW := Color("#27324A")
 const ICE := Color("#BFD6E3")
@@ -58,16 +59,19 @@ const WORLDS: Array = [
 		"sky": Color("#EFE6D2"),
 		"fog": Color("#EFE6D2"),
 		"fog_density": 0.0028,
-		"sun_color": Color(1.0, 0.9, 0.78),
-		"sun_energy": 0.72,
+		"sun_color": Color(1.0, 0.94, 0.86),
+		"sun_energy": 0.6,
 		"ambient_color": Color(0.86, 0.9, 1.0),
 		"ambient_energy": 0.3,
-		"ground": [Color("#B78C5E"), Color("#AC8155"), Color("#C29967"), Color("#A0774E"), Color("#B4895C")],  # hinoki doré, chaud et lumineux (le gris délavé faisait triste)
+		# planches de sable mouillé (design/PALETTES.md) : valeur et saturation moyennes, le trait d'encre,
+		# les masques washi et les disques vermillon restent ce qu'il y a de plus contrasté
+		"ground": [Color("#9C8C6A"), Color("#938362"), Color("#A49473"), Color("#8A7A5A"), Color("#978766")],
 		"ground_style": "planks",
 		"edge": Color("#1B1A1E"),
-		"under": Color("#3E3631"),
+		"under": Color("#4A3E33"),
 		"void": Color("#1F3A5F"),
 		"void_metal": true,
+		"bridge_wood": [Color("#8E6B3E"), Color("#A88452"), Color("#7A5A34")],  # hinoki brut du port
 		"enemies": {"oni": 4, "kappa": 2, "brute": 1, "tate": 1, "funa": 2, "umibozu": 2, "kappa_yumi": 2, "ika": 2, "umi_nyobo": 1},
 		"hp_mult": 1.0,
 		# difficulté (main._begin_room, attack_tokens, _spawn_list, spawn_bullet ; enemy._ready) : attaquants simultanés,
@@ -83,16 +87,19 @@ const WORLDS: Array = [
 		"sky": Color("#1F2A3A"),
 		"fog": Color("#2C3848"),
 		"fog_density": 0.0035,
-		"sun_color": Color(0.78, 0.85, 1.0),
-		"sun_energy": 0.55,
-		"ambient_color": Color(0.58, 0.68, 0.88),
-		"ambient_energy": 0.5,
-		"ground": [Color("#6E726E"), Color("#656965"), Color("#777B76"), Color("#5E625E"), Color("#6A6E69")],  # ardoise froide, mousse dans les joints
+		"sun_color": Color(0.82, 0.86, 0.98),
+		"sun_energy": 0.5,
+		"ambient_color": Color(0.58, 0.68, 0.86),
+		"ambient_energy": 0.52,
+		# dalles de nuit : pierre tiède sous la lune, mousse dans les joints ; ni le vert des bambous ni le
+		# noir de l'étang, pour que les silhouettes sumi se détachent
+		"ground": [Color("#6A7062"), Color("#62685A"), Color("#72786A"), Color("#5A6054"), Color("#666C5E")],
 		"ground_style": "stones",
-		"edge": Color("#26252B"),
-		"under": Color("#3E4A3A"),
-		"void": Color("#1E3330"),
+		"edge": Color("#1E2420"),
+		"under": Color("#363E34"),
+		"void": Color("#13221F"),
 		"void_metal": true,
+		"bridge_wood": [Color("#8A8A5A"), Color("#9C9A68"), Color("#6E6E48")],  # bambou vieilli
 		"enemies": {"oni": 3, "kappa": 2, "brute": 1, "tate": 1, "funa": 1, "kitsunebi": 2, "kamaitachi": 2, "tanuki": 2, "kitsune_tsukai": 1, "kappa_yumi": 1, "shinobi": 2, "shuriken": 1},
 		"hp_mult": 1.15,
 		"tokens": 2, "tele": 0.96, "b0": 5, "per": 1.3, "elite": 0.16, "bullet": 3.6,
@@ -107,15 +114,17 @@ const WORLDS: Array = [
 		"fog": Color("#E2E7EC"),
 		"fog_density": 0.0045,
 		"sun_color": Color(0.95, 0.97, 1.0),
-		"sun_energy": 0.55,
-		"ambient_color": Color(0.8, 0.86, 0.95),
-		"ambient_energy": 0.45,
-		"ground": [Color("#DDE1E6"), Color("#D2D7DE"), Color("#C8CFD8"), Color("#D7DCE2"), Color("#C2CAD4")],
+		"sun_energy": 0.4,
+		"ambient_color": Color(0.76, 0.82, 0.94),
+		"ambient_energy": 0.3,
+		# neige bleutée, jamais blanche : le blanc est gardé pour l'écume des annonces et les masques washi
+		"ground": [Color("#B4BEC9"), Color("#ACB7C3"), Color("#BAC4CE"), Color("#A6B1BE"), Color("#B0BAC6")],
 		"ground_style": "snow",
 		"edge": Color("#3A3A48"),
 		"under": Color("#8C8FA8"),
 		"void": Color("#34465A"),
 		"void_metal": true,
+		"bridge_wood": [Color("#8C7A62"), Color("#A08E74"), Color("#6E5E4A")],  # bois givré
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 3, "yukionna": 2, "yuki_warashi": 2, "onryo": 2, "tsurara": 1, "kamaitachi": 1, "umi_nyobo": 1},
 		"hp_mult": 1.3,
 		"tokens": 3, "tele": 0.92, "b0": 6, "per": 1.6, "elite": 0.2, "bullet": 3.8,
@@ -129,16 +138,19 @@ const WORLDS: Array = [
 		"sky": Color("#3F5677"),
 		"fog": Color("#5A4A4E"),
 		"fog_density": 0.003,
-		"sun_color": Color(1.0, 0.72, 0.52),
-		"sun_energy": 0.8,
-		"ambient_color": Color(1.0, 0.75, 0.6),
-		"ambient_energy": 0.3,
-		"ground": [Color("#47423F"), Color("#4F4A46"), Color("#55504B"), Color("#3D3937"), Color("#4A4541")],
+		"sun_color": Color(1.0, 0.86, 0.72),
+		"sun_energy": 0.7,
+		"ambient_color": Color(0.9, 0.78, 0.7),
+		"ambient_energy": 0.32,
+		# cendre tiède (#5A5550 de la bible) : assez claire pour les silhouettes sumi ; la lave du vide est
+		# sumi veiné d'or, le vermillon reste aux annonces
+		"ground": [Color("#6A625C"), Color("#625A54"), Color("#726A64"), Color("#5A524C"), Color("#665E58")],
 		"ground_style": "basalt",
 		"edge": Color("#141215"),
 		"under": Color("#2A2220"),
-		"void": Color("#241A1A"),
+		"void": Color("#16100F"),
 		"void_metal": false,
+		"bridge_wood": [Color("#4A3A30"), Color("#5C4A3C"), Color("#3A2E26")],  # bois brûlé
 		"enemies": {"oni": 2, "kappa": 1, "brute": 2, "tate": 1, "funa": 1, "kasha": 2, "hinotama": 2, "teppo": 2, "tengu": 2, "kanabo": 1, "moryo": 1},
 		"hp_mult": 1.45,
 		"tokens": 3, "tele": 0.88, "b0": 7, "per": 1.8, "elite": 0.25, "bullet": 4.0,
@@ -152,16 +164,19 @@ const WORLDS: Array = [
 		"sky": Color("#EAD2C8"),
 		"fog": Color("#E4C3B8"),
 		"fog_density": 0.0035,
-		"sun_color": Color(1.0, 0.88, 0.82),
-		"sun_energy": 0.7,
-		"ambient_color": Color(1.0, 0.9, 0.9),
-		"ambient_energy": 0.35,
-		"ground": [Color("#B2AA9A"), Color("#A9A191"), Color("#BAB2A2"), Color("#A39B8B"), Color("#AFA797")],  # papier vieilli, plus soutenu (le blanc saturait)
+		"sun_color": Color(1.0, 0.9, 0.84),
+		"sun_energy": 0.54,
+		"ambient_color": Color(0.98, 0.9, 0.9),
+		"ambient_energy": 0.3,
+		# papier vieilli : lumière baissée pour qu'il ne sature plus en blanc (l'écume des annonces et les
+		# masques washi doivent rester plus clairs que le sol)
+		"ground": [Color("#A69E8C"), Color("#9D9583"), Color("#AEA694"), Color("#978F7D"), Color("#A39B89")],
 		"ground_style": "paper",
 		"edge": Color("#1B1A1E"),
 		"under": Color("#3A3530"),
 		"void": Color("#0E1A2E"),
 		"void_metal": true,
+		"bridge_wood": [Color("#5A544C"), Color("#6E685E"), Color("#44403A")],  # bois lavé d'encre
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 2, "funa": 1, "kagebo": 2, "sumidama": 2, "kasa": 2, "moryo": 1, "onryo": 1, "teppo": 1, "tengu": 1, "kitsune_tsukai": 1, "shinobi": 2, "shuriken": 2, "kemuri": 2, "kunoichi": 1},
 		"hp_mult": 1.6,
 		"tokens": 3, "tele": 0.85, "b0": 8, "per": 2.0, "elite": 0.3, "bullet": 4.2,
@@ -175,16 +190,19 @@ const WORLDS: Array = [
 		"sky": Color("#C6CFBD"),
 		"fog": Color("#AEBDA9"),
 		"fog_density": 0.0042,
-		"sun_color": Color(0.96, 0.95, 0.84),
-		"sun_energy": 0.64,
-		"ambient_color": Color(0.74, 0.88, 0.76),
-		"ambient_energy": 0.42,
-		"ground": [Color("#676856"), Color("#5E5F4D"), Color("#6E6F5C"), Color("#57594A"), Color("#636452")],  # dalles moussues
+		"sun_color": Color(0.98, 0.95, 0.86),
+		"sun_energy": 0.56,
+		"ambient_color": Color(0.8, 0.84, 0.76),
+		"ambient_energy": 0.38,
+		# granit tiède des escaliers de Kurama : plus clair et plus chaud que le ravin et les cèdres, pour que
+		# le sol ne se confonde plus avec le vert de tout le reste
+		"ground": [Color("#78766A"), Color("#6E6C60"), Color("#807E72"), Color("#666458"), Color("#747266")],
 		"ground_style": "stones",
 		"edge": Color("#1A1E1A"),
-		"under": Color("#33402F"),
-		"void": Color("#1C2C22"),
+		"under": Color("#3E4634"),
+		"void": Color("#101C14"),
 		"void_metal": true,
+		"bridge_wood": [Color("#6E4634"), Color("#7E523C"), Color("#54362A")],  # cèdre rouge
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 1, "tengu": 2, "kamaitachi": 1, "moryo": 1, "karasu": 3, "yamabushi": 2, "konoha": 2, "shinobi": 2, "shuriken": 1, "kemuri": 1, "kunoichi": 2},
 		"hp_mult": 1.7,
 		"tokens": 4, "tele": 0.82, "b0": 9, "per": 2.2, "elite": 0.34, "bullet": 4.4,
@@ -198,16 +216,19 @@ const WORLDS: Array = [
 		"sky": Color("#3F8486"),
 		"fog": Color("#4E8C8A"),
 		"fog_density": 0.0055,
-		"sun_color": Color(0.78, 0.96, 0.94),
-		"sun_energy": 0.6,
+		"sun_color": Color(0.8, 0.96, 0.94),
+		"sun_energy": 0.58,
 		"ambient_color": Color(0.6, 0.9, 0.92),
-		"ambient_energy": 0.5,
-		"ground": [Color("#6A3C35"), Color("#61362F"), Color("#73443B"), Color("#5A332D"), Color("#673A33")],  # planches laquées du palais
+		"ambient_energy": 0.48,
+		# dalles de nacre et de sable du parvis englouti (la laque rouge d'avant se confondait avec les
+		# annonces vermillon) ; le vermillon et l'or restent au palais, au fond
+		"ground": [Color("#948668"), Color("#8A7C60"), Color("#9C8E70"), Color("#807258"), Color("#908264")],
 		"ground_style": "planks",
 		"edge": Color("#14181C"),
 		"under": Color("#2A3A3E"),
-		"void": Color("#0E3A44"),
+		"void": Color("#082A33"),
 		"void_metal": true,
+		"bridge_wood": [Color("#6E6A58"), Color("#82806C"), Color("#585646")],  # bois flotté
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 2, "umibozu": 1, "ika": 2, "umi_nyobo": 1, "kani": 3, "ningyo": 2, "fugu": 2},
 		"hp_mult": 1.8,
 		"tokens": 4, "tele": 0.8, "b0": 10, "per": 2.4, "elite": 0.38, "bullet": 4.6,
@@ -221,16 +242,18 @@ const WORLDS: Array = [
 		"sky": Color("#3A3442"),
 		"fog": Color("#4A4452"),
 		"fog_density": 0.005,
-		"sun_color": Color(0.82, 0.78, 0.95),
-		"sun_energy": 0.55,
-		"ambient_color": Color(0.7, 0.64, 0.88),
-		"ambient_energy": 0.48,
-		"ground": [Color("#5B585E"), Color("#525056"), Color("#615E64"), Color("#4B494F"), Color("#57545A")],  # dalles de cendre
+		"sun_color": Color(0.8, 0.76, 0.94),
+		"sun_energy": 0.52,
+		"ambient_color": Color(0.66, 0.6, 0.84),
+		"ambient_energy": 0.46,
+		# dalles de cendre grise, désaturées : le lilas des âmes est la seule couleur vive de Yomi
+		"ground": [Color("#66625E"), Color("#5E5A56"), Color("#6E6A66"), Color("#56524E"), Color("#625E5A")],
 		"ground_style": "stones",
 		"edge": Color("#0E0C10"),
-		"under": Color("#242028"),
-		"void": Color("#140F1C"),
+		"under": Color("#28242C"),
+		"void": Color("#0D0A13"),
 		"void_metal": false,
+		"bridge_wood": [Color("#4A464E"), Color("#5A565E"), Color("#3A363E")],  # bois de cendre
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "onryo": 2, "kagebo": 1, "kanabo": 1, "moryo": 1, "gaki": 3, "gokusotsu": 2, "shiryo": 2, "kemuri": 1},
 		"hp_mult": 1.9,
 		"tokens": 4, "tele": 0.78, "b0": 11, "per": 2.6, "elite": 0.42, "bullet": 4.8,
@@ -253,21 +276,21 @@ static func world(id: int) -> Dictionary:
 static func floor_look(id: int) -> Dictionary:
 	match clampi(id, 1, WORLDS.size()):
 		1:
-			return {"alt": Color("#9C7148"), "alt_k": 0.4, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#34486A"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
+			return {"alt": Color("#7E6C4E"), "alt_k": 0.4, "moss": Color("#4E5A48"), "moss_k": 0.0, "wear": 0.5, "accent": Color("#4A5A72"), "leaves": [Color("#E3B4BF"), Color("#F0D3D9")]}
 		2:
-			return {"alt": Color("#5D6B60"), "alt_k": 0.5, "moss": Color("#3F5440"), "moss_k": 0.45, "wear": 0.2, "accent": Color(0, 0, 0, 0), "leaves": [Color("#7E8F55"), Color("#9AA36A")]}
+			return {"alt": Color("#5E6A5A"), "alt_k": 0.5, "moss": Color("#3E5A40"), "moss_k": 0.45, "wear": 0.2, "accent": Color(0, 0, 0, 0), "leaves": [Color("#7E8F55"), Color("#A3B07A")]}
 		3:
-			return {"alt": Color("#B8C2CE"), "alt_k": 0.4, "moss": Color("#9AA6B4"), "moss_k": 0.0, "wear": 0.0, "accent": Color(0, 0, 0, 0)}
+			return {"alt": Color("#9EAAB8"), "alt_k": 0.4, "moss": Color("#9AA6B4"), "moss_k": 0.0, "wear": 0.0, "accent": Color(0, 0, 0, 0)}
 		4:
-			return {"alt": Color("#3A3230"), "alt_k": 0.6, "moss": Color("#5A3A2C"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0)}
+			return {"alt": Color("#44403C"), "alt_k": 0.6, "moss": Color("#5A3A2C"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0)}
 		5:
 			return {"alt": Color("#A39A88"), "alt_k": 0.4, "moss": Color("#8E8674"), "moss_k": 0.0, "wear": 0.2, "accent": Color(0, 0, 0, 0)}
 		6:
-			return {"alt": Color("#556048"), "alt_k": 0.6, "moss": Color("#3D5236"), "moss_k": 0.6, "wear": 0.15, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8A6A3A"), Color("#6B7240")]}
+			return {"alt": Color("#5E5E50"), "alt_k": 0.6, "moss": Color("#4A6440"), "moss_k": 0.45, "wear": 0.15, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8A6A3A"), Color("#6B7240")]}
 		7:
-			return {"alt": Color("#4E3A36"), "alt_k": 0.5, "moss": Color("#2E4A48"), "moss_k": 0.2, "wear": 0.35, "accent": Color("#A8843E"), "leaves": [Color("#D6C7B2")]}
+			return {"alt": Color("#7E8A7A"), "alt_k": 0.5, "moss": Color("#3E6E66"), "moss_k": 0.2, "wear": 0.35, "accent": Color(0, 0, 0, 0), "leaves": [Color("#D6C7B2"), Color("#C86E7E")]}
 		8:
-			return {"alt": Color("#4A4552"), "alt_k": 0.55, "moss": Color("#3E3A48"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8C8794")]}
+			return {"alt": Color("#524E4E"), "alt_k": 0.55, "moss": Color("#3E3A48"), "moss_k": 0.0, "wear": 0.3, "accent": Color(0, 0, 0, 0), "leaves": [Color("#8C8794")]}
 		_:
 			return {"alt": Color("#9C9384"), "alt_k": 0.5, "moss": Color("#7E786A"), "moss_k": 0.0, "wear": 0.25, "accent": Color(0, 0, 0, 0)}
 
@@ -279,17 +302,18 @@ static func water_style(id: int) -> Dictionary:
 		1:
 			return {"deep": Color("#142A48"), "shallow": Color("#24466E"), "foam": Color("#E2E8EA"), "k": 0.42, "flow": 1.0, "band": 0.8, "shore": 0.55, "sei": 0.32}
 		2:
-			return {"deep": Color("#13221F"), "shallow": Color("#24403B"), "foam": Color("#9FB8A8"), "k": 0.25, "flow": 0.5, "band": 0.6, "shore": 0.3, "sei": 0.16}
+			return {"deep": Color("#0F1D1A"), "shallow": Color("#1E3630"), "foam": Color("#8FAE9C"), "k": 0.25, "flow": 0.5, "band": 0.6, "shore": 0.3, "sei": 0.16}
 		3:
-			return {"deep": Color("#26364A"), "shallow": Color("#3E536A"), "foam": Color("#DCE6EE"), "k": 0.35, "flow": 0.6, "band": 0.7, "shore": 0.5, "sei": 0.2}
+			return {"deep": Color("#22324A"), "shallow": Color("#3A4E66"), "foam": Color("#DCE6EE"), "k": 0.35, "flow": 0.6, "band": 0.7, "shore": 0.5, "sei": 0.2}
 		4:
-			return {"deep": Color("#1A1212"), "shallow": Color("#2E201E"), "foam": Color("#7A3018"), "k": 0.3, "flow": 0.35, "band": 0.5, "shore": 0.35, "sei": 0.0}
+			# lave : sumi veiné d'or (jamais orange : le vermillon est aux annonces)
+			return {"deep": Color("#16100F"), "shallow": Color("#2A1C18"), "foam": Color("#C49A45"), "k": 0.3, "flow": 0.35, "band": 0.5, "shore": 0.3, "sei": 0.0}
 		6:
-			return {"deep": Color("#121E17"), "shallow": Color("#26392D"), "foam": Color("#A9B89C"), "k": 0.22, "flow": 0.45, "band": 0.6, "shore": 0.3, "sei": 0.14}
+			return {"deep": Color("#101C14"), "shallow": Color("#22352A"), "foam": Color("#9CB08E"), "k": 0.22, "flow": 0.45, "band": 0.6, "shore": 0.3, "sei": 0.14}
 		7:
 			return {"deep": Color("#082A33"), "shallow": Color("#145060"), "foam": Color("#9EE0DA"), "k": 0.3, "flow": 0.6, "band": 0.7, "shore": 0.4, "sei": 0.26}
 		8:
-			return {"deep": Color("#0D0A13"), "shallow": Color("#211A2C"), "foam": Color("#8E7FB0"), "k": 0.22, "flow": 0.3, "band": 0.5, "shore": 0.3, "sei": 0.0}
+			return {"deep": Color("#0D0A13"), "shallow": Color("#1E1826"), "foam": Color("#7E70A0"), "k": 0.22, "flow": 0.3, "band": 0.5, "shore": 0.3, "sei": 0.0}
 		_:
 			return {"deep": Color("#0A1322"), "shallow": Color("#16243A"), "foam": Color("#CFC6B2"), "k": 0.3, "flow": 0.7, "band": 0.9, "shore": 0.45, "sei": 0.24}
 
@@ -1986,7 +2010,7 @@ static func _nobori_colors(wid: int) -> Array:
 		1:
 			return [Color("#2E4A6B"), Toon.WASHI]
 		2:
-			return [Color("#EFE6D2"), Color("#8E3A2A")]
+			return [Color("#EFE6D2"), Color("#6E2A24")]
 		3:
 			return [Color("#3A3A48"), Color("#E6DCC6")]
 		4:
@@ -2253,8 +2277,9 @@ static func _sp_jizo_row(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: fl
 ## Monde 4 : faille de lave entre deux lèvres de basalte (lueur en zigzag), éclats relevés.
 static func _sp_lava_crack(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
 	_sp_base(bs, xf, ln, wd, Color("#2A2422"), 0.05)
-	var halo := _glow(Color("#9E3412"), 0.6)
-	var hot := _glow(Color("#FF7A2E"), 1.8)
+	# faille : sumi + or (le vermillon et l'orange sont réservés aux annonces)
+	var halo := _glow(HALO, 0.5)
+	var hot := _glow(LAVA_GOLD, 1.6)
 	var core := _glow(FLAME_CORE, 2.2)
 	var n := 6
 	var pts: Array[Vector3] = []
@@ -2282,7 +2307,7 @@ static func _sp_lava_crack(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: 
 
 ## Monde 4 : orgues de basalte basses, auréole de braise au pied.
 static func _sp_basalt(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln: float, wd: float, rng: RandomNumberGenerator) -> void:
-	_add(bn, _glow(Color("#C07A2A"), 0.7), _cyl(0.5, 0.5, 0.01, 14), xf * _at(Vector3(0, 0.008, 0), Vector3.ZERO, Vector3(ln, 1.0, wd)))
+	_add(bn, _glow(HALO, 0.6), _cyl(0.5, 0.5, 0.01, 14), xf * _at(Vector3(0, 0.008, 0), Vector3.ZERO, Vector3(ln, 1.0, wd)))
 	var m := _toon(BASALT, true, 0.025)
 	var cap := _toon(Color("#4A4240"), false)
 	var s := minf(ln, wd)
@@ -2767,7 +2792,7 @@ static func _prop_edge(wid: int, ctx: Dictionary, e: Vector4, rng: RandomNumberG
 			_pillar(ctx, p, 0.22, BASALT)
 			if roll < 0.28 and _light_ok(ctx):
 				_brazier_into(bs, bn, _at(pos, Vector3.ZERO, Vector3.ONE * 0.6))
-				_light(ctx, pos + Vector3(0, 0.8, 0), Color(1.0, 0.55, 0.25), 0.55, 3.5)
+				_light(ctx, pos + Vector3(0, 0.8, 0), Color(1.0, 0.82, 0.5), 0.5, 3.5)
 			elif roll < 0.46:
 				_oni_mask_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.7))
 			elif roll < 0.58:
@@ -3088,7 +3113,7 @@ static func _torii_alley(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator
 static func _vermilion_bridge(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
 	var bs: Dictionary = ctx["bs"]
 	var xf := _at(Vector3(p.x, VOID_Y + 0.25, p.y), Vector3(0, PI * 0.5, 0))
-	Decor.arched_bridge_into(bs, xf, 3.4, 0.9, Toon.VERMILION.darkened(0.08), Color("#3B2E25"), -0.6)
+	Decor.arched_bridge_into(bs, xf, 3.4, 0.9, Color("#6E2A24"), Color("#3B2E25"), -0.6)  # laque braise sombre près de l'arène
 	for sx: float in [-1.0, 1.0]:
 		var e := xf * Vector3(sx * 1.95, -0.25, 0)
 		Decor.rock_into(bs, _at(Vector3(e.x, VOID_Y, e.z), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000)
@@ -3290,7 +3315,7 @@ static func _big_fuji(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -
 		_basalt_into(bs, p, 0.5, 0.05, rng)
 		var s := rng.randf_range(0.9, 1.1)
 		_brazier_into(bs, bn, _at(Vector3(p.x, 0.05, p.y), Vector3.ZERO, Vector3.ONE * s))
-		_light(ctx, Vector3(p.x, 0.05 + 1.3 * s, p.y), Color(1.0, 0.55, 0.25), 0.55, 3.5)
+		_light(ctx, Vector3(p.x, 0.05 + 1.3 * s, p.y), Color(1.0, 0.82, 0.5), 0.5, 3.5)
 	elif roll < 0.4:
 		_basalt_into(bs, p, 0.5, -0.05, rng)
 		_anvil_into(bs, bn, _at(Vector3(p.x, -0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.1)))
@@ -3303,13 +3328,13 @@ static func _big_fuji(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -
 	elif roll < 0.7 and _ok(ctx, p, 1.9, 0.0):
 		var xf := _at(Vector3(p.x, 0.0, p.y), Vector3(0, rng.randf_range(-0.25, 0.25), 0), Vector3.ONE * 0.8)
 		_forge_into(bs, bn, xf)
-		_light(ctx, xf * Vector3(-0.35, 0.5, 0.5), Color(1.0, 0.5, 0.2), 0.7, 3.5)
+		_light(ctx, xf * Vector3(-0.35, 0.5, 0.5), Color(1.0, 0.8, 0.45), 0.6, 3.5)
 	elif roll < 0.84:
 		_katanas(ctx, p, rng)
 	else:
 		_basalt_into(bs, p, 0.55, VOID_Y + 0.3, rng)
 		_yoshida_into(bs, bn, _at(Vector3(p.x, VOID_Y + 0.25, p.y), Vector3.ZERO, Vector3.ONE * 0.55))
-		_light(ctx, Vector3(p.x, VOID_Y + 2.6, p.y), Color(1.0, 0.55, 0.25), 0.6, 4.0)
+		_light(ctx, Vector3(p.x, VOID_Y + 2.6, p.y), Color(1.0, 0.82, 0.5), 0.55, 4.0)
 
 
 ## Cimetière de katanas plantés dans une butte de basalte, auréole de braise.
@@ -3323,7 +3348,7 @@ static func _katanas(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) ->
 		var y: float = VOID_Y + 0.35 if d < 0.45 else VOID_Y + 0.02
 		var tilt := Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3))
 		Decor.katana_into(bs, _at(Vector3(p.x + cos(a) * d, y, p.y + sin(a) * d), tilt, Vector3.ONE * rng.randf_range(0.8, 1.05)))
-	_add(bn, _glow(Color("#C07A2A"), 0.8), _cyl(1.1, 1.1, 0.02, 12), _at(Vector3(p.x, VOID_Y + 0.01, p.y)))
+	_add(bn, _glow(HALO, 0.7), _cyl(1.1, 1.1, 0.02, 12), _at(Vector3(p.x, VOID_Y + 0.01, p.y)))
 
 
 static func _fill_fuji(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
@@ -3343,7 +3368,7 @@ static func _fill_fuji(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 		if p == NONE2:
 			continue
 		_inst(ctx, "crack", _box(Vector3(1.0, 0.02, 0.06)), gm, _at(Vector3(p.x, VOID_Y + 0.01, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.4, 1.4), 1, 1)))
-	var pool := _glow(Color("#C07A2A"), 0.8)
+	var pool := _glow(HALO, 0.7)
 	for i in 6:
 		var p := _ring_pt(ctx, rng, 0.6, 0.0, 5.0, false)
 		if p == NONE2:
@@ -3420,7 +3445,7 @@ static func _fill_ink(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 static func _kitsune_into(b: Dictionary, xf: Transform3D) -> void:
 	var stone := _toon(STONE, true, 0.025)
 	var dark := _toon(STONE_DARK, true, 0.025)
-	var bib := _toon(Toon.VERMILION.darkened(0.12), true, 0.015)
+	var bib := _toon(Toon.PRUSSIAN, true, 0.015)  # foulard indigo (le vermillon reste aux annonces)
 	var eye := _toon(Toon.GOLD, false)
 	_add(b, dark, _box(Vector3(0.55, 0.22, 0.75)), xf * _at(Vector3(0, 0.11, 0)))
 	_add(b, stone, _ball(0.24, 0.3, 8, 4), xf * _at(Vector3(0, 0.35, -0.08)))
@@ -3639,7 +3664,7 @@ static func _spikes_into(b: Dictionary, bn: Dictionary, p: Vector2, s: float, rn
 		var h := rng.randf_range(1.4, 2.8) * s * (1.0 if k == 0 else 0.6)
 		var tip := base + Vector3(rng.randf_range(-0.25, 0.25) * h, h, rng.randf_range(-0.25, 0.25) * h)
 		_limb(b, m, base, tip, rng.randf_range(0.35, 0.55) * s, 0.02, 5)
-	_add(bn, _glow(Color("#C07A2A"), 0.8), _cyl(0.95 * s, 0.95 * s, 0.02, 12), _at(Vector3(p.x, VOID_Y + 0.01, p.y)))
+	_add(bn, _glow(HALO, 0.7), _cyl(0.95 * s, 0.95 * s, 0.02, 12), _at(Vector3(p.x, VOID_Y + 0.01, p.y)))
 
 
 ## Enclume de forge avec une lame chauffée au rouge orangé et un marteau.
@@ -3650,7 +3675,7 @@ static func _anvil_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 	_add(b, iron, _box(Vector3(0.3, 0.3, 0.25)), xf * _at(Vector3(0, 0.3, 0)))
 	_add(b, iron, _box(Vector3(0.8, 0.16, 0.34)), xf * _at(Vector3(0, 0.53, 0)))
 	_limb(b, iron, Vector3(0.4, 0.53, 0), Vector3(0.78, 0.57, 0), 0.1, 0.01, 6, xf)
-	_add(bn, _glow(Color("#E07A30"), 1.3), _box(Vector3(0.7, 0.02, 0.06)), xf * _at(Vector3(-0.05, 0.62, 0.02), Vector3(0, 0.15, 0)))
+	_add(bn, _glow(EMBER, 1.3), _box(Vector3(0.7, 0.02, 0.06)), xf * _at(Vector3(-0.05, 0.62, 0.02), Vector3(0, 0.15, 0)))
 	_add(bn, _toon(Color("#2A221C"), false), _box(Vector3(0.18, 0.04, 0.05)), xf * _at(Vector3(-0.47, 0.62, 0.07), Vector3(0, 0.15, 0)))
 	# marteau posé contre l'enclume
 	_add(b, wood, _cyl(0.02, 0.02, 0.5, 5), xf * _at(Vector3(0.1, 0.25, 0.3), Vector3(0.5, 0, 0.2)))
@@ -3664,7 +3689,7 @@ static func _brazier_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -> voi
 		var a := TAU * k / 3.0
 		_limb(b, iron, Vector3(cos(a) * 0.35, 0, sin(a) * 0.35), Vector3(cos(a) * 0.18, 0.72, sin(a) * 0.18), 0.035, 0.03, 5, xf)
 	_add(b, iron, _cyl(0.42, 0.22, 0.25, 8), xf * _at(Vector3(0, 0.82, 0)))
-	_add(bn, _glow(Color("#C8642A"), 1.0), _cyl(0.38, 0.38, 0.04, 8), xf * _at(Vector3(0, 0.93, 0)))
+	_add(bn, _glow(HALO, 1.0), _cyl(0.38, 0.38, 0.04, 8), xf * _at(Vector3(0, 0.93, 0)))
 	_add(bn, _glow(EMBER, 2.0), _cyl(0.0, 0.25, 0.6, 6), xf * _at(Vector3(0, 1.24, 0)))
 	_add(bn, _glow(FLAME_CORE, 2.4), _cyl(0.0, 0.14, 0.4, 5), xf * _at(Vector3(0, 1.15, 0)))
 	for k in 3:
@@ -3942,7 +3967,7 @@ static func _ingots_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -> void
 				_add(b, iron, _box(Vector3(0.14, 0.08, 0.36)), xf * _at(Vector3(off, y, 0)))
 			else:
 				_add(b, iron, _box(Vector3(0.36, 0.08, 0.14)), xf * _at(Vector3(0, y, off)))
-	_add(bn, _glow(Color("#E07A30"), 1.2), _box(Vector3(0.12, 0.03, 0.3)), xf * _at(Vector3(0, 0.25, 0)))
+	_add(bn, _glow(EMBER, 1.2), _box(Vector3(0.12, 0.03, 0.3)), xf * _at(Vector3(0, 0.25, 0)))
 
 
 ## Torche géante du Yoshida Hi-Matsuri : socle de basalte, fût cerclé, flamme orangée à cœur d'or.
@@ -4148,7 +4173,7 @@ static func build_particles(world_id: int, parent: Node3D) -> void:
 			p.scale_amount_max = 1.5
 			var g := Gradient.new()
 			g.offsets = PackedFloat32Array([0.0, 0.1, 0.6, 1.0])
-			g.colors = PackedColorArray([Color(1.0, 0.85, 0.5, 0.0), Color(1.0, 0.8, 0.45, 1.0), Color(1.0, 0.45, 0.15, 0.85), Color(0.5, 0.1, 0.05, 0.0)])
+			g.colors = PackedColorArray([Color(1.0, 0.92, 0.65, 0.0), Color(1.0, 0.88, 0.55, 1.0), Color(0.85, 0.65, 0.3, 0.85), Color(0.4, 0.3, 0.1, 0.0)])
 			p.color_ramp = g
 			p.emitting = true
 		_:
@@ -4315,16 +4340,16 @@ static func _pit_style(wid: int) -> Dictionary:
 			return {"wall": Color("#B4CADA"), "low": Color("#4A6278"), "deep": Color("#060C16"), "floor": Color("#13253C"),
 				"line": Color("#7E98AE"), "glint": Color(0.82, 0.93, 1.0)}
 		4:
-			return {"wall": Color("#4A3A34"), "low": Color("#1E1210"), "deep": Color("#0A0302"), "floor": Color("#2E0C05"),
-				"line": Color("#1A1110"), "glint": Color(1.0, 0.5, 0.15)}
+			return {"wall": Color("#4A423E"), "low": Color("#1E1614"), "deep": Color("#0A0604"), "floor": Color("#1C120A"),
+				"line": Color("#1A1412"), "glint": Color(0.92, 0.78, 0.42)}
 		6:
 			return {"wall": Color("#5A5E4C"), "low": Color("#1F271E"), "deep": Color("#020604"), "floor": Color("#0C1C12"),
 				"line": Color("#262A20"), "glint": Color(0.8, 1.0, 0.7)}
 		7:
-			return {"wall": Color("#6E3328"), "low": Color("#241A1C"), "deep": Color("#01080C"), "floor": Color("#0A2E36"),
-				"line": Color("#2A1A16"), "glint": Color(0.6, 1.0, 0.95)}
+			return {"wall": Color("#6E7268"), "low": Color("#2A3634"), "deep": Color("#01080C"), "floor": Color("#0A2E36"),
+				"line": Color("#26302E"), "glint": Color(0.6, 1.0, 0.95)}
 		8:
-			return {"wall": Color("#56525A"), "low": Color("#1E1A22"), "deep": Color("#040208"), "floor": Color("#1A0E26"),
+			return {"wall": Color("#5A575E"), "low": Color("#1E1A22"), "deep": Color("#040208"), "floor": Color("#140E1E"),
 				"line": Color("#2A2630"), "glint": Color(0.8, 0.65, 1.0)}
 		_:
 			return {"wall": Color("#8C8270"), "low": Color("#2A2622"), "deep": Color("#010204"), "floor": Color("#08101E"),
@@ -4884,7 +4909,7 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 		4:
 			# basalte veiné de braise, lave qui respire au fond, liseré incandescent ; éclats noirs au bord
 			_pit_lines(ctx, 0.4, 0.024, Color(line, 0.7))
-			_pit_drips(ctx, 0.55, 3, Color(1.0, 0.45, 0.12, 0.8))
+			_pit_drips(ctx, 0.55, 3, Color(0.77, 0.6, 0.27, 0.8))
 			_pit_rim_glow(ctx)
 			var embers: Array = ctx["embers"]
 			for i in int(area / 1.6) + 1:
@@ -4892,8 +4917,8 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 				if p == NONE2:
 					continue
 				var r := minf(_plat_dist(ctx["wide"], p) - 0.25, rng.randf_range(0.4, 0.9))
-				_wblob(gl, rng, p, r, r * rng.randf_range(0.6, 0.9), PIT_Y + 0.003, Color(1.0, 0.42, 0.1, 0.5), Color(0.9, 0.2, 0.04, 0.0), 12)
-				_wblob(gl, rng, p, r * 0.35, r * 0.25, PIT_Y + 0.005, Color(1.0, 0.75, 0.35, 0.45), Color(1.0, 0.45, 0.1, 0.0), 8)
+				_wblob(gl, rng, p, r, r * rng.randf_range(0.6, 0.9), PIT_Y + 0.003, Color(0.77, 0.6, 0.27, 0.5), Color(0.5, 0.36, 0.12, 0.0), 12)
+				_wblob(gl, rng, p, r * 0.35, r * 0.25, PIT_Y + 0.005, Color(1.0, 0.88, 0.6, 0.45), Color(0.77, 0.6, 0.27, 0.0), 8)
 				ctx["glow"] = int(ctx["glow"]) + 1
 				embers.append(Vector3(p.x, PIT_Y + 0.05, p.y))
 			var basalt := _toon(BASALT, true, 0.015)
@@ -5006,8 +5031,8 @@ static func _pit_rim_glow(ctx: Dictionary) -> void:
 			var wob := 0.015 * sin(q.x * 13.0 + q.y * 11.0)
 			p1.append(q + n * (0.04 + wob))
 			p2.append(q + n * 0.12)
-		_wribbon(gl, p2, PIT_Y + 0.003, 0.2, 0.2, Color(1.0, 0.35, 0.08, 0.28), Color(1.0, 0.35, 0.08, 0.28), 0.0, true)
-		_wribbon(gl, p1, PIT_Y + 0.005, 0.035, 0.035, Color(1.0, 0.62, 0.22, 0.85), Color(1.0, 0.62, 0.22, 0.85), 0.0, true)
+		_wribbon(gl, p2, PIT_Y + 0.003, 0.2, 0.2, Color(0.77, 0.6, 0.27, 0.28), Color(0.77, 0.6, 0.27, 0.28), 0.0, true)
+		_wribbon(gl, p1, PIT_Y + 0.005, 0.035, 0.035, Color(0.92, 0.78, 0.42, 0.85), Color(0.92, 0.78, 0.42, 0.85), 0.0, true)
 		ctx["glow"] = int(ctx["glow"]) + 1
 
 
@@ -5034,7 +5059,7 @@ static func _pit_embers(root: Node3D, pts: Array) -> void:
 	p.scale_amount_max = 1.2
 	var g := Gradient.new()
 	g.offsets = PackedFloat32Array([0.0, 0.15, 0.6, 1.0])
-	g.colors = PackedColorArray([Color(1.0, 0.85, 0.5, 0.0), Color(1.0, 0.8, 0.45, 1.0), Color(1.0, 0.45, 0.15, 0.8), Color(0.5, 0.1, 0.05, 0.0)])
+	g.colors = PackedColorArray([Color(1.0, 0.92, 0.65, 0.0), Color(1.0, 0.88, 0.55, 1.0), Color(0.85, 0.65, 0.3, 0.8), Color(0.4, 0.3, 0.1, 0.0)])
 	p.color_ramp = g
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	p.emitting = true
@@ -5050,8 +5075,10 @@ const CEDAR_A := Color("#2E4A34")
 const CEDAR_B := Color("#3A5A40")
 const MOSS_K := Color("#3E5A3A")
 const KURAMA_RED := Color("#B8352A")
-const CORAL := [Color("#D9705E"), Color("#E39A6A"), Color("#C2456A"), Color("#E8B04A")]
-const PALACE_RED := Color("#B8452E")
+const CORAL := [Color("#C86E7E"), Color("#D9A078"), Color("#9A5C86"), Color("#E0C27A")]  # rose, pêche, mauve, sable : rien de vermillon
+const PALACE_RED := Color("#B8452E")  # palais du fond seulement
+const PALACE_LACQUER := Color("#6E2A28")  # laque sombre des colonnes englouties près de l'arène
+const NACRE := Color("#E7D9C8")
 const SEA_DEEP := Color("#0E3A44")
 const ASH := Color("#6E6A70")
 const ASH_DARK := Color("#4A464E")
@@ -5638,8 +5665,8 @@ static func _big_ryugu(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) 
 			_coral_into(bs, _at(Vector3(p.x, VOID_Y + 0.25, p.y)), rng, CORAL[0])
 	else:
 		# colonnes du palais englouti, vermillon et or
-		var red := _toon(PALACE_RED, true, 0.025)
-		var gold := _toon(Toon.GOLD, true, 0.02)
+		var red := _toon(PALACE_LACQUER, true, 0.025)
+		var gold := _toon(NACRE, true, 0.02)
 		for k in rng.randi_range(1, 2):
 			var q := Vector3(p.x + (k - 0.5) * 1.2, VOID_Y, p.y + rng.randf_range(-0.3, 0.3))
 			var h := rng.randf_range(1.6, 2.8)
@@ -5759,7 +5786,7 @@ static func _edge_new(wid: int, ctx: Dictionary, p: Vector2, _out: Vector2, rng:
 	match wid:
 		6:
 			if roll < 0.2:
-				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), Color("#D9573F"), VOID_Y - 0.35)
+				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), BRAISE, VOID_Y - 0.35)
 				return
 			_pillar(ctx, p, 0.22, Color("#4E5A48"))
 			_add(bn, _toon(MOSS_K, false), _cyl(0.2, 0.235, 0.05, 8), _at(Vector3(p.x, -0.01, p.y)))
@@ -5784,9 +5811,9 @@ static func _edge_new(wid: int, ctx: Dictionary, p: Vector2, _out: Vector2, rng:
 			elif roll < 0.56:
 				_clam_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.55))
 			elif roll < 0.72:
-				var red := _toon(PALACE_RED, true, 0.02)
+				var red := _toon(PALACE_LACQUER, true, 0.02)
 				_add(bs, red, _cyl(0.12, 0.13, 1.1, 8), _at(pos + Vector3(0, 0.55, 0)))
-				_add(bs, _toon(Toon.GOLD, true, 0.015), _ball(0.13, 0.2, 8, 4), _at(pos + Vector3(0, 1.15, 0)))
+				_add(bs, _toon(NACRE, true, 0.015), _ball(0.13, 0.2, 8, 4), _at(pos + Vector3(0, 1.15, 0)))
 			else:
 				_kelp_into(bs, _at(pos), rng, 1.6)
 		_:
@@ -6012,7 +6039,7 @@ static func _pit_new(wid: int, ctx: Dictionary) -> void:
 				_add(bs, root, _cyl(0.02, 0.045, l, 5), _stub_xf(q, n, -0.04, l, rng.randf_range(0.6, 1.2), rng.randf_range(-0.4, 0.4)) * _at(Vector3.ZERO, Vector3(PI * 0.5, 0, 0)))
 		7:
 			# paroi laquée à filets d'or, eau profonde qui scintille ; coraux au bord
-			_pit_lines(ctx, 0.25, 0.02, Color(Toon.GOLD, 0.55))
+			_pit_lines(ctx, 0.25, 0.02, Color(NACRE, 0.5))
 			_pit_lines(ctx, 0.6, 0.026, Color(line, 0.6))
 			_pit_glints(ctx, 1.1, 0.04, 0.1)
 			for e in _pit_edge_pts(ctx, 0.55, true):
@@ -6280,7 +6307,7 @@ static func _hub_volcano(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 		_brazier_into(bs, bn, _at(Vector3(p.x, 0.0, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.62))
 		_contact(ctx, p, 0.6)
 		_take(ctx, p)
-	_light(ctx, Vector3(1.9, 1.0, 3.3), Color(1.0, 0.55, 0.25), 0.8, 4.0)
+	_light(ctx, Vector3(1.9, 1.0, 3.3), Color(1.0, 0.82, 0.5), 0.7, 4.0)
 	# orgues de basalte dans la lave (plus hautes au fond, près du torii)
 	var cols: Array[Vector3] = [Vector3(3.2, 1.4, 0.5), Vector3(-3.1, -3.0, 0.8), Vector3(3.95, -6.9, 1.4), Vector3(-3.95, -7.2, 1.2)]
 	for cv in cols:
@@ -6448,7 +6475,7 @@ static func _hub_gate_tower(ctx: Dictionary, c: Vector2) -> void:
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
 	_hub_pad(ctx, c, Vector2(1.35, 1.15), Color("#5E6A66"))
-	var lac := _toon(PALACE_RED, true, 0.025)
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
 	var plaster := _toon(SHIKKUI, true, 0.02)
 	var tile := _toon(Color("#2E6A5E"), true, 0.025)
 	var gold := _toon(Toon.GOLD, true, 0.015)
