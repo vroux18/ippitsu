@@ -87,6 +87,18 @@ const REST_ARMS := {
 	"yuki_warashi": [Vector3(1.6, 0, 0.5), Vector3(1.6, 0, -0.5)],
 	"onryo": [Vector3(1.7, 0, 0.25), Vector3(1.7, 0, -0.25)],
 	"tsurara": [Vector3(0.0, 0, 0.5), Vector3(0.0, 0, -0.5)],
+	# monde 6 : ailes du corbeau ouvertes à l'horizontale ; éventail levé du yamabushi ; konoha bras libres
+	"karasu": [Vector3(0.2, 0, 1.45), Vector3(0.2, 0, -1.45)],
+	"yamabushi": [Vector3(2.0, 0, 0.35), Vector3(0.5, 0, -0.35)],
+	"konoha": [Vector3(0.7, 0, 0.4), Vector3(0.5, 0, -0.4)],
+	# monde 7 : pinces du crabe en garde devant ; sirène bras levé (jet d'eau) ; nageoires du fugu écartées
+	"kani": [Vector3(1.45, 0, 0.5), Vector3(1.45, 0, -0.5)],
+	"ningyo": [Vector3(2.3, 0, 0.3), Vector3(0.6, 0, -0.3)],
+	"fugu": [Vector3(0.4, 0, 0.9), Vector3(0.4, 0, -0.9)],
+	# monde 8 : gaki bras tendus vers la proie ; chaîne basse du geôlier ; shiryō bras flottants
+	"gaki": [Vector3(1.1, 0, 0.3), Vector3(1.0, 0, -0.35)],
+	"gokusotsu": [Vector3(0.35, 0, 0.45), Vector3(0.4, 0, -0.4)],
+	"shiryo": [Vector3(0.9, 0, 0.5), Vector3(0.9, 0, -0.5)],
 }
 
 var model: Node3D  # racine mise à l'échelle
