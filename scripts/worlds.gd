@@ -62,7 +62,7 @@ const WORLDS: Array = [
 		"sun_energy": 0.72,
 		"ambient_color": Color(0.86, 0.9, 1.0),
 		"ambient_energy": 0.3,
-		"ground": [Color("#C79B6A"), Color("#BC8F5F"), Color("#D3A874"), Color("#B08458"), Color("#C49668")],  # hinoki doré, chaud et lumineux (le gris délavé faisait triste)
+		"ground": [Color("#B78C5E"), Color("#AC8155"), Color("#C29967"), Color("#A0774E"), Color("#B4895C")],  # hinoki doré, chaud et lumineux (le gris délavé faisait triste)
 		"ground_style": "planks",
 		"edge": Color("#1B1A1E"),
 		"under": Color("#3E3631"),

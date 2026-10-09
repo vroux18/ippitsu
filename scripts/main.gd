@@ -1629,9 +1629,9 @@ func _home_scene(id: int) -> void:
 	_env.fog_light_color = w.fog
 	_env.fog_density = float(w.fog_density) * 0.7
 	_env.ambient_light_color = w.ambient_color
-	_env.ambient_light_energy = float(w.ambient_energy) * (1.75 if _light_mode else 1.35)
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.6 if _light_mode else 1.25)
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy) * 1.08
+	_sun.light_energy = float(w.sun_energy) * 0.98
 	arena.set_world(id)
 	arena.hide_shore(true)
 
@@ -1822,7 +1822,7 @@ func _build_world() -> void:
 	# palette plus sobre et moderne : saturation presque neutre, le contraste fait ressortir les personnages
 	e.adjustment_saturation = 1.04
 	e.adjustment_contrast = 1.14
-	e.adjustment_brightness = 1.06  # plus lumineux (le jeu manquait de lumière)
+	e.adjustment_brightness = 1.0  # lumineux sans brûler les sols clairs
 	e.glow_enabled = true
 	e.glow_intensity = 0.6
 	e.glow_strength = 1.1
@@ -1902,9 +1902,9 @@ func apply_world(id: int) -> void:
 	_env.fog_density = float(w.fog_density) * 0.7  # brume plus légère : couleurs moins délavées
 	_env.ambient_light_color = w.ambient_color
 	# sans contre-jour (téléphone), un peu plus de lumière ambiante compense
-	_env.ambient_light_energy = float(w.ambient_energy) * (1.75 if _light_mode else 1.35)
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.6 if _light_mode else 1.25)
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy) * 1.08
+	_sun.light_energy = float(w.sun_energy) * 0.98
 	arena.set_world(id)
 	if fresh:
 		perf_mark("world_build", Time.get_ticks_usec() - t0)  # lointain du monde (ou monde gardé en mémoire)
