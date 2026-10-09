@@ -232,22 +232,12 @@ var _last_gp := Vector3.ZERO
 
 # ------------------------------------------------------------------ palettes
 
-## Palette du héros (Ronin de papier) pour une tenue de la garde-robe (id de meta.OUTFITS) : la tenue
-## teinte le hakama, ses vagues et l'obi ; le kimono washi, le chapeau et l'écharpe ne changent pas.
-static func hero_config(outfit := "sumi") -> Dictionary:
+## Palette du héros (Ronin de papier) : fixe (décision : seule l'écharpe change, voir meta « cape »). Les tenues
+## de la garde-robe (meta.OUTFITS) ne teintent plus le hakama ; l'argument est gardé pour l'appelant.
+static func hero_config(_outfit := "sumi") -> Dictionary:
 	var d := {"weapon": "katana", "ponytail": true, "combat": false, "ronin": true}
 	for k in RONIN_PAL:
 		d[k] = RONIN_PAL[k]
-	var o: Dictionary = OUTFIT_PAL.get(outfit, {})
-	if o.has("cloth"):
-		var c: Color = o["cloth"]
-		d["dark"] = c
-		# vagues : plus claires sur une étoffe sombre, plus sombres sur une étoffe claire
-		d["wave"] = c.darkened(0.22) if c.get_luminance() > 0.45 else c.lightened(0.42)
-	if o.has("accent"):
-		d["accent"] = o["accent"]
-	if o.has("plate"):
-		d["plate"] = o["plate"]
 	return d
 
 

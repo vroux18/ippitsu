@@ -10,8 +10,9 @@ const InkButton = preload("res://scripts/ink_button.gd")
 const Meta = preload("res://scripts/meta.gd")
 const GOLD_INK := Color("#9A6B12")
 
-const CATS := ["outfit", "cape", "trail", "ink", "theme"]
-const CAT_LABELS := ["TENUE", "ÉCHARPE", "SILLAGE", "ENCRE", "INTERFACE"]
+# plus d'onglet TENUE : le hakama du ronin est fixe, seule l'écharpe (cape) se colore
+const CATS := ["cape", "trail", "ink", "theme"]
+const CAT_LABELS := ["ÉCHARPE", "SILLAGE", "ENCRE", "INTERFACE"]
 const COLS := 5
 
 signal changed(category: String)  # apparence ou thème porté : main réapplique sur le héros et l'accueil
