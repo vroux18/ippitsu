@@ -739,7 +739,7 @@ func _set_state(s: String) -> void:
 				music.play_world(current_world)
 				var wd: Dictionary = Worlds.world(current_world)
 				if in_hub:
-					hud.banner("SANCTUAIRE", "ENTRAÎNE-TOI  ·  PASSE LE TORII POUR PARTIR", wd.color, 2.6)
+					hud.banner("SANCTUAIRE", "PASSE LE TORII", wd.color, 2.6)
 				else:
 					hud.banner(String(wd.name).to_upper(), "ÉTAPE 1  ·  AVANCE, TRACE POUR FRAPPER", wd.color, 2.4)
 		"over":

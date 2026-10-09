@@ -79,6 +79,12 @@ var pad_active := false
 var pad_alpha := 1.0  # le pad s'efface après les premiers traits (option)
 var pad_trail := PackedVector2Array()  # geste en cours dans le pad (coordonnées écran)
 var _shapes: Array = []  # figures enchaînées : [forme, âge]
+# sceaux de pouvoir : petit cachet rond (couleur de l'élément + pictogramme) au-dessus de l'effet qui vient d'agir
+const POP_LIFE := 0.55
+const POP_MAX := 2  # sceaux visibles en même temps
+const POP_CD := 1200  # ms : un même pouvoir ne ressort pas avant
+var _pops: Array = []  # [clé, pictogramme, couleur, position monde, âge, majeur]
+var _pop_cd := {}  # clé -> instant (ms) où le pouvoir peut ressortir
 var shape_name := ""
 var _shape_t := 9.0
 var _real_dt := 0.0
@@ -243,6 +249,11 @@ func _process(_delta: float) -> void:
 		if _toast_t > 1.4:
 			_toast_t = -1.0
 	_shape_t += real
+	for i in range(_pops.size() - 1, -1, -1):
+		var pp: Array = _pops[i]
+		pp[4] = float(pp[4]) + real
+		if float(pp[4]) >= POP_LIFE or not in_play:
+			_pops.remove_at(i)
 	_stage_vis_t = maxf(0.0, _stage_vis_t - real)
 	_real_dt = real
 	if _banner_t >= 0.0:
@@ -319,6 +330,7 @@ func _draw() -> void:
 		if boss_name != "":
 			_draw_boss(sz, u)
 		draw_set_transform(Vector2.ZERO)
+		_draw_power_pops(sz, u)
 		if not dojo:
 			_draw_stage_bar(sz, u)
 		_draw_gauge(sz, u)
@@ -807,6 +819,66 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 		var la := a * clampf((1.6 - _shape_t) / 0.3, 0.0, 1.0)
 		draw_string_outline(UiKit.UI_FONT, tp, shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(3 * u), Color(Toon.SUMI, 0.75 * la))
 		draw_string(UiKit.UI_FONT, tp, shape_name, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, la))
+
+
+## Sceau du pouvoir qui vient d'agir, au-dessus de `wpos` (monde) : on voit d'un coup QUEL pouvoir a fait QUOI.
+## Au plus une fois par POP_CD et par pouvoir, POP_MAX à l'écran ; un sceau mineur (déclencheur fréquent, à la touche)
+## ne chasse pas un sceau affiché, un majeur remplace le plus ancien.
+func power_pop(key: String, icon: String, col: Color, wpos: Vector3, major := true) -> void:
+	if not in_play:
+		return
+	var now := Time.get_ticks_msec()
+	if int(_pop_cd.get(key, 0)) > now:
+		return
+	if _pops.size() >= POP_MAX:
+		if not major:
+			return
+		var drop := 0
+		for i in _pops.size():
+			var q: Array = _pops[i]
+			if not bool(q[5]):
+				drop = i
+				break
+		_pops.remove_at(drop)
+	_pop_cd[key] = now + POP_CD
+	_pops.append([key, icon, col, wpos, 0.0, major])
+
+
+## Sceaux de pouvoir : cachet rond cerné d'encre, à la couleur de l'élément, pictogramme en papier (ou en encre sur
+## les teintes claires) ; il jaillit avec un rebond, monte un peu et s'efface.
+func _draw_power_pops(sz: Vector2, u: float) -> void:
+	if _pops.is_empty():
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var prev := Vector2(-9999, -9999)
+	var y_min := top_off + (_below_k() + 18.0) * u
+	for i in _pops.size():
+		var pp: Array = _pops[i]
+		var wp: Vector3 = pp[3]
+		if cam.is_position_behind(wp):
+			continue
+		var age: float = pp[4]
+		var k := clampf(age / POP_LIFE, 0.0, 1.0)
+		var k_in := clampf(age / 0.14, 0.0, 1.0)
+		# rebond : grossit au-delà de sa taille puis se pose
+		var sc := UiKit.ease_out(k_in) * (1.0 + 0.35 * sin(k_in * PI))
+		var a := clampf((1.0 - k) / 0.3, 0.0, 1.0)
+		var r := 11.0 * u * maxf(sc, 0.05)
+		var c := cam.unproject_position(wp) - Vector2(0, 10.0 * u * UiKit.ease_out(k))
+		c.x = clampf(c.x, 18.0 * u, sz.x - 18.0 * u)
+		c.y = clampf(c.y, y_min, sz.y - 40.0 * u)
+		# deux sceaux au même endroit : le second se range à côté
+		if c.distance_to(prev) < 24.0 * u:
+			c.x += 26.0 * u
+		prev = c
+		var col: Color = pp[2]
+		var paper := Toon.SUMI if col.get_luminance() > 0.6 else Toon.WASHI
+		draw_circle(c + Vector2(0, 1.5 * u), r + 2.5 * u, Color(Toon.SUMI, 0.35 * a))
+		draw_circle(c, r + 2.0 * u, Color(Toon.SUMI, 0.9 * a))
+		draw_circle(c, r, Color(col, a))
+		UiKit.glyph(self, String(pp[1]), c, r * 0.66, paper, col, a)
 
 
 ## Symbole d'une figure au pinceau, dans un sceau rond de rayon r.
