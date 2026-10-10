@@ -618,7 +618,8 @@ func _ready() -> void:
 	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
 	# seconde N, pour les captures) ; jamais pour le robot ni les tests
 	var auto_run := autoplay or "--bot" in OS.get_cmdline_user_args()
-	if state == "menu" and not auto_run and ("opening" in wsearch or (not meta.opening_done and wsearch.length() <= 1)):
+	# (désactivée au premier lancement, décision de Victor : on arrive directement sur l'accueil ; `?opening` la rejoue)
+	if state == "menu" and not auto_run and "opening" in wsearch:
 		var ot := wsearch.find("&t=")
 		_open_opening(float(wsearch.substr(ot + 3).get_slice("&", 0)) if ot >= 0 else 0.0)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
