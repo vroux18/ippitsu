@@ -286,6 +286,15 @@ var _bestiary_dirty := false  # victoires comptées depuis la dernière sauvegar
 var _wardrobe_on := false
 var _wardrobe_k := 0.0
 var _env: Environment
+# ambiance de boss : ciel assombri vers l'encre du monde, brume plus dense, soleil bas et chaud, contraste,
+# éclairs lointains (boss du monde seulement) ; fondue à l'entrée en scène, retirée à la mort du boss
+var _mood_k := 0.0
+var _mood_to := 0.0
+var _mood_base: Dictionary = {}
+var _mood_flash := 0.0
+var _mood_next_flash := 6.0
+const MOOD_FADE := 2.5
+const MOOD_INK := Color("#14111A")
 var _light_mode := false  # rendu allégé (téléphone)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
 const SPLASH_POOL_MAX := 10  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup)
@@ -2224,9 +2233,58 @@ func apply_world(id: int) -> void:
 	_env.ambient_light_energy = float(w.ambient_energy) * (1.6 if _light_mode else 1.25)
 	_sun.light_color = w.sun_color
 	_sun.light_energy = float(w.sun_energy) * 0.98
+	_mood_capture(w)
 	arena.set_world(id)
 	if fresh:
 		perf_mark("world_build", Time.get_ticks_usec() - t0)  # lointain du monde (ou monde gardé en mémoire)
+
+
+## Valeurs de lumière du monde (base de l'ambiance de boss) ; l'ambiance repart de zéro.
+func _mood_capture(w: Dictionary) -> void:
+	_mood_base = {"sky": _env.background_color, "fog": _env.fog_light_color, "fog_d": _env.fog_density,
+		"amb_e": _env.ambient_light_energy, "sun_c": _sun.light_color, "sun_e": _sun.light_energy,
+		"contrast": _env.adjustment_contrast, "bright": _env.adjustment_brightness,
+		"sat": _env.adjustment_saturation, "tint": w.get("color", MOOD_INK)}
+	_mood_k = 0.0
+	_mood_to = 0.0
+	_mood_flash = 0.0
+
+
+## Ambiance de boss : se fond vers _mood_to ; éclairs lointains quand le boss du monde est là.
+func _update_mood(real: float) -> void:
+	if _mood_base.is_empty() or in_hub or state == "menu":
+		return
+	if _mood_to > 0.0 and bosses.is_empty() and state != "boss_intro":
+		_mood_to = 0.0  # plus de boss (salle suivante, mort, abandon) : le ciel se rouvre
+	if is_equal_approx(_mood_k, _mood_to) and _mood_k <= 0.0 and _mood_flash <= 0.0:
+		return
+	_mood_k = move_toward(_mood_k, _mood_to, real / MOOD_FADE)
+	var k := _mood_k * _mood_k * (3.0 - 2.0 * _mood_k)
+	# éclairs lointains : boss du monde seulement, une lueur brève tous les 7 à 13 s
+	if _mood_to >= 1.0 and k > 0.9:
+		_mood_next_flash -= real
+		if _mood_next_flash <= 0.0:
+			_mood_next_flash = randf_range(7.0, 13.0)
+			_mood_flash = 1.0
+			sfx.play("thunder", randf_range(0.45, 0.6), -16.0)
+	_mood_flash = maxf(0.0, _mood_flash - real / 0.35)
+	var fl := _mood_flash * _mood_flash
+	var tint: Color = _mood_base["tint"]
+	var dark: Color = MOOD_INK.lerp(tint.darkened(0.55), 0.35)
+	var sky: Color = _mood_base["sky"]
+	_env.background_color = sky.lerp(dark, 0.6 * k).lerp(Color(0.92, 0.9, 1.0), 0.35 * fl)
+	var fog: Color = _mood_base["fog"]
+	_env.fog_light_color = fog.lerp(dark.lightened(0.12), 0.55 * k)
+	_env.fog_density = float(_mood_base["fog_d"]) * (1.0 + 0.9 * k)
+	_env.ambient_light_energy = float(_mood_base["amb_e"]) * (1.0 - 0.35 * k + 0.6 * fl)
+	var sun_c: Color = _mood_base["sun_c"]
+	_sun.light_color = sun_c.lerp(Color(1.0, 0.7, 0.52), 0.45 * k)
+	_sun.light_energy = float(_mood_base["sun_e"]) * (1.0 - 0.42 * k)
+	_env.adjustment_contrast = float(_mood_base["contrast"]) + 0.12 * k
+	_env.adjustment_brightness = float(_mood_base["bright"]) * (1.0 - 0.1 * k + 0.12 * fl)
+	_env.adjustment_saturation = float(_mood_base["sat"]) * (1.0 - 0.1 * k)
+	hud.mood = k
+	hud.mood_tint = dark
 
 
 ## Cadrage de l'arène : son centre (là où se tient le héros) au centre de l'écran.
@@ -2745,6 +2803,7 @@ func _start_boss_intro() -> void:
 		_intro_wave = []
 		return
 	_intro_mini = is_mini_boss(String(b.kind))
+	_mood_to = 0.5 if _intro_mini else 1.0  # ambiance de boss (moitié pour un gardien)
 	var sub := ("GARDIEN DE L'ÉTAPE %d" % stage_of(MINI_ROOM)) if _intro_mini else "GARDIEN DU MONDE"
 	if _bot != null and not bool(_bot.get("cinematics")):
 		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
@@ -2836,6 +2895,7 @@ func is_mini_boss(k: String) -> bool:
 
 func boss_killed(b: Node3D) -> void:
 	_count_kill(String(b.kind), true)
+	_mood_to = 0.0  # le ciel se rouvre
 	pickups.drop(b.position, "xp", 8)
 	pickups.drop(b.position, "coin", 10)
 	var clean := not _scratched
@@ -5504,6 +5564,7 @@ func _process(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
+	_update_mood(real)
 	if _bot != null:
 		# pas fixe (--fixed-fps) : le robot joue aussi vite que la machine le permet. Le pas est celui que
 		# reçoivent les nœuds (delta rendu à l'échelle 1) : figé à 1/30, à 120 Hz main avançait 4 fois plus

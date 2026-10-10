@@ -104,6 +104,8 @@ var _bfit_at := Vector2(-1, -1)  # (u, place) des tailles de texte ajustées du 
 var _bfit_big := 12
 var _bfit_small := 7
 var cine := 0.0  # bandes de cinéma (0..1) pendant l'entrée d'un boss
+var mood := 0.0  # ambiance de boss (0..1) : voile d'encre sur les bords de l'écran
+var mood_tint := Color("#14111A")
 var _card: Array = []  # carton titre de boss : [picto (clé UiKit.icon), nom, épithète, sous-titre]
 var _card_mini := false
 var _card_t := -1.0
@@ -350,6 +352,9 @@ func _draw() -> void:
 	if sz.x < 10.0:
 		return
 	var u := sz.x / 400.0
+	# ambiance de boss : sous tout le HUD
+	if mood > 0.01 and in_play:
+		_draw_mood(sz, u)
 
 	# barres de vie des ennemis touchés
 	for b in enemy_bars:
@@ -1350,6 +1355,22 @@ func _draw_banner(sz: Vector2, u: float) -> void:
 
 
 ## Bandes noires du cinéma, bord inférieur/supérieur taché d'encre.
+## Ambiance de boss : voile d'encre sur les bords (bandes à alpha décroissant, sans flou), plus épais en haut
+## et en bas, là où il n'y a que du décor.
+func _draw_mood(sz: Vector2, u: float) -> void:
+	var n := 5
+	for i in n:
+		var k := float(i) / float(n)
+		var a := 0.16 * mood * (1.0 - k)
+		var sx := (10.0 + 14.0 * float(i)) * u
+		var sy := (16.0 + 22.0 * float(i)) * u
+		var c := Color(mood_tint, a)
+		draw_rect(Rect2(0, 0, sz.x, sy), c)
+		draw_rect(Rect2(0, sz.y - sy, sz.x, sy), c)
+		draw_rect(Rect2(0, sy, sx, sz.y - 2.0 * sy), c)
+		draw_rect(Rect2(sz.x - sx, sy, sx, sz.y - 2.0 * sy), c)
+
+
 func _draw_cine(sz: Vector2, u: float) -> void:
 	var h := sz.y * 0.1 * cine
 	if h < 1.0:
