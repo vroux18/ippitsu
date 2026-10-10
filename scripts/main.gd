@@ -204,7 +204,7 @@ const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
 const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 
 const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès le départ)
-const ELAN_REGEN := 10.0  # par seconde réelle, hors tracé
+const ELAN_REGEN := 7.0  # par seconde réelle, hors tracé (jauge pleine en ~2 s)
 const ELAN_PER_HIT := 3.5
 const ENEMY_HP_MULT := 2.05  # 2.0 avant les portes à sceaux : +2,5 % pour leurs rouleaux en plus (robots campagne)
 const ULT_DAMAGE := 4.0

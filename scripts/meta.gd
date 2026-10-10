@@ -43,7 +43,7 @@ const TREE := {
 	"e2": {"b": "encre", "t": 2, "name": "Encre vive I", "text": "Recharge de l'encre +6 %.", "cost": 60, "glyph": "encre"},
 	"e3": {"b": "encre", "t": 3, "name": "Pinceau long II", "text": "Élan max +1 m de plus.", "cost": 110, "glyph": "encre"},
 	"e4": {"b": "encre", "t": 4, "name": "Encre vive II", "text": "Recharge +6 % de plus.", "cost": 170, "glyph": "encre"},
-	"e5": {"b": "encre", "t": 5, "name": "Réserve", "text": "Un trait d'avance : la jauge peut déborder d'un trait.", "cost": 250, "glyph": "encre"},
+	"e5": {"b": "encre", "t": 5, "name": "Réserve", "text": "Encre d'avance : la jauge peut déborder d'un quart.", "cost": 250, "glyph": "encre"},
 	"e6": {"b": "encre", "t": 6, "name": "Second souffle", "text": "Un filet d'encre de secours par combat.", "cost": 420, "glyph": "encre"},
 	"ec": {"b": "encre", "t": 7, "name": "Kitsunebi", "text": "Libère ce légendaire de l'ombre dans les rouleaux.", "cost": 600, "glyph": "encre", "power": "shadow_kitsunebi"},
 	"p1": {"b": "papier", "t": 1, "name": "Peau de papier I", "text": "+1 cœur max.", "cost": 80, "glyph": "papier"},
@@ -70,7 +70,7 @@ const RONIN_CHAIN := 10
 const NET_CRIT := 2.0  # Coup net
 const BLEED_TIME := 2.0  # Lame d'encre (s)
 const BLEED_DPS := 0.6  # dégâts/s du saignement (une brûlure de base : 0,6)
-const RESERVE_FRAC := 0.35  # Réserve : la jauge déborde d'environ un trait (35 % de l'élan max, ~6 m)
+const RESERVE_FRAC := 0.25  # Réserve : la jauge déborde d'un quart (25 % de l'élan max, ~4 m)
 const START_GUARD := 2.0  # Garde au départ (s)
 const MASTER_ULT := 0.25  # Maître des figures : part de la jauge d'ultime par figure (4 figures)
 const MASTER_FIG_PTS := 1.25  # Maître des figures : points de figure
