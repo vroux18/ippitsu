@@ -1,5 +1,6 @@
 extends MeshInstance3D
 ## Un coup de pinceau d'encre posé au sol : épais au départ, effilé au bout, puis il sèche.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -109,6 +110,15 @@ func start_drying() -> void:
 
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"ink_stroke", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	if not drying:
 		if not _col.is_equal_approx(_goal):
 			_col = _col.lerp(_goal, minf(1.0, delta * 10.0))

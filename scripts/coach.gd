@@ -11,6 +11,7 @@ extends Control
 ## Pas de texte d'interaction (UI v2) : le picto, le geste fantôme et la main portent la consigne.
 ## main appelle on_launch, on_event, on_pick, slows, frozen, freeze_tap, is_over_ui et skip ;
 ## le coach lit l'état de main.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -313,6 +314,15 @@ func _first_enemy() -> Node3D:
 
 
 func _process(_delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(_delta)
+		Perf.add(&"coach", _pt)
+	else:
+		_process_body(_delta)
+
+
+func _process_body(_delta: float) -> void:
 	size = get_viewport_rect().size
 	if main == null:
 		return
@@ -377,6 +387,15 @@ func _screen(p: Vector3) -> Vector2:
 
 
 func _draw() -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_draw_body()
+		Perf.add(&"coach_draw", _pt)
+	else:
+		_draw_body()
+
+
+func _draw_body() -> void:
 	_lesson_bottom = -1.0
 	if main == null or not active() or not _in_play() or size.x < 10.0:
 		return

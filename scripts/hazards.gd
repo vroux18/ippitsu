@@ -3,6 +3,7 @@ extends Node3D
 ##  trous   — planches pourries : on peut tracer au-dessus, pas finir dedans (chute, 1 dégât).
 ##            Les ennemis projetés dedans tombent à l'eau (sauf les costauds).
 ##  vague   — déferlante : bande transversale annoncée 1.3 s, qui balaie et repousse.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
@@ -277,6 +278,15 @@ func _make_hole(c: Vector3, r: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"hazards", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	if _hole_nodes.is_empty():
 		return
 	_anim_t += delta

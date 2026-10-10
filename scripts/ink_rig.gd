@@ -8,6 +8,7 @@ extends Node3D
 ## Articulations : flotteur (bob) -> corps (penche) -> tête (masque, hoche ; tombe à la mort) ; deux bras
 ## (épaules) qui portent main et arme ; gouttes (ou tentacules) sous le corps, étirées et balancées en code.
 ## Matériaux : un toon à contour par yōkai (éclat de touche, lueur), un aplat partagé pour les yeux et l'eau.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
@@ -410,6 +411,15 @@ func _start(clip: int, speed: float, blend: float, loop: bool) -> void:
 # ------------------------------------------------------------------ animation
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"ink_rig", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	if not _built:
 		return
 	var dt := clampf(delta, 0.0, 0.1)

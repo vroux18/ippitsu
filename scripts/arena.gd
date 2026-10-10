@@ -8,6 +8,7 @@ extends Node3D
 ## Les tronçons d'étape mêlent les formes fixes et des formes générées (GEN : places octogonales, L, T,
 ## escaliers, îles, chemins qui se séparent, pont cassé…) ; des pièces de décor du monde (bateaux, bosquets,
 ## étangs gelés…) y bloquent la marche : `rects` est le sol praticable, `floor_rects` le sol dessiné.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
@@ -3064,6 +3065,7 @@ func gate_reached(p: Vector3) -> bool:
 
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	if not _pits.is_empty():
 		Worlds.animate_pits(_pits, _t)
@@ -3087,6 +3089,8 @@ func _process(delta: float) -> void:
 	_animate_barriers(delta)
 	if is_instance_valid(_gate):
 		_animate_gate(delta)
+	if _pt != 0:
+		Perf.add(&"arena", _pt)
 
 
 # ------------------------------------------------------------------ géométrie

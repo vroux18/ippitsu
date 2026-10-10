@@ -17,6 +17,7 @@ extends Node3D
 ## comme un Character. Palette (dict) : cloth, dark, under, accent, band, wrap, tekko, skin, glove, tabi,
 ## plate, saya, steel, eye, hair ; ponytail, weapon (katana / shuriken / kusarigama / smoke), combat.
 ## Maillages partagés (cache statique par palette et par pièce) ; deux matériaux par personnage (éclat blanc).
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -651,6 +652,15 @@ func _start(clip: int, speed: float, blend: float, loop: bool) -> void:
 # ------------------------------------------------------------------ animation
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"ninja_rig", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	if not _built:
 		return
 	var dt := clampf(delta, 0.0, 0.1)

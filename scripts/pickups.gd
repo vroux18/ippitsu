@@ -2,6 +2,7 @@ extends Node3D
 ## Butin au sol : gemmes d'expérience (jade) et pièces d'or. Elles flottent, sont aspirées quand
 ## le héros passe près, et volent toutes vers lui à la fin de la salle (gather()).
 ## main.collect(kind, value) est appelé au ramassage.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -142,6 +143,15 @@ func clear() -> void:
 
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"pickups", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	if main == null or main.hero == null or not is_instance_valid(main.hero):
 		return
 	var hp: Vector3 = main.hero.position + Vector3(0, 0.7, 0)

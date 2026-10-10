@@ -6,6 +6,7 @@ extends Node3D
 ## _aoe_target, _on_die, _on_shield_break, _on_shield_back (et les fonctions d'interface dont ils ont besoin).
 ## Rythme bouclier → vulnérable : tant que le bouclier tient, un coup n'effleure (10 % des dégâts, un peu
 ## de bouclier) ; la mécanique du boss le brise d'un coup. Brisé : sonné ~5 s, dégâts ×2, puis il se reforme.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
@@ -164,6 +165,7 @@ func _sh_yaw() -> float:
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
@@ -176,6 +178,8 @@ func _process(delta: float) -> void:
 	if _stars != null:
 		_stars.visible = (_stun > 0.0 or vulnerable_t > 0.0) and not dead
 		_stars.rotation.y = _t * 4.0
+	if _pt != 0:
+		Perf.add(&"boss", _pt)
 
 
 func _damage(d: float) -> void:

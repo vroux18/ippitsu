@@ -24,6 +24,7 @@ extends Control
 ## carte en vue cerclés d'or pointillé), cartes, bulle d'encre sous les cartes, relance ronde et CHOISIR au pinceau.
 ## Même donne face cachée et même retournement que l'estampe ; même logique de choix (toucher, CHOISIR, relance).
 ## Le sanctuaire (pactes) reste toujours en kakemono.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -484,6 +485,15 @@ func _hit(p: Vector2) -> int:
 
 
 func _process(_delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(_delta)
+		Perf.add(&"picker", _pt)
+	else:
+		_process_body(_delta)
+
+
+func _process_body(_delta: float) -> void:
 	if not visible:
 		return
 	size = get_viewport_rect().size
@@ -529,6 +539,15 @@ func _focus() -> int:
 # ------------------------------------------------------------------ dessin
 
 func _draw() -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_draw_body()
+		Perf.add(&"picker_draw", _pt)
+	else:
+		_draw_body()
+
+
+func _draw_body() -> void:
 	var w := size.x
 	var h := size.y
 	if w < 10.0:

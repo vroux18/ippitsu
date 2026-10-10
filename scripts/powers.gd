@@ -8,6 +8,7 @@ extends Node
 ## Figures : main appelle figure_launch (au lancement), figure_end (à l'arrivée), figure_update (chaque image),
 ## figure_landed (fin du bond d'ensō) et figure_cancel. Sans son rouleau (Data.FIG_UNLOCK), une figure
 ## ne donne que +1 chaîne et +15 % de dégâts sur sa ruée.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -2733,6 +2734,15 @@ func _ensure_visuals() -> void:
 
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"powers", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	if main == null or _root == null:
 		return
 	var dt := UiKit.unscaled(delta, 0.05)

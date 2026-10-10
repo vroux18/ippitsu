@@ -21,6 +21,7 @@ extends Node3D
 ## d'encre. Les doigts (phase 1) sont des griffes d'encre à crête de washi et phalanges d'or ; les vagues
 ## des couloirs (phase 2) portent chacune un petit masque ; l'œil (phase 3) est un masque d'encre couché,
 ## l'iris vermillon. Maillages fusionnés (Mesher) : un par pièce qui bouge, deux matériaux pour tout.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
@@ -849,6 +850,7 @@ func _clear_all() -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	_animate_decor(delta)
 	_shield_tick(delta)
@@ -887,6 +889,8 @@ func _process(delta: float) -> void:
 				queue_free()
 	if _pending_shift and not dead:
 		_begin_shift()
+	if _pt != 0:
+		Perf.add(&"boss", _pt)
 
 
 func _animate_decor(delta: float) -> void:

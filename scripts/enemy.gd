@@ -35,6 +35,7 @@ extends Node3D
 ##  kunoichi    — くノ一 : kusarigama, balayage de la chaîne dans un arc au sol annoncé devant elle
 ## Boucliers (barre bleue) : tant qu'il en reste, un coup n'entame que 25 % des PV ; figures et pouvoirs les usent ×2 ;
 ## brisé : titube 0.8 s. Élites (main._spawn_list) : ×1.25, ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
@@ -1481,6 +1482,15 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(delta)
+		Perf.add(&"enemy", _pt)
+	else:
+		_process_body(delta)
+
+
+func _process_body(delta: float) -> void:
 	# Rapide / Enragé : tout le rythme (marche, annonces, repos) accéléré
 	delta *= _tempo
 	_t += delta

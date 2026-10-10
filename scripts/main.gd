@@ -3,6 +3,7 @@ extends Node3D
 ## de longues cartes qui avancent vers le fond, des zones de combat qui se ferment (vagues d'ennemis),
 ## des recoins à fouiller, l'arène du gardien à mi-chemin et le boss au bout.
 ## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -689,6 +690,11 @@ func _ready() -> void:
 	if state == "menu" and not auto_run and "opening" in wsearch:
 		var ot := wsearch.find("&t=")
 		_open_opening(float(wsearch.substr(ot + 3).get_slice("&", 0)) if ot >= 0 else 0.0)
+	# `-- --perf` : relevé par image (temps, nœuds, dessin, mémoire ; postes de script), jamais par défaut
+	if "--perf" in OS.get_cmdline_user_args():
+		var probe: Node = Perf.new()
+		probe.set("main", self)
+		add_child(probe)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)
@@ -2089,6 +2095,7 @@ func _build_world() -> void:
 	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
 	var light := OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
+	light = light or "--lite" in OS.get_cmdline_user_args()  # mesures et captures du rendu téléphone sur le bureau
 	if light:
 		# téléphone : chaque lumière refait un passage sur chaque objet -> une seule, ombres plus proches,
 		# 3D rendue un peu en dessous de la résolution native (l'interface reste nette)
@@ -5414,12 +5421,24 @@ func _update_effects(dt: float, real: float) -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(_delta: float) -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_process_body(_delta)
+		Perf.add(&"main", _pt)
+	else:
+		_process_body(_delta)
+
+
+func _process_body(_delta: float) -> void:
 	var now := Time.get_ticks_usec()
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
 	if _bot != null:
 		real = 1.0 / 30.0  # pas fixe : le robot joue aussi vite que la machine le permet
+		var _bt := Time.get_ticks_usec() if Perf.on else 0
 		_bot.step(real)
+		if _bt != 0:
+			Perf.add(&"bot", _bt)
 
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):

@@ -8,6 +8,7 @@ extends Control
 ## Le HUD ne dépend pas du thème : fond sumi 92 %, contour papier 1,5 ; aucun kanji, des pictos ; les chiffres en
 ## Zen Kaku Gothic New 900 tabulaire (UiKit.num_font) ; les halos sans flou (cercles ou contours concentriques).
 ## Par-dessus : sceaux de figure et de pouvoir, barres de vie des ennemis, voile de mort, rideau, lavis du torii.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -293,6 +294,7 @@ func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 
 
 func _process(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	size = get_viewport_rect().size
 	var real := UiKit.real_delta()
 	_update_safe_top()
@@ -343,9 +345,20 @@ func _process(_delta: float) -> void:
 		queue_redraw()
 	_idle_drawn = idle
 	_idle_size = size
+	if _pt != 0:
+		Perf.add(&"hud", _pt)
 
 
 func _draw() -> void:
+	if Perf.on:
+		var _pt := Time.get_ticks_usec()
+		_draw_body()
+		Perf.add(&"hud_draw", _pt)
+	else:
+		_draw_body()
+
+
+func _draw_body() -> void:
 	var sz := size
 	if sz.x < 10.0:
 		return

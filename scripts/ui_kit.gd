@@ -8,6 +8,7 @@ const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
 const Toon = preload("res://scripts/toon.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")  # jetons de couleur du handoff UI v2 (theme.json)
 const Icons = preload("res://scripts/ui_icons.gd")  # sources SVG des pictogrammes v2 (res://ui/icons)
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf) : rastérisations SVG
 # UI v2 : plus de kanji dans l'interface (seul le logo 一筆 de l'accueil reste) : les sceaux à côté des titres
 # d'écran et de section ne se dessinent plus (screen_title, section)
 const KANJI_SEALS := false
@@ -2104,6 +2105,7 @@ static func svg_tex(src: String, px: float, recolor := {}, key := "") -> Texture
 		return _tex[ck]
 	if _tex.size() > 400:
 		_tex.clear()
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var s := src
 	for k in recolor.keys():
 		var to := String(recolor[k])
@@ -2122,6 +2124,10 @@ static func svg_tex(src: String, px: float, recolor := {}, key := "") -> Texture
 		return null
 	var t := ImageTexture.create_from_image(img)
 	_tex[ck] = t
+	if _pt != 0:
+		Perf.add(&"svg_raster", _pt)
+		if Time.get_ticks_usec() - _pt > 2000:
+			print("PERF svg lent %.1f ms : %s (%d px, cache %d)" % [float(Time.get_ticks_usec() - _pt) / 1000.0, ck.left(60), p, _tex.size()])
 	return t
 
 
