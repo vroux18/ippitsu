@@ -2407,8 +2407,8 @@ func _blot_mesh(v: int) -> ArrayMesh:
 
 ## Tache d'encre au sol en `g` (rayon r), vie `life` s, posée après `delay` s : s'étale depuis le centre en 0,25 s,
 ## brille humide puis sèche (mat), se craquèle et s'évapore sur les 0,4 dernières secondes.
-## sc : étirement (traces de pas) ; dir : orientation.
-func blot(g: Vector3, r: float, life: float, delay := 0.0, sc := Vector3.ONE, dir := Vector3.ZERO) -> void:
+## sc : étirement (traces de pas) ; dir : orientation ; game : vie en temps du jeu (tache d'une zone de powers).
+func blot(g: Vector3, r: float, life: float, delay := 0.0, sc := Vector3.ONE, dir := Vector3.ZERO, game := false) -> void:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = Vector3(g.x, 0.05, g.z)
@@ -2424,6 +2424,8 @@ func blot(g: Vector3, r: float, life: float, delay := 0.0, sc := Vector3.ONE, di
 	node.scale = _safe_scale(sc * r * 0.1)
 	_fx.append({"node": node, "t": 0.0, "life": life + delay, "kind": "blot", "d": delay, "r": r, "sc": sc, "mi": mi,
 		"rb": rb, "rw": rw, "rc": rc, "ib": 0, "iw": 0, "ic": FADE_N - 1})
+	if game:
+		_fx[_fx.size() - 1]["game"] = true
 	if delay <= 0.0 and not _warming:
 		_play("ink", randf_range(1.1, 1.3), -12.0)
 
@@ -2481,6 +2483,10 @@ func ink_step(pos: Vector3, dir: Vector3, side: float) -> void:
 func static_charge(target: Node3D, level: int, life := 2.2) -> void:
 	if target == null or not is_instance_valid(target):
 		return
+	# auras éteintes (cibles mortes, paratonnerre sans Statique : rien ne vidait la table) : on les oublie
+	for key in _static_fx.keys():
+		if not is_instance_valid(_static_fx[key].get("node")):
+			_static_fx.erase(key)
 	var old = _static_fx.get(target.get_instance_id())
 	if old != null and is_instance_valid(old.get("node")):
 		old["life"] = minf(float(old["life"]), float(old["t"]) + 0.05)
@@ -2737,7 +2743,9 @@ func ash_pile(node: Node3D, r: float, dur: float) -> void:
 	var core := _mi(node, _unit_disc(), _mat("ember_core", Color(FIRE_HOT, 0.9), 1), 0.21)
 	core.scale = Vector3.ONE * 0.06
 	embers.append(core)
-	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "pulse", "keep": true, "items": embers, "ph": randf() * TAU})
+	# temps du jeu : la zone de powers compte en temps du jeu (ralentis, arrêts sur image) ; en temps réel les
+	# braises s'éteignaient et la brume se dissipait alors que la zone agissait encore
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "pulse", "keep": true, "items": embers, "ph": randf() * TAU, "game": true})
 	# flocons : ils retombent du nuage de la mort, en tournant
 	var p := _pooled("flake")
 	var fresh := p == null
@@ -2790,7 +2798,7 @@ func ash_pile(node: Node3D, r: float, dur: float) -> void:
 	sm.position = Vector3(0, 0.25, 0)
 	node.add_child(sm)
 	sm.emitting = true
-	_fx.append({"node": sm, "t": 0.0, "life": dur + 1.5, "kind": "emit", "stop": maxf(dur - 0.6, 0.1), "keep": true})
+	_fx.append({"node": sm, "t": 0.0, "life": dur + 1.5, "kind": "emit", "stop": maxf(dur - 0.6, 0.1), "keep": true, "game": true})
 	embers_pop(node.position, r * 0.5, 5)
 
 
@@ -2849,8 +2857,9 @@ func lantern_glow(target: Node3D, dur: float) -> void:
 	core.position.y = 0.1
 	var rim := _mi(node, _ring_mesh(), _mat("lant_rim", Color(Toon.VERMILION, 0.9), 4))
 	rim.scale = Vector3.ONE * 0.5
+	# temps du jeu, comme l'attente de powers (_lantern_wait) : la lueur ne s'éteint pas avant la gerbe au ralenti
 	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "breathe", "fol": target, "off": Vector3(0, 1.0, 0),
-		"halo": halo, "core": core, "rim": rim})
+		"halo": halo, "core": core, "rim": rim, "game": true})
 	_play("fire", 1.6, -12.0)
 
 
@@ -2956,7 +2965,7 @@ func mist(node: Node3D, r: float, dur: float) -> void:
 		var s := r * randf_range(0.5, 0.7) * (1.3 if i == 0 else 1.0)
 		mi.scale = Vector3.ONE * 0.01
 		items.append([mi, base, randf() * TAU, s, randf_range(0.4, 0.9) * (1.0 if i % 2 == 0 else -1.0)])
-	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "mist", "keep": true, "items": items, "ramp": rm, "fi": 0, "r": r})
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "mist", "keep": true, "items": items, "ramp": rm, "fi": 0, "r": r, "game": true})
 	_shock(node.position + Vector3(0, 0.07, 0), r * 0.9, Color(WATER_DEEP, 0.6), Color(WATER_FOAM, 0.8), Toon.WASHI, false, 0.6)
 	_flare(node.position + Vector3(0, 0.6, 0), Toon.WASHI, 0.9, 0.2)
 	_play("gust", 0.7, -8.0)
@@ -3077,8 +3086,9 @@ func rod_mark(target: Node3D, dur: float) -> void:
 	var rt := _sramp("rod_tipflare", Color(GOLD, 0.8), 7, true, 2)
 	var fl := _mi(node, _star_mesh(), rt[0], 0.7)
 	fl.scale = Vector3.ONE * 0.6
+	# temps du jeu, comme l'attente de powers (_rod_wait)
 	_anim(node, dur, Vector3(1.0, 0.1, 1.0), Vector3.ONE, _fol({"g": 0.35, "f": 0.6, "lay": [[fl, -1, rt]], "sh": 0.25,
-		"sm": Vector3(1.0, 0.0, 1.0)}, target, Vector3(0, 2.4, 0)))
+		"sm": Vector3(1.0, 0.0, 1.0), "game": true}, target, Vector3(0, 2.4, 0)))
 	_play("zap", 1.7, -12.0)
 
 
@@ -3219,7 +3229,7 @@ func double_dress(node: Node3D, dur: float) -> void:
 	mi.set_surface_override_material(0, _mat("ronin_ink", Color(Toon.SUMI, 0.6), 2, false, 2))
 	mi.set_surface_override_material(1, _mat("ronin_gold", Color(GOLD, 0.95), 3, false, 2, true))
 	mi.scale = Vector3.ONE * 0.01
-	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "wobble", "keep": true, "mi": mi, "ph": randf() * TAU})
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "wobble", "keep": true, "mi": mi, "ph": randf() * TAU, "game": true})
 	spawn_ink(node.position, 0.5)
 	_ink_pop(node.position + Vector3(0, 0.9, 0), 0.6)
 	_play("ink", 0.85, -8.0)
@@ -3333,8 +3343,10 @@ func seal_ring(hero: Node3D) -> Node3D:
 	var lay := _layers(ring, _ring_mesh(), [_bramp(Color(Toon.SUMI, 0.55), -3), _bramp(Color(HANKO, 0.5), -2), _sramp("seal_core", Color(Toon.WASHI, 0.6), -1)])
 	ring.scale = Vector3.ONE * 1.15
 	_anim(ring, 0.5, Vector3.ONE * 0.4, Vector3.ONE * 1.15, {"g": 0.6, "keep": true, "spin": 0.5})
-	_anim(node, 9999.0, Vector3.ONE, Vector3.ONE, _fol({"ns": true, "keep": true}, hero, Vector3(0, 0.06, 0)))
+	# suivi du héros : gardé par powers (_seal_ring) jusqu'au tampon (seal_stamp le libère) ou au combat suivant
+	var ffx := _anim(node, 9999.0, Vector3.ONE, Vector3.ONE, _fol({"ns": true, "keep": true}, hero, Vector3(0, 0.06, 0)))
 	node.set_meta("ring", ring)
+	node.set_meta("fx", ffx)
 	_play("ink", 1.0, -10.0)
 	return node
 
@@ -3415,6 +3427,12 @@ func seal_stamp(pos: Vector3, ring: Node3D) -> void:
 		for ch in ring.get_children():
 			if ch is Sprite3D:
 				_anim(ch, 0.2, Vector3.ONE, Vector3.ONE * 0.1, {"g": 1.0, "keep": true})
+		# le cercle refermé est libéré d'ici (powers lâche _seal_ring au tampon : sans cela il suivait le héros
+		# jusqu'à la fin du combat, glyphes rétrécis compris, et son effet restait dans _fx)
+		var ffx = ring.get_meta("fx", null)
+		if ffx is Dictionary:
+			ffx.erase("keep")
+			ffx["life"] = float(ffx["t"]) + 0.25
 	var node := Node3D.new()
 	add_child(node)
 	node.position = g

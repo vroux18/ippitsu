@@ -2370,7 +2370,7 @@ func _add_blots(points: PackedVector3Array, length: float) -> void:
 func _add_blot(p: Vector3, r: float, delay := 0.0) -> void:
 	_trim_zones("blot", 8)
 	var dur := val("ink_thick")
-	main.vfx.blot(p, r * 0.8, dur, delay)
+	main.vfx.blot(p, r * 0.8, dur, delay, Vector3.ONE, Vector3.ZERO, true)  # temps du jeu, comme la zone
 	var node := Node3D.new()
 	_holder().add_child(node)
 	_zones.append({"kind": "blot", "pos": Vector3(p.x, 0, p.z), "t": dur, "tick": 0.0, "r": r,
@@ -2477,27 +2477,48 @@ func _trim_zones(kind: String, keep: int) -> void:
 			continue
 		n += 1
 		if n >= keep:
-			var node: Node3D = _zones[i]["node"]
+			var node = _zones[i]["node"]  # non typé : le nœud peut avoir été libéré
 			if is_instance_valid(node):
 				node.queue_free()
 			_zones.remove_at(i)
+
+
+## Indice de la zone z dans _zones, par identité (-1 : absente).
+func _zone_idx(z: Dictionary) -> int:
+	for i in _zones.size():
+		if is_same(_zones[i], z):
+			return i
+	return -1
+
+
+## Retire la zone z de _zones.
+func _drop_zone(z: Dictionary) -> void:
+	var i := _zone_idx(z)
+	if i >= 0:
+		_zones.remove_at(i)
 
 
 func _update_zones(dt: float) -> void:
-	for i in range(_zones.size() - 1, -1, -1):
-		var z: Dictionary = _zones[i]
-		var node: Node3D = z["node"]
+	# sur une copie, et retrait par identité : une zone peut tuer un brûlé, dont les Cendres (_add_ash) rognent
+	# et rallongent _zones pendant la boucle ; avec l'indice, on retirait une autre zone que celle qui finissait
+	# (la doublure qui frappe), et la zone restée, nœud libéré, bloquait _update_zones et _trim_zones à chaque image
+	for z: Dictionary in _zones.duplicate():
+		if _zone_idx(z) < 0:
+			continue  # rognée pendant la boucle
+		var nv = z["node"]  # non typé : le nœud peut avoir été libéré
 		z["t"] = float(z["t"]) - dt
-		if float(z["t"]) <= 0.0 or not is_instance_valid(node):
-			if is_instance_valid(node):
-				node.queue_free()
-			_zones.remove_at(i)
+		if float(z["t"]) <= 0.0 or not is_instance_valid(nv):
+			if is_instance_valid(nv):
+				nv.queue_free()
+			_drop_zone(z)
 			continue
+		var node: Node3D = nv
 		var kind := String(z["kind"])
 		if kind in SPECIAL_ZONES:
 			if _special_zone(z, dt):
-				node.queue_free()
-				_zones.remove_at(i)
+				if is_instance_valid(node):
+					node.queue_free()
+				_drop_zone(z)
 			continue
 		var pos: Vector3 = z["pos"]
 		var r: float = z["r"]
