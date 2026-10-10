@@ -1794,7 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid <= 4:
+	if wid <= 5:
 		_landscape(wid, ctx, rng)
 	else:
 		_ls_legacy(wid, ctx, rng)
@@ -2263,6 +2263,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 			return ["fence", "pines", "toro", "steles", "jizo", "pines"]
 		4:
 			return ["strata", "chain", "braziers", "spikes", "torii", "strata"]
+		5:
+			return ["hills", "boat", "shoji", "pine", "seal", "hills"]
 		_:
 			return ["piles"]
 
@@ -2276,6 +2278,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 			_ls_near_contes(ctx, p, s, k, rng)
 		4:
 			_ls_near_fuji(ctx, p, s, k, rng)
+		5:
+			_ls_near_ink(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2289,6 +2293,8 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 			_ls_mid_contes(ctx, kind, a, b, s, rng)
 		4:
 			_ls_mid_fuji(ctx, kind, a, b, s, rng)
+		5:
+			_ls_mid_ink(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2311,6 +2317,11 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 				_ls_forge_yard(ctx, c, s, rng)
 			else:
 				_ls_burnt_shrine(ctx, c, s, rng)
+		5:
+			if main:
+				_ls_paper_house(ctx, c, s, rng)
+			else:
+				_ls_ink_pine(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2327,6 +2338,8 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 			_ls_north_contes(ctx, frame, rng)
 		4:
 			_ls_north_fuji(ctx, frame, rng)
+		5:
+			_ls_north_ink(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -2983,6 +2996,109 @@ static func _ls_north_fuji(ctx: Dictionary, frame: Rect2, rng: RandomNumberGener
 	_light(ctx, Vector3(0, VOID_Y + 2.4, top - 2.2), Color(1.0, 0.82, 0.5), 0.55, 5.0)
 	_add(bn, _glow(HALO, 0.7), _cyl(0.6, 0.6, 0.02, 10), _at(Vector3(rng.randf_range(-1.5, 1.5), VOID_Y + 0.005, top - 3.8), Vector3.ZERO, Vector3(2.0, 1, 1.2)))
 
+
+# --- monde 5 : rives de la mer d'encre (lavis, papier, Fuji)
+
+## Collines d'encre en lavis : ellipsoïdes aplatis, deux valeurs d'encre, posés sur la mer.
+static func _ls_ink_hills(ctx: Dictionary, c: Vector2, ln: float, n: int, rng: RandomNumberGenerator) -> float:
+	var ha := _toon(Color("#3E4A5E"), false)
+	var hb := _toon(Color("#5A6678"), false)
+	var top := VOID_Y
+	for k in n:
+		var w := ln * rng.randf_range(0.35, 0.55)
+		var h := rng.randf_range(0.5, 1.0)
+		var q := Vector3(c.x + rng.randf_range(-0.5, 0.5), VOID_Y, c.y + (float(k) - (n - 1) * 0.5) * ln * 0.3)
+		_inst(ctx, "hill_a" if k % 2 == 0 else "hill_b", _ball(1.0, 1.0, 10, 5), ha if k % 2 == 0 else hb, _at(q, Vector3(0, rng.randf_range(-0.2, 0.2), 0), Vector3(w, h, w * 0.8)))
+		top = maxf(top, VOID_Y + h * 0.45)
+	return top
+
+
+## Bande proche : rides d'encre en lavis, îlots d'encre bas, une feuille de papier ou un pinceau tombé de
+## loin en loin (le papier reste rare : c'est la mer d'encre qu'on doit lire, pas une corbeille).
+static func _ls_near_ink(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	if k % 9 == 7:
+		_brush_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(rng.randf_range(-0.2, 0.2), rng.randf() * TAU, rng.randf_range(-0.2, 0.2)), Vector3.ONE * 0.45))
+		return
+	if k % 5 == 3:
+		var sheet := _box(Vector3(0.4, 0.008, 0.3))
+		var xf := _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.8, 1.4), 1, rng.randf_range(0.8, 1.3)))
+		_inst(ctx, "paper_a" if k % 2 == 0 else "paper_b", sheet, _toon(Color("#F1E8D6") if k % 2 == 0 else Color("#E2D6BD"), false), xf)
+		return
+	if k % 4 == 0:
+		# îlot d'encre en lavis : large, très bas, allongé le long du bord (une tache, pas un rocher)
+		var w := rng.randf_range(0.9, 1.5)
+		_inst(ctx, "hill_a", _ball(1.0, 1.0, 10, 5), _toon(Color("#3E4A5E"), false), _at(Vector3(p.x, VOID_Y - 0.08, p.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3(w * 0.5, rng.randf_range(0.14, 0.22), w)))
+		return
+	var sc := rng.randf_range(0.7, 1.4)
+	_inst(ctx, "foam", _crescent_mesh(), _flat(Color("#CFC6B2", 0.75)), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, 1, sc)))
+
+
+## Bande moyenne : collines d'encre, barque, paravents shōji, pin solitaire, sceau du peintre.
+static func _ls_mid_ink(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"hills":
+			_ls_ink_hills(ctx, Vector2(x + s * 0.4, zc), ln, 2 if Toon.lite else 3, rng)
+		"boat":
+			_boat_into(bs, _at(Vector3(x, VOID_Y, zc), Vector3(0, PI * 0.5 + rng.randf_range(-0.15, 0.15), 0), Vector3.ONE * 0.7), 1)
+			_contact(ctx, Vector2(x, zc), 1.3)
+		"shoji":
+			_shoji_run(ctx, Vector3(x, 0, a.y + 0.3), Vector3(x, 0, b.y - 0.3))
+		"pine":
+			var top := _ls_ink_hills(ctx, Vector2(x + s * 0.3, zc), ln * 0.7, 1, rng)
+			Decor.pine_into(bs, _at(Vector3(x + s * 0.3, top - 0.05, zc), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng.randi() % 100000)
+		_:
+			var xf := _at(Vector3(x, VOID_Y, zc), Vector3(0, rng.randf() * TAU, 0))
+			_add(bs, _toon(Color("#5B4630"), true, 0.02), _box(Vector3(1.2, 0.2, 1.2)), xf * _at(Vector3(0, 0.05, 0)))
+			_seal_into(bs, xf * _at(Vector3(0, 0.15, 0), Vector3.ZERO, Vector3.ONE * 0.9))
+			_papers_into(bn, Vector2(x, zc + 1.0), rng, 2, VOID_Y + 0.02, 0.5)
+
+
+## Maison de papier (rive principale) : colline d'encre, maison aux murs de papier et toit d'encre,
+## pin solitaire, paravent byōbu, feuilles envolées.
+static func _ls_paper_house(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var top := _ls_ink_hills(ctx, c + Vector2(s * 0.3, 0.0), 4.4, 3, rng)
+	_contact(ctx, c, 1.6)
+	var hx := _at(Vector3(c.x + s * 0.2, top, c.y + 0.3), Vector3(0, face + rng.randf_range(-0.15, 0.15), 0))
+	_stilt_house_into(bs, bn, hx, 1.5, 1.3, 1.0, VOID_Y - 0.3 - top, false, Color("#F1E8D6"), Color("#2E2C33"), Toon.SUMI)
+	Decor.pine_into(bs, _at(Vector3(c.x + s * 1.4, top - 0.2, c.y - 1.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.2), rng.randi() % 100000)
+	if not Toon.lite:
+		_byobu_into(bs, _at(Vector3(c.x - s * 0.6, top - 0.1, c.y - 1.3), Vector3(0, face + 0.5, 0), Vector3.ONE * 0.8))
+	_papers_into(bn, c + Vector2(-s * 1.2, 1.2), rng, 3, VOID_Y + 0.02, 0.7)
+
+
+## Rive mineure : deux collines d'encre, pin solitaire, pinceau planté.
+static func _ls_ink_pine(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var top := _ls_ink_hills(ctx, c, 3.2, 2, rng)
+	_contact(ctx, c, 1.2)
+	Decor.pine_into(bs, _at(Vector3(c.x + s * 0.2, top - 0.1, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.3), rng.randi() % 100000)
+	_brush_into(bs, _at(Vector3(c.x - s * 1.1, VOID_Y, c.y + 1.2), Vector3(rng.randf_range(-0.25, 0.25), 0, s * 0.3), Vector3.ONE * 0.9))
+
+
+## Fond : chaîne de collines d'encre, deux pins, la barrique géante du tonnelier dans un coin.
+static func _ls_north_ink(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector2(sx * (frame.size.x * 0.5 + 0.6), top - 3.2)
+		var t := _ls_ink_hills(ctx, c, 4.0, 2 if Toon.lite else 3, rng)
+		Decor.pine_into(bs, _at(Vector3(c.x + sx * 0.4, t - 0.1, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.2), rng.randi() % 100000)
+		avoid.append(Vector3(c.x, c.y, 2.2))
+	var side: float = -1.0 if rng.randf() < 0.5 else 1.0
+	var bc := Vector2(side * 2.9, top - 3.0)
+	_barrel_giant_into(bs, bn, _at(Vector3(bc.x, VOID_Y, bc.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3.ONE * 0.65))
+	avoid.append(Vector3(bc.x, bc.y, 1.6))
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
 static func _ls_legacy(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
