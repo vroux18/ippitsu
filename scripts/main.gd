@@ -3058,8 +3058,11 @@ func _open_sanctuary() -> void:
 	_pick_mode = "curse"
 	var pool: Array = []
 	for id in CURSES.keys():
-		if not id in curses:
-			pool.append(id)
+		if id in curses:
+			continue
+		if "ronin" in curses and (id == "haste" or id == "cursed_ink"):
+			continue  # le serment interdit tout soin : les pactes qui en promettent un ne sont plus proposés
+		pool.append(id)
 	pool.shuffle()
 	var ids: Array = []
 	var leg_done := false
@@ -3077,7 +3080,7 @@ func _open_sanctuary() -> void:
 	ids.append("refuse")
 	_last_offer = ids
 	# refuser rapporte un peu : un cœur s'il en manque, sinon de l'or
-	_pass_bonus = "heal" if hero.hp < hero.max_hp else "gold"
+	_pass_bonus = "heal" if hero.hp < hero.max_hp and not "ronin" in curses else "gold"
 	infos.append({"name": "Refuser", "pact": false, "refuse": true, "bonus": _pass_bonus, "gold": PASS_GOLD, "level": -1})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
