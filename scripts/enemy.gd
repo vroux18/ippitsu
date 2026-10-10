@@ -252,9 +252,8 @@ const CHAIN_W := 1.0
 const WISP_T := 1.2
 const WISP_R := 1.1
 const YOMI_C := Color("#B9A8E8")
-# clan des ninjas (忍) : noms et kanji (手裏剣 shuriken, 煙 fumée, くノ一 kunoichi)
+# clan des ninjas : espèces et noms (plus de kanji affiché : UI v2)
 const NINJA_KINDS := ["shinobi", "shuriken", "kemuri", "kunoichi"]
-const NINJA_KANJI := {"shinobi": "忍", "shuriken": "手裏剣", "kemuri": "煙", "kunoichi": "くノ一"}
 const NINJA_NAMES := {"shinobi": "un shinobi", "shuriken": "un lanceur de shuriken", "kemuri": "un ninja des fumées", "kunoichi": "une kunoichi"}
 const SMOKE_C := Color("#8E84A0")
 const SHINOBI_RANGE := 5.0

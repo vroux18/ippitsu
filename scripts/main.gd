@@ -73,6 +73,7 @@ const Bestiary = preload("res://scripts/bestiary.gd")  # bestiaire (bouton BESTI
 const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")  # jetons UI v2 (encres des figures, hex des pictos)
 const Score = preload("res://scripts/score.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
 ## Dix pactes (planche Sanctuaire, UNIVERS §4.9). Chacun : "school" (couleur d'élément de la carte), "leg"
@@ -129,7 +130,6 @@ const LANTERN_TOUCH := 0.6
 const STELE_NEAR := 2.5
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
-const SHAPE_KANJI := {"loop": "渦", "zigzag": "雷", "return": "返", "straight": "一", "enso": "円", "hook": "鉤"}
 const ROOMS := 15  # combats d'un monde
 const MINI_ROOM := 8  # combat du mini-boss (son arène)
 # courbe du budget d'ennemis dans un monde (index = salle) : montée, gardien (8), respiration (9), épreuve
@@ -596,6 +596,10 @@ func _ready() -> void:
 		if sl2 >= 0:
 			picker.set("_sel", clampi(int(wsearch.substr(sl2 + 4).get_slice("&", 0)), 0, PACT_OFFER - 1))
 	# `?autel` (captures) : l'autel du sanctuaire posé dans la salle en cours (avec `room=N`)
+	# `?enigme=stele` (captures) : cette énigme de recoin (stele, lanterns, spirit) posée devant le héros
+	var pq := wsearch.find("enigme=")
+	if pq >= 0 and state == "play":
+		spawn_puzzle(wsearch.substr(pq + 7).get_slice("&", 0), hero.position + Vector3(0, 0, -3.4))
 	if "autel" in wsearch and state == "play":
 		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
 		for zi in arena.zones.size():
@@ -836,7 +840,7 @@ func _warmup() -> void:
 	st.extend_to(Vector3(2, 0, 0), 3.0)
 	var l := Label3D.new()
 	l.font = KANJI_FONT
-	l.text = "0123456789.× 渦雷返一円鉤斬逃波筆炎鳳神嵐狐背雪鬼"
+	l.text = "0123456789.×"  # chiffres de dégâts et compteurs (plus de kanji en combat : UI v2)
 	l.font_size = 120  # mêmes tailles que les textes de combat : glyphes prêts d'avance
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = false
@@ -853,7 +857,7 @@ func _warmup() -> void:
 		w.add_child(pzn)
 		pzn.position = at
 		pz_nodes.append(pzn)
-	PuzzleArt.build_stele(pz_nodes[0], {}, _glyph_pts("loop", PuzzleArt.GLYPH_O, PuzzleArt.GLYPH_K), "loop", String(SHAPE_KANJI["loop"]))
+	PuzzleArt.build_stele(pz_nodes[0], {}, _glyph_pts("loop", PuzzleArt.GLYPH_O, PuzzleArt.GLYPH_K), "loop")
 	PuzzleArt.build_lanterns(pz_nodes[1], {}, [Vector3(1.5, 0, 0), Vector3(0, 0, 1.5), Vector3(-1.5, 0, 0)], Vector3.ZERO)
 	PuzzleArt.build_spirit(pz_nodes[2], {})
 	var px := -3.0
@@ -2617,24 +2621,24 @@ func _spawn_boss(k: String) -> Node3D:
 
 # ------------------------------------------------------------------ entrée des boss
 
-## Carton titre de chaque boss : kanji, nom, épithète.
+## Carton titre de chaque boss : nom romanisé, épithète (UI v2 : plus de kanji, le sceau du carton est un picto).
 const BOSS_CARDS := {
-	"okappa": ["大河童", "Ō-KAPPA", "le seigneur des eaux dormantes"],
-	"tsuchigumo": ["土蜘蛛", "TSUCHIGUMO", "l'araignée des terres"],
-	"yukionna": ["雪女", "YUKI-ONNA", "la dame des neiges"],
-	"ibaraki": ["茨木童子", "IBARAKI-DŌJI", "l'oni au bras tranché"],
-	"bakekujira": ["化鯨", "BAKEKUJIRA", "la baleine fantôme"],
-	"uwabami": ["蟒蛇", "UWABAMI", "le serpent qui avale les barques"],
-	"kyubi": ["九尾", "KYŪBI", "le renard aux neuf queues"],
-	"gashadokuro": ["餓者髑髏", "GASHADOKURO", "le squelette des affamés"],
-	"daidara": ["大太法師", "DAIDARABOTCHI", "le géant qui façonne les monts"],
-	"kuronami": ["黒波", "KURO-NAMI", "la vague noire"],
-	"karasu_o": ["烏天狗", "KARASU-TENGU", "le chef des corbeaux du Kurama"],
-	"sojobo": ["僧正坊", "SŌJŌBŌ", "le roi des tengu du mont Kurama"],
-	"umibozu_o": ["海坊主", "UMIBŌZU", "le moine géant des abysses"],
-	"ryujin": ["龍神", "RYŪJIN", "le roi dragon de la mer"],
-	"gaki_o": ["餓鬼王", "GAKI-Ō", "le roi des affamés"],
-	"izanami": ["伊邪那美", "IZANAMI", "la reine du pays des morts"],
+	"okappa": ["Ō-KAPPA", "le seigneur des eaux dormantes"],
+	"tsuchigumo": ["TSUCHIGUMO", "l'araignée des terres"],
+	"yukionna": ["YUKI-ONNA", "la dame des neiges"],
+	"ibaraki": ["IBARAKI-DŌJI", "l'oni au bras tranché"],
+	"bakekujira": ["BAKEKUJIRA", "la baleine fantôme"],
+	"uwabami": ["UWABAMI", "le serpent qui avale les barques"],
+	"kyubi": ["KYŪBI", "le renard aux neuf queues"],
+	"gashadokuro": ["GASHADOKURO", "le squelette des affamés"],
+	"daidara": ["DAIDARABOTCHI", "le géant qui façonne les monts"],
+	"kuronami": ["KURO-NAMI", "la vague noire"],
+	"karasu_o": ["KARASU-TENGU", "le chef des corbeaux du Kurama"],
+	"sojobo": ["SŌJŌBŌ", "le roi des tengu du mont Kurama"],
+	"umibozu_o": ["UMIBŌZU", "le moine géant des abysses"],
+	"ryujin": ["RYŪJIN", "le roi dragon de la mer"],
+	"gaki_o": ["GAKI-Ō", "le roi des affamés"],
+	"izanami": ["IZANAMI", "la reine du pays des morts"],
 }
 var _intro_boss: Node3D = null  # boss qui attend son entrée en scène (figé)
 var _intro_wave: Array = []  # première vague, lâchée à la fin de l'entrée
@@ -2658,7 +2662,8 @@ func _start_boss_intro() -> void:
 		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
 		_end_boss_intro()
 		return
-	var card: Array = BOSS_CARDS.get(String(b.kind), ["", String(b.title).to_upper(), ""])
+	var known := BOSS_CARDS.has(String(b.kind))
+	var card: Array = BOSS_CARDS.get(String(b.kind), [String(b.title).to_upper(), ""])
 	_cancel_stroke()
 	_reset_stroke_state(true)
 	hero.stop_dash()
@@ -2668,7 +2673,7 @@ func _start_boss_intro() -> void:
 	_intro_pose = str(b.get("_state"))
 	# il joue sa propre apparition (jamais d'attaque : voir _update_boss_intro)
 	b.process_mode = Node.PROCESS_MODE_INHERIT
-	hud.boss_card(String(card[0]), String(card[1]), String(card[2]), sub, _intro_mini, _intro_len - 0.3)
+	hud.boss_card("picto" if known else "", String(card[0]), String(card[1]), sub, _intro_mini, _intro_len - 0.3)
 	_set_state("boss_intro")
 
 
@@ -3467,17 +3472,11 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			Toon.part(n, Toon.box(Vector3(0.34, 0.9, 0.16)), stone2, Vector3(0, 0.55, 0))
 			Toon.part(n, Toon.box(Vector3(0.2, 0.3, 0.02)), Toon.mat_shared(Toon.VERMILION, false), Vector3(0, 0.65, 0.09))
 			_disc(n, 1.2, Toon.flat(Color(Toon.VERMILION, 0.18)), 0.02)
-			var l := Label3D.new()
-			l.font = KANJI_FONT
-			l.text = "鬼"
-			l.font_size = 110
-			l.pixel_size = 0.004
-			l.modulate = Toon.VERMILION
-			l.outline_modulate = Toon.SUMI
-			l.outline_size = 18
-			l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			l.position = Vector3(0, 1.35, 0)
-			n.add_child(l)
+			# deux cornes d'oni en papier au sommet de la pierre (plus de kanji : UI v2), l'ofuda vermillon dessous
+			var horn := Toon.mat_shared(Toon.WASHI, true, 0.025)
+			for sx in [-1.0, 1.0]:
+				var h := Toon.part(n, Toon.cyl(0.0, 0.05, 0.22, 8), horn, Vector3(float(sx) * 0.1, 1.08, 0))
+				h.rotation = Vector3(0, 0, float(-sx) * 0.3)
 	return n
 
 
@@ -3621,7 +3620,7 @@ func _puzzle_node(pk: Dictionary) -> Node3D:
 	match String(pk["pz"]):
 		"stele":
 			var shape := String(pk["shape"])
-			PuzzleArt.build_stele(n, pk, _glyph_pts(shape, PuzzleArt.GLYPH_O, PuzzleArt.GLYPH_K), shape, String(SHAPE_KANJI.get(shape, "円")))
+			PuzzleArt.build_stele(n, pk, _glyph_pts(shape, PuzzleArt.GLYPH_O, PuzzleArt.GLYPH_K), shape)
 		"lanterns":
 			PuzzleArt.build_lanterns(n, pk, pk["lanterns"], c)
 		"spirit":
@@ -4262,22 +4261,37 @@ func _update_moves(dt: float) -> void:
 	powers.figure_update(dt)
 
 
-func shape_text(pos: Vector3, kanji: String) -> void:
-	if kanji == "":
+## Sceau flottant (UI v2, à la place des kanji de combat) : disque à la couleur `col` cerné de washi, picto v2 `key`
+## (clé de ui_icons.gd : « figures/zigzag », « elements/feu », « hud/slash »…) en washi dessus ; même vie que float_text
+## (rebond, montée, fondu : effet « icon »). Clé inconnue : rien.
+func float_icon(pos: Vector3, key: String, col: Color) -> void:
+	var ic := UiKit.icon(key, 96.0, {"*": UIColors.hex(Toon.WASHI)})
+	if ic == null:
 		return
-	var l := Label3D.new()
-	l.font = KANJI_FONT
-	l.text = kanji
-	l.font_size = 160
-	l.pixel_size = 0.006
-	l.modulate = Toon.SUMI
-	l.outline_modulate = Toon.WASHI
-	l.outline_size = 18
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.no_depth_test = true
-	l.position = pos + Vector3(0, 2.8, 0)
-	add_child(l)
-	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
+	var disc := Sprite3D.new()
+	disc.texture = _seal_disc_tex()
+	disc.modulate = col
+	disc.pixel_size = 0.0085
+	disc.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	disc.no_depth_test = true
+	disc.shaded = false
+	disc.render_priority = 2
+	disc.position = pos + Vector3(0, 2.8, 0)
+	var pic := Sprite3D.new()
+	pic.texture = ic
+	pic.pixel_size = 0.0056
+	pic.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	pic.no_depth_test = true
+	pic.shaded = false
+	pic.render_priority = 3
+	disc.add_child(pic)
+	add_child(disc)
+	effects.append({"node": disc, "t": 0.0, "life": 0.75, "kind": "icon"})
+
+
+## Disque du sceau flottant (texture partagée) : plein blanc modulé par la couleur, fin liseré clair.
+func _seal_disc_tex() -> Texture2D:
+	return UiKit.svg_tex('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="#FFFFFF" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="4"/></svg>', 128.0, {}, "seal_disc")
 
 
 ## Chiffre de dégâts au-dessus de l'ennemi : blanc cerclé d'encre, vermillon s'il tue ou en combo.
@@ -4660,7 +4674,7 @@ func _ultimate() -> void:
 	vfx.slash_line(a, b)
 	vfx.slash_line(Vector3(-HALF.x - 1.0, 0, hp.z - 2.4), Vector3(HALF.x + 1.0, 0, hp.z + 0.8))
 	vfx.ink_wave(hp, 5.5)
-	shape_text(hp + Vector3(0, 1.2, 0), "筆")
+	float_icon(hp + Vector3(0, 1.2, 0), "hud/pinceau", Toon.SUMI)
 	hud.screen_flash = maxf(hud.screen_flash, 0.5)
 	shake = maxf(shake, 1.68)
 	sfx.play("iai", 0.8)
@@ -4723,7 +4737,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_fig_mods = {}
 	if not _shape.is_empty():
 		_fig_slow = FIG_SLOW_LEN
-		shape_text(s.last(), String(SHAPE_KANJI.get(_shape.shape, "")))
+		float_icon(s.last(), String(UiKit.FIG_ICON.get(_shape.shape, "")), UIColors.FIGURES_INK.get(_shape.shape, Toon.SUMI))
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
 		hero.speed_mult *= float(_fig_mods.get("speed", 1.0))
@@ -5215,7 +5229,7 @@ func _update_effects(dt: float, real: float) -> void:
 	for i in range(effects.size() - 1, -1, -1):
 		var fx = effects[i]
 		var node: Node3D = fx.node
-		fx.t += real if fx.kind == "label" or fx.kind == "dmg" else dt
+		fx.t += real if fx.kind == "label" or fx.kind == "dmg" or fx.kind == "icon" else dt
 		var k: float = fx.t / fx.life
 		match fx.kind:
 			"fade":
@@ -5241,6 +5255,14 @@ func _update_effects(dt: float, real: float) -> void:
 				node.scale = Vector3.ONE * s
 				node.modulate.a = clampf((1.0 - k) * 3.0, 0.0, 1.0)
 				node.outline_modulate.a = node.modulate.a
+			"icon":
+				# sceau flottant (float_icon) : même vie que le label, le picto suit le disque
+				node.position.y += real * 1.5
+				node.scale = Vector3.ONE * (1.0 + 0.4 * maxf(0.0, 1.0 - k * 6.0))
+				var ia := clampf((1.0 - k) * 3.0, 0.0, 1.0)
+				node.modulate.a = ia
+				if node.get_child_count() > 0:
+					node.get_child(0).modulate.a = ia
 		if k >= 1.0:
 			if fx.kind != "none" or not _recycle_splash(node):
 				node.queue_free()

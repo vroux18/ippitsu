@@ -1110,7 +1110,7 @@ func _body_col(info: Dictionary) -> Color:
 	var rank := int(info.get("rarity_rank", -1))
 	if rank == 3:
 		return LEG_BODY
-	if String(info.get("kanji", "")) == "鬼":
+	if bool(info.get("pact", false)):
 		return CURSE_BODY
 	if rank < 0:
 		return PASS_BODY
@@ -1136,7 +1136,7 @@ func _band_col(info: Dictionary) -> Color:
 	var rank := int(info.get("rarity_rank", -1))
 	if rank == 3:
 		return GOLD_HI.darkened(0.42)
-	if String(info.get("kanji", "")) == "鬼":
+	if bool(info.get("pact", false)):
 		return CURSE_COL.darkened(0.25)
 	if rank < 0:
 		return PASS_BODY.darkened(0.3)
@@ -1327,7 +1327,9 @@ func _back_print(r: Rect2, u: float, a: float, st: int) -> void:
 	draw_style_box(UiKit.box(_sb, Color(Toon.PRUSSIAN, a), int(5 * u)), inner)
 	UiKit.seigaiha(self, inner.grow(-3.0 * u), Color(Toon.WASHI, 0.22 * a), 8.0 * u)
 	var sr := Rect2(c - Vector2(12.0, 14.0) * u, Vector2(24.0, 28.0) * u)
-	UiKit.seal(self, sr, "印", Toon.VERMILION, Toon.WASHI, a, u, 3.0)
+	# sceau vermillon sans caractère (UI v2) : le pinceau du jeu en washi dessus
+	UiKit.hanko(self, sr, "", Toon.VERMILION, Toon.WASHI, a, u, 3.0)
+	UiKit.draw_icon(self, "hud/pinceau", sr.get_center(), 16.0 * u, a, Toon.WASHI)
 
 
 # ------------------------------------------------------------------ style 0 : kakemono épuré
@@ -1694,7 +1696,7 @@ func _footer(r: Rect2, info: Dictionary, id: String, i: int, cx: float, y0: floa
 func _content(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int, really: bool) -> float:
 	var rank := int(info.get("rarity_rank", -1))
 	var leg := rank == 3
-	var is_curse := String(info.get("kanji", "")) == "鬼"
+	var is_curse := bool(info.get("pact", false))
 	var is_pass := rank < 0 and not is_curse
 	var dark := leg or rank < 0
 	var ink: Color = Toon.WASHI if dark else Toon.ui_ink
@@ -1838,12 +1840,12 @@ func _content_ofuda(r: Rect2, info: Dictionary, id: String, u: float, a: float, 
 		var rcol: Color = GOLD_HI if leg else (Toon.VERMILION.lightened(0.3) if bool(info.get("is_new", true)) else UP_COL.lightened(0.3))
 		UiKit.text(self, _ui, rt, Vector2(cx, y + float(rf) * 0.8), rf, Color(rcol, ta))
 	y += 15.0 * s
-	# sceau vermillon : le kanji du pouvoir (un mon s'il manque à la police)
+	# sceau vermillon : le glyphe du pouvoir en washi (UI v2 : plus de kanji)
 	var seal := Rect2(Vector2(cx - 11.0 * s, y), Vector2(22.0 * s, 27.0 * s))
 	if really:
-		var kj := String(info.get("kanji", ""))
 		draw_set_transform_matrix(_xf * _about(seal.get_center(), 0.7 + 0.3 * _settle(pk, 1.8)))
-		UiKit.seal(self, seal, kj.substr(0, 1), Toon.VERMILION, Toon.WASHI, ma, s, float(i) * 3.1)
+		UiKit.hanko(self, seal, "", Toon.VERMILION, Toon.WASHI, ma, s, float(i) * 3.1)
+		UiKit.power_glyph(self, id, seal.get_center(), 7.0 * s, Toon.WASHI, Toon.VERMILION, ma)
 		draw_set_transform_matrix(_xf)
 	y = seal.end.y + 8.0 * s + ex * 0.3
 	# pictogramme d'or au trait, dans deux fins cercles d'or ; lueur de l'élément derrière
@@ -2374,7 +2376,7 @@ func _confirm(u: float, a: float) -> void:
 		return
 	var info: Dictionary = _infos[_sel]
 	var rank := int(info.get("rarity_rank", -1))
-	var is_curse := String(info.get("kanji", "")) == "鬼"
+	var is_curse := bool(info.get("pact", false))
 	var label := "CHOISIR"
 	var col: Color = Toon.VERMILION
 	var acc: Color = info.get("color", Toon.WASHI)

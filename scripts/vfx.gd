@@ -1,12 +1,13 @@
 extends Node3D
 ## Effets de combat : traînée de lame lumineuse, éclairs d'impact, anneaux de choc, traits d'étincelles,
-## giclée d'encre et grand idéogramme 斬 à la mise à mort, éclat doré et pièces des coffres.
+## giclée d'encre et grand sceau « entaille » à la mise à mort, éclat doré et pièces des coffres.
 ## Les matériaux émissifs brillent grâce au halo (glow) de l'environnement, sans délaver le reste de l'image.
 ## Lisibilité : chaque élément a sa forme (flammes, arcs d'eau, zigzag, croissants, fumée) ; au sol, les ondes
 ## passent SOUS les annonces d'attaque (priorité de rendu négative) et restent pâles.
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")  # hex des pictos v2 (sceau de mise à mort)
 const FX_BRUSH = preload("res://shaders/fx_brush.gdshader")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
 
@@ -32,7 +33,6 @@ const WIND_DEEP := Color("#1E4B3E")
 const SHADOW_GLOW := Color("#C9A2FF")
 const BLADE := Color(1.0, 0.97, 0.92)  # blanc du tranchant (papier)
 const SCHOOL_FX := {"fire": FIRE, "water": WATER, "bolt": BOLT, "wind": WIND, "shadow": SHADOW, "ink": INK}
-const SCHOOL_KANJI := {"fire": "火", "water": "水", "bolt": "雷", "wind": "風", "shadow": "影", "ink": "墨"}
 
 # annonces d'attaque (ennemis et boss) : même langage partout
 const TELE_Y := 0.07  # au-dessus des dalles et des bosses de neige (~0.04)
@@ -359,7 +359,7 @@ func _recycle(node: Node3D) -> bool:
 
 
 ## Mise à mort : giclée d'encre (gouttes de sumi lancées dans le sens du coup, quelques gouttes à la couleur du
-## yōkai `tint`), éclat d'encre face caméra, tache étoilée au sol qui sèche ; le grand 斬 seulement sur un beau
+## yōkai `tint`), éclat d'encre face caméra, tache étoilée au sol qui sèche ; le grand sceau « entaille » seulement sur un beau
 ## coup (`big`). La croix et l'arc blancs viennent d'impact() (main l'appelle avec strong = tué).
 func kill_burst(pos: Vector3, dir: Vector3, big := false, tint := Color(0, 0, 0, 0)) -> void:
 	var p := pos + Vector3(0, 0.9, 0)
@@ -383,15 +383,15 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false, tint := Color(0, 0, 0,
 	_decal(Vector3(pos.x, 0.0, pos.z), 0.7 if big else 0.55, Color(Toon.SUMI, 0.5), 1.3)
 	if not big:
 		return
-	# grand idéogramme au pinceau
-	var l := Label3D.new()
-	l.font = UiKit.TITLE_FONT
-	l.text = "斬"
-	l.font_size = 220
-	l.pixel_size = 0.0038
-	l.modulate = Toon.VERMILION
-	l.outline_modulate = Toon.SUMI
-	l.outline_size = 26
+	# grand sceau vermillon « entaille » (picto v2 hud/slash, plus de kanji), face caméra
+	var tex := UiKit.icon("hud/slash", 128.0, {"*": UIColors.hex(Toon.VERMILION)})
+	if tex == null:
+		return
+	var l := Sprite3D.new()
+	l.texture = tex
+	l.pixel_size = 0.0095
+	l.shaded = false
+	l.render_priority = 3
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
 	l.position = pos + Vector3(0.6, 2.0, 0)
@@ -2395,11 +2395,11 @@ func _process(delta: float) -> void:
 				node.scale = Vector3.ONE * r * (0.3 + 1.2 * k)
 				node.visible = k < 0.95
 			"kanji":
-				var l := node as Label3D
+				# sceau « entaille » de la mise à mort : rebond, montée, fondu
+				var l := node as Sprite3D
 				var pop := 1.0 + 0.6 * maxf(0.0, 1.0 - k * 5.0)
 				l.scale = Vector3.ONE * pop
 				l.modulate.a = clampf((1.0 - k) * 2.5, 0.0, 1.0)
-				l.outline_modulate.a = l.modulate.a
 				l.position.y += dt * 1.2
 		if k >= 1.0:
 			if not _recycle(node):

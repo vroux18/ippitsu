@@ -79,9 +79,10 @@ static var _grad: Gradient = null
 
 # ------------------------------------------------------------------ stèle
 
-## Stèle (sekihi) sur socle à degrés, mousse, shimenawa et shide, cartouche gravé de la figure (`kanji`),
-## bol d'offrande et deux bougies ; devant, la figure `pts` peinte dans un cercle de pierres.
-static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shape: String, kanji: String) -> void:
+## Stèle (sekihi) sur socle à degrés, mousse, shimenawa et shide, cartouche où la figure `shape` est gravée
+## (son tracé en ruban d'encre, plus de kanji : UI v2), bol d'offrande et deux bougies ; devant, la figure
+## `pts` peinte dans un cercle de pierres.
+static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shape: String) -> void:
 	var st := Node3D.new()
 	st.name = "Stele"
 	n.add_child(st)
@@ -102,9 +103,21 @@ static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shap
 	# cartouche creusé : rebord clair, fond sombre, la figure gravée y luit
 	Toon.part(slab, _mesh("panel_rim"), _mat("stone_light"), Vector3(0, 0.68, 0.104))
 	Toon.part(slab, _mesh("panel"), _mat("panel"), Vector3(0, 0.68, 0.112))
-	var eng := _label(slab, kanji, Vector3(0, 0.68, 0.124), Color(ENGRAVE, 0.7), 120, 0.0027, false, 10)
-	eng.outline_modulate = Color(Toon.SUMI, 0.55)
-	pk["label"] = eng
+	# la figure gravée dans le cartouche : le même tracé que la figure au sol, ramené au gabarit du panneau
+	# (0,38 × 0,72), relevé à la verticale (XZ -> XY) ; sa matière plate luit (mise à jour) et dore (résolue)
+	var ek := "eng_" + shape
+	if not _meshes.has(ek):
+		# ruban à l'échelle de la figure au sol (le rééchantillonnage reste fin), réduit au cartouche par le nœud
+		var loc := PackedVector3Array()
+		for p in pts:
+			var q := p - GLYPH_O
+			loc.append(Vector3(q.x, 0, q.z))
+		_meshes[ek] = ribbon_mesh([loc], 0.16, 0.6, 0.0)
+	var emat := Toon.flat(Color(ENGRAVE, 0.7))
+	var eng := Toon.part(slab, _meshes[ek], emat, Vector3(0, 0.68, 0.126), Vector3(0.2, 0.2, 0.2))
+	eng.rotation.x = PI / 2.0
+	eng.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pk["label"] = emat
 	# mousse au sommet et sur le socle
 	Toon.part(slab, _mesh("moss"), _mat("moss"), Vector3(-0.1, 1.55, 0), Vector3(1.3, 0.35, 0.85))
 	Toon.part(st, _mesh("moss"), _mat("moss"), Vector3(0.32, 0.31, 0.17), Vector3(1.5, 0.4, 1.0))
@@ -174,9 +187,9 @@ static func _update_stele(pk: Dictionary, t: float, fk: float) -> void:
 			gm.set_shader_parameter(P_REVEAL, rv)
 			gm.set_shader_parameter(P_FADE, fd)
 	var lb = pk.get("label")
-	if is_instance_valid(lb):
-		var l: Label3D = lb
-		l.modulate = Color(ENGRAVE, 0.5 + 0.3 * (0.5 + 0.5 * sin(t * 2.2)))
+	if lb is StandardMaterial3D:
+		var em: StandardMaterial3D = lb
+		em.albedo_color = Color(ENGRAVE, 0.5 + 0.3 * (0.5 + 0.5 * sin(t * 2.2)))
 	var fl: Array = pk["flames"]
 	for i in fl.size():
 		var f = fl[i]
@@ -198,11 +211,10 @@ static func _solve_stele(pk: Dictionary, root: Node3D) -> void:
 		gm.set_shader_parameter(P_REVEAL, 1.0)
 		gm.set_shader_parameter(P_FADE, 1.0)
 	var lb = pk.get("label")
-	if is_instance_valid(lb):
-		var l: Label3D = lb
-		l.outline_modulate = Color(Toon.GOLD.darkened(0.55), 0.85)
-		var tl := l.create_tween()
-		tl.tween_property(l, "modulate", Color(1.0, 0.85, 0.42, 1.0), 0.35)
+	if lb is StandardMaterial3D:
+		var em: StandardMaterial3D = lb
+		var tl := root.create_tween()
+		tl.tween_property(em, "albedo_color", Color(1.0, 0.85, 0.42, 1.0), 0.35)
 	var sv = pk.get("stele")
 	if is_instance_valid(sv):
 		var st: Node3D = sv
