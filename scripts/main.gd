@@ -60,6 +60,7 @@ const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3,
 const Tutorial = preload("res://scripts/tutorial.gd")  # hôte du dojo
 const Coach = preload("res://scripts/coach.gd")  # tutoriel en jeu : bulles du premier monde
 const Intro = preload("res://scripts/intro.gd")
+const Opening = preload("res://scripts/opening.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const Hazards = preload("res://scripts/hazards.gd")
@@ -301,6 +302,7 @@ var pad_show := "start"  # always | start | never
 var _strokes_done := 0
 var _run_anchor := Vector2.ZERO  # mode pad : point où le doigt s'est posé pendant la course (manette)
 var intro: Control  # planches illustrées : premier JOUER, ou bouton « ? » de l'accueil
+var opening: Control  # ouverture à l'encre du tout premier démarrage (mini-histoire, opening.gd), au-dessus de tout
 var vfx: Node3D
 var options: Control
 var _options_from := "menu"
@@ -477,6 +479,14 @@ func _ready() -> void:
 	opt_layer.add_child(intro)
 	intro.finished.connect(_on_intro_finished)
 	menu.tuto_pressed.connect(_open_intro.bind(true))
+	var open_layer := CanvasLayer.new()
+	open_layer.layer = 6
+	add_child(open_layer)
+	opening = Opening.new()
+	opening.set("sfx", sfx)
+	open_layer.add_child(opening)
+	opening.connect("reveal", _on_opening_reveal)
+	opening.connect("finished", _on_opening_finished)
 	var map_layer := CanvasLayer.new()
 	map_layer.layer = 4
 	add_child(map_layer)
@@ -602,6 +612,12 @@ func _ready() -> void:
 		_finish_run()
 		if not _ending_victory:
 			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
+	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
+	# seconde N, pour les captures) ; jamais pour le robot ni les tests
+	var auto_run := autoplay or "--bot" in OS.get_cmdline_user_args()
+	if state == "menu" and not auto_run and ("opening" in wsearch or (not meta.opening_done and wsearch.length() <= 1)):
+		var ot := wsearch.find("&t=")
+		_open_opening(float(wsearch.substr(ot + 3).get_slice("&", 0)) if ot >= 0 else 0.0)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)
@@ -984,6 +1000,8 @@ func _notification(what: int) -> void:
 		if what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
 			recap.visible = false
 			_on_recap_closed()
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and opening != null and opening.visible:
+			opening.call("skip")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and intro != null and intro.visible:
 			intro.close()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and wardrobe != null and wardrobe.visible:
@@ -1006,6 +1024,25 @@ func _start_first_run() -> void:
 	_start()
 	gentle = true
 	_set_state("intro")
+
+
+## Ouverture à l'encre (opening.gd) par-dessus l'accueil caché : la mer et la barque attendent dessous.
+func _open_opening(start := 0.0) -> void:
+	menu.show_mode("hidden")
+	opening.call("play", start)
+
+
+## Le papier de l'ouverture s'efface : l'accueil se peint dessous (titre, JOUER), comme à chaque retour.
+func _on_opening_reveal() -> void:
+	if state == "menu":
+		menu.show_mode("home")
+
+
+func _on_opening_finished() -> void:
+	meta.opening_done = true
+	meta.save_data()
+	if state == "menu" and String(menu.mode) != "home":
+		menu.show_mode("home")
 
 
 ## Intro illustrée, sur l'accueil (la barque continue de tanguer derrière).
