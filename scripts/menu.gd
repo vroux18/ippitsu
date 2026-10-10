@@ -805,6 +805,8 @@ func _draw_head(y: float, u: float, v: float, a: float) -> void:
 	var line2 := "Rang maximal"
 	if score_next > 0:
 		line2 = "%s à %s" % [_rank_word(mini(score_rank + 1, 4)), Score.fmt(score_next)]
+	elif score_next < 0:
+		line2 = "%s : vaincs le boss" % _rank_word(4)
 	_spacing(_title, maxi(1, int(1.0 * u)))
 	var fs1 := int(15 * u)
 	var fs2 := int(11 * u)

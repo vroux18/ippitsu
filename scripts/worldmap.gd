@@ -894,8 +894,9 @@ func _draw_tiles(ci: CanvasItem, i: int, xf: Transform2D, r: Rect2) -> void:
 	ci.draw_style_box(UiKit.box(_box, tile_bg, rad), sr)
 	# score, rang et palier suivant (seuils de score.gd, relevés selon le monde)
 	var pts := _score_of(i)
-	var rank := Score.rank_of(pts, id)
-	var nxt := Score.next_rank_pts(pts, id)
+	var cleared := id < _unlocked  # le monde suivant est ouvert : son boss a été vaincu
+	var rank := Score.rank_of(pts, id, cleared)
+	var nxt := Score.next_rank_pts(pts, id, cleared)
 	var nf := UiKit.num_font()
 	var fs1 := maxi(1, int(19.0 * u))
 	var fs2 := maxi(1, int(10.0 * u))
@@ -903,6 +904,8 @@ func _draw_tiles(ci: CanvasItem, i: int, xf: Transform2D, r: Rect2) -> void:
 	var s2 := "Rang maximal"
 	if nxt > 0:
 		s2 = "%s à %s" % [_rank_word(mini(rank + 1, 4)), Score.fmt(nxt)]
+	elif nxt < 0:
+		s2 = "%s : vaincs le boss" % _rank_word(4)
 	var w1 := nf.get_string_size(s1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1).x
 	var w2 := UiKit.UI_FONT.get_string_size(s2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
 	var ts := 36.0 * u

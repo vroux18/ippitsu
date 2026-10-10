@@ -787,9 +787,15 @@ const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins
 ## Étalé sur plusieurs images (quelques ennemis par image) : l'accueil reste fluide.
 ## Préchauffage : les particules en repère monde ignorent l'échelle 0,002 de la miniature et se dessinaient en
 ## grand devant la caméra (losange noir du brûleur du kasha) : on les passe en repère local, tout rétrécit.
+## Même chose pour les nœuds « top_level » (zones d'attaque, bulles, nuages, étoiles) : hors de la hiérarchie,
+## ils ignoraient l'échelle et se posaient à l'origine du monde, plein cadre (goutte noire au centre de l'arène
+## quand un combat commençait avant la fin du préchauffage).
 func _warm_shrink(n: Node) -> void:
 	if n is GPUParticles3D or n is CPUParticles3D:
 		n.set("local_coords", true)
+	if n is Node3D and n.top_level:
+		n.top_level = false
+		n.position = Vector3.ZERO
 	for c in n.get_children():
 		_warm_shrink(c)
 
@@ -4103,12 +4109,12 @@ func _finish_run() -> void:
 
 ## Score de la partie : record du monde, rang, prime d'encre (ajoutée aux gains de la feuille de résultats).
 func _award_score() -> void:
-	var r: Dictionary = score.finish(meta, current_world, max_chain)
+	var r: Dictionary = score.finish(meta, current_world, max_chain, _ending_victory)
 	menu.stat_score = int(r.get("score", 0))
 	menu.best_score = int(r.get("best", 0))
 	menu.score_record = bool(r.get("record", false))
 	menu.score_rank = int(r.get("rank", 0))
-	menu.score_next = Score.next_rank_pts(int(r.get("score", 0)), current_world)
+	menu.score_next = Score.next_rank_pts(int(r.get("score", 0)), current_world, _ending_victory)
 	menu.gain_sumi += int(r.get("sumi", 0))
 	menu.sumi = meta.sumi
 

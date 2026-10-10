@@ -59,7 +59,7 @@ var chain_lost := 0
 var score := -1  # points de la partie (-1 : pas de score, dojo)
 var score_mult := 1.0  # multiplicateur de points de la chaîne en cours
 var enemy_bars: Array = []  # [position écran, ratio de vie, (ratio de bouclier, élite)]
-const SHIELD_BAR := Color("#6FB7FF")
+const SHIELD_BAR := Color("#7FA6D9")  # bouclier des élites (bleu de Prusse clair, UI v2) : fine barre sur leur vie
 const ELITE_MARK := Color("#FFB23E")
 var in_play := false
 var picking := false  # choix de rouleau ouvert (état « pick » de main) : le HUD fixe s'efface sous le rouleau (UI v2)
@@ -1212,17 +1212,19 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 				UiKit.diamond(self, dc, 4.5 * u, UIColors.GOLD)
 			else:
 				UiKit.diamond(self, dc, 4.5 * u, UiKit.NONE, UIColors.GOLD, maxf(1.0, 1.5 * u))
-	# puce du bouclier, à droite
+	# puce du bouclier, à droite (UI v2) : pilule d'encre, écu papier, six crans ; brisé : pilule d'or, écu fendu,
+	# compte « ×N » et filet du compte à rebours
 	if vuln or boss_has_shield:
 		var nf := UiKit.num_font()
 		var cfs := int(13 * u)
 		var ctxt := "×%d" % _shield_breaks
 		var cw := nf.get_string_size(ctxt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x if vuln else 44.0 * u
 		var chip := Rect2(Vector2(x0 + 358.0 * u - 22.0 * u - cw - 4.0 * u, y0 + 40.0 * u), Vector2(26.0 * u + cw, 22.0 * u))
-		var ccol: Color = UIColors.GOLD if vuln else SHIELD_BAR
-		draw_style_box(UiKit.box(_sb, ccol, 999, UIColors.SUMI, maxi(1, int(1.5 * u))), chip)
+		var ccol: Color = UIColors.GOLD if vuln else UIColors.SUMI_HUD_BG
+		var ecol: Color = UIColors.SUMI if vuln else Color(UIColors.WASHI, 0.55)
+		draw_style_box(UiKit.box(_sb, ccol, 999, ecol, maxi(1, int(1.5 * u))), chip)
 		var ic := Vector2(chip.position.x + 11.0 * u, chip.get_center().y)
-		UiKit.glyph(self, "shield", ic, 5.5 * u, UIColors.SUMI, ccol if not vuln else UiKit.NONE)
+		UiKit.glyph(self, "shield", ic, 5.5 * u, UIColors.SUMI if vuln else UIColors.WASHI, UiKit.NONE)
 		if vuln:
 			# écu fendu
 			draw_line(ic + Vector2(0.5, -4.5) * u, ic + Vector2(-1.5, 0.0) * u, ccol, 1.4 * u, true)
@@ -1242,7 +1244,7 @@ func _draw_boss(sz: Vector2, u: float) -> void:
 			var fill := clampf(boss_shield, 0.0, 1.0) * float(n)
 			for i in n:
 				var x := sx + float(i) * (sw + 1.5 * u)
-				draw_rect(Rect2(x, ic.y - 3.0 * u, sw, 6.0 * u), Color(UIColors.SUMI, 0.55))
+				draw_rect(Rect2(x, ic.y - 3.0 * u, sw, 6.0 * u), Color(UIColors.WASHI, 0.18))
 				var f := clampf(fill - float(i), 0.0, 1.0)
 				if f > 0.0:
 					draw_rect(Rect2(x, ic.y - 3.0 * u, sw * f, 6.0 * u), UIColors.WASHI)
@@ -1268,8 +1270,12 @@ func _maki_fill(k: float, col: Color) -> void:
 	_fill_pts[5] = Vector2(xr - 6.0, 31.0)
 	_fill_pts[6] = Vector2(40, 31)
 	if xr < 52.0:
-		_fill_pts[1] = Vector2(40, 12.5)
-		_fill_pts[3] = Vector2(xr - 4.0, 18.0)
+		# bord trop court pour le zigzag : un simple pan (sinon le polygone se croise et la triangulation échoue)
+		_fill_pts.resize(4)
+		_fill_pts[0] = Vector2(40, 13)
+		_fill_pts[1] = Vector2(maxf(xr, 41.0), 12.0)
+		_fill_pts[2] = Vector2(maxf(xr, 41.0), 31.0)
+		_fill_pts[3] = Vector2(40, 31)
 	draw_colored_polygon(_fill_pts, col)
 
 

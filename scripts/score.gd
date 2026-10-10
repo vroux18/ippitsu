@@ -72,20 +72,25 @@ static func fmt(n: int) -> String:
 
 
 ## Rang d'un score dans un monde : 0 (aucun), puis 1..4 (梅, 竹, 松, 極).
-static func rank_of(pts: int, world_id: int) -> int:
+## `won` : le boss du monde a été vaincu ; sans cela, le rang plafonne à 松 (pin) : 極 (maître) se gagne en finissant le monde.
+static func rank_of(pts: int, world_id: int, won := true) -> int:
 	var k := 1.0 + 0.12 * float(maxi(0, world_id - 1))
 	var r := 0
 	for i in RANK_PTS.size():
 		if float(pts) >= float(RANK_PTS[i]) * k:
 			r = i + 1
+	if not won:
+		r = mini(r, RANK_PTS.size() - 1)
 	return r
 
 
-## Points qu'il faut pour le rang suivant (0 : rang maximal).
-static func next_rank_pts(pts: int, world_id: int) -> int:
-	var r := rank_of(pts, world_id)
+## Points qu'il faut pour le rang suivant (0 : rang maximal, ou -1 : les points y sont mais il faut vaincre le boss).
+static func next_rank_pts(pts: int, world_id: int, won := true) -> int:
+	var r := rank_of(pts, world_id, won)
 	if r >= RANK_PTS.size():
 		return 0
+	if not won and r == RANK_PTS.size() - 1 and rank_of(pts, world_id, true) >= RANK_PTS.size():
+		return -1
 	var k := 1.0 + 0.12 * float(maxi(0, world_id - 1))
 	return int(ceil(float(RANK_PTS[r]) * k))
 
@@ -185,7 +190,7 @@ func on_boss(mini: bool, clean: bool, chain: int) -> void:
 
 ## Enregistre le score du monde (meta) et crédite l'encre de la prime.
 ## Renvoie {"score", "best", "record", "rank", "best_rank", "sumi", "mult"}.
-func finish(meta: RefCounted, world_id: int, max_chain: int) -> Dictionary:
+func finish(meta: RefCounted, world_id: int, max_chain: int, won := false) -> Dictionary:
 	var old_best: int = meta.world_score_of(world_id)
 	var rec: bool = meta.record_score(world_id, points, max_chain)
 	var bonus := mini(SUMI_MAX, int(points / float(SUMI_PER)))
@@ -193,5 +198,7 @@ func finish(meta: RefCounted, world_id: int, max_chain: int) -> Dictionary:
 		meta.sumi = int(meta.sumi) + bonus
 		meta.save_data()
 	var best := maxi(old_best, points)
-	return {"score": points, "best": best, "record": rec and points > 0, "rank": rank_of(points, world_id),
-		"best_rank": rank_of(best, world_id), "sumi": bonus, "mult": best_mult}
+	# le monde est « vaincu » dès qu'il l'a été une fois (le suivant est ouvert)
+	var cleared: bool = won or int(meta.unlocked) > world_id
+	return {"score": points, "best": best, "record": rec and points > 0, "rank": rank_of(points, world_id, won),
+		"best_rank": rank_of(best, world_id, cleared), "sumi": bonus, "mult": best_mult}

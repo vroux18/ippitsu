@@ -123,7 +123,7 @@ const FUNA_DEPTH := -1.2
 const FUNA_EMERGE := 0.6
 const FUNA_UP := 2.2
 const FUNA_DIVE := 0.5
-const FUNA_UNDER := 3.0
+const FUNA_UNDER := 2.2
 var _phase := "emerge"  # emerge | up | dive | under
 var _ptimer := 0.0
 var _shot := false
@@ -1977,6 +1977,16 @@ func _end_charge() -> void:
 
 # ------------------------------------------------------------------ umibōzu
 
+## Dernier yōkai debout (pas de boss) : ses phases cachées raccourcissent, on ne l'attend plus.
+func _lonely() -> bool:
+	if main == null or not (main.get("bosses") as Array).is_empty():
+		return false
+	for e in main.get("enemies"):
+		if e != self and is_instance_valid(e) and not bool(e.get("dead")):
+			return false
+	return true
+
+
 func _surface() -> void:
 	_phase = "rise"
 	_ptimer = FUNA_EMERGE
@@ -2013,7 +2023,7 @@ func _umibozu(delta: float, dir: Vector3, dist: float) -> void:
 			body.position.y = lerpf(0.0, FUNA_DEPTH, clampf(1.0 - _ptimer / FUNA_DIVE, 0.0, 1.0))
 			if _ptimer <= 0.0:
 				_phase = "under"
-				_ptimer = UMI_UNDER
+				_ptimer = UMI_UNDER * (0.4 if _lonely() else 1.0)
 				_waits = 0
 				body.visible = false
 				_shadow.visible = false
@@ -2038,7 +2048,7 @@ func _umibozu(delta: float, dir: Vector3, dist: float) -> void:
 				return
 			_ptimer = 0.3
 			_waits += 1
-			if _waits > 8:
+			if _waits > (3 if _lonely() else 6):
 				# pas de jeton ni d'ouverture : il remonte sans frapper
 				_surface()
 				return
@@ -3867,6 +3877,8 @@ func _ghost(delta: float) -> void:
 				body.visible = false
 				_shadow.visible = false
 		"under":
+			if _lonely():
+				_ptimer = minf(_ptimer, 0.5)  # seul en lice : il ressort presque aussitôt
 			if _ptimer <= 0.0:
 				position = _random_edge()
 				_start_emerge()

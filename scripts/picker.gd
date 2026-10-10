@@ -2879,20 +2879,25 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	var fy := inner.end.y - 8.0 * s - 19.0 * s
 	var mx := int(info.get("max_level", 1))
 	if mx > 1:
+		# crans de niveau : « NIV » en petites capitales, puis un losange par niveau (pris : or sombre plein ;
+		# gagné maintenant : or cerné d'encre, un peu plus grand, halo qui respire ; à venir : contour éteint)
 		var cur := int(info.get("cur_level", 0))
+		var lfs := maxi(1, int(7.5 * s))
+		var lab := "NIV"
+		draw_string(UiKit.UI_FONT, Vector2(o.x + 9.0 * s, fy + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(UIColors.TEXT_MUTED, ta))
+		var dx := o.x + 9.0 * s + UiKit.UI_FONT.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x + 9.0 * s
+		var step := 12.0 * s
 		for kk in mx:
-			var cr := Rect2(Vector2(o.x + 10.0 * s + float(kk) * 16.0 * s, fy - 3.0 * s), Vector2(13.0 * s, 6.0 * s))
+			var dc := Vector2(dx + float(kk) * step, fy)
 			if kk < cur:
-				draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD_DARK, ta), int(3.0 * s)), cr)
+				UiKit.diamond(self, dc, 4.2 * s, Color(UIColors.GOLD_DARK, ta))
 			elif kk == cur:
-				# halo sans flou : deux contours à alpha décroissant, puis l'or cerné d'encre
 				for g2 in 2:
-					var gg := (3.0 + 2.0 * float(g2)) * s
-					draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, (0.32 - 0.14 * float(g2)) * (0.6 + 0.4 * pulse) * ta), int(3.0 * s + gg)), cr.grow(gg))
-				draw_style_box(UiKit.box(_sb, Color(UIColors.SUMI, ta), int(4.5 * s)), cr.grow(1.5 * s))
-				draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, ta), int(3.0 * s)), cr)
+					var gg := (2.5 + 2.5 * float(g2)) * s
+					UiKit.diamond(self, dc, 5.2 * s + gg, Color(UIColors.GOLD, (0.3 - 0.13 * float(g2)) * (0.6 + 0.4 * pulse) * ta))
+				UiKit.diamond(self, dc, 5.2 * s, Color(UIColors.GOLD, ta), Color(UIColors.SUMI, ta), maxf(1.0, 1.5 * s))
 			else:
-				draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(3.0 * s), Color(UIColors.LINE_MUTED, ta), maxi(1, int(1.5 * s))), cr)
+				UiKit.diamond(self, dc, 4.2 * s, UiKit.NONE, Color(UIColors.LINE_MUTED, ta), maxf(1.0, 1.5 * s))
 	var rc := Vector2(inner.end.x - 8.0 * s - 19.0 * s, fy)
 	if Data.AFFINITY.has(school):
 		var aff := mini(int(info.get("aff", 0)), 4)
