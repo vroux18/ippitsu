@@ -774,6 +774,23 @@ func _below_k() -> float:
 	return BOSS_K + (14.0 if boss_hint != "" else 0.0)
 
 
+## Préchauffage (main._warmup, sur l'accueil) : glyphes des chiffres du HUD de jeu (pilules d'étape, d'or, de score,
+## niveau, multiplicateur) à toutes les tailles de l'écran, et pictos des mondes rastérisés. Sans lui, la première image
+## de jeu les fabriquait tous d'un coup : au premier lancement, c'est aussi l'image où paraît la première bulle du
+## tutoriel (pic de plusieurs ms, bien plus sur téléphone). Rend la main entre deux tailles.
+func warm() -> void:
+	var u := get_viewport_rect().size.x / 400.0
+	if u <= 0.0:
+		return
+	var nf := UiKit.num_font()
+	for fs in range(int(9 * u), int(24 * u) + 1):
+		nf.get_string_size("0123456789/×+-.%", HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		UiKit.UI_FONT.get_string_size("ÉTAPE NETTOYÉE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		await get_tree().process_frame
+	for k in UIColors.WORLD_ICON.values():
+		UiKit.icon(String(k), 18.9 * u, {"*": UIColors.hex(UIColors.WASHI)})
+
+
 ## Bas de la zone du haut, en pixels écran (barre haute, ou barre du gardien) : le coach pose ses bulles dessous.
 func top_clear() -> float:
 	return top_off + _band_k * size.x / 400.0
@@ -1680,7 +1697,7 @@ func _update_safe_top() -> void:
 	var inset := 0.0
 	var win := DisplayServer.window_get_size()
 	if win.y > 0:
-		var safe := DisplayServer.get_display_safe_area()
+		var safe := UiKit.safe_area()  # (en cache : un appel Java par image sur Android)
 		inset = float(safe.position.y) * size.y / float(win.y)
 	top_off = clampf(inset, 0.0, 80.0 * u) + 12.0 * u
 
