@@ -46,7 +46,6 @@ signal powers_pressed
 signal dojo_pressed
 signal next_pressed  # résultats d'une victoire : vers le monde suivant
 signal wardrobe_pressed
-signal bestiary_pressed  # BESTIAIRE (accueil) : tous les ennemis rencontrés
 signal world_step(dir: int)  # accueil : monde précédent (-1) ou suivant (+1), chevrons ou glissé
 
 var mode := "home"  # home | over | pause | hidden
@@ -116,7 +115,6 @@ var _help: Control
 var _gear: Control
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 var _wardrobe: Control  # GARDE-ROBE (accueil)
-var _bestiary: Control  # BESTIAIRE (accueil)
 # sélecteur de monde de l'accueil (posé par main._home_select) ; _worlds : la pastille, ouvre la carte
 var sel_world := 1
 var sel_name := ""
@@ -165,10 +163,6 @@ func _ready() -> void:
 	_wardrobe.icon = "hanger"
 	_wardrobe.font = _small
 	_wardrobe.pressed.connect(func(): wardrobe_pressed.emit())
-	_bestiary = _button("BESTIAIRE", "icon")
-	_bestiary.icon = "bestiary"
-	_bestiary.font = _small
-	_bestiary.pressed.connect(func(): bestiary_pressed.emit())
 	_help = _button("", "bare")
 	_help.icon = "help"
 	_help.pressed.connect(func(): tuto_pressed.emit())
@@ -376,7 +370,6 @@ func _process(_delta: float) -> void:
 	_atelier.visible = mode == "home"
 	_dojo.visible = mode == "home"
 	_wardrobe.visible = mode == "home"
-	_bestiary.visible = mode == "home"
 	_help.visible = mode == "home"
 	_gear.visible = mode == "home" or mode == "pause"
 	_sound.icon = "sound_off" if muted else "sound_on"
@@ -437,15 +430,15 @@ func _layout_home(w: float, h: float, u: float) -> void:
 	for sb in [_worlds, _sel_prev, _sel_next]:
 		var sc: Control = sb
 		sc.modulate.a = sk
-	# quatre entrées : ATELIER · DOJO · GARDE-ROBE · BESTIAIRE
-	var row: Array = [_atelier, _dojo, _wardrobe, _bestiary]
+	# trois entrées : ATELIER · DOJO · GARDE-ROBE
+	var row: Array = [_atelier, _dojo, _wardrobe]
 	var ew := 90.0 * u
 	var step := 94.0 * u
 	for i in row.size():
 		var b: Control = row[i]
 		var k := UiKit.ease_out(clampf((_t - 0.9 - 0.08 * i) / 0.4, 0.0, 1.0))
 		b.size = Vector2(ew, 74.0 * u)
-		b.position = Vector2(w / 2.0 + (float(i) - 1.5) * step - ew / 2.0, py + 108.0 * u + 12.0 * u * (1.0 - k))
+		b.position = Vector2(w / 2.0 + (float(i) - 1.0) * step - ew / 2.0, py + 108.0 * u + 12.0 * u * (1.0 - k))
 		b.modulate.a = k
 		b.font_size = _fit_font(b, int(11 * u), ew - 6.0 * u)
 
