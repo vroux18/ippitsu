@@ -3,6 +3,7 @@ extends Node3D
 ## de longues cartes qui avancent vers le fond, des zones de combat qui se ferment (vagues d'ennemis),
 ## des recoins à fouiller, l'arène du gardien à mi-chemin et le boss au bout.
 ## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -427,6 +428,7 @@ const FRAMES_MAX := 12
 # mesures de chargement : lignes « BOT PERF <étape> <ms> » avec le robot, bilan à sa fin (bot.finish)
 var perf := {}  # étape -> [nombre, total ms, max ms]
 var _perf_on := false
+var warmed := false  # préchauffage fini (shaders des ennemis et des effets compilés : relevé --perf --shadercheck)
 
 
 func _ready() -> void:
@@ -708,6 +710,11 @@ func _ready() -> void:
 	if state == "menu" and not auto_run and "opening" in wsearch:
 		var ot := wsearch.find("&t=")
 		_open_opening(float(wsearch.substr(ot + 3).get_slice("&", 0)) if ot >= 0 else 0.0)
+	# `-- --perf` : relevé par image (temps, nœuds, dessin, mémoire ; postes de script), jamais par défaut
+	if "--perf" in OS.get_cmdline_user_args():
+		var probe: Node = Perf.new()
+		probe.set("main", self)
+		add_child(probe)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)
@@ -964,6 +971,7 @@ func _warmup() -> void:
 		pn.position = Vector3(px, 0, 4.0)
 		px += 2.0
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
+	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(fxp, Vector3.FORWARD)
@@ -980,6 +988,9 @@ func _warmup() -> void:
 	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
 	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
 	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
+	warmed = true
+	if Perf.on:
+		print("PERF préchauffage fini t=%.1f" % Time.get_unix_time_from_system())
 
 
 # ------------------------------------------------------------------ états
@@ -2177,6 +2188,7 @@ func _build_world() -> void:
 	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
 	var light := OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
+	light = light or "--lite" in OS.get_cmdline_user_args()  # mesures et captures du rendu téléphone sur le bureau
 	if light:
 		# téléphone : chaque lumière refait un passage sur chaque objet -> une seule, ombres plus proches,
 		# 3D rendue un peu en dessous de la résolution native (l'interface reste nette)
@@ -5561,6 +5573,7 @@ func _update_effects(dt: float, real: float) -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var now := Time.get_ticks_usec()
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
@@ -5573,18 +5586,27 @@ func _process(_delta: float) -> void:
 		if ts > 0.0001 and _delta > 0.0:
 			_bot_step = clampf(_delta / ts, 1.0 / 480.0, 0.05)
 		real = _bot_step
+		var _bt := Time.get_ticks_usec() if Perf.on else 0
 		_bot.step(real)
+		if _bt != 0:
+			Perf.add(&"bot", _bt)
+	elif Perf.sim_dt > 0.0:
+		real = Perf.sim_dt  # relevé --perf au pas fixe : partie rejouable à l'identique (mesures et captures avant/après)
 
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):
 		Engine.time_scale = 0.0
 		_hitstop = 0.0
+		if _pt != 0:
+			Perf.add(&"main", _pt)
 		return
 	# tutoriel : arrêt sur image le temps de lire une bulle du coach (figé comme la pause ; le coach compte
 	# en temps réel, se lève au toucher ou seul au bout de quelques secondes)
 	if state == "play" and not game_over and coach.frozen():
 		Engine.time_scale = 0.0
 		_hitstop = 0.0
+		if _pt != 0:
+			Perf.add(&"main", _pt)
 		return
 
 	# temps : fin de partie au ralenti, sinon normal
@@ -5888,8 +5910,6 @@ func _process(_delta: float) -> void:
 	hud.level = level
 	hud.xp_ratio = float(xp) / float(xp_need())
 	hud.gold = run_gold
-	hud.chain_left = 1.0 - _chain_t / CHAIN_TIMEOUT
-	hud.chain_mult = chain_mult()
 	hud.score = int(score.points) if state != "tuto" else -1
 	hud.score_mult = Score.mult(chain) if state != "tuto" else 1.0
 	var bars: Array = []
@@ -5917,19 +5937,11 @@ func _process(_delta: float) -> void:
 	hud.wave = stage_i + 1
 	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
 	hud.gate_hint = state == "play" and (arena.gate_open or (arena.stage and _enc < 0 and arena.zones_left() > 0))
-	# barre d'avancée de l'étape (héros, zones de combat) et compte des combats
+	# compte des combats de l'étape (crans de la pilule d'étape)
 	if arena.stage and not in_hub:
-		hud.stage_k = arena.progress_of(hero.position)
-		var marks: Array = []
-		for i in arena.zones.size():
-			var sp: Vector2 = arena.zone_span(i)
-			marks.append([sp.x, sp.y, int(arena.zone_state[i])])
-		hud.stage_marks = marks
 		hud.enc_done = arena.zones_done()
 		hud.enc_total = arena.zones.size()
 	else:
-		hud.stage_k = -1.0
-		hud.stage_marks = []
 		hud.enc_done = 0
 		hud.enc_total = 0
 	hud.boss_name = ""
@@ -5963,3 +5975,5 @@ func _process(_delta: float) -> void:
 			if _boss_dry_t > 12.0:
 				hud.boss_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 			hud.boss_ratio = clampf(bo.hp / bo.max_hp, 0.0, 1.0)
+	if _pt != 0:
+		Perf.add(&"main", _pt)

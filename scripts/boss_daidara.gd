@@ -17,6 +17,7 @@ extends Node3D
 ## torque d'or au cou ; l'encre goutte sous les épaules, le menton et les poings. Lave : sumi + or, jamais orange.
 ## Les noyaux (or, encoches sumi), les mains, les épaules et la tête restent aux mêmes coordonnées : seuls les
 ## maillages et matériaux ont changé.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
@@ -1157,6 +1158,7 @@ func _update_fist(delta: float) -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	if _cores_lock > 0.0:
 		_cores_lock -= delta
@@ -1206,6 +1208,8 @@ func _process(delta: float) -> void:
 				queue_free()
 	_animate_body(delta)
 	_update_arms()
+	if _pt != 0:
+		Perf.add(&"boss", _pt)
 
 
 func _animate_body(delta: float) -> void:

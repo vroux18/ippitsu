@@ -8,6 +8,7 @@ extends Node
 ## Figures : main appelle figure_launch (au lancement), figure_end (à l'arrivée), figure_update (chaque image),
 ## figure_landed (fin du bond d'ensō) et figure_cancel. Sans son rouleau (Data.FIG_UNLOCK), une figure
 ## ne donne que +1 chaîne et +15 % de dégâts sur sa ruée.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -71,6 +72,7 @@ var _root: Node3D
 var _halo: Node3D
 var _flames: Array = []
 var _drums: Node3D
+var _drum_spin: Node3D  # couronne qui tourne (enfant « Spin » de _drums), gardée : pas de get_node à chaque image
 var _gale: Node3D
 var _foxes: Array = []
 var _anim := 0.0
@@ -2729,6 +2731,7 @@ func _ensure_visuals() -> void:
 		var spin := Node3D.new()
 		spin.name = "Spin"
 		_drums.add_child(spin)
+		_drum_spin = spin
 		var band := _part(spin, _torus(), main.vfx.glow_mat(Vfx.BOLT, 1.8))
 		band.scale = Vector3(0.85, 0.04, 0.85)
 		for k in 8:
@@ -2754,14 +2757,21 @@ func _ensure_visuals() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if main == null or _root == null:
+		if _pt != 0:
+			Perf.add(&"powers", _pt)
 		return
 	var dt := UiKit.unscaled(delta, 0.05)
 	if dt <= 0.0:
+		if _pt != 0:
+			Perf.add(&"powers", _pt)
 		return
 	_anim += dt
 	var h = main.hero
 	if not is_instance_valid(h):
+		if _pt != 0:
+			Perf.add(&"powers", _pt)
 		return
 	# hors partie (accueil, résultats) : les visuels des pouvoirs se cachent
 	_root.visible = String(main.state) in ["play", "transit", "pick", "dying", "tuto", "paused", "boss_intro"]
@@ -2778,8 +2788,7 @@ func _process(delta: float) -> void:
 		_drums.position = hp + Vector3(0, 1.75, 0.25)
 		_drums.rotation.x = 0.5
 		_drums.scale = Vector3.ONE * (1.0 + 0.35 * _drum_pulse)
-		var spin: Node3D = _drums.get_node("Spin")
-		spin.rotation.y += dt * (0.8 + 6.0 * _drum_pulse)
+		_drum_spin.rotation.y += dt * (0.8 + 6.0 * _drum_pulse)
 	if is_instance_valid(_gale):
 		_gale.position = hp + Vector3(0, 0.9, 0)
 		_gale.rotation.y += dt * 7.0
@@ -2829,6 +2838,8 @@ func _process(delta: float) -> void:
 			"shell":
 				node.scale = Vector3.ONE * (1.0 - 0.6 * k2)
 				node.position.y = -0.8 * k2
+	if _pt != 0:
+		Perf.add(&"powers", _pt)
 
 
 ## Éclair vertical qui tombe du ciel sur `p`.

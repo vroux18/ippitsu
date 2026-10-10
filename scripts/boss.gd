@@ -8,6 +8,7 @@ extends Node3D
 ##            Brisé : il reste en surface, sonné 6 s, et chaque coup sur le corps porte (×2).
 ## Bouclier levé, un coup ordinaire n'effleure (10 % des dégâts) et use un peu le bouclier.
 ## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
@@ -797,6 +798,7 @@ func _zone_step(total: float) -> bool:
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
@@ -807,6 +809,8 @@ func _process(delta: float) -> void:
 		_okappa(delta)
 	else:
 		_uwabami(delta)
+	if _pt != 0:
+		Perf.add(&"boss", _pt)
 
 
 func _okappa(delta: float) -> void:

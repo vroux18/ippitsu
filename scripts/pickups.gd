@@ -2,6 +2,7 @@ extends Node3D
 ## Butin au sol : gemmes d'expérience (jade) et pièces d'or. Elles flottent, sont aspirées quand
 ## le héros passe près, et volent toutes vers lui à la fin de la salle (gather()).
 ## main.collect(kind, value) est appelé au ramassage.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 
@@ -142,7 +143,10 @@ func clear() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if main == null or main.hero == null or not is_instance_valid(main.hero):
+		if _pt != 0:
+			Perf.add(&"pickups", _pt)
 		return
 	var hp: Vector3 = main.hero.position + Vector3(0, 0.7, 0)
 	for i in range(_items.size() - 1, -1, -1):
@@ -193,6 +197,8 @@ func _process(delta: float) -> void:
 		star.scale = Vector3.ONE * (0.4 + 0.9 * tw * tw) * (1.6 if bool(it.pull) else 1.0)
 	if _items.is_empty():
 		_gather = false
+	if _pt != 0:
+		Perf.add(&"pickups", _pt)
 
 
 ## Gemme ou pièce (nœud, halo, étincelle) : reprise de la réserve si possible, sinon construite.

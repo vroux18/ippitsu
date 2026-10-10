@@ -3,6 +3,7 @@ extends Node3D
 ##  trous   — planches pourries : on peut tracer au-dessus, pas finir dedans (chute, 1 dégât).
 ##            Les ennemis projetés dedans tombent à l'eau (sauf les costauds).
 ##  vague   — déferlante : bande transversale annoncée 1.3 s, qui balaie et repousse.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
@@ -223,6 +224,23 @@ func _ensure_mats() -> void:
 	_glint_mesh = mb.st.commit()
 
 
+## Préchauffage (main._warmup) : un éclat de chaque matière des trous (aplat, lave, relief cerné d'encre et son
+## ombre, feuille, reflet) sous la miniature : leurs shaders sont compilés à l'accueil, plus à l'ouverture du premier
+## trou en plein combat (relevé --perf --shadercheck).
+func warm(parent: Node3D, at: Vector3) -> void:
+	_ensure_mats()
+	var x := 0.0
+	for m in [_m_flat, _m_lava, _m_relief, _m_sheet, _m_glint]:
+		var mb := Mb.new()
+		mb.quad(Vector3(-0.2, 0, -0.2), Vector3(0.2, 0, -0.2), Vector3(0.2, 0, 0.2), Vector3(-0.2, 0, 0.2),
+			Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE)
+		var holder := Node3D.new()
+		parent.add_child(holder)
+		holder.position = at + Vector3(x, 0, 0)
+		mb.build(holder, m, m == _m_relief)
+		x += 0.5
+
+
 ## Un trou, à l'allure du sol du monde. Tout est en coordonnées locales (centre du trou en 0) ;
 ## les aplats sont légèrement au-dessus du sol et simulent la profondeur vue en plongée.
 func _make_hole(c: Vector3, r: float) -> void:
@@ -277,7 +295,10 @@ func _make_hole(c: Vector3, r: float) -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if _hole_nodes.is_empty():
+		if _pt != 0:
+			Perf.add(&"hazards", _pt)
 		return
 	_anim_t += delta
 	var i := _pops.size() - 1
@@ -306,6 +327,8 @@ func _process(delta: float) -> void:
 		nd.position = base + Vector3(sin(_anim_t * 0.6 + ph) * 0.05, 0.0, cos(_anim_t * 0.45 + ph) * 0.025)
 		var k := sz * (0.8 + 0.25 * sin(_anim_t * 1.3 + ph * 1.7))
 		nd.scale = Vector3(k, 1.0, k)
+	if _pt != 0:
+		Perf.add(&"hazards", _pt)
 
 
 # ------------------------------------------------------------------ monde 1 : planches cassées
