@@ -665,12 +665,9 @@ func _draw_world_sel(w: float, h: float, u: float) -> void:
 	UiKit.text(self, _title, nm, Vector2(cx, sr.end.y - 10.0 * u), nfs, Color(th_ink, (0.55 if sel_locked else 1.0) * sa))
 
 
-## Compteur d'encre : un bâton d'encre et le nombre.
+## Compteur d'encre (UI v2, planche Accueil) : pilule sumi, goutte sur disque indigo, nombre en Zen Kaku.
 func _draw_ink_counter(p: Vector2, u: float) -> void:
-	var stick := Rect2(p + Vector2(0, -12) * u, Vector2(9, 24) * u)
-	draw_style_box(UiKit.box(_sb, th_ink, int(2 * u), Toon.GOLD, int(maxf(1.0, 1.5 * u))), stick)
-	var fs := int(17 * u)
-	draw_string(_ui, p + Vector2(16, 6) * u, str(sumi), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, th_ink)
+	UiKit.ink_counter(self, _sb, p.x, p.y, sumi, u, 1.0)
 
 
 ## Écran de fin (UI v2, planches Victoire / Défaite, sur la feuille washi de la pause) : en-tête sumi (le mot,
