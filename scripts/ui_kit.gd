@@ -2051,6 +2051,10 @@ const POWER_GLYPH := {
 static var _num_font: FontVariation = null
 static var _tex := {}  # textures SVG en cache : clé|taille|couleurs -> ImageTexture (null : échec)
 static var _hex_re: RegEx = null
+static var _caps_cache := {}  # caps : police -> {texte : capitales}
+static var _rr_cache := {}  # rrect_points : [rectangle, rayon, haut seul] -> contour
+static var _NO_PTS := PackedVector2Array()  # (vide : rien en cache)
+static var _path_fast := {}  # draw_path : [tracés, gabarit, couleurs RVB, épaisseur, taille] -> texture
 static var _icon_fast := {}  # draw_icon : clé du picto -> {taille | couleur : texture}
 static var _icon_fast_n := 0
 const _NO_ICONS := {}
@@ -2073,6 +2077,21 @@ static func num_font() -> Font:
 ## Capitales lisibles par la police réduite (sans macrons ; « Û » absent -> « U »).
 static func caps(s: String, font: Font = null) -> String:
 	var f: Font = font if font != null else UI_FONT
+	# résultat gardé (police, texte) : les écrans le redemandent à chaque image (lignes d'effet des rouleaux, gardien)
+	var per: Dictionary = _caps_cache.get(f, _NO_ICONS)
+	if per.has(s):
+		return per[s]
+	var out := _caps(s, f)
+	if per == _NO_ICONS:
+		per = {}
+		_caps_cache[f] = per
+	if per.size() > 512:
+		per.clear()
+	per[s] = out
+	return out
+
+
+static func _caps(s: String, f: Font) -> String:
 	var up := plain(s).to_upper()
 	var out := ""
 	for i in up.length():
@@ -2186,6 +2205,14 @@ static func draw_icon(ci: CanvasItem, key: String, c: Vector2, sz: float, a := 1
 static func draw_path(ci: CanvasItem, d: String, box: int, c: Vector2, sz: float, stroke: Color, sw: float, fill := NONE, a := 1.0, d2 := "") -> void:
 	if sz < 1.0 or a <= 0.005:
 		return
+	# accès direct (médaillons redessinés à chaque image) : la texture est retrouvée sans rebâtir la source SVG ni
+	# sa clé texte ; même taille arrondie, mêmes couleurs #RRGGBB, même épaisseur que svg_tex
+	var p := clampi(int(ceil(sz / 2.0)) * 2, 4, 1024)
+	var fk := [d, d2, box, stroke.clamp().to_rgba32() >> 8, (fill.clamp().to_rgba32() >> 8) if fill.a > 0.0 else -1, sw, p]
+	var ft: Texture2D = _path_fast.get(fk)
+	if ft != null:
+		_blit(ci, ft, c, sz, a)
+		return
 	var src := SVG_HEAD % [box, box, box, box]
 	src += '<path d="%s" fill="%s" fill-rule="evenodd" stroke="%s" stroke-width="%s" stroke-linecap="round" stroke-linejoin="round"/>' % [
 		d, UIColors.hex(fill) if fill.a > 0.0 else "none", UIColors.hex(stroke), str(sw)]
@@ -2194,6 +2221,9 @@ static func draw_path(ci: CanvasItem, d: String, box: int, c: Vector2, sz: float
 	src += '</svg>'
 	var t := svg_tex(src, sz, {}, "p%d|%d|%s|%s|%s" % [d.hash(), d2.hash(), UIColors.hex(stroke), UIColors.hex(fill) if fill.a > 0.0 else "-", str(sw)])
 	if t != null:
+		if _path_fast.size() > 400:
+			_path_fast.clear()
+		_path_fast[fk] = t
 		_blit(ci, t, c, sz, a)
 
 
@@ -2326,6 +2356,20 @@ static func halo(ci: CanvasItem, c: Vector2, r: float, col: Color, a: float, n :
 
 ## Rectangle aux coins arrondis (rayon rad), en polygone (sens horaire) ; top_only : coins du bas carrés.
 static func rrect_points(r: Rect2, rad: float, top_only := false) -> PackedVector2Array:
+	# gardé (rectangle, rayon) : les cartes des rouleaux en redemandent une dizaine à chaque image ; copie rendue,
+	# l'appelant peut la modifier (refermer le contour…)
+	var key := [r, rad, top_only]
+	var got: PackedVector2Array = _rr_cache.get(key, _NO_PTS)
+	if not got.is_empty():
+		return got.duplicate()
+	var pts := _rrect_points(r, rad, top_only)
+	if _rr_cache.size() > 256:
+		_rr_cache.clear()
+	_rr_cache[key] = pts
+	return pts.duplicate()
+
+
+static func _rrect_points(r: Rect2, rad: float, top_only: bool) -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var rr := clampf(rad, 0.0, minf(r.size.x, r.size.y) * 0.5)
 	var cs: Array = [Vector2(r.end.x - rr, r.position.y + rr), Vector2(r.end.x - rr, r.end.y - rr),
