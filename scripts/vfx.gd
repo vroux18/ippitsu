@@ -76,6 +76,7 @@ func _ready() -> void:
 	_trail_mat = Toon.brush_mat()
 	mi.material_override = _trail_mat
 	add_child(mi)
+	_dbg_init()
 
 
 ## Matériau lumineux (émissif) partagé par couleur.
@@ -605,6 +606,26 @@ func _seg_xform(a: Vector3, b: Vector3) -> Transform3D:
 	var xax := up.cross(zax).normalized()
 	var yax := zax.cross(xax)
 	return Transform3D(Basis(xax, yax, zax * l), a)
+
+
+## Disque plein (plan XY, rayon 1, bord fondu par les couleurs de sommets) : halos face caméra.
+func _disc_xy() -> Mesh:
+	if _meshes.has("disc_xy"):
+		return _meshes["disc_xy"]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 20
+	for i in n:
+		var a0 := TAU * float(i) / float(n)
+		var a1 := TAU * float(i + 1) / float(n)
+		st.set_color(Color(1, 1, 1, 1))
+		st.add_vertex(Vector3.ZERO)
+		st.set_color(Color(1, 1, 1, 0))
+		st.add_vertex(Vector3(cos(a0), sin(a0), 0))
+		st.add_vertex(Vector3(cos(a1), sin(a1), 0))
+	var mesh := st.commit()
+	_meshes["disc_xy"] = mesh
+	return mesh
 
 
 func _unit_disc() -> Mesh:
@@ -1452,22 +1473,25 @@ func tele_dot_flash(dot: MeshInstance3D, on: bool) -> void:
 ## Éclair brisé de a à b : contour d'encre, corps jaune, cœur blanc ; petit flash blanc et étincelles au bout.
 ## hero (pouvoirs du héros) : trait qui claque plus épais puis s'affine, éclats aux deux bouts, fourche,
 ## rémanence lumineuse du tracé ; retombe sur la version simple si le budget d'effets est épuisé.
-func bolt(a: Vector3, b: Vector3, sparks_n := 3, hero := false) -> void:
+## gold (Statique, Paratonnerre) : éclair or / écume au lieu du jaune.
+func bolt(a: Vector3, b: Vector3, sparks_n := 3, hero := false, gold := false) -> void:
 	var l := a.distance_to(b)
 	if l < 0.05:
 		return
 	var rich := hero and _rich(3.0)
-	var mi := _bolt_node(a, b, 0.24 if rich else 0.2, 1.0, rich)
-	_pop(b, BOLT_CORE, 0.7 if rich else 0.55)
+	var body := GOLD if gold else BOLT
+	var core := Toon.WASHI if gold else BOLT_CORE
+	var mi := _bolt_node(a, b, 0.24 if rich else 0.2, 1.0, rich, gold)
+	_pop(b, core, 0.7 if rich else 0.55)
 	_play("zap", randf_range(0.9, 1.15), -5.0)
 	if sparks_n > 0:
-		sparks(b, b - a, sparks_n + (1 if rich else 0), BOLT)
+		sparks(b, b - a, sparks_n + (1 if rich else 0), body)
 	if not rich:
 		return
-	# éclats : départ blanc, arrivée jaune plus large
-	_flare(a, BOLT_CORE, 0.42, 0.1)
-	_flare(b, BOLT, 0.85, 0.16)
-	sparks(b, Vector3.UP, 2, BOLT_CORE, 4.0, 8.0, 80.0)
+	# éclats : départ blanc, arrivée jaune (ou or) plus large
+	_flare(a, core, 0.42, 0.1)
+	_flare(b, body, 0.85, 0.16)
+	sparks(b, Vector3.UP, 2, core, 4.0, 8.0, 80.0)
 	# fourche : une branche fine part du milieu
 	if not Toon.lite and l > 1.0:
 		var m := a.lerp(b, randf_range(0.35, 0.6))
@@ -1475,25 +1499,27 @@ func bolt(a: Vector3, b: Vector3, sparks_n := 3, hero := false) -> void:
 		if side.length_squared() < 0.01:
 			side = Vector3.RIGHT
 		var tip := m + (b - a) * 0.22 + side * randf_range(-1.0, 1.0) * l * 0.28 + Vector3(0, randf_range(-0.25, 0.25), 0)
-		_bolt_node(m, tip, 0.16, 0.55, false)
+		_bolt_node(m, tip, 0.16, 0.55, false, gold)
 	# rémanence : le même tracé, additif, qui s'estompe juste après l'éclair
 	var ghost := MeshInstance3D.new()
 	ghost.mesh = mi.mesh
 	ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(ghost)
 	ghost.transform = mi.transform
-	var gr := _sramp("bolt_ghost", Color(1.0, 0.95, 0.55, 0.55), 4, true)
+	var gr := _sramp("bolt_ghost_g", Color(GOLD, 0.6), 4, true) if gold else _sramp("bolt_ghost", Color(1.0, 0.95, 0.55, 0.55), 4, true)
 	ghost.material_override = gr[0]
 	_anim(ghost, 0.26, Vector3.ONE, Vector3.ONE, {"ns": true, "t": -0.12, "f": 0.0, "lay": [[ghost, -1, gr]]})
 
 
 ## Nœud d'éclair de a à b (life s). thin : épaisseur relative ; punch : claque plus épais puis s'affine.
-func _bolt_node(a: Vector3, b: Vector3, life: float, thin: float, punch: bool) -> MeshInstance3D:
+func _bolt_node(a: Vector3, b: Vector3, life: float, thin: float, punch: bool, gold := false) -> MeshInstance3D:
 	var l := a.distance_to(b)
 	var bucket := maxi(1, int(round(l / 0.5)))
 	var v := randi() % 3
 	var mi := MeshInstance3D.new()
 	mi.mesh = _bolt_mesh(bucket, v)
+	if gold:
+		_bolt_gold(mi)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 	var xf := _seg_xform(a, b)
@@ -1509,25 +1535,27 @@ func _bolt_node(a: Vector3, b: Vector3, life: float, thin: float, punch: bool) -
 
 ## Foudre qui tombe du ciel sur p (Raijū, Raijin, orage) : éclair, fourche, éclat au sol, onde jaune
 ## cernée d'encre, gerbe d'étincelles et brûlure étoilée.
-func sky_bolt(p: Vector3, big := false) -> void:
+func sky_bolt(p: Vector3, big := false, gold := false) -> void:
 	var g := Vector3(p.x, 0.05, p.z)
 	var top := g + Vector3(randf_range(-0.6, 0.6), 7.0, randf_range(-0.6, 0.6))
+	var body := GOLD if gold else BOLT
+	var core := Toon.WASHI if gold else BOLT_CORE
 	var rich := _rich(3.0)
 	if not rich:
-		bolt(top, g, 0)
-		ring(Vector3(p.x, 0.07, p.z), BOLT, 1.0 if big else 0.7)
-		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 6 if big else 4, BOLT)
+		bolt(top, g, 0, false, gold)
+		ring(Vector3(p.x, 0.07, p.z), body, 1.0 if big else 0.7)
+		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 6 if big else 4, body)
 		scorch(p, 0.35 if big else 0.25, 0.8)
 	else:
-		_bolt_node(top, g, 0.26, 1.35 if big else 1.15, true)
-		_pop(g + Vector3(0, 0.3, 0), BOLT_CORE, 0.9 if big else 0.7)
+		_bolt_node(top, g, 0.26, 1.35 if big else 1.15, true, gold)
+		_pop(g + Vector3(0, 0.3, 0), core, 0.9 if big else 0.7)
 		if not Toon.lite:
 			var mid := top.lerp(g, randf_range(0.3, 0.5))
-			_bolt_node(mid, g + Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2)), 0.18, 0.6, false)
-		_flare(g + Vector3(0, 0.35, 0), BOLT, 1.3 if big else 0.95, 0.18)
-		_shock(Vector3(p.x, 0.07, p.z), 1.25 if big else 0.9, Color(INK, 0.8), BOLT, BOLT_CORE, true, 0.38)
-		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 7 if big else 5, BOLT, 5.0, 11.0, 70.0)
-		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 3, BOLT_CORE, 3.0, 7.0, 85.0)
+			_bolt_node(mid, g + Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2)), 0.18, 0.6, false, gold)
+		_flare(g + Vector3(0, 0.35, 0), body, 1.3 if big else 0.95, 0.18)
+		_shock(Vector3(p.x, 0.07, p.z), 1.25 if big else 0.9, Color(INK, 0.8), body, core, true, 0.38)
+		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 7 if big else 5, body, 5.0, 11.0, 70.0)
+		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 3, core, 3.0, 7.0, 85.0)
 		_decal(g, 0.45 if big else 0.32, Color(0.12, 0.09, 0.05, 0.5), 1.0)
 		if big:
 			_shake(0.14)
@@ -2268,6 +2296,1288 @@ func dress_wave(node: Node3D) -> void:
 		side.position = Vector3(sg * 1.25, 0.0, 0.35)
 
 
+# ------------------------------------------------------------------ pouvoirs récents : douze animations complètes
+# Chaque effet a trois temps lisibles (apparition, tenue, disparition) et la palette de son école (UNIVERS §4) :
+# feu vermillon/or, eau Prusse/écume, foudre or/écume, vent écume/washi, ombre sumi/or, encre sumi.
+# Tout est en maillages procéduraux partagés, matériaux par rampes (rien d'alloué par image) ; les nœuds qui
+# appartiennent à powers.gd (zones) sont habillés ici et suivis par un effet « keep » (jamais libérés d'ici).
+
+const GOLD := Color("#F2C14E")  # or des éclairs et des sceaux de la foudre
+const GOLD_DEEP := Color("#7A4E10")
+const HANKO := Color("#9E3028")  # rouge-brun du tampon du peintre
+const ASH_DARK := Color(0.22, 0.2, 0.22)
+const ASH_PALE := Color(0.46, 0.44, 0.45)
+const SEAL_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "return": "figures/aller_retour",
+	"straight": "figures/trait_droit", "enso": "figures/enso", "hook": "figures/crochet"}
+
+var _static_fx := {}  # aura de charge en cours (Statique) : une seule à la fois
+# capture des effets (`--q=fx=<id>[&fxshot=<dossier>]`) : l'effet est rejoué devant le héros ; captures à 0,1 / 0,3 / 0,6 / 1,0 s
+var _dbg_fx := ""
+var _dbg_dir := ""
+var _dbg_t := 3.0
+var _dbg_since := -1.0
+var _dbg_shot := 0
+var _dbg_shots: Array = [0.1, 0.3, 0.6, 1.0]
+
+
+## Suivi d'un nœud (fol) : remet l'effet au-dessus de la cible à chaque image.
+func _fol(ex: Dictionary, target: Node3D, off: Vector3) -> Dictionary:
+	if target != null and is_instance_valid(target):
+		ex["fol"] = target
+		ex["off"] = off
+	return ex
+
+
+# --- Encre épaisse (Nōboku) : taches qui se déposent une à une
+
+## Tache d'encre (plan XZ, rayon ~1) : 3 à 5 lobes, bord vivant ; surface 0 corps + gouttes satellites,
+## surface 1 reflet humide (ovale décalé), surface 2 craquelures (fils qui partent du centre, montrées à la fin).
+func _blot_mesh(v: int) -> ArrayMesh:
+	var key := "blot%d" % v
+	if _meshes.has(key):
+		return _meshes[key]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4451 + v * 97
+	var mesh := ArrayMesh.new()
+	var lobes := rng.randi_range(3, 5)
+	var la := PackedFloat32Array()
+	var lr := PackedFloat32Array()
+	var lw := PackedFloat32Array()
+	for i in lobes:
+		la.append(TAU * float(i) / float(lobes) + rng.randf_range(-0.3, 0.3))
+		lr.append(rng.randf_range(0.3, 0.55))
+		lw.append(rng.randf_range(0.35, 0.7))
+	var n := 44
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var pts := PackedVector3Array()
+	for i in n:
+		var a := TAU * float(i) / float(n)
+		var r := 0.52
+		for j in lobes:
+			var d := angle_difference(a, la[j])
+			r += lr[j] * exp(-(d * d) / (lw[j] * lw[j]))
+		r += 0.035 * sin(a * 9.0 + float(v)) + 0.02 * sin(a * 17.0)
+		pts.append(Vector3(cos(a) * r, 0, sin(a) * r))
+	for i in n:
+		st.add_vertex(Vector3.ZERO)
+		st.add_vertex(pts[(i + 1) % n])
+		st.add_vertex(pts[i])
+	# gouttes satellites : au bout de deux lobes
+	for k in 3:
+		var j := k % lobes
+		var a := la[j] + rng.randf_range(-0.15, 0.15)
+		var d := 0.52 + lr[j] + rng.randf_range(0.12, 0.3)
+		var s := rng.randf_range(0.05, 0.11)
+		var c := Vector3(cos(a) * d, 0, sin(a) * d)
+		for q in 7:
+			var a0 := TAU * float(q) / 7.0
+			var a1 := TAU * float(q + 1) / 7.0
+			st.add_vertex(c)
+			st.add_vertex(c + Vector3(cos(a1), 0, sin(a1)) * s)
+			st.add_vertex(c + Vector3(cos(a0), 0, sin(a0)) * s)
+	st.commit(mesh)
+	# reflet humide : ovale décalé vers l'arrière-gauche (la lumière vient de face)
+	var st2 := SurfaceTool.new()
+	st2.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var wc := Vector3(-0.14, 0.003, 0.1)
+	for q in 12:
+		var a0 := TAU * float(q) / 12.0
+		var a1 := TAU * float(q + 1) / 12.0
+		st2.add_vertex(wc)
+		st2.add_vertex(wc + Vector3(cos(a1) * 0.26, 0, sin(a1) * 0.15))
+		st2.add_vertex(wc + Vector3(cos(a0) * 0.26, 0, sin(a0) * 0.15))
+	st2.commit(mesh)
+	# craquelures : quatre fils brisés du centre vers le bord
+	var st3 := SurfaceTool.new()
+	st3.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in 4:
+		var a := TAU * float(k) / 4.0 + rng.randf_range(-0.4, 0.4)
+		var p := Vector3(0, 0.004, 0)
+		for seg in 3:
+			var a2 := a + rng.randf_range(-0.5, 0.5)
+			var q := p + Vector3(cos(a2), 0, sin(a2)) * rng.randf_range(0.18, 0.3)
+			var side := Vector3(-sin(a2), 0, cos(a2)) * (0.016 - 0.004 * float(seg))
+			_quad(st3, p - side, p + side, q + side, q - side)
+			p = q
+	st3.commit(mesh)
+	_meshes[key] = mesh
+	return mesh
+
+
+## Tache d'encre au sol en `g` (rayon r), vie `life` s, posée après `delay` s : s'étale depuis le centre en 0,25 s,
+## brille humide puis sèche (mat), se craquèle et s'évapore sur les 0,4 dernières secondes.
+## sc : étirement (traces de pas) ; dir : orientation.
+func blot(g: Vector3, r: float, life: float, delay := 0.0, sc := Vector3.ONE, dir := Vector3.ZERO) -> void:
+	var node := Node3D.new()
+	add_child(node)
+	node.position = Vector3(g.x, 0.05, g.z)
+	node.rotation.y = randf() * TAU if dir.length_squared() < 0.001 else atan2(-dir.x, -dir.z)
+	node.visible = delay <= 0.0
+	var mi := _mi(node, _blot_mesh(randi() % 4), null)
+	var rb := _sramp("blot_body", Color(Toon.SUMI, 0.82), -4)
+	var rw := _sramp("blot_wet", Color(0.56, 0.58, 0.66, 0.6), -3)
+	var rc := _sramp("blot_crack", Color(Toon.WASHI, 0.85), -3)
+	mi.set_surface_override_material(0, rb[0])
+	mi.set_surface_override_material(1, rw[0])
+	mi.set_surface_override_material(2, rc[FADE_N - 1])
+	node.scale = _safe_scale(sc * r * 0.1)
+	_fx.append({"node": node, "t": 0.0, "life": life + delay, "kind": "blot", "d": delay, "r": r, "sc": sc, "mi": mi,
+		"rb": rb, "rw": rw, "rc": rc, "ib": 0, "iw": 0, "ic": FADE_N - 1})
+	if delay <= 0.0 and not _warming:
+		_play("ink", randf_range(1.1, 1.3), -12.0)
+
+
+func _blot_step(fx: Dictionary, node: Node3D, dt: float) -> void:
+	var u := float(fx["t"]) - float(fx["d"])
+	if u < 0.0:
+		return
+	if not node.visible:
+		node.visible = true
+		_play("ink", randf_range(1.1, 1.3), -12.0)
+	var r: float = fx["r"]
+	var sc: Vector3 = fx["sc"]
+	var mi: MeshInstance3D = fx["mi"]
+	# étalement : le centre d'abord, les lobes suivent (ease-out), léger surplus puis la tache se pose
+	var ks := UiKit.ease_out(minf(u / 0.25, 1.0))
+	var grow := 0.18 + 0.82 * ks + 0.06 * sin(minf(u / 0.25, 1.0) * PI)
+	var left := float(fx["life"]) - float(fx["t"])
+	var q := 0.0
+	if left < 0.4:
+		q = 1.0 - clampf(left / 0.4, 0.0, 1.0)
+	node.scale = _safe_scale(sc * r * grow * (1.0 - 0.12 * q))
+	# reflet humide : plein à la pose, séché après 0,8 s
+	var iw := clampi(int(clampf(u / 0.8, 0.0, 1.0) * float(FADE_N - 1)), 0, FADE_N - 1)
+	if iw != int(fx["iw"]):
+		fx["iw"] = iw
+		mi.set_surface_override_material(1, fx["rw"][iw])
+	if q > 0.0:
+		# fin : les craquelures paraissent puis tout s'évapore
+		var ib := clampi(int(q * float(FADE_N)), 0, FADE_N - 1)
+		if ib != int(fx["ib"]):
+			fx["ib"] = ib
+			mi.set_surface_override_material(0, fx["rb"][ib])
+		var ic := clampi(int(absf(q * 2.0 - 1.0) * float(FADE_N - 1)), 0, FADE_N - 1)
+		if ic != int(fx["ic"]):
+			fx["ic"] = ic
+			mi.set_surface_override_material(2, fx["rc"][ic])
+
+
+## Trace de pas d'encre d'un ennemi englué : petite tache étirée dans le sens de la marche, décalée à gauche
+## ou à droite (side ±1).
+func ink_step(pos: Vector3, dir: Vector3, side: float) -> void:
+	var d := Vector3(dir.x, 0, dir.z)
+	if d.length_squared() < 0.0001:
+		d = Vector3.FORWARD
+	d = d.normalized()
+	var perp := Vector3(-d.z, 0, d.x) * 0.13 * side
+	blot(pos + perp, 0.17, 1.3, 0.0, Vector3(0.7, 1.0, 1.25), d)
+
+
+# --- Statique (Seidenki) : charge visible, puis la nova
+
+## Arcs courts qui crépitent sur `target` : `level` paliers (1, 2, 3 : plus denses), pendant `life` s.
+## Une seule aura par cible : la précédente s'éteint.
+func static_charge(target: Node3D, level: int, life := 2.2) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var old = _static_fx.get(target.get_instance_id())
+	if old != null and is_instance_valid(old.get("node")):
+		old["life"] = minf(float(old["life"]), float(old["t"]) + 0.05)
+	var node := Node3D.new()
+	add_child(node)
+	node.position = target.position + Vector3(0, 0.9, 0)
+	var n := clampi(1 + level, 2, 6)
+	if Toon.lite:
+		n = maxi(2, n - 1)
+	var arcs := []
+	for i in n:
+		var mi := _mi(node, _bolt_mesh(1, i % 3), null)
+		_bolt_gold(mi)
+		mi.scale = Vector3(1.1, 1.1, 1.0 + 0.25 * float(i % 3))
+		arcs.append(mi)
+	# anneau d'or au sol, plus large et plus franc à chaque palier
+	var ring := Node3D.new()
+	node.add_child(ring)
+	ring.position.y = -0.83
+	var lv := clampf(float(level) / 4.0, 0.25, 1.0)
+	_layers(ring, _ring_mesh(), [_bramp(Color(Toon.SUMI, 0.35 + 0.3 * lv), -3), _bramp(Color(GOLD, 0.5 + 0.45 * lv), -2), _sramp("charge_core", Color(Toon.WASHI, 0.5 + 0.4 * lv), -1, true)])
+	ring.scale = Vector3.ONE * (0.55 + 0.3 * float(level))
+	# étincelles d'or qui montent du corps, de plus en plus denses
+	var p := CPUParticles3D.new()
+	p.mesh = _drop_mesh("streak_p", 0.035, 0.42)
+	p.material_override = glow_mat(GOLD, 3.0)
+	p.amount = 2 + 2 * level
+	p.lifetime = 0.45
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 0.4
+	p.direction = Vector3.UP
+	p.spread = 50.0
+	p.initial_velocity_min = 1.5
+	p.initial_velocity_max = 3.5
+	p.gravity = Vector3(0, -4.0, 0)
+	p.particle_flag_align_y = true
+	p.scale_amount_min = 0.5
+	p.scale_amount_max = 0.9
+	p.scale_amount_curve = _drop_shrink()
+	node.add_child(p)
+	p.emitting = true
+	var fx := {"node": node, "t": 0.0, "life": life, "kind": "crackle", "arcs": arcs, "tick": 0.0, "lvl": level,
+		"fol": target, "off": Vector3(0, 0.9, 0), "ring": ring, "emit": p}
+	_fx.append(fx)
+	_static_fx[target.get_instance_id()] = fx
+	_crackle_place(fx)
+	_flare(node.position, GOLD, 0.45 + 0.2 * float(level), 0.12)
+	sparks(node.position, Vector3.UP, 2 + level, GOLD, 3.0, 6.0, 90.0)
+	_play("zap", 0.7 + 0.18 * float(level), -11.0 + float(level))
+
+
+## Teinte un éclair en or / écume (surfaces 0 encre, 1 corps, 2 cœur).
+func _bolt_gold(mi: MeshInstance3D) -> void:
+	mi.set_surface_override_material(0, _mat("gbolt_ink", Color(Toon.SUMI, 0.6), 5))
+	mi.set_surface_override_material(1, _mat("gbolt_body", GOLD, 6))
+	mi.set_surface_override_material(2, _mat("gbolt_core", Toon.WASHI, 7))
+
+
+## Repose les arcs de l'aura au hasard autour du corps (tangents à un cylindre de rayon 0,38).
+func _crackle_place(fx: Dictionary) -> void:
+	var arcs: Array = fx["arcs"]
+	for a in arcs:
+		var mi: MeshInstance3D = a
+		var ang := randf() * TAU
+		var h := randf_range(-0.5, 0.6)
+		mi.position = Vector3(cos(ang) * 0.48, h, sin(ang) * 0.48)
+		mi.rotation = Vector3(randf_range(-0.6, 0.6), ang + PI / 2.0 + randf_range(-0.5, 0.5), 0.0)
+		mi.visible = randf() < 0.8
+		mi.mesh = _bolt_mesh(1, randi() % 3)
+
+
+func _crackle_step(fx: Dictionary, node: Node3D, k: float, dt: float) -> void:
+	var fo = fx.get("fol")
+	if fo != null and is_instance_valid(fo):
+		var off: Vector3 = fx["off"]
+		node.position = fo.position + off
+	fx["tick"] = float(fx["tick"]) - dt
+	# l'anneau au sol tourne et palpite ; en fin de vie il se referme et les étincelles cessent
+	var ring = fx.get("ring")
+	if ring != null and is_instance_valid(ring):
+		var rn: Node3D = ring
+		rn.rotation.y += dt * 1.5
+		var lvl: int = fx["lvl"]
+		var gone := clampf((1.0 - k) / 0.2, 0.0, 1.0)
+		rn.scale = Vector3.ONE * (0.55 + 0.3 * float(lvl)) * (1.0 + 0.05 * sin(float(fx["t"]) * 14.0)) * maxf(gone, 0.01)
+		if k > 0.8:
+			var em = fx.get("emit")
+			if em != null and is_instance_valid(em):
+				(em as CPUParticles3D).emitting = false
+	if float(fx["tick"]) <= 0.0:
+		fx["tick"] = 0.06 + 0.02 * randf()
+		_crackle_place(fx)
+		# en fin de vie, de moins en moins d'arcs allumés
+		if k > 0.75:
+			var arcs: Array = fx["arcs"]
+			for a in arcs:
+				if randf() < (k - 0.75) * 4.0:
+					(a as MeshInstance3D).visible = false
+
+
+## Anneau d'éclairs brisés (rayon 1, plan XZ) : zigzag qui fait le tour, huit pointes radiales.
+## Trois surfaces au pinceau (contour, corps, cœur) comme _ring_mesh.
+func _nova_mesh() -> ArrayMesh:
+	if _meshes.has("nova"):
+		return _meshes["nova"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 2207
+	var mesh := ArrayMesh.new()
+	var widths := [[0.11, 0.045, 0.018], [-0.11, -0.045, -0.018]]
+	var n := 40
+	var ring := PackedVector3Array()
+	var rn := PackedVector3Array()
+	for i in n + 1:
+		var a := TAU * float(i % n) / float(n)
+		var rr := 1.0 + (0.07 if i % 2 == 0 else -0.07) + rng.randf_range(-0.02, 0.02)
+		var d := Vector3(cos(a), 0, sin(a))
+		ring.append(d * rr)
+		rn.append(d)
+	var spikes := []
+	for s in 8:
+		var a := TAU * float(s) / 8.0 + rng.randf_range(-0.12, 0.12)
+		var d := Vector3(cos(a), 0, sin(a))
+		var side := Vector3(-d.z, 0, d.x)
+		var c := PackedVector3Array()
+		var nn := PackedVector3Array()
+		var steps := 4
+		for i in steps + 1:
+			var u := float(i) / float(steps)
+			var zig := 0.0 if (i == 0 or i == steps) else (0.07 if i % 2 == 0 else -0.07)
+			c.append(d * (0.95 + u * rng.randf_range(0.42, 0.6)) + side * zig)
+			nn.append(side)
+		spikes.append([c, nn])
+	for li in 3:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var w: float = widths[0][li]
+		var wo := PackedFloat32Array()
+		var wi := PackedFloat32Array()
+		for i in n + 1:
+			wo.append(w)
+			wi.append(-w)
+		_strip(st, ring, rn, wo, wi, 0.004 * float(li), 16.0)
+		for sp in spikes:
+			var c: PackedVector3Array = sp[0]
+			var so := PackedFloat32Array()
+			var si := PackedFloat32Array()
+			for i in c.size():
+				var taper := 1.0 - 0.7 * float(i) / float(c.size() - 1)
+				so.append(w * taper)
+				si.append(-w * taper)
+			_strip(st, c, sp[1], so, si, 0.004 * float(li), 2.0)
+		st.commit(mesh)
+	_meshes["nova"] = mesh
+	return mesh
+
+
+## Nova de Statique en `pos` (rayon r) : flash blanc deux images, anneau d'éclairs brisés or / écume qui s'étend
+## en 0,3 s, ondulation du sol, gerbe d'étincelles d'or ; les éclairs vers les cibles viennent de bolt(…, gold).
+func static_nova(pos: Vector3, r: float) -> void:
+	var hid = _static_fx.keys()
+	for key in hid:
+		var old = _static_fx[key]
+		if old != null and is_instance_valid(old.get("node")):
+			old["life"] = minf(float(old["life"]), float(old["t"]) + 0.03)
+	_static_fx.clear()
+	var g := Vector3(pos.x, 0.07, pos.z)
+	var p := pos + Vector3(0, 0.9, 0)
+	_flash(0.3)
+	_flare(p, Toon.WASHI, 1.7, 0.14)
+	_flare(p, GOLD, 1.1, 0.22, 0.05)
+	var node := Node3D.new()
+	add_child(node)
+	node.position = Vector3(pos.x, 0.55, pos.z)
+	node.rotation.y = randf() * TAU
+	var lay := _layers(node, _nova_mesh(), [_bramp(Color(Toon.SUMI, 0.7), 4), _bramp(GOLD, 5),
+		_sramp("nova_core", Color(Toon.WASHI, 0.95), 6, true)])
+	_anim(node, 0.6, Vector3.ONE * r * 0.2, Vector3.ONE * r, {"g": 0.5, "f": 0.45, "lay": lay, "spin": 1.6})
+	if not Toon.lite:
+		# second anneau plus serré, en retard d'une image
+		var node2 := Node3D.new()
+		add_child(node2)
+		node2.position = Vector3(pos.x, 0.9, pos.z)
+		node2.rotation.y = randf() * TAU
+		var lay2 := _layers(node2, _nova_mesh(), [_bramp(Color(Toon.SUMI, 0.5), 4), _bramp(Color(GOLD, 0.8), 5),
+			_sramp("nova_core", Color(Toon.WASHI, 0.95), 6, true)])
+		_anim(node2, 0.42, Vector3.ONE * r * 0.15, Vector3.ONE * r * 0.7, {"g": 0.6, "f": 0.4, "lay": lay2, "spin": -2.2, "t": -0.04})
+	_shock(g, r * 1.15, Color(Toon.SUMI, 0.8), GOLD, Toon.WASHI, true, 0.7)
+	_shock(g + Vector3(0, 0.01, 0), r * 0.7, Color(Toon.SUMI, 0.6), Color(GOLD, 0.8), Toon.WASHI, true, 0.6, 0.08)
+	sparks(p, Vector3.UP, 8 if Toon.lite else 14, GOLD, 5.0, 11.0, 80.0)
+	sparks(p, Vector3.UP, 4, Toon.WASHI, 4.0, 8.0, 90.0)
+	_shake(0.31)
+	_play("thunder", 1.35, -4.0)
+	_play("zap", 0.8, -3.0)
+
+
+# --- Cendres (Hai) : tas qui retombe, braises qui pulsent, fumée fine
+
+## Tas de cendres (plan XZ, rayon ~1) : dôme bas au bord déchiqueté (surface 0), coiffe plus pâle (surface 1).
+func _heap_mesh() -> ArrayMesh:
+	if _meshes.has("heap"):
+		return _meshes["heap"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 6113
+	var mesh := ArrayMesh.new()
+	var n := 26
+	for s in 2:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var top := Vector3(0.05, 0.16 if s == 0 else 0.19, -0.04)
+		var rad := 1.0 if s == 0 else 0.55
+		var pts := PackedVector3Array()
+		for i in n:
+			var a := TAU * float(i) / float(n)
+			var r := rad * rng.randf_range(0.8, 1.0) * (1.0 + 0.12 * sin(a * 5.0 + float(s)))
+			pts.append(Vector3(cos(a) * r, 0.0, sin(a) * r))
+		for i in n:
+			st.add_vertex(top)
+			st.add_vertex(pts[(i + 1) % n])
+			st.add_vertex(pts[i])
+		st.commit(mesh)
+	_meshes["heap"] = mesh
+	return mesh
+
+
+## Flocon de cendre (petit quad face caméra par le matériau des particules).
+func _flake_mesh() -> Mesh:
+	if not _meshes.has("flake"):
+		var q := QuadMesh.new()
+		q.size = Vector2(0.09, 0.07)
+		_meshes["flake"] = q
+	return _meshes["flake"]
+
+
+## Habille `node` (zone de powers) en tas de cendres de rayon r pendant `dur` s : le tas se dépose, les flocons
+## retombent lentement, quatre braises pulsent en vermillon, un fil de fumée grise monte. Le nœud reste à powers.
+func ash_pile(node: Node3D, r: float, dur: float) -> void:
+	var heap := _mi(node, _heap_mesh(), null, 0.03)
+	heap.set_surface_override_material(0, _mat("ash_dark", ASH_DARK, -2))
+	heap.set_surface_override_material(1, _mat("ash_pale", ASH_PALE, -1))
+	heap.scale = Vector3(r * 0.85, 1.0, r * 0.7)
+	heap.rotation.y = randf() * TAU
+	_anim(heap, 0.5, Vector3(r * 0.35, 1.6, r * 0.3), Vector3(r * 0.85, 1.0, r * 0.7), {"g": 0.7, "keep": true})
+	_decal(node.position, r * 0.9, Color(0.16, 0.12, 0.12, 0.45), minf(dur, 1.3))
+	var embers := []
+	var em := _mat("ember_disc", Color(Toon.VERMILION, 0.95), 0)
+	for i in 4:
+		var a := TAU * float(i) / 4.0 + randf_range(-0.4, 0.4)
+		var d := r * randf_range(0.15, 0.45)
+		var e := _mi(node, _unit_disc(), em, 0.2 if d < r * 0.3 else 0.12)
+		e.position.x = cos(a) * d
+		e.position.z = sin(a) * d
+		e.scale = Vector3.ONE * 0.08
+		embers.append(e)
+	var core := _mi(node, _unit_disc(), _mat("ember_core", Color(FIRE_HOT, 0.9), 1), 0.21)
+	core.scale = Vector3.ONE * 0.06
+	embers.append(core)
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "pulse", "keep": true, "items": embers, "ph": randf() * TAU})
+	# flocons : ils retombent du nuage de la mort, en tournant
+	var p := _pooled("flake")
+	var fresh := p == null
+	if fresh:
+		p = CPUParticles3D.new()
+		p.set_meta("pool", "flake")
+	p.mesh = _flake_mesh()
+	p.material_override = _mat("flake_p", Color(0.3, 0.28, 0.3, 0.9), 2, false, 1)
+	p.amount = 7 if Toon.lite else 12
+	p.lifetime = 1.1
+	p.one_shot = true
+	p.explosiveness = 0.7
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = r * 0.5
+	p.direction = Vector3.UP
+	p.spread = 60.0
+	p.initial_velocity_min = 0.3
+	p.initial_velocity_max = 1.2
+	p.gravity = Vector3(0, -1.6, 0)
+	p.damping_min = 0.8
+	p.damping_max = 1.4
+	p.angle_min = 0.0
+	p.angle_max = 360.0
+	p.angular_velocity_min = -180.0
+	p.angular_velocity_max = 180.0
+	p.scale_amount_min = 0.7
+	p.scale_amount_max = 1.3
+	p.scale_amount_curve = _drop_shrink()
+	p.position = node.position + Vector3(0, 1.1, 0)
+	_emit(p, fresh)
+	_fx.append({"node": p, "t": 0.0, "life": 1.3, "kind": "none"})
+	# fumée fine et grise, continue
+	_smoke_res()
+	var sm := CPUParticles3D.new()
+	sm.mesh = _ball()
+	sm.material_override = _mat("ash_smoke_p", Color(0.5, 0.48, 0.5, 0.5), 2, true)
+	sm.amount = 3 if Toon.lite else 5
+	sm.lifetime = 1.4
+	sm.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	sm.emission_sphere_radius = r * 0.25
+	sm.direction = Vector3.UP
+	sm.spread = 15.0
+	sm.initial_velocity_min = 0.35
+	sm.initial_velocity_max = 0.7
+	sm.gravity = Vector3(0, 0.3, 0)
+	sm.scale_amount_min = 0.18
+	sm.scale_amount_max = 0.3
+	sm.scale_amount_curve = _smoke_curve
+	sm.color_ramp = _ash_smoke_ramp()
+	sm.position = Vector3(0, 0.25, 0)
+	node.add_child(sm)
+	sm.emitting = true
+	_fx.append({"node": sm, "t": 0.0, "life": dur + 1.5, "kind": "emit", "stop": maxf(dur - 0.6, 0.1), "keep": true})
+	embers_pop(node.position, r * 0.5, 5)
+
+
+func _ash_smoke_ramp() -> Gradient:
+	if not _ramps.has("ash_smoke"):
+		var g := Gradient.new()
+		g.set_color(0, Color(0.42, 0.4, 0.42, 0.0))
+		g.set_color(1, Color(0.55, 0.53, 0.55, 0.0))
+		g.add_point(0.25, Color(0.46, 0.44, 0.46, 0.55))
+		_ramps["ash_smoke"] = g
+	return _ramps["ash_smoke"]
+
+
+## Braises (vermillon) et quelques traits chauds : réutilise embers() avec la couleur du feu.
+func embers_pop(pos: Vector3, r: float, n: int) -> void:
+	embers(pos, r, n, 0.9)
+
+
+## Bouffée quand un ennemi traverse les cendres : braises qui giclent, langues de flamme, il s'enflamme.
+func ash_puff(pos: Vector3) -> void:
+	embers(pos, 0.35, 5 if Toon.lite else 8, 0.9)
+	flames(pos, 0.3, 5)
+	sparks(pos + Vector3(0, 0.4, 0), Vector3.UP, 3, FIRE_HOT, 3.0, 7.0, 70.0)
+	_flare(pos + Vector3(0, 0.5, 0), Toon.VERMILION, 0.55, 0.12)
+	_play("crackle", randf_range(1.0, 1.2), -7.0)
+
+
+func _pulse_step(fx: Dictionary, k: float) -> void:
+	var items: Array = fx["items"]
+	var t := float(fx["t"]) * 6.0 + float(fx["ph"])
+	var fade := clampf((1.0 - k) * 4.0, 0.0, 1.0)  # les braises s'éteignent sur le dernier quart
+	for i in items.size():
+		var e: MeshInstance3D = items[i]
+		if not is_instance_valid(e):
+			continue
+		var s := (0.11 + 0.05 * sin(t + float(i) * 1.7)) * fade
+		if i == items.size() - 1:
+			s *= 0.7
+		e.scale = Vector3(s, 1.0, s)
+		e.visible = s > 0.005
+
+
+# --- Lanterne (Chōchin) : la lueur gonfle, puis la gerbe
+
+## Lueur de lanterne sur `target` : halo or qui respire, de plus en plus vite et plus large, pendant `dur` s.
+func lantern_glow(target: Node3D, dur: float) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var node := Node3D.new()
+	add_child(node)
+	node.position = target.position + Vector3(0, 1.0, 0)
+	var halo := _mi(node, _disc_xy(), _mat("lant_halo", Color(GOLD, 0.6), 3, true, 2, true))
+	halo.scale = Vector3.ONE * 0.6
+	var core := _mi(node, _tongue(), flame_mat(FIRE_HOT))
+	core.scale = Vector3.ONE * 1.3
+	core.position.y = 0.1
+	var rim := _mi(node, _ring_mesh(), _mat("lant_rim", Color(Toon.VERMILION, 0.9), 4))
+	rim.scale = Vector3.ONE * 0.5
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "breathe", "fol": target, "off": Vector3(0, 1.0, 0),
+		"halo": halo, "core": core, "rim": rim})
+	_play("fire", 1.6, -12.0)
+
+
+func _breathe_step(fx: Dictionary, node: Node3D, k: float, dt: float) -> void:
+	var fo = fx.get("fol")
+	if fo != null and is_instance_valid(fo):
+		var off: Vector3 = fx["off"]
+		node.position = fo.position + off
+	var t := float(fx["t"])
+	# respiration qui s'accélère (3 → 9 Hz) et s'amplifie ; le halo gonfle jusqu'au double
+	var ph := t * (3.0 + 6.0 * k) * TAU
+	var breath := 1.0 + (0.12 + 0.2 * k) * sin(ph)
+	var halo: MeshInstance3D = fx["halo"]
+	var core: MeshInstance3D = fx["core"]
+	var rim: MeshInstance3D = fx["rim"]
+	halo.scale = Vector3.ONE * (0.6 + 0.9 * k) * breath
+	core.scale = Vector3.ONE * (1.2 + 0.8 * k) * (2.0 - breath)
+	rim.scale = Vector3.ONE * (0.5 + 0.6 * k) * breath
+	rim.rotation.y += dt * 2.5
+
+
+## Gerbe de la lanterne en `pos` : colonne de flammes vermillon / or qui monte, éclats vers les voisins,
+## onde de chaleur, braises.
+func lantern_burst(pos: Vector3) -> void:
+	var g := Vector3(pos.x, 0.07, pos.z)
+	_flare(pos + Vector3(0, 0.9, 0), GOLD, 1.2, 0.16)
+	var col := Node3D.new()
+	add_child(col)
+	col.position = Vector3(pos.x, 0.1, pos.z)
+	var n := 4 if Toon.lite else 6
+	for i in n:
+		var hot := i % 2 == 0
+		var f := _mi(col, _tongue(), flame_mat(FIRE_HOT if hot else Toon.VERMILION))
+		var u := float(i) / float(n - 1)
+		f.position = Vector3(randf_range(-0.12, 0.12), 0.25 + u * 1.7, randf_range(-0.12, 0.12))
+		f.scale = Vector3.ONE * lerpf(3.0, 1.4, u) * (1.15 if hot else 1.0)
+	_anim(col, 0.65, Vector3(0.7, 0.15, 0.7), Vector3.ONE, {"g": 0.35, "pu": 0.12, "sh": 0.5, "sm": Vector3(0.35, 1.0, 0.35), "up": 0.9})
+	flames(pos, 0.5, 8)
+	_shock(g, 1.6, Color(FIRE_DEEP, 0.85), Toon.VERMILION, GOLD, true, 0.45)
+	embers(pos, 0.5, 6 if Toon.lite else 10, 1.2)
+	# éclats vers les voisins : quatre traits horizontaux
+	var a0 := randf() * TAU
+	for i in 4:
+		var a := a0 + TAU * float(i) / 4.0
+		var d := Vector3(cos(a), 0, sin(a))
+		_streak_line(pos + Vector3(0, 0.75, 0) + d * 0.3, d, 1.3, 0.6, Color(FIRE_DEEP, 0.7), Toon.VERMILION, GOLD, 0.3, 0.04 * float(i))
+	sparks(pos + Vector3(0, 0.8, 0), Vector3.UP, 5, GOLD, 4.0, 9.0, 85.0)
+	_decal(g, 0.7, Color(0.13, 0.06, 0.04, 0.5), 1.4)
+	_shake(0.1)
+	_play("fire", randf_range(0.85, 0.95), -3.0)
+	_play("crackle", 1.0, -5.0)
+
+
+# --- Brume (Kiri) : nappe de washi en volutes
+
+## Volute de brume (plan XZ, rayon 1) : disque au bord ondulé, plein au centre, transparent au bord (couleurs de sommets).
+func _puff_mesh() -> ArrayMesh:
+	if _meshes.has("puff"):
+		return _meshes["puff"]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 24
+	var pts := PackedVector3Array()
+	for i in n:
+		var a := TAU * float(i) / float(n)
+		var r := 1.0 + 0.12 * sin(a * 3.0) + 0.06 * sin(a * 7.0 + 1.0)
+		pts.append(Vector3(cos(a) * r, 0, sin(a) * r))
+	for i in n:
+		st.set_color(Color(1, 1, 1, 1))
+		st.add_vertex(Vector3.ZERO)
+		st.set_color(Color(1, 1, 1, 0))
+		st.add_vertex(pts[(i + 1) % n])
+		st.add_vertex(pts[i])
+	# second anneau intérieur plus dense (le cœur de la volute)
+	for i in n:
+		st.set_color(Color(1, 1, 1, 1))
+		st.add_vertex(Vector3(0, 0.002, 0))
+		st.set_color(Color(1, 1, 1, 0.25))
+		st.add_vertex(pts[(i + 1) % n] * 0.55 + Vector3(0, 0.002, 0))
+		st.add_vertex(pts[i] * 0.55 + Vector3(0, 0.002, 0))
+	var mesh := st.commit()
+	_meshes["puff"] = mesh
+	return mesh
+
+
+## Habille `node` (zone de powers) en nappe de brume de rayon r pendant `dur` s : volutes washi qui s'étalent
+## en tournant à l'arrivée, respirent, puis se dissipent en bancs qui s'écartent. Le nœud reste à powers.
+func mist(node: Node3D, r: float, dur: float) -> void:
+	var rm := _sramp("mist_puff", Color(Toon.WASHI, 0.55), 2, false, 0)
+	# le matériau des volutes module les couleurs de sommets (dégradé vers le bord)
+	for m in rm:
+		(m as StandardMaterial3D).vertex_color_use_as_albedo = true
+	var items := []
+	var n := 5 if Toon.lite else 8
+	var a0 := randf() * TAU
+	for i in n:
+		var a := a0 + TAU * float(i) / float(n) + randf_range(-0.3, 0.3)
+		var d := r * (0.15 if i == 0 else randf_range(0.3, 0.62))
+		var mi := _mi(node, _puff_mesh(), rm[0])
+		var base := Vector3(cos(a) * d, randf_range(0.12, 0.7), sin(a) * d)
+		mi.position = base
+		mi.rotation.y = randf() * TAU
+		var s := r * randf_range(0.5, 0.7) * (1.3 if i == 0 else 1.0)
+		mi.scale = Vector3.ONE * 0.01
+		items.append([mi, base, randf() * TAU, s, randf_range(0.4, 0.9) * (1.0 if i % 2 == 0 else -1.0)])
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "mist", "keep": true, "items": items, "ramp": rm, "fi": 0, "r": r})
+	_shock(node.position + Vector3(0, 0.07, 0), r * 0.9, Color(WATER_DEEP, 0.6), Color(WATER_FOAM, 0.8), Toon.WASHI, false, 0.6)
+	_flare(node.position + Vector3(0, 0.6, 0), Toon.WASHI, 0.9, 0.2)
+	_play("gust", 0.7, -8.0)
+
+
+func _mist_step(fx: Dictionary, k: float, dt: float) -> void:
+	var items: Array = fx["items"]
+	var t := float(fx["t"])
+	var left := float(fx["life"]) - t
+	var gone := 1.0 - clampf(left / 0.8, 0.0, 1.0)  # dissipation sur les 0,8 dernières secondes
+	for i in items.size():
+		var it: Array = items[i]
+		var mi: MeshInstance3D = it[0]
+		if not is_instance_valid(mi):
+			continue
+		var base: Vector3 = it[1]
+		var ph: float = it[2]
+		var s: float = it[3]
+		var spin: float = it[4]
+		var u := clampf((t - float(i) * 0.07) / 0.5, 0.0, 1.0)
+		var appear := UiKit.ease_out(u)
+		var breath := 1.0 + 0.08 * sin(t * 1.3 + ph)
+		var sc := s * appear * breath * (1.0 + 0.35 * gone)
+		mi.scale = Vector3(sc, 1.0, sc)
+		mi.rotation.y += spin * dt
+		# dérive lente en rond ; à la fin les bancs s'écartent du centre
+		var drift := Vector3(sin(t * 0.5 + ph), 0, cos(t * 0.45 + ph)) * 0.18
+		var out := Vector3(base.x, 0, base.z).normalized() * gone * 1.2
+		mi.position = base + drift + out + Vector3(0, gone * 0.5, 0)
+	var fi := clampi(int(gone * float(FADE_N)), 0, FADE_N - 1)
+	if fi != int(fx["fi"]):
+		fx["fi"] = fi
+		var rm: Array = fx["ramp"]
+		for it in items:
+			var mi: MeshInstance3D = it[0]
+			if is_instance_valid(mi):
+				mi.material_override = rm[fi]
+
+
+## Un tir entre dans la brume : il se dissout en gouttelettes d'écume.
+func mist_pop(pos: Vector3) -> void:
+	_pop(pos, WATER_FOAM, 0.6)
+	ink_drops(pos, Vector3.UP, 6, WATER_FOAM)
+	ink_drops(pos, Vector3.UP, 3, WATER)
+	_play("splash", randf_range(1.5, 1.7), -12.0)
+
+
+# --- Source (Izumi) : jaillissement et cœur
+
+## Jet au pinceau de p le long de dir (longueur ln, largeur w) : se dresse puis retombe sur lui-même.
+func _jet(p: Vector3, dir: Vector3, ln: float, w: float, life: float, delay := 0.0) -> void:
+	var node := Node3D.new()
+	add_child(node)
+	var d := dir.normalized() if dir.length_squared() > 0.001 else Vector3.UP
+	var xf := _seg_xform(p, p + d)
+	node.transform = xf
+	var lay := _layers(node, _streak_mesh(), [_bramp(Color(WATER_DEEP, 0.9), 4), _bramp(WATER, 5), _sramp("jet_core", Color(WATER_FOAM, 0.95), 6, true)])
+	_anim(node, life, Vector3(w * 1.4, 1.0, ln * 0.15), Vector3(w, 1.0, ln), {"g": 0.3, "f": 0.5, "lay": lay, "t": -delay,
+		"sh": 0.45, "sm": Vector3(0.0, 0.0, 1.0)})
+
+
+## Source en `pos` : gerbe de jets Prusse / écume, gouttes qui retombent, anneaux d'ondes, le cœur monte vers la jauge.
+func spring(pos: Vector3) -> void:
+	var g := Vector3(pos.x, 0.05, pos.z)
+	_flare(pos + Vector3(0, 0.5, 0), WATER_FOAM, 1.0, 0.14)
+	var n := 4 if Toon.lite else 6
+	var a0 := randf() * TAU
+	for i in n:
+		var a := a0 + TAU * float(i) / float(n)
+		var d := Vector3(cos(a) * 0.32, 1.0, sin(a) * 0.32)
+		_jet(g + Vector3(cos(a), 0, sin(a)) * 0.15, d, randf_range(2.0, 2.8), 0.8, 0.6, 0.03 * float(i))
+	_jet(g, Vector3.UP, 3.2, 1.1, 0.65, 0.0)
+	ink_drops(pos + Vector3(0, 1.4, 0), Vector3.UP, 8 if Toon.lite else 12, WATER)
+	ink_drops(pos + Vector3(0, 1.6, 0), Vector3.UP, 6, WATER_FOAM)
+	_shock(g, 1.3, Color(WATER_DEEP, 0.85), WATER, WATER_FOAM, true, 0.55)
+	if not Toon.lite:
+		_shock(g + Vector3(0, 0.01, 0), 1.9, Color(WATER_DEEP, 0.6), Color(WATER, 0.7), WATER_FOAM, true, 0.6, 0.15)
+		_shock(g + Vector3(0, 0.02, 0), 0.8, Color(WATER_DEEP, 0.7), WATER, WATER_FOAM, true, 0.45, 0.3)
+	_sprite_rise("effets/cur", Toon.VERMILION, pos + Vector3(0, 1.6, 0), 0.9, 0.009)
+	if main:
+		main.splash(pos, WATER_FOAM, 8)
+	_play("splash", 1.05, -4.0)
+	_play("coin", 1.2, -10.0)
+
+
+## Pictogramme face caméra qui rebondit, monte et s'efface (cœur de la source, …).
+func _sprite_rise(key: String, col: Color, pos: Vector3, life: float, px := 0.0095) -> void:
+	var tex := UiKit.icon(key, 128.0, {"*": UIColors.hex(col)})
+	if tex == null:
+		return
+	var l := Sprite3D.new()
+	l.texture = tex
+	l.pixel_size = px
+	l.shaded = false
+	l.render_priority = 3
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.position = pos
+	add_child(l)
+	_fx.append({"node": l, "t": 0.0, "life": life, "kind": "kanji"})
+
+
+# --- Paratonnerre (Hiraishin) : tige d'or, la foudre tombe, cerné d'étincelles
+
+## Tige d'or qui paraît au-dessus de `target` pendant `dur` s (elle appelle l'éclair).
+func rod_mark(target: Node3D, dur: float) -> void:
+	if target == null or not is_instance_valid(target):
+		return
+	var node := Node3D.new()
+	add_child(node)
+	node.position = target.position + Vector3(0, 2.4, 0)
+	var rod := _mi(node, _unit_box(), _mat("rod_gold", GOLD, 5), 0.0)
+	rod.scale = Vector3(0.09, 1.3, 0.09)
+	var ink := _mi(node, _unit_box(), _mat("rod_ink", Color(Toon.SUMI, 0.8), 4), 0.0)
+	ink.scale = Vector3(0.15, 1.38, 0.15)
+	var tip := _mi(node, _ball(), _mat("rod_tip", Color(Toon.WASHI, 0.95), 6, false, 0, true), 0.7)
+	tip.scale = Vector3.ONE * 0.26
+	var rt := _sramp("rod_tipflare", Color(GOLD, 0.8), 7, true, 2)
+	var fl := _mi(node, _star_mesh(), rt[0], 0.7)
+	fl.scale = Vector3.ONE * 0.6
+	_anim(node, dur, Vector3(1.0, 0.1, 1.0), Vector3.ONE, _fol({"g": 0.35, "f": 0.6, "lay": [[fl, -1, rt]], "sh": 0.25,
+		"sm": Vector3(1.0, 0.0, 1.0)}, target, Vector3(0, 2.4, 0)))
+	_play("zap", 1.7, -12.0)
+
+
+## La foudre d'or tombe sur `target` (ou en `pos`) : éclair du ciel or / écume, puis l'ennemi reste cerné
+## d'étincelles 0,5 s.
+func rod_strike(pos: Vector3, target: Node3D) -> void:
+	sky_bolt(pos, false, true)
+	if target != null and is_instance_valid(target):
+		static_charge(target, 2, 0.5)
+
+
+# --- Rafale (Shippū) : les tirs soufflés tournoient et laissent une traînée de vent
+
+## Traînée accrochée au tir `bullet` soufflé vers dir : deux traits d'écume derrière, un croissant washi qui tournoie.
+func gale_blow(bullet: Node3D, dir: Vector3) -> void:
+	if bullet == null or not is_instance_valid(bullet):
+		return
+	var d := Vector3(dir.x, 0, dir.z)
+	if d.length_squared() < 0.001:
+		d = Vector3.FORWARD
+	d = d.normalized()
+	var node := Node3D.new()
+	add_child(node)
+	node.position = bullet.position
+	node.rotation.y = atan2(-d.x, -d.z)
+	var side := Vector3.RIGHT
+	var lay := []
+	var ink := Color(0.45, 0.52, 0.52, 0.7)
+	for sg: float in [-1.0, 1.0]:
+		var s := Node3D.new()
+		node.add_child(s)
+		s.position = side * sg * 0.3 + Vector3(0, 0, 0.5)
+		s.scale = Vector3(0.9, 1.0, 2.0)
+		lay.append_array(_layers(s, _streak_mesh(), [_bramp(ink, 4), _bramp(Toon.WASHI, 5), _sramp("gale_core", Color(1, 1, 1, 0.9), 6, true)]))
+	var cres := Node3D.new()
+	node.add_child(cres)
+	lay.append_array(_layers(cres, _cres_mesh(), [_bramp(ink, 4), _bramp(Toon.WASHI, 5), _sramp("gale_core", Color(1, 1, 1, 0.9), 6, true)]))
+	cres.scale = Vector3.ONE * 0.8
+	_anim(node, 0.55, Vector3.ONE * 0.6, Vector3.ONE, {"g": 0.25, "f": 0.45, "lay": lay, "fol": bullet, "off": Vector3.ZERO})
+	_anim(cres, 0.5, Vector3.ONE, Vector3.ONE, {"ns": true, "spin": 16.0, "keep": true})
+	sparks(bullet.position, d, 2, Toon.WASHI, 3.0, 6.0, 40.0)
+	_play("swish", randf_range(1.1, 1.3), -8.0)
+
+
+# --- Vent arrière (Oikaze) : traits de vent dans le dos du héros
+
+## Pendant `dur` s, des traits de vent écume / washi poussent `hero` dans le dos (sens dir), par deux salves.
+func tailwind(hero: Node3D, dir: Vector3, dur: float) -> void:
+	if hero == null or not is_instance_valid(hero):
+		return
+	var d := Vector3(dir.x, 0, dir.z)
+	if d.length_squared() < 0.001:
+		d = Vector3.FORWARD
+	d = d.normalized()
+	var ink := Color(0.45, 0.52, 0.52, 0.65)
+	var ry := atan2(-d.x, -d.z)
+	for salve in 2:
+		var node := Node3D.new()
+		add_child(node)
+		node.position = hero.position
+		node.rotation.y = ry
+		var lay := []
+		var n := 2 if Toon.lite else 3
+		for i in n:
+			var s := Node3D.new()
+			node.add_child(s)
+			var sx := (float(i) - float(n - 1) * 0.5) * 0.42
+			s.position = Vector3(sx, 0.25 + 0.22 * float(i % 2), 1.0 + 0.4 * float(i))
+			s.scale = Vector3(0.85, 1.0, 2.4 + 0.5 * float(i % 2))
+			lay.append_array(_layers(s, _streak_mesh(), [_bramp(ink, 4), _bramp(Toon.WASHI, 5), _sramp("gale_core", Color(1, 1, 1, 0.9), 6, true)]))
+		var cres := Node3D.new()
+		node.add_child(cres)
+		cres.position = Vector3(0, 0.6, 1.5)
+		cres.scale = Vector3.ONE * 1.0
+		lay.append_array(_layers(cres, _cres_mesh(), [_bramp(ink, 4), _bramp(Toon.WASHI, 5), _sramp("gale_core", Color(1, 1, 1, 0.9), 6, true)]))
+		var life := dur * (0.65 if salve == 0 else 0.55)
+		_anim(node, life, Vector3(0.7, 1.0, 0.5), Vector3.ONE, {"g": 0.3, "f": 0.45, "lay": lay, "fol": hero,
+			"off": Vector3(0, 0.55, 0), "t": -(dur * 0.4 * float(salve))})
+	_play("gust", 1.15, -6.0)
+
+
+# --- Doublure (Kagemusha) : silhouette d'encre du ronin
+
+## Silhouette plate du ronin (plan XY, pieds en y = 0, ~1,7 m) : tête, buste, jambes, écharpe, sabre.
+## Surface 0 : encre ; surface 1 : fil d'or du tranchant.
+func _ronin_mesh() -> ArrayMesh:
+	if _meshes.has("ronin"):
+		return _meshes["ronin"]
+	var mesh := ArrayMesh.new()
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# tête
+	var hc := Vector3(0.0, 1.5, 0)
+	for i in 14:
+		var a0 := TAU * float(i) / 14.0
+		var a1 := TAU * float(i + 1) / 14.0
+		st.add_vertex(hc)
+		st.add_vertex(hc + Vector3(cos(a0) * 0.19, sin(a0) * 0.21, 0))
+		st.add_vertex(hc + Vector3(cos(a1) * 0.19, sin(a1) * 0.21, 0))
+	# chignon
+	_quad(st, Vector3(-0.05, 1.68, 0), Vector3(0.08, 1.74, 0), Vector3(0.11, 1.66, 0), Vector3(0.0, 1.62, 0))
+	# cou et épaules, buste qui s'évase vers le bas (manches), ceinture
+	_quad(st, Vector3(-0.07, 1.32, 0), Vector3(0.07, 1.32, 0), Vector3(0.06, 1.2, 0), Vector3(-0.06, 1.2, 0))
+	_quad(st, Vector3(-0.36, 1.26, 0), Vector3(0.36, 1.26, 0), Vector3(0.42, 0.78, 0), Vector3(-0.42, 0.78, 0))
+	_quad(st, Vector3(-0.3, 0.8, 0), Vector3(0.3, 0.8, 0), Vector3(0.33, 0.66, 0), Vector3(-0.33, 0.66, 0))
+	# hakama : deux jambes évasées
+	_quad(st, Vector3(-0.3, 0.68, 0), Vector3(-0.02, 0.68, 0), Vector3(-0.08, 0.0, 0), Vector3(-0.4, 0.0, 0))
+	_quad(st, Vector3(0.02, 0.68, 0), Vector3(0.3, 0.68, 0), Vector3(0.4, 0.0, 0), Vector3(0.1, 0.0, 0))
+	# écharpe : pan qui flotte vers la droite
+	var sc := [Vector3(0.05, 1.3, 0), Vector3(0.3, 1.36, 0), Vector3(0.55, 1.28, 0), Vector3(0.78, 1.34, 0), Vector3(0.95, 1.22, 0)]
+	for i in sc.size() - 1:
+		var w0 := 0.07 - 0.012 * float(i)
+		var w1 := 0.07 - 0.012 * float(i + 1)
+		var a: Vector3 = sc[i]
+		var b: Vector3 = sc[i + 1]
+		_quad(st, a + Vector3(0, w0, 0), b + Vector3(0, w1, 0), b - Vector3(0, w1, 0), a - Vector3(0, w0, 0))
+	# sabre : lame tendue en diagonale vers la gauche
+	var h0 := Vector3(-0.38, 0.95, 0)
+	var h1 := Vector3(-1.05, 1.42, 0)
+	var sd := (h1 - h0).normalized()
+	var sp := Vector3(-sd.y, sd.x, 0)
+	_quad(st, h0 + sp * 0.035, h1 + sp * 0.012, h1 - sp * 0.012, h0 - sp * 0.035)
+	# poignée
+	_quad(st, h0 + sp * 0.05, h0 - sd * 0.22 + sp * 0.05, h0 - sd * 0.22 - sp * 0.05, h0 - sp * 0.05)
+	st.commit(mesh)
+	var st2 := SurfaceTool.new()
+	st2.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_quad(st2, h0 + sp * 0.04 + Vector3(0, 0, 0.004), h1 + sp * 0.016 + Vector3(0, 0, 0.004), h1 + sp * 0.0 + Vector3(0, 0, 0.004), h0 + sp * 0.02 + Vector3(0, 0, 0.004))
+	st2.commit(mesh)
+	_meshes["ronin"] = mesh
+	return mesh
+
+
+## Habille `node` (zone de powers) en doublure : silhouette d'encre translucide du ronin, face caméra, qui ondule
+## comme un lavis dans l'eau pendant `dur` s ; flaque d'encre aux pieds. Le nœud reste à powers.
+func double_dress(node: Node3D, dur: float) -> void:
+	var mi := _mi(node, _ronin_mesh(), null, 0.0)
+	mi.set_surface_override_material(0, _mat("ronin_ink", Color(Toon.SUMI, 0.6), 2, false, 2))
+	mi.set_surface_override_material(1, _mat("ronin_gold", Color(GOLD, 0.95), 3, false, 2, true))
+	mi.scale = Vector3.ONE * 0.01
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "wobble", "keep": true, "mi": mi, "ph": randf() * TAU})
+	spawn_ink(node.position, 0.5)
+	_ink_pop(node.position + Vector3(0, 0.9, 0), 0.6)
+	_play("ink", 0.85, -8.0)
+
+
+func _wobble_step(fx: Dictionary, k: float) -> void:
+	var mi: MeshInstance3D = fx["mi"]
+	if not is_instance_valid(mi):
+		return
+	var t := float(fx["t"])
+	var ph: float = fx["ph"]
+	var appear := UiKit.ease_out(minf(t / 0.3, 1.0))
+	var gone := clampf((1.0 - k) / 0.25, 0.0, 1.0)  # fin : la silhouette s'étire vers le haut et s'efface
+	var sx := (1.0 + 0.06 * sin(t * 4.3 + ph)) * appear * (0.6 + 0.4 * gone)
+	var sy := (1.0 + 0.04 * sin(t * 3.1 + ph + 1.0)) * appear * (1.0 + 0.6 * (1.0 - gone))
+	mi.scale = Vector3(sx, sy, 1.0)
+	mi.rotation.z = 0.06 * sin(t * 2.7 + ph)
+	mi.position.y = 0.03 * sin(t * 2.0 + ph) + (1.0 - gone) * 0.5
+	mi.visible = gone > 0.02
+
+
+## La doublure frappe : trait de sabre d'encre de a vers b (croissant sumi au fil d'or), giclée au bout.
+func double_strike(a: Vector3, b: Vector3) -> void:
+	var d := b - a
+	d.y = 0
+	if d.length_squared() < 0.001:
+		d = Vector3.FORWARD
+	var l := d.length()
+	d = d.normalized()
+	var p := a + Vector3(0, 0.85, 0)
+	_brush_crescent(p + d * 0.5, d, 1.1, Color(Toon.SUMI, 0.95), Toon.SUMI, GOLD, 0.34, 11.0, d * l * 1.6)
+	_streak_line(p, d, l + 0.4, 0.8, Color(Toon.SUMI, 0.9), Color(Toon.SUMI, 0.85), GOLD, 0.3)
+	_ink_pop(b + Vector3(0, 0.8, 0), 0.6)
+	ink_drops(b + Vector3(0, 0.8, 0), d, 6, INK)
+	_flare(b + Vector3(0, 0.8, 0), GOLD, 0.6, 0.12, 0.05)
+	_play("iai", randf_range(0.9, 1.1), -6.0)
+
+
+# --- Pas d'ombre (Kage-ashi) : l'arrivée est couverte
+
+## Bouffée d'ombre aux pieds à l'arrivée : silhouette d'ombre qui se dissipe, flaque d'encre, fumée sumi / or.
+func shadow_step(pos: Vector3) -> void:
+	smoke(pos, 0.3, 4)
+	if not _rich(1.5):
+		return
+	_ghost(pos)
+	spawn_ink(pos, 0.45)
+	_flare(pos + Vector3(0, 0.3, 0), GOLD, 0.5, 0.12)
+	_play("puff", 1.1, -9.0)
+
+
+# --- Crépuscule (Tasogare) : croissant de lune d'encre
+
+## Croissant de lune (plan XY, rayon 1, ouvert vers +x) : corps d'encre (surface 0), fil d'or au bord (surface 1).
+func _moon_mesh() -> ArrayMesh:
+	if _meshes.has("moon"):
+		return _meshes["moon"]
+	var mesh := ArrayMesh.new()
+	var n := 18
+	var outer := PackedVector3Array()
+	var inner := PackedVector3Array()
+	for i in n + 1:
+		var a := lerpf(0.55, TAU - 0.55, float(i) / float(n))
+		outer.append(Vector3(cos(a), sin(a), 0))
+		# bord intérieur : cercle décalé vers +x, qui rejoint les pointes
+		var u := float(i) / float(n)
+		var pinch := sin(PI * u)
+		inner.append(Vector3(cos(a) * (1.0 - 0.55 * pinch) + 0.3 * pinch, sin(a) * (1.0 - 0.5 * pinch), 0))
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in n:
+		_quad(st, outer[i], outer[i + 1], inner[i + 1], inner[i])
+	st.commit(mesh)
+	var st2 := SurfaceTool.new()
+	st2.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in n:
+		_quad(st2, outer[i] * 1.0 + Vector3(0, 0, 0.004), outer[i + 1] + Vector3(0, 0, 0.004),
+			outer[i + 1] * 0.94 + Vector3(0, 0, 0.004), outer[i] * 0.94 + Vector3(0, 0, 0.004))
+	st2.commit(mesh)
+	_meshes["moon"] = mesh
+	return mesh
+
+
+## Premier coup critique sur un ennemi : un croissant de lune d'encre passe sur lui, fil d'or, fumée d'encre.
+func dusk_crit(pos: Vector3) -> void:
+	var p := pos + Vector3(0, 1.15, 0)
+	var node := Node3D.new()
+	add_child(node)
+	node.position = p + Vector3(-0.7, -0.15, 0)
+	var mi := _mi(node, _moon_mesh(), null)
+	var rb := _sramp("moon_ink", Color(Toon.SUMI, 0.92), 5, false, 2)
+	var rg := _sramp("moon_gold", Color(GOLD, 0.95), 6, true, 2)
+	mi.set_surface_override_material(0, rb[0])
+	mi.set_surface_override_material(1, rg[0])
+	_anim(node, 0.5, Vector3.ONE * 0.45, Vector3.ONE * 0.95, {"g": 0.3, "f": 0.45, "lay": [[mi, 0, rb], [mi, 1, rg]],
+		"vel": Vector3(1.4, 0.3, 0)})
+	_flare(p, GOLD, 0.7, 0.12, 0.08)
+	ink_drops(p, Vector3.UP, 5, INK)
+	_play("puff", 1.3, -8.0)
+
+
+# --- Sceau (Hanko) : les figures s'inscrivent, le tampon claque
+
+## Cercle au sol qui suit `hero` : anneau d'encre pâle au pinceau ; les glyphes s'y inscrivent (seal_add).
+func seal_ring(hero: Node3D) -> Node3D:
+	var node := Node3D.new()
+	add_child(node)
+	node.position = hero.position + Vector3(0, 0.06, 0)
+	var ring := Node3D.new()
+	node.add_child(ring)
+	var lay := _layers(ring, _ring_mesh(), [_bramp(Color(Toon.SUMI, 0.55), -3), _bramp(Color(HANKO, 0.5), -2), _sramp("seal_core", Color(Toon.WASHI, 0.6), -1)])
+	ring.scale = Vector3.ONE * 1.15
+	_anim(ring, 0.5, Vector3.ONE * 0.4, Vector3.ONE * 1.15, {"g": 0.6, "keep": true, "spin": 0.5})
+	_anim(node, 9999.0, Vector3.ONE, Vector3.ONE, _fol({"ns": true, "keep": true}, hero, Vector3(0, 0.06, 0)))
+	node.set_meta("ring", ring)
+	_play("ink", 1.0, -10.0)
+	return node
+
+
+## Glyphe de la figure `shape` inscrit à la place `idx` (0..2) du cercle `ring`, avec un rebond.
+func seal_add(ring: Node3D, shape: String, idx: int) -> void:
+	if ring == null or not is_instance_valid(ring):
+		return
+	var key := String(SEAL_ICON.get(shape, "figures/enso"))
+	var tex := UiKit.icon(key, 96.0, {"*": UIColors.hex(HANKO)})
+	if tex == null:
+		return
+	var s := Sprite3D.new()
+	s.texture = tex
+	s.pixel_size = 0.0052
+	s.shaded = false
+	s.render_priority = -1
+	s.rotation.x = -PI / 2.0
+	var a := -PI / 2.0 + TAU * float(idx) / 3.0
+	s.position = Vector3(cos(a) * 0.72, 0.012, sin(a) * 0.72)
+	ring.add_child(s)
+	_anim(s, 0.35, Vector3.ONE * 1.9, Vector3.ONE, {"g": 1.0, "keep": true})
+	_ink_pop(ring.position + Vector3(cos(a) * 0.72, 0.3, sin(a) * 0.72), 0.35)
+	_play("ink", 1.15 + 0.1 * float(idx), -8.0)
+
+
+## Tampon hanko (plan XZ, demi-côté 1) : cadre épais, barres de « sceau » à l'intérieur ; au pinceau (poils).
+func _hanko_mesh() -> ArrayMesh:
+	if _meshes.has("hanko"):
+		return _meshes["hanko"]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var sq := PackedVector3Array([Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(1, 0, 1), Vector3(-1, 0, 1), Vector3(-1, 0, -1)])
+	var nrm := PackedVector3Array([Vector3(-1, 0, -1).normalized(), Vector3(1, 0, -1).normalized(), Vector3(1, 0, 1).normalized(), Vector3(-1, 0, 1).normalized(), Vector3(-1, 0, -1).normalized()])
+	var o := PackedFloat32Array([0.0, 0.0, 0.0, 0.0, 0.0])
+	var i2 := PackedFloat32Array([-0.36, -0.36, -0.36, -0.36, -0.36])
+	_strip(st, sq, nrm, o, i2, 0.0, 8.0)
+	# barres intérieures : deux verticales, une horizontale brisée (écriture sigillaire stylisée)
+	var bars := [[Vector3(-0.45, 0, -0.62), Vector3(-0.45, 0, 0.62)], [Vector3(0.42, 0, -0.62), Vector3(0.42, 0, 0.1)],
+		[Vector3(-0.62, 0, 0.12), Vector3(0.1, 0, 0.12)], [Vector3(0.1, 0, 0.35), Vector3(0.62, 0, 0.35)], [Vector3(-0.1, 0, -0.4), Vector3(0.62, 0, -0.4)]]
+	for b in bars:
+		var a: Vector3 = b[0]
+		var c: Vector3 = b[1]
+		var dd := (c - a).normalized()
+		var side := Vector3(-dd.z, 0, dd.x)
+		var pts := PackedVector3Array([a, c])
+		var nn := PackedVector3Array([side, side])
+		_strip(st, pts, nn, PackedFloat32Array([0.09, 0.09]), PackedFloat32Array([-0.09, -0.09]), 0.002, 3.0)
+	var mesh := st.commit()
+	_meshes["hanko"] = mesh
+	return mesh
+
+
+## Onde carrée (plan XZ, demi-côté 1) : bande fine au pinceau.
+func _square_mesh() -> ArrayMesh:
+	if _meshes.has("square"):
+		return _meshes["square"]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var sq := PackedVector3Array([Vector3(-1, 0, -1), Vector3(1, 0, -1), Vector3(1, 0, 1), Vector3(-1, 0, 1), Vector3(-1, 0, -1)])
+	var nrm := PackedVector3Array([Vector3(-1, 0, -1).normalized(), Vector3(1, 0, -1).normalized(), Vector3(1, 0, 1).normalized(), Vector3(-1, 0, 1).normalized(), Vector3(-1, 0, -1).normalized()])
+	var o := PackedFloat32Array([0.07, 0.07, 0.07, 0.07, 0.07])
+	var i2 := PackedFloat32Array([-0.07, -0.07, -0.07, -0.07, -0.07])
+	_strip(st, sq, nrm, o, i2, 0.0, 8.0)
+	var mesh := st.commit()
+	_meshes["square"] = mesh
+	return mesh
+
+
+## Le sceau claque en `pos` : le tampon rouge-brun tombe et s'imprime au sol d'un coup sec, onde d'encre carrée,
+## éclat, giclée de sumi ; le cercle `ring` (seal_ring) se referme et disparaît.
+func seal_stamp(pos: Vector3, ring: Node3D) -> void:
+	var g := Vector3(pos.x, 0.08, pos.z)
+	if ring != null and is_instance_valid(ring):
+		var rn = ring.get_meta("ring", null)
+		if rn != null and is_instance_valid(rn):
+			_anim(rn, 0.2, Vector3.ONE * 1.15, Vector3.ONE * 0.05, {"g": 1.0, "keep": true})
+		for ch in ring.get_children():
+			if ch is Sprite3D:
+				_anim(ch, 0.2, Vector3.ONE, Vector3.ONE * 0.1, {"g": 1.0, "keep": true})
+	var node := Node3D.new()
+	add_child(node)
+	node.position = g
+	node.rotation.y = randf_range(-0.2, 0.2)
+	var hr := _bramp(Color(HANKO, 0.92), -1)
+	var mi := _mi(node, _hanko_mesh(), hr[0])
+	# tombe de haut (grand, pâle) et s'imprime : rapide, un petit rebond, puis il reste, puis il sèche
+	_anim(node, 1.6, Vector3.ONE * 2.3, Vector3.ONE * 1.3, {"g": 0.08, "pu": 0.0, "f": 0.6, "lay": [[mi, -1, hr]], "t": -0.02})
+	var sq := Node3D.new()
+	add_child(sq)
+	sq.position = g + Vector3(0, 0.01, 0)
+	sq.rotation.y = node.rotation.y
+	var sr := _bramp(Color(Toon.SUMI, 0.85), -2)
+	var smi := _mi(sq, _square_mesh(), sr[0])
+	_anim(sq, 0.6, Vector3.ONE * 0.6, Vector3.ONE * 3.2, {"g": 0.55, "f": 0.3, "lay": [[smi, -1, sr]], "t": -0.1})
+	if not Toon.lite:
+		var sq2 := Node3D.new()
+		add_child(sq2)
+		sq2.position = g + Vector3(0, 0.02, 0)
+		sq2.rotation.y = node.rotation.y
+		var sr2 := _sramp("seal_sq2", Color(Toon.WASHI, 0.9), -1)
+		var smi2 := _mi(sq2, _square_mesh(), sr2[0])
+		_anim(sq2, 0.5, Vector3.ONE * 0.5, Vector3.ONE * 2.4, {"g": 0.5, "f": 0.3, "lay": [[smi2, -1, sr2]], "t": -0.18})
+	_flare(pos + Vector3(0, 0.8, 0), Toon.WASHI, 1.3, 0.12, 0.1)
+	_ink_pop(pos + Vector3(0, 0.6, 0), 0.9)
+	ink_drops(pos + Vector3(0, 0.4, 0), Vector3.UP, 10, INK)
+	_spatter(g, 1.6, INK, 1.2)
+	_shake(0.42)
+	_flash(0.12)
+	_play("strike", 0.8, -4.0)
+	_play("ink", 0.7, -2.0)
+
+
+# --- capture des effets (`--q=fx=<id>&fxshot=<dossier>`)
+
+func _dbg_init() -> void:
+	for a in OS.get_cmdline_user_args():
+		var s := String(a)
+		if not s.begins_with("--q="):
+			continue
+		for part in s.substr(4).split("&"):
+			if part.begins_with("fx="):
+				_dbg_fx = part.substr(3)
+			elif part.begins_with("fxshot="):
+				_dbg_dir = part.substr(7)
+			elif part.begins_with("fxt="):
+				_dbg_shots = []
+				for v in part.substr(4).split(","):
+					_dbg_shots.append(float(v))
+
+
+## Joue l'effet `id` en `p` (devant le héros) avec une cible factice `tgt` si l'effet en veut une.
+func _dbg_trigger(id: String, p: Vector3, tgt: Node3D) -> void:
+	var hero = main.hero
+	var fwd: Vector3 = hero.facing if hero.facing.length_squared() > 0.001 else Vector3.FORWARD
+	match id:
+		"ink_thick":
+			for i in 4:
+				blot(p + fwd * (float(i) - 1.5) * 1.1 + Vector3(0.3 * float(i % 2), 0, 0), 0.75, 2.2, 0.08 * float(i))
+			ink_step(p + Vector3(1.2, 0, 0.6), Vector3.FORWARD, 1.0)
+			ink_step(p + Vector3(1.2, 0, 0.2), Vector3.FORWARD, -1.0)
+		"bolt_static":
+			_dbg_cycle = (_dbg_cycle % 3) + 1
+			static_charge(hero, _dbg_cycle, 1.6)
+		"bolt_nova":
+			static_nova(p, 2.5)
+			for i in 3:
+				var a := TAU * float(i) / 3.0
+				bolt(p + Vector3(0, 0.9, 0), p + Vector3(cos(a) * 2.2, 0.9, sin(a) * 2.2), 3, true, true)
+		"fire_ash":
+			ash_pile(tgt, 1.1, 1.9)
+		"fire_lantern":
+			lantern_glow(tgt, 0.6)
+			_dbg_later(0.6, "lantern_burst", p)
+		"water_mist":
+			mist(tgt, 2.3, 1.9)
+			_dbg_later(0.5, "mist_pop", p + Vector3(0.8, 0.6, 0))
+		"water_spring":
+			spring(p)
+		"bolt_rod":
+			rod_mark(tgt, 0.25)
+			_dbg_later(0.25, "rod_strike", p)
+		"wind_gale":
+			gale_blow(tgt, fwd)
+			tgt.set_meta("vel", fwd * 6.0)
+		"wind_current":
+			tailwind(hero, fwd, 0.7)
+		"shadow_double":
+			double_dress(tgt, 1.9)
+			_dbg_later(0.6, "double_strike", p)
+		"shadow_dusk":
+			dusk_crit(p)
+			if main:
+				main.float_text(p, "×2", GOLD)
+		"ink_seal":
+			var ring := seal_ring(hero)
+			seal_add(ring, "loop", 0)
+			seal_add(ring, "zigzag", 1)
+			seal_add(ring, "enso", 2)
+			_dbg_later(0.5, "seal_stamp", hero.position)
+			_dbg_ring = ring
+
+
+var _dbg_ring: Node3D
+var _dbg_tgt: Node3D
+var _dbg_cycle := 0
+var _dbg_later_q: Array = []  # [délai, nom, point]
+
+
+func _dbg_later(delay: float, what: String, p: Vector3) -> void:
+	_dbg_later_q.append([delay, what, p])
+
+
+func _dbg_step(dt: float) -> void:
+	if main == null or main.hero == null or not is_instance_valid(main.hero):
+		return
+	var hero = main.hero
+	for i in range(_dbg_later_q.size() - 1, -1, -1):
+		var it: Array = _dbg_later_q[i]
+		it[0] = float(it[0]) - dt
+		if float(it[0]) > 0.0:
+			continue
+		_dbg_later_q.remove_at(i)
+		var p: Vector3 = it[2]
+		match String(it[1]):
+			"lantern_burst":
+				lantern_burst(p)
+			"mist_pop":
+				mist_pop(p)
+			"rod_strike":
+				rod_strike(p, _dbg_tgt)
+			"double_strike":
+				double_strike(p, p + Vector3(1.6, 0, -0.4))
+			"seal_stamp":
+				seal_stamp(p, _dbg_ring)
+	if is_instance_valid(_dbg_tgt) and _dbg_tgt.has_meta("vel"):
+		_dbg_tgt.position += (_dbg_tgt.get_meta("vel") as Vector3) * dt
+	_dbg_t -= dt
+	if _dbg_t <= 0.0:
+		_dbg_t = 2.6
+		_dbg_since = 0.0
+		_dbg_shot = 0
+		if is_instance_valid(_dbg_tgt):
+			_dbg_tgt.queue_free()
+		if is_instance_valid(_dbg_ring):
+			_dbg_ring.queue_free()
+		var fwd: Vector3 = hero.facing if hero.facing.length_squared() > 0.001 else Vector3.FORWARD
+		var p: Vector3 = hero.position + fwd * 2.4
+		_dbg_tgt = Node3D.new()
+		add_child(_dbg_tgt)
+		_dbg_tgt.position = Vector3(p.x, 0.0, p.z)
+		_dbg_trigger(_dbg_fx, p, _dbg_tgt)
+	elif _dbg_since >= 0.0:
+		_dbg_since += dt
+		if _dbg_dir != "" and _dbg_shot < _dbg_shots.size() and _dbg_since >= float(_dbg_shots[_dbg_shot]):
+			var path := "%s/%s_%d.png" % [_dbg_dir, _dbg_fx, _dbg_shot]
+			get_viewport().get_texture().get_image().save_png(path)
+			print("FXSHOT ", path)
+			_dbg_shot += 1
+			if _dbg_shot >= _dbg_shots.size():
+				get_tree().quit()
+
+
 ## Préchauffage (main._warmup) : joue une fois chaque effet riche en `p` (caché), sans son ni secousse,
 ## pour compiler d'avance le pinceau des effets, les variantes additives et la crête de vague.
 func warm(p: Vector3) -> void:
@@ -2294,6 +3604,29 @@ func warm(p: Vector3) -> void:
 	wave.position = p
 	dress_wave(wave)
 	_fx.append({"node": wave, "t": 0.0, "life": 0.5, "kind": "none"})
+	# les douze pouvoirs récents : cibles factices (libérées après coup) pour les effets qui suivent un nœud
+	var dums := []
+	for i in 4:
+		var d := Node3D.new()
+		add_child(d)
+		d.position = p + Vector3(0.4 * float(i), 0, 0)
+		dums.append(d)
+		_fx.append({"node": d, "t": 0.0, "life": 1.2, "kind": "none"})
+	static_charge(dums[0], 2, 0.5)
+	static_nova(p, 1.5)
+	blot(p, 0.6, 0.6)
+	ash_pile(dums[1], 1.0, 0.8)
+	mist(dums[2], 1.5, 0.8)
+	lantern_glow(dums[0], 0.3)
+	lantern_burst(p)
+	rod_mark(dums[0], 0.2)
+	gale_blow(dums[0], Vector3.FORWARD)
+	tailwind(dums[0], Vector3.FORWARD, 0.3)
+	double_dress(dums[3], 0.6)
+	double_strike(p, q)
+	dusk_crit(p)
+	seal_stamp(p, null)
+	shadow_step(p)
 	# les effets posés au ras du sol (ondes, taches, sillage) descendent eux aussi dans la cachette
 	for i in range(first, get_child_count()):
 		var ch := get_child(i) as Node3D
@@ -2325,6 +3658,18 @@ func _process(delta: float) -> void:
 		match fx.kind:  # déjà une String : pas de copie par effet et par image
 			"anim":
 				_anim_step(fx, node, k, sdt)
+			"blot":
+				_blot_step(fx, node, sdt)
+			"crackle":
+				_crackle_step(fx, node, k, sdt)
+			"pulse":
+				_pulse_step(fx, k)
+			"breathe":
+				_breathe_step(fx, node, k, sdt)
+			"mist":
+				_mist_step(fx, k, sdt)
+			"wobble":
+				_wobble_step(fx, k)
 			"bolt":
 				# scintille : change de tracé une fois, puis s'éteint
 				if not bool(fx.swap) and k > 0.4:
@@ -2401,6 +3746,9 @@ func _process(delta: float) -> void:
 				l.modulate.a = clampf((1.0 - k) * 2.5, 0.0, 1.0)
 				l.position.y += dt * 1.2
 		if k >= 1.0:
-			if not _recycle(node):
+			# keep : le nœud appartient à l'appelant (zone de powers, enfant d'un autre effet) : on le lâche seulement
+			if not fx.has("keep") and not _recycle(node):
 				node.queue_free()
 			_fx.remove_at(i)
+	if _dbg_fx != "":
+		_dbg_step(dt)

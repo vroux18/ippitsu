@@ -103,7 +103,14 @@ var _spring_rooms := 0  # Source : combats commencés depuis le dernier soin
 var _lantern_t := 0.0  # Lanterne : temps avant le prochain embrasement
 var _rod_cd := 0.0  # Paratonnerre : recharge
 var _seal_shapes := {}  # Sceau : figures différentes tracées dans ce combat
-var _slows := {}  # Encre épaisse : instance_id -> [ennemi, temps restant, facteur de vitesse]
+var _slows := {}  # Encre épaisse : instance_id -> [ennemi, temps restant, facteur de vitesse, dernière position, côté du pas, chemin depuis le dernier pas]
+var _lantern_target: Node3D  # Lanterne : le brûlé désigné, dont la lueur gonfle avant la gerbe
+var _lantern_pos := Vector3.ZERO
+var _lantern_wait := -1.0  # temps avant la gerbe (< 0 : aucune lueur en cours)
+var _rod_target: Node3D  # Paratonnerre : l'ennemi sous la tige d'or, foudroyé un instant plus tard
+var _rod_pos := Vector3.ZERO
+var _rod_wait := -1.0
+var _seal_ring: Node3D  # Sceau : cercle au sol où s'inscrivent les figures du combat
 # zones à comportement propre (cendres, brume, taches d'encre, doublure) : _special_zone
 const SPECIAL_ZONES := ["ash", "mist", "blot", "double"]
 
@@ -957,8 +964,8 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		_dusk_hit[eid] = true
 		dusk_first = true
 		out *= val("shadow_dusk")
-		main.float_text(e.position, "×" + _num(val("shadow_dusk")), FOX_COLOR)
-		main.vfx.smoke(e.position, 0.25, 3)
+		main.float_text(e.position, "×" + _num(val("shadow_dusk")), Toon.GOLD)
+		main.vfx.dusk_crit(e.position)
 		_flash_e(e, "shadow")
 		_tag("shadow_dusk", e.position, false)
 	out *= _crit(e.position)
@@ -1127,7 +1134,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 	if lvl("shadow_step") > 0:
 		# Pas d'ombre : l'arrivée est couverte un court instant (bouffée d'ombre aux pieds)
 		main.hero.invuln = maxf(float(main.hero.invuln), val("shadow_step"))
-		main.vfx.smoke(pos, 0.35, 4)
+		main.vfx.shadow_step(pos)
 		_tag("shadow_step", pos, false)
 	_tsumuji(pos, false)
 	if lvl("water_tide") > 0:
@@ -1144,9 +1151,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		# Izumi : la source jaillit à l'arrivée et rend un cœur, puis attend quelques combats
 		_spring_rooms = 0
 		main.heal(1)
-		main.vfx.water_burst(pos, 1.3, true)
-		main.splash(pos, Vfx.WATER_FOAM, 10)
-		main.sfx.play("splash", 1.1, -4.0)
+		main.vfx.spring(pos)
 		_tag("water_spring", pos)
 	if _static_fire:
 		_static_fire = false
@@ -1193,7 +1198,7 @@ func on_stroke_release(points: PackedVector3Array) -> void:
 	if lvl("bolt_static") > 0:
 		# Seidenki : chaque trait charge (étincelles de plus en plus nombreuses), le 4e libère la nova à l'arrivée
 		_static += 1
-		main.vfx.sparks(points[0] + Vector3(0, 1.0, 0), Vector3.UP, 2 + 2 * _static, Vfx.BOLT)
+		main.vfx.static_charge(main.hero, _static, 3.0)
 		if _static >= 4:
 			_static = 0
 			_static_fire = true
@@ -1298,7 +1303,11 @@ func figure_end(shape: String, info: Dictionary) -> String:
 		return ""
 	if lvl("ink_seal") > 0 and shape != "":
 		# Hanko : trois figures différentes dans le même combat, et le sceau claque
-		_seal_shapes[shape] = true
+		if not _seal_shapes.has(shape):
+			_seal_shapes[shape] = true
+			if not is_instance_valid(_seal_ring):
+				_seal_ring = main.vfx.seal_ring(main.hero)
+			main.vfx.seal_add(_seal_ring, shape, _seal_shapes.size() - 1)
 		if _seal_shapes.size() >= 3:
 			_seal_shapes.clear()
 			_seal_burst(main.hero.position)
@@ -1698,6 +1707,11 @@ func on_room_start(r: int) -> void:
 	_raiju_t = minf(_raiju_t, 2.0)
 	_dusk_hit.clear()
 	_seal_shapes.clear()
+	if is_instance_valid(_seal_ring):
+		_seal_ring.queue_free()
+	_seal_ring = null
+	_lantern_wait = -1.0
+	_rod_wait = -1.0
 	_static_fire = false
 	_clear_slows()
 	if r >= 1:
@@ -1923,6 +1937,16 @@ func _raiju(dt: float, p: Vector3) -> void:
 
 ## Chōchin : à intervalle régulier, l'ennemi en feu le plus proche s'embrase et enflamme ses voisins.
 func _lantern(dt: float, hp: Vector3) -> void:
+	if _lantern_wait >= 0.0:
+		# la lueur gonfle sur le brûlé désigné ; au bout de 0,6 s, la gerbe (là où il est, ou là où il était)
+		_lantern_wait -= dt
+		if _lantern_wait > 0.0:
+			return
+		_lantern_wait = -1.0
+		if _alive(_lantern_target):
+			_lantern_pos = _lantern_target.position
+		_lantern_fire(_lantern_pos)
+		return
 	_lantern_t -= dt
 	if _lantern_t > 0.0:
 		return
@@ -1941,19 +1965,47 @@ func _lantern(dt: float, hp: Vector3) -> void:
 	if best == null:
 		return
 	_lantern_t = val("fire_lantern")
-	var p: Vector3 = best.position
+	_lantern_target = best
+	_lantern_pos = best.position
+	_lantern_wait = 0.6
+	main.vfx.lantern_glow(best, 0.6)
+
+
+## La gerbe de la lanterne en p : colonne de flammes, les voisins s'enflamment.
+func _lantern_fire(p: Vector3) -> void:
 	var dmg := 0.8 * _fire_mult() * (1.5 if lvl("fire_spark") > 0 else 1.0)
-	main.fire_ring(p, 1.5)
+	main.vfx.lantern_burst(p)
 	_tag("fire_lantern", p)
 	for o in main.nearest_enemies(p, 1.6, 99, null):
 		_ignite(o, maxf(val("fire_burn"), 0.5), 3.0)
 		_dmg(o, dmg, "fire")
 	main.damage_bosses(p, 1.6, dmg)
-	main.sfx.play("crackle", 1.0, -4.0)
 
 
 ## Hiraishin : un ennemi qui arme son coup près du héros est foudroyé et interrompu (recharge).
 func _rod(dt: float, hp: Vector3) -> void:
+	if _rod_wait >= 0.0:
+		# la tige d'or est posée : l'éclair tombe un instant après (bien avant la fin de l'annonce)
+		_rod_wait -= dt
+		if _rod_wait > 0.0:
+			return
+		_rod_wait = -1.0
+		var e = _rod_target
+		var alive := _alive(e)
+		var p: Vector3 = e.position if alive else _rod_pos
+		main.vfx.rod_strike(p, e if alive else null)
+		if alive:
+			_stun(e)
+			e.elem_flash(Vfx.GOLD)
+			main.damage_enemy(e, 1.0 * _bolt_mult())
+			if String(e.kind) != "brute":
+				main.float_text(p, "INTERROMPU", Toon.GOLD)
+		if lvl("bolt_arc") > 0:
+			for o in main.nearest_enemies(p, 3.0, 1, e if alive else null):
+				main.vfx.bolt(p + Vector3(0, 0.9, 0), o.position + Vector3(0, 0.9, 0), 3, true, true)
+				_dmg(o, 0.5 * _bolt_mult(), "bolt")
+		_tag("bolt_rod", p)
+		return
 	_rod_cd -= dt
 	if _rod_cd > 0.0:
 		return
@@ -1964,17 +2016,10 @@ func _rod(dt: float, hp: Vector3) -> void:
 		if Vector2(p.x - hp.x, p.z - hp.z).length() > 4.0 + float(e.radius):
 			continue
 		_rod_cd = val("bolt_rod")
-		_bolt_strike(p, false)
-		_stun(e)
-		_dmg(e, 1.0 * _bolt_mult(), "bolt")
-		if String(e.kind) != "brute":
-			main.float_text(p, "INTERROMPU", Toon.GOLD)
-		if lvl("bolt_arc") > 0:
-			for o in main.nearest_enemies(p, 3.0, 1, e):
-				main.zap(p, o.position)
-				_dmg(o, 0.5 * _bolt_mult(), "bolt")
-		_tag("bolt_rod", p)
-		main.sfx.play("zap", 1.1, -3.0)
+		_rod_target = e
+		_rod_pos = p
+		_rod_wait = 0.22
+		main.vfx.rod_mark(e, 0.24)
 		return
 
 
@@ -2003,40 +2048,36 @@ func _gale_blow(hp: Vector3) -> void:
 					away = to
 			b["friendly"] = true
 		b["vel"] = away.normalized() * speed
-		main.vfx.wind_slash(n.position, away, 0.8, true)
-		main.splash(n.position, Vfx.WIND, 4)
+		main.vfx.gale_blow(n, away)
 		_tag("wind_gale", n.position, false)
 
 
 ## Seidenki : la nova du 4e trait, à l'arrivée (anneau jaune, éclairs vers chaque ennemi proche, étourdit).
 func _static_nova(pos: Vector3) -> void:
 	var dmg := val("bolt_static") * _bolt_mult() * (1.5 if lvl("bolt_charge") > 0 else 1.0)
-	main.vfx.ring(Vector3(pos.x, 0.07, pos.z), Vfx.BOLT, 2.5)
-	main.vfx.sparks(pos + Vector3(0, 1.0, 0), Vector3.UP, 14, Vfx.BOLT)
+	main.vfx.static_nova(pos, 2.5)
 	_tag("bolt_static", pos)
 	for o in main.nearest_enemies(pos, 2.5, 99, null):
-		main.zap(pos, o.position)
+		# éclair d'or vers chaque cible, qui clignote en or
+		main.vfx.bolt(pos + Vector3(0, 0.9, 0), o.position + Vector3(0, 0.9, 0), 3, true, true)
 		_stun(o)
-		_dmg(o, dmg, "bolt")
+		o.elem_flash(Vfx.GOLD)
+		main.damage_enemy(o, dmg)
 	main.damage_bosses(pos, 2.5, dmg)
-	main.shake = maxf(float(main.shake), 0.31)
-	main.sfx.play("zap", 0.9, -2.0)
 
 
 ## Hanko : le sceau claque (onde d'encre qui repousse et étourdit) ; avec Ensō parfait, un cercle d'encre reste.
 func _seal_burst(hp: Vector3) -> void:
 	var dmg := val("ink_seal")
 	main.float_text(hp + Vector3(0, 0.6, 0), "SCEAU", Toon.GOLD)
-	main.vfx.ink_wave(hp, 3.0 / 1.5, true)
-	main.splash(hp, Toon.SUMI, 16)
+	main.vfx.seal_stamp(hp, _seal_ring)
+	_seal_ring = null
 	_tag("ink_seal", hp)
 	for o in main.nearest_enemies(hp, 3.0, 99, null):
 		_stun(o)
 	_burst(hp, 3.0, dmg, 8.0, "ink")
 	if lvl("ink_enso") > 0:
 		_add_inkring(hp, 2.4)
-	main.shake = maxf(float(main.shake), 0.42)
-	main.sfx.play("ink", 0.7, -2.0)
 
 
 ## Oikaze : un trait tracé dans le sens du précédent (et à peu près droit) est poussé plus loin. main : avant
@@ -2059,7 +2100,8 @@ func stroke_extend(points: PackedVector3Array) -> float:
 	if d.normalized().dot(pd.normalized()) < 0.75 or d.normalized().dot(last.normalized()) < 0.8:
 		return 0.0
 	var ext := val("wind_current") + (1.0 if lvl("wind_long") > 0 else 0.0)
-	main.vfx.wind_burst(b, 1.0)
+	# traits de vent dans le dos du héros pendant la ruée prolongée (ils le suivent)
+	main.vfx.tailwind(main.hero, d, 0.45 + (_length(points) + ext) / 40.0)
 	_tag("wind_current", b)
 	return ext
 
@@ -2074,7 +2116,7 @@ func _slow_enemy(e, k: float, dur: float) -> void:
 		sl[1] = maxf(float(sl[1]), dur)
 		return
 	e.speed = float(e.speed) * k
-	_slows[eid] = [e, dur, k]
+	_slows[eid] = [e, dur, k, e.position, 1.0, 0.0]
 	main.splash(e.position, Toon.SUMI, 3)
 	_tag("ink_thick", e.position, false)
 
@@ -2090,8 +2132,19 @@ func _update_slows(dt: float) -> void:
 		if float(sl[1]) <= 0.0:
 			e.speed = float(e.speed) / float(sl[2])
 			_slows.erase(key)
-		elif randf() < dt * 3.0:
-			main.splash(e.position, Toon.SUMI, 1)  # englué : il perd des gouttes d'encre
+			continue
+		# englué : il laisse des traces de pas d'encre, un pied puis l'autre, tous les 0,4 m
+		var last: Vector3 = sl[3]
+		var step: Vector3 = e.position - last
+		step.y = 0.0
+		var moved := step.length()
+		if moved > 0.001:
+			sl[5] = float(sl[5]) + moved
+			sl[3] = e.position
+			if float(sl[5]) >= 0.4:
+				sl[5] = 0.0
+				main.vfx.ink_step(e.position, step, float(sl[4]))
+				sl[4] = -float(sl[4])
 
 
 func _clear_slows() -> void:
@@ -2287,14 +2340,7 @@ func _add_ash(p: Vector3) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
 	node.position = Vector3(p.x, 0.0, p.z)
-	var disc := _part(node, _disc_mesh(), _flat("ash", Color(0.3, 0.26, 0.24, 0.6)))
-	disc.scale = Vector3(1.1, 1, 0.9)
-	disc.position.y = 0.045
-	disc.rotation.y = randf() * TAU
-	var core := _part(node, _disc_mesh(), _flat("ash_core", Color(Vfx.FIRE, 0.35)))
-	core.scale = Vector3(0.55, 1, 0.45)
-	core.position.y = 0.05
-	main.vfx.embers(p, 0.6, 6, 1.0)
+	main.vfx.ash_pile(node, 1.1, val("fire_ash"))
 	var dps := 0.5 if lvl("fire_trail") > 0 else 0.0
 	_zones.append({"kind": "ash", "pos": Vector3(p.x, 0, p.z), "t": val("fire_ash"), "tick": 0.0, "r": 1.1,
 		"dps": dps, "node": node, "fx": 0.0})
@@ -2307,34 +2353,24 @@ func _add_mist(p: Vector3) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
 	node.position = Vector3(p.x, 0.0, p.z)
-	var veil := _part(node, _disc_mesh(), _flat("mist", Color(Vfx.WATER_FOAM, 0.2)))
-	veil.scale = Vector3(2.3, 1, 2.3)
-	veil.position.y = 0.06
-	var spin := Node3D.new()
-	node.add_child(spin)
-	var rim := _part(spin, _torus(), main.vfx.glow_mat(Vfx.WATER_FOAM, 1.2))
-	rim.scale = Vector3(2.3, 0.04, 2.3)
-	rim.position.y = 0.6
-	var sw := _part(spin, main.vfx.swirl_mesh(), _flat("mist_swirl", Color(Vfx.WATER_FOAM, 0.45)))
-	sw.scale = Vector3(1.6, 1, 1.6)
-	sw.position.y = 0.3
-	main.splash(p, Vfx.WATER_FOAM, 8)
+	main.vfx.mist(node, 2.3, val("water_mist"))
 	_zones.append({"kind": "mist", "pos": Vector3(p.x, 0, p.z), "t": val("water_mist"), "tick": 0.0, "r": 2.3,
-		"dps": 0.0, "node": node, "spin": spin})
+		"dps": 0.0, "node": node})
 	_tag("water_mist", p, false)
 
 
 ## Nōboku : taches d'encre le long du trait (une tous les 1,6 m, 6 au plus), qui engluent les ennemis.
 func _add_blots(points: PackedVector3Array, length: float) -> void:
+	# elles se déposent une à une, du départ vers l'arrivée du trait
 	var n := clampi(int(length / 1.6), 1, 6)
 	for i in range(1, n + 1):
-		_add_blot(_point_at(points, length * float(i) / float(n)), 0.9)
+		_add_blot(_point_at(points, length * float(i) / float(n)), 0.9, 0.07 * float(i - 1))
 
 
-func _add_blot(p: Vector3, r: float) -> void:
+func _add_blot(p: Vector3, r: float, delay := 0.0) -> void:
 	_trim_zones("blot", 8)
 	var dur := val("ink_thick")
-	main._blot(p, Color(Toon.SUMI, 0.5), r * 0.8, dur)
+	main.vfx.blot(p, r * 0.8, dur, delay)
 	var node := Node3D.new()
 	_holder().add_child(node)
 	_zones.append({"kind": "blot", "pos": Vector3(p.x, 0, p.z), "t": dur, "tick": 0.0, "r": r,
@@ -2347,15 +2383,7 @@ func _add_double(p: Vector3) -> void:
 	var node := Node3D.new()
 	_holder().add_child(node)
 	node.position = Vector3(p.x, 0, p.z)
-	var m := _flat("clone", Color(0.07, 0.06, 0.11, 0.72))
-	_part(node, _capsule(), m).position = Vector3(0, 0.72, 0)
-	var head := _part(node, _sphere(), m)
-	head.scale = Vector3.ONE * 2.0
-	head.position = Vector3(0, 1.42, 0)
-	var blade := _part(node, _box(), main.vfx.glow_mat(FOX_COLOR, 2.2))
-	blade.scale = Vector3(0.05, 0.05, 0.9)
-	blade.position = Vector3(0.3, 0.9, -0.3)
-	main.vfx.smoke(p, 0.35, 4)
+	main.vfx.double_dress(node, val("shadow_double"))
 	_zones.append({"kind": "double", "pos": Vector3(p.x, 0, p.z), "t": val("shadow_double"), "tick": 0.0, "r": 1.7,
 		"dps": val2("shadow_double"), "node": node})
 
@@ -2372,15 +2400,13 @@ func _special_zone(z: Dictionary, dt: float) -> bool:
 				z["tick"] = 0.25
 				var dps := float(z["dps"])
 				for o in main.nearest_enemies(pos, r, 99, null):
+					if not _burn.has(o.get_instance_id()):
+						main.vfx.ash_puff(o.position)  # il traverse les cendres : bouffée de braises, il s'enflamme
 					_ignite(o, maxf(val("fire_burn"), 0.5), 3.0)
 					if dps > 0.0:
 						main.damage_enemy(o, dps * 0.25, false)
 				if dps > 0.0:
 					main.damage_bosses(pos, r, dps * 0.25, false)
-			z["fx"] = float(z["fx"]) + dt
-			if float(z["fx"]) >= 0.9:
-				z["fx"] = 0.0
-				main.vfx.embers(pos, 0.5, 3, 0.8)
 		"mist":
 			var mirror := lvl("water_mirror") > 0
 			for i in range(main.bullets.size() - 1, -1, -1):
@@ -2390,7 +2416,7 @@ func _special_zone(z: Dictionary, dt: float) -> bool:
 				var n: Node3D = b["node"]
 				if Vector2(n.position.x - pos.x, n.position.z - pos.z).length() >= r:
 					continue
-				main.splash(n.position, Vfx.WATER_FOAM, 6)
+				main.vfx.mist_pop(n.position)  # le tir se dissout en gouttelettes
 				_tag("water_mist", n.position, false)
 				if mirror:
 					var v: Vector3 = b["vel"]
@@ -2419,16 +2445,15 @@ func _special_zone(z: Dictionary, dt: float) -> bool:
 			if not near.is_empty():
 				var o = near[0]
 				var op: Vector3 = o.position
-				main.shadow_stab(pos, op)
+				main.vfx.double_strike(pos, op)
 				_dmg(o, dmg, "shadow")
-				main.vfx.smoke(pos, 0.5, 7)
-				main.sfx.play("stab", 1.1, -4.0)
+				main.vfx.smoke(pos, 0.4, 5)
 				_tag("shadow_double", pos)
 				return true
 			var bh: Array = main.damage_bosses(pos, r + 0.3, dmg)
 			if not bh.is_empty():
-				main.shadow_stab(pos, bh[0])
-				main.vfx.smoke(pos, 0.5, 7)
+				main.vfx.double_strike(pos, bh[0])
+				main.vfx.smoke(pos, 0.4, 5)
 				_tag("shadow_double", pos)
 				return true
 	return false
