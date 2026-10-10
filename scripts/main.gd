@@ -115,7 +115,8 @@ const CURSES := {
 		"line": "Toute la partie, les élites (bouclier, aura, affixes) sont deux fois plus fréquents. En échange : chaque pièce ramassée en vaut deux."},
 }
 const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
-const PASS_GOLD := 15  # « Refuser » au sanctuaire : un cœur soigné, ou cet or si la vie est pleine
+const REFUSE_COST := 40  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
+const REFUSE_COST_STEP := 10
 const INK_LOCK_T := 4.0  # Encre maudite : recharge d'encre figée après un coup reçu (s)
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
 const EXPLORE_REACH := 2.0
@@ -407,7 +408,7 @@ var puzzles_solved := 0
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
 var _flawless_boss := false  # boss du monde vaincu sans dégât
-var _pass_bonus := ""
+
 var _ink_lock := 0.0  # Encre maudite : secondes restantes sans recharge d'encre (après un coup reçu)
 var _boss_scripts := {}  # chemin -> GDScript chargé (gardé : pas recompilé à chaque boss)
 var _frame_cache := {}  # cadrages calculés par taille d'écran (_frame), gardés aussi sur le disque
@@ -596,6 +597,10 @@ func _ready() -> void:
 			music.play_world(current_world)
 		_pick_context = "room"
 		_set_state("pick")
+		# `&or=N` (captures) : or de la partie, pour voir REFUSER payable ou éteint
+		var gq := wsearch.find("or=")
+		if gq >= 0:
+			run_gold = int(wsearch.substr(gq + 3).get_slice("&", 0))
 		_open_sanctuary()
 		var sl2 := wsearch.find("sel=")
 		if sl2 >= 0:
@@ -2453,7 +2458,6 @@ func _start(hub := true, tutorial := false) -> void:
 	_scratched = false
 	_flawless_pending = false
 	_flawless_boss = false
-	_pass_bonus = ""
 	puzzles_seen = 0
 	puzzles_solved = 0
 	run_dist = 0.0
@@ -3166,9 +3170,9 @@ func _open_sanctuary() -> void:
 		infos.append(pact_info(String(id)))
 	ids.append("refuse")
 	_last_offer = ids
-	# refuser rapporte un peu : un cœur s'il en manque, sinon de l'or
-	_pass_bonus = "heal" if hero.hp < hero.max_hp and not "ronin" in curses else "gold"
-	infos.append({"name": "Refuser", "pact": false, "refuse": true, "bonus": _pass_bonus, "gold": PASS_GOLD, "level": -1})
+	# refuser se paie en or ; sans assez d'or, le bouton est éteint : il faut sceller un pacte
+	var cost := refuse_cost()
+	infos.append({"name": "Refuser", "pact": false, "refuse": true, "cost": cost, "can": run_gold >= cost, "level": -1})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
 	sfx.play("pact", 1.0, -4.0)
@@ -3205,16 +3209,15 @@ func _open_flawless() -> void:
 	sfx.play("shot", 0.6)
 
 
-## « Refuser » au sanctuaire : le petit bonus annoncé sur le bouton (un cœur, sinon de l'or).
-func _pass_reward() -> void:
-	if _pass_bonus == "heal" and hero.hp < hero.max_hp:
-		heal(1)
-		sfx.play("shrine", 1.3, -5.0)
-	else:
-		run_gold += PASS_GOLD
-		float_text(hero.position, "+%d OR" % PASS_GOLD, Toon.GOLD)
-		sfx.play("coin", 0.9, -4.0)
-	_pass_bonus = ""
+## Prix du refus au sanctuaire dans le monde en cours.
+func refuse_cost() -> int:
+	return REFUSE_COST + REFUSE_COST_STEP * maxi(0, current_world - 1)
+
+
+## « Refuser » au sanctuaire : on paie le prix (l'or de la partie, converti en encre à la fin).
+func _pay_refuse() -> void:
+	run_gold = maxi(0, run_gold - refuse_cost())
+	sfx.play("coin", 0.6, -4.0)
 
 
 func _on_reroll() -> void:
@@ -3229,10 +3232,16 @@ func _on_reroll() -> void:
 
 func _on_picked(id: String) -> void:
 	if _pick_mode == "curse":
+		if id == "refuse" and run_gold < refuse_cost():
+			# pas assez d'or pour refuser (le bouton est éteint ; garde-fou pour les robots) : premier pacte proposé
+			for oid in _last_offer:
+				if String(oid) != "refuse":
+					id = String(oid)
+					break
 		if id != "refuse":
 			_take_curse(id)
 		else:
-			_pass_reward()
+			_pay_refuse()
 		if _extra_picks > 0:
 			_extra_picks -= 1
 			_open_upgrades()

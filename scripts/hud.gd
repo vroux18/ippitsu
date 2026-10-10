@@ -845,19 +845,7 @@ func _draw_stage(u: float) -> void:
 
 ## Pièce d'or (koban) : ovale d'or cerné d'encre, estampille carrée et deux marques au centre.
 func _coin(c: Vector2, r: float, a := 1.0) -> void:
-	_fill_pts.resize(20)
-	for k in 20:
-		_fill_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * r * 0.78, sin(TAU * float(k) / 20.0) * r)
-	draw_colored_polygon(_fill_pts, Color(UIColors.SUMI, a))
-	for k in 20:
-		_fill_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * (r * 0.78 - 1.5), sin(TAU * float(k) / 20.0) * (r - 1.5))
-	draw_colored_polygon(_fill_pts, Color(UIColors.GOLD, a))
-	for k in 20:
-		_fill_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * (r * 0.78 - 3.5), sin(TAU * float(k) / 20.0) * (r - 3.5))
-	draw_polyline(_fill_pts, Color(UIColors.SUMI, 0.45 * a), maxf(1.0, r * 0.08), true)
-	draw_rect(Rect2(c + Vector2(-r * 0.2, -r * 0.42), Vector2(r * 0.4, r * 0.34)), Color(UIColors.SUMI, 0.7 * a))
-	draw_rect(Rect2(c + Vector2(-r * 0.22, r * 0.05), Vector2(r * 0.44, r * 0.1)), Color(UIColors.SUMI, 0.7 * a))
-	draw_rect(Rect2(c + Vector2(-r * 0.22, r * 0.28), Vector2(r * 0.44, r * 0.1)), Color(UIColors.SUMI, 0.7 * a))
+	UiKit.koban(self, c, r, a)
 
 
 ## Gain d'or : « +N » avec une pièce, près de la pilule d'or ; des gains rapprochés se cumulent.

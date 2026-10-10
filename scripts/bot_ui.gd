@@ -1162,6 +1162,8 @@ func _step_sanctuary() -> bool:
 	if not await _clear_room():
 		return false
 	for take in [true, false]:
+		if not take:
+			main.run_gold = maxi(int(main.run_gold), int(main.refuse_cost()) + 5)  # refuser se paie : assez d'or
 		main._spawn_shrine()
 		var shp: Vector3 = main._shrine.position
 		var t0 := Time.get_ticks_msec()
@@ -1176,7 +1178,6 @@ func _step_sanctuary() -> bool:
 			return false
 		var nc: int = main.curses.size()
 		var g0: int = main.run_gold
-		var hp0: int = main.hero.hp
 		if take:
 			if not await _pick_card(0, "sanctuaire"):
 				return false
@@ -1192,8 +1193,8 @@ func _step_sanctuary() -> bool:
 		var want: int = nc + (1 if take else 0)
 		_check(main.curses.size() == want, "sanctuaire : %s" % ("malédiction acceptée %s" % str(main.curses) if take else "PASSER"), "%d malédiction(s), attendu %d" % [main.curses.size(), want])
 		if not take:
-			# « Passer » rapporte un cœur (s'il en manque) ou un peu d'or
-			_check(int(main.run_gold) >= g0 + int(main.PASS_GOLD) or int(main.hero.hp) > hp0, "sanctuaire : PASSER donne son bonus (or %d -> %d, vie %d -> %d)" % [g0, int(main.run_gold), hp0, int(main.hero.hp)], "aucun bonus")
+			# refuser se paie en or (refuse_cost)
+			_check(int(main.run_gold) == g0 - int(main.refuse_cost()), "sanctuaire : REFUSER payé (or %d -> %d)" % [g0, int(main.run_gold)], "prix non retiré")
 	return true
 
 

@@ -104,6 +104,7 @@ var _rects: Array = []  # rectangles de toucher des cartes (fixes : la carte lev
 var _confirm_rect := Rect2()
 var _reroll_rect := Rect2()
 var _refuse_rect := Rect2()  # sanctuaire : bouton REFUSER
+var _refuse_shake := 0.0  # REFUSER touché sans assez d'or : le bouton tremble (1 → 0)
 var _curse_mode := false
 var _leg_index := -1  # première carte légendaire (pour le retournement), -1 sinon
 var _leg_last := -1  # dernière carte légendaire
@@ -434,7 +435,10 @@ func _gui_input(event: InputEvent) -> void:
 			elif i == CONFIRM:
 				_choose(_sel)
 			elif i == REFUSE:
-				_choose(_refuse_index())
+				if _refuse_can():
+					_choose(_refuse_index())
+				else:
+					_refuse_shake = 1.0  # pas assez d'or : il faut sceller un pacte
 			elif i == _sel:
 				_choose(i)
 			else:
@@ -445,6 +449,12 @@ func _gui_input(event: InputEvent) -> void:
 		else:
 			_down = -1
 		accept_event()
+
+
+## Le refus est-il payable (assez d'or) ?
+func _refuse_can() -> bool:
+	var ri := _refuse_index()
+	return ri >= 0 and bool(_infos[ri].get("can", true))
 
 
 ## Index de la carte « refuse » du sanctuaire (-1 sinon).
@@ -490,6 +500,7 @@ func _process(_delta: float) -> void:
 	var real := UiKit.real_delta()
 	_t += real
 	_sel_t += real
+	_refuse_shake = maxf(0.0, _refuse_shake - real / 0.45)
 	# explication des rouleaux : arrive avec les cartes, s'efface une fois lue
 	var tip_to := 1.0 if _tip_on and not _tip_gone and _t > 0.15 else 0.0
 	_tip_a = move_toward(_tip_a, tip_to, real * 5.0)
@@ -2635,7 +2646,8 @@ func _draw_v2() -> void:
 	if _curse_mode:
 		# SCELLER (pinceau vermillon une fois une carte levée) puis REFUSER (étiquette légère)
 		_v2_choose(_confirm_rect, u, fade * lerpf(0.35, 1.0, ck), "SCELLER", ck)
-		_refuse_rect = Rect2(Vector2(w / 2.0 - 90.0 * u, btn_y + bh2 + 16.0 * u), Vector2(180.0 * u, 46.0 * u))
+		var rw := _refuse_width(u)
+		_refuse_rect = Rect2(Vector2(w / 2.0 - rw / 2.0, btn_y + bh2 + 16.0 * u), Vector2(rw, 46.0 * u))
 		_pact_refuse(_refuse_rect, u, fade)
 	else:
 		_refuse_rect = Rect2()
@@ -3264,7 +3276,9 @@ func _pact_fx_row(rw: Array, x0: float, x1: float, ym: float, s: float, el: Colo
 		return
 	var icon := String(rw[0])
 	var icol: Color = RED_TXT if neg else UIColors.GOLD
-	if not UiKit.draw_icon(self, icon, Vector2(x0 + 6.0 * s, ym), 12.0 * s, a, icol):
+	if icon == "hud/piece":
+		UiKit.koban(self, Vector2(x0 + 6.0 * s, ym), 6.5 * s, a)
+	elif not UiKit.draw_icon(self, icon, Vector2(x0 + 6.0 * s, ym), 12.0 * s, a, icol):
 		UiKit.fx_icon(self, icon, Vector2(x0 + 6.0 * s, ym), 12.0 * s, icol, a)
 	var lx := x0 + 15.0 * s
 	var lab := UiKit.caps(String(rw[2]))
@@ -3331,36 +3345,48 @@ func _pact_bubble(box: Rect2, info: Dictionary, u: float, a: float, really: bool
 	return y - box.position.y + py
 
 
-## REFUSER (planche Sanctuaire) : pilule transparente cernée de papier, croix et mot en Shippori espacée ; à droite,
-## ce que rapporte le refus (un cœur, sinon des pièces), en pictogramme et chiffre, sans légende.
-func _pact_refuse(r: Rect2, u: float, a: float) -> void:
-	if a <= 0.01:
-		return
-	var pressed := _down == REFUSE
-	var rr := r.grow(-2.0 * u) if pressed else r
-	draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI, (0.16 if pressed else 0.0) * a), int(rr.size.y * 0.5), Color(UIColors.WASHI, 0.6 * a), maxi(1, int(1.5 * u))), rr)
+## REFUSER (planche Sanctuaire) : pilule cernée de papier, croix, mot en Shippori espacée, puis le prix (pièce et
+## « −40 »). Sans assez d'or : pilule éteinte, prix en vermillon, le toucher la fait trembler (pacte obligatoire).
+func _refuse_parts(u: float) -> Dictionary:
 	var ri := _refuse_index()
 	var info: Dictionary = _infos[ri] if ri >= 0 else {}
-	var heal := String(info.get("bonus", "gold")) == "heal"
-	var txt := "+1" if heal else "+%d" % int(info.get("gold", 15))
+	var txt := "−%d" % int(info.get("cost", 0))
 	var sp := maxi(1, int(4.0 * u))
 	var fs := int(15 * u)
 	var ww := _spaced(UiKit.TITLE_FONT, "REFUSER", Vector2.ZERO, fs, float(sp), Color.WHITE, false)
-	var nf := UiKit.num_font()
-	var nfs := int(12 * u)
-	var bw := nf.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	var total := 18.0 * u + 10.0 * u + ww + 14.0 * u + 14.0 * u + 3.0 * u + bw
-	var x := rr.get_center().x - total / 2.0
+	var nfs := int(13 * u)
+	var bw := UiKit.num_font().get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	# croix 14 · 10 · mot · 16 · pièce 15 · 4 · prix
+	var content := 14.0 * u + 10.0 * u + ww + 16.0 * u + 15.0 * u + 4.0 * u + bw
+	return {"txt": txt, "sp": sp, "fs": fs, "ww": ww, "nfs": nfs, "bw": bw, "content": content, "can": bool(info.get("can", true))}
+
+
+func _refuse_width(u: float) -> float:
+	return float(_refuse_parts(u)["content"]) + 48.0 * u
+
+
+func _pact_refuse(r: Rect2, u: float, a: float) -> void:
+	if a <= 0.01:
+		return
+	var pp := _refuse_parts(u)
+	var can := bool(pp["can"])
+	var pressed := _down == REFUSE and can
+	var dx := sin(_refuse_shake * 26.0) * 6.0 * u * _refuse_shake
+	var rr := (r.grow(-2.0 * u) if pressed else r)
+	rr.position.x += dx
+	var k := 1.0 if can else 0.42
+	draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI, (0.16 if pressed else 0.0) * a), int(rr.size.y * 0.5), Color(UIColors.WASHI, 0.6 * k * a), maxi(1, int(1.5 * u))), rr)
+	var x := rr.get_center().x - float(pp["content"]) / 2.0
 	var cy := rr.get_center().y
-	var cross := Color(UIColors.WASHI, a)
-	draw_line(Vector2(x + 4.0 * u, cy - 5.0 * u), Vector2(x + 14.0 * u, cy + 5.0 * u), cross, maxf(1.0, 2.0 * u), true)
-	draw_line(Vector2(x + 14.0 * u, cy - 5.0 * u), Vector2(x + 4.0 * u, cy + 5.0 * u), cross, maxf(1.0, 2.0 * u), true)
-	x += 18.0 * u + 10.0 * u
-	_spaced(UiKit.TITLE_FONT, "REFUSER", Vector2(x, cy + float(fs) * 0.36), fs, float(sp), Color(UIColors.WASHI, a))
-	x += ww + 14.0 * u
-	var ic := Vector2(x + 7.0 * u, cy)
-	if heal:
-		UiKit.draw_icon(self, "effets/cur", ic, 14.0 * u, 0.85 * a, Toon.VERMILION.lightened(0.25))
-	else:
-		UiKit.draw_icon(self, "hud/piece", ic, 14.0 * u, 0.85 * a, UIColors.GOLD)
-	draw_string(nf, Vector2(x + 17.0 * u, cy + float(nfs) * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(UIColors.WASHI, 0.8 * a))
+	var ink := Color(UIColors.WASHI, k * a)
+	draw_line(Vector2(x + 2.0 * u, cy - 5.0 * u), Vector2(x + 12.0 * u, cy + 5.0 * u), ink, maxf(1.0, 2.0 * u), true)
+	draw_line(Vector2(x + 12.0 * u, cy - 5.0 * u), Vector2(x + 2.0 * u, cy + 5.0 * u), ink, maxf(1.0, 2.0 * u), true)
+	x += 14.0 * u + 10.0 * u
+	var fs := int(pp["fs"])
+	_spaced(UiKit.TITLE_FONT, "REFUSER", Vector2(x, cy + float(fs) * 0.36), fs, float(pp["sp"]), ink)
+	x += float(pp["ww"]) + 16.0 * u
+	UiKit.koban(self, Vector2(x + 7.5 * u, cy), 8.0 * u, k * a)
+	x += 15.0 * u + 4.0 * u
+	var nfs := int(pp["nfs"])
+	var pc: Color = Color(UIColors.GOLD, a) if can else Color(RED_TXT, a)
+	draw_string(UiKit.num_font(), Vector2(x, cy + float(nfs) * 0.36), String(pp["txt"]), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, pc)

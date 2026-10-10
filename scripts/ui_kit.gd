@@ -2270,6 +2270,28 @@ static func dashed_arc(ci: CanvasItem, c: Vector2, r: float, a0: float, a1: floa
 
 
 ## Losange plein (palier d'harmonie), demi-diagonale e, cerné de `edge` (alpha 0 : sans cerne).
+static var _koban_pts := PackedVector2Array()
+
+
+## Pièce d'or koban (ovale d'or cerné d'encre, cartouche gravé) : la pièce du HUD, des pactes et du sanctuaire.
+static func koban(ci: CanvasItem, c: Vector2, r: float, a := 1.0) -> void:
+	if a <= 0.005 or r < 1.0:
+		return
+	_koban_pts.resize(20)
+	for k in 20:
+		_koban_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * r * 0.78, sin(TAU * float(k) / 20.0) * r)
+	ci.draw_colored_polygon(_koban_pts, Color(UIColors.SUMI, a))
+	for k in 20:
+		_koban_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * (r * 0.78 - 1.5), sin(TAU * float(k) / 20.0) * (r - 1.5))
+	ci.draw_colored_polygon(_koban_pts, Color(UIColors.GOLD, a))
+	for k in 20:
+		_koban_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * (r * 0.78 - 3.5), sin(TAU * float(k) / 20.0) * (r - 3.5))
+	ci.draw_polyline(_koban_pts, Color(UIColors.SUMI, 0.45 * a), maxf(1.0, r * 0.08), true)
+	ci.draw_rect(Rect2(c + Vector2(-r * 0.2, -r * 0.42), Vector2(r * 0.4, r * 0.34)), Color(UIColors.SUMI, 0.7 * a))
+	ci.draw_rect(Rect2(c + Vector2(-r * 0.22, r * 0.05), Vector2(r * 0.44, r * 0.1)), Color(UIColors.SUMI, 0.7 * a))
+	ci.draw_rect(Rect2(c + Vector2(-r * 0.22, r * 0.28), Vector2(r * 0.44, r * 0.1)), Color(UIColors.SUMI, 0.7 * a))
+
+
 static func diamond(ci: CanvasItem, c: Vector2, e: float, col: Color, edge := NONE, ew := 1.0) -> void:
 	var pts := PackedVector2Array([c + Vector2(0, -e), c + Vector2(e, 0), c + Vector2(0, e), c + Vector2(-e, 0)])
 	if col.a > 0.0:
