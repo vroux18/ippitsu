@@ -2813,17 +2813,9 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(3.0 * s)), Rect2(cart.position + Vector2(0, 2.0 * s), cart.size))
 	draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI_LIGHT, a), int(3.0 * s), Color(UIColors.SUMI, a), maxi(1, int(1.5 * s))), cart)
 	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(cx, cart.get_center().y + float(nfs) * 0.36), nfs, Color(UIColors.SUMI, ta))
-	# technique de figure : la figure à tracer, en grand picto d'encre dans la scène (à gauche du médaillon) ;
-	# pas de texte (le nom de la carte dit la technique, le picto dit la figure)
-	var fig := UiKit.trigger_figure(id)
+	# (cartes de figure : le médaillon montre déjà la figure, pas de picto en plus)
 	var fx_y := o.y + 132.0 * s
 	var max_rows := 3
-	if school == "fig" and fig != "":
-		# (coin haut gauche, la place de l'ancienne étoile « nouveau » : jamais sur le médaillon)
-		var fc := Vector2(o.x + 18.0 * s, o.y + 18.0 * s)
-		draw_circle(fc, 13.0 * s, Color(UIColors.WASHI_LIGHT, 0.95 * ma))
-		draw_arc(fc, 12.0 * s, 0.0, TAU, 32, Color(UIColors.SUMI, ma), maxf(1.0, 1.5 * s), true)
-		UiKit.figure_icon(self, fig, fc, 18.0 * s, ma, UIColors.SUMI)
 	# lignes d'effet (variante C) : jusqu'à trois, 24 u chacune, panneau à 128 u
 	var rows := _fx_of(id, info)
 	for k in mini(rows.size(), max_rows):
