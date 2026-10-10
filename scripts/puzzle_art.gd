@@ -17,8 +17,7 @@ const GLYPH_O := Vector3(0, 0, 1.25)
 const GLYPH_K := 0.75
 const STELE_Z := -0.45
 const INLAY_R := 1.3
-## Numéros des lanternes, sur le papier du foyer (il y en a 3 à 5).
-const NUMS := ["一", "二", "三", "四", "五"]
+## (Numéros des lanternes : chiffres arabes sur le papier du foyer, plus de kanji en combat, UI v2.)
 const SPIRIT_RING_R := 1.4
 const DRAW_PERIOD := 3.4  # la figure se trace, reste, s'efface : un cycle (s)
 const FAIL_T := 0.6
@@ -274,7 +273,7 @@ static func build_lanterns(n: Node3D, pk: Dictionary, spots: Array, c: Vector3) 
 		_part_flat(ln, _mesh("lamp_halo"), hmat, Vector3(0, 0.8, 0))
 		halos.append(hmat)
 		# numéral peint sur le papier du foyer, chiffre net au-dessus du toit
-		_label(ln, String(NUMS[i]) if i < NUMS.size() else str(i + 1), Vector3(0, 0.79, 0.127), Color(Toon.SUMI, 0.85), 96, 0.0019, false, 0)
+		_label(ln, str(i + 1), Vector3(0, 0.79, 0.127), Color(Toon.SUMI, 0.85), 96, 0.0019, false, 0)
 		digits.append(_label(ln, str(i + 1), Vector3(0, 1.5, 0), Toon.SUMI, 110, 0.0034, true, 18))
 	pk["mats"] = mats
 	pk["glows"] = glows

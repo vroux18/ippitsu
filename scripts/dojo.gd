@@ -775,7 +775,10 @@ func _draw_page() -> void:
 			# nom à gauche, picto de la technique et compte à droite
 			var ty := rr.end.y - 12.0 * u
 			var nfs := int(13 * u)
-			ci.draw_string(UiKit.TITLE_FONT, Vector2(rr.position.x + 10.0 * u, ty), UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind)).capitalize()), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(ink, 1.0 if n > 0 else 0.6))
+			# « Trait droit », « Aller-retour » comme l'intro (capitalize() donnait « Trait Droit », « Aller Retour »)
+			var fw := String(UiKit.FIG_WORD.get(kind, kind)).to_lower()
+			fw = fw.substr(0, 1).to_upper() + fw.substr(1)
+			ci.draw_string(UiKit.TITLE_FONT, Vector2(rr.position.x + 10.0 * u, ty), UiKit.plain(fw), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(ink, 1.0 if n > 0 else 0.6))
 			var ct := str(n)
 			var cfs := int(12 * u)
 			var ctw := nf.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x

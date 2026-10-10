@@ -204,8 +204,9 @@ func _panel_rect(sheet: Rect2, h: float) -> Rect2:
 
 
 ## Hauteur (u) du cadre d'une planche : la planche des figures garde la place de ses six tuiles.
+## Les autres remplissent la feuille (580 u : en-tête 96, marge basse 20) : plus de bande de papier vide dessous.
 func _panel_h(i: int) -> float:
-	return 236.0 if i == 2 else 330.0
+	return 236.0 if i == 2 else 464.0
 
 
 func _layout() -> void:
@@ -355,8 +356,8 @@ func _draw_page(i: int, sheet: Rect2, panel: Rect2, u: float, alpha: float, dx: 
 	# titre court en capitales (Shippori 24, lettres espacées), la phrase dessous (13, encre atténuée)
 	var cx := sheet.get_center().x + dx
 	var title := UiKit.plain(String(pg.title)).to_upper()
-	var tfs := int(24 * u)
-	while tfs > 12 and _ttl.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x > sheet.size.x - 32.0 * u:
+	var tfs := int(24 * u)  # (tient dans la largeur du cadre : « ESQUIVE EN TRAÇANT » frôlait le bord)
+	while tfs > 12 and _ttl.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x > sheet.size.x - 52.0 * u:
 		tfs -= 1
 	var ty := sheet.position.y + 26.0 * u + float(tfs) * 0.92
 	UiKit.text(self, _ttl, title, Vector2(cx + 2.5 * u, ty), tfs, Color(UIColors.SUMI, alpha))
@@ -701,9 +702,9 @@ func _page_gardien(t0: float) -> void:
 		nodes.append(_at(lerpf(0.07, 0.64, f), lerpf(0.26, 0.86, f) + 0.06 * sin(float(i) * 1.9)))
 	var walk := _k(t, 0.2, 2.8)
 	var rage := _k(t, 3.0, 0.3) * fade
-	_boss(_at(0.83, 0.97), 0.95 * u, rage)
+	_boss(_at(0.76, 0.95), 0.95 * u, rage)
 	# la couronne du gardien, au-dessus de lui (plus de mot : picto v2)
-	UiKit.draw_icon(self, "hud/couronne", _at(0.83, 0.97) + Vector2(0, -140) * u, 22.0 * u, _a * (0.7 + 0.3 * rage), Toon.VERMILION)
+	UiKit.draw_icon(self, "hud/couronne", _at(0.76, 0.95) + Vector2(0, -140) * u, 22.0 * u, _a * (0.7 + 0.3 * rage), Toon.VERMILION)
 	# le chemin, encré jusqu'au ronin
 	draw_polyline(nodes, _c(Toon.SUMI, 0.22), 2.0 * u, true)
 	if walk > 0.0:
@@ -743,7 +744,7 @@ func _page_gardien(t0: float) -> void:
 	_ronin(_pt_at(nodes, walk) + Vector2(0, 3) * u, 0.6 * u, 1.0, 1 if walk > 0.0 and walk < 1.0 else 0, fade * _k(t, 0.0, 0.2))
 	# le gardien s'éveille
 	if rage > 0.0:
-		var hc := _at(0.83, 0.97) + Vector2(0, -86) * 0.95 * u
+		var hc := _at(0.76, 0.95) + Vector2(0, -86) * 0.95 * u
 		for j in 2:
 			var rk := fmod(t * 1.2 + j * 0.5, 1.0)
 			draw_arc(hc, (30.0 + 40.0 * rk) * u, 0, TAU, 32, _c(Toon.VERMILION, 0.5 * (1.0 - rk) * rage), 2.0 * u, true)
