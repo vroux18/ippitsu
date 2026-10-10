@@ -210,6 +210,7 @@ var aspects_won := {}  # pinceau -> aspects possédés (1..3 ; le premier vient 
 var charm_sel := ""  # omamori porté ("" : aucun)
 var charms_won := {}  # omamori -> true
 var gear_force := false  # robot et captures : pinceau, aspect et charme imposés même verrouillés (jamais sauvegardé)
+var test_won := -1  # captures (`won=N`) : seuls les mondes 1..N comptent comme vaincus (jamais sauvegardé)
 # bestiaire : id -> [victoires, premier monde, fiche ouverte (0/1)] ; boss rangés en « boss_<id> »
 var seen := {}
 
@@ -677,6 +678,8 @@ func powers_of_tier(t: int) -> Array:
 
 ## Boss du monde déjà vaincu une fois (rang Maître permis) : vaut aussi pour le dernier monde, sans monde suivant.
 func world_cleared(wid: int) -> bool:
+	if test_won >= 0:
+		return wid >= 1 and wid <= test_won  # captures `won=N` : progression de démonstration
 	return wid >= 1 and (wid <= won_top or world_won(wid))
 
 

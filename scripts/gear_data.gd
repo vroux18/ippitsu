@@ -67,7 +67,7 @@ const TRESSE_R := 1.3
 const TRESSE_DMG := 0.5
 const CHI_DMG := 1.4
 const CHI_FREE := 8.0  # mètres de trait gratuits
-const CHI_COST := 0.1  # cœur par mètre au-delà (dette cumulée, jamais le dernier cœur)
+const CHI_COST := 0.08  # cœur par mètre au-delà (dette cumulée, jamais le dernier cœur)
 const CHI_DEMON := 1.5
 const CHI_DEMON_HP := 2
 
@@ -122,7 +122,9 @@ static func label(id: String, k: int) -> String:
 static func ink_of(id: String) -> Color:
 	if id == "fude" or not BRUSHES.has(id):
 		return Color(0, 0, 0, 0)
-	return brush(id)["col"]
+	var c: Color = brush(id)["col"]
+	# l'ocre du pinceau large, un peu foncée en jeu : elle se lit sur les planchers clairs (monde 1, Fuji rouge)
+	return c.darkened(0.25) if id == "hake" else c
 
 
 ## Largeur du trait dessiné (×WIDTH d'ink_stroke).

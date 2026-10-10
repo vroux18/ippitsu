@@ -377,6 +377,8 @@ var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
 var _bot: Node = null  # robot testeur (CI)
 var _force_fig := ""  # captures `?fig=wave` : figure tracée en boucle par le héros (_force_fig_step)
+var _mannequins: Array = []  # captures `&mannequins=N` (pinceaux) : oni immobiles devant le héros
+var _mann_at := Vector3.ZERO  # place du héros face aux mannequins
 var _force_fig_t := 1.5
 var _fig_shot := ""  # captures `&figshot=` : préfixe des images
 var _fig_shot_n := 0
@@ -820,6 +822,21 @@ func _ready() -> void:
 				for pid in PowerData.POWERS.keys():
 					if String(pid).begins_with(fid + "_"):
 						powers.levels[String(pid)] = 1
+	# `&mannequins=N` (captures des pinceaux) : N oni immobiles et increvables devant le héros (combat, pas exploration)
+	var mq := wsearch.find("mannequins=")
+	if mq >= 0 and state == "play":
+		meta.tuto_done = true
+		_mann_at = hero.position
+		for i in clampi(int(wsearch.substr(mq + 11).get_slice("&", 0)), 1, 6):
+			var me := Enemy.new()
+			me.setup("oni", hero, self)
+			me.position = arena.clamp_walk(hero.position + Vector3(-1.9 + 1.9 * float(i % 3), 0, -3.4 - 1.8 * float(i / 3)), 0.8)
+			add_child(me)
+			me.hp = 9999.0
+			me.set_meta("max_hp", me.hp)
+			me.process_mode = Node.PROCESS_MODE_DISABLED
+			enemies.append(me)
+			_mannequins.append(me)
 	# `?carnet` (captures) : le dojo, carnet des figures ouvert
 	if "carnet" in wsearch:
 		_start_dojo()
@@ -852,6 +869,14 @@ func _ready() -> void:
 		_ending_victory = "victoire" in wsearch
 		_finish_run()
 		menu.new_prints = ["w1_room"]  # estampe de démo (vignette des gains)
+		if "gain" in wsearch:
+			# `&gain` : aspect, pinceau et omamori gagnés (tuiles de la rangée DÉBLOQUÉ)
+			menu.unlock_gear = [{"kind": "aspect", "id": "fude", "k": 1}, {"kind": "brush", "id": "hake", "k": 0}, {"kind": "charm", "id": "garde", "k": 0}]
+			if _ending_victory:
+				menu.unlock_world = 2
+				menu.unlock_world_kanji = String(Worlds.world(2).get("kanji", "道"))
+				menu.unlock_world_color = Worlds.world(2).get("color", Toon.PRUSSIAN)
+				menu.unlock_powers = ["fire_burn", "water_tide", "fire_spark"]
 		if not _ending_victory:
 			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
 	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
@@ -888,6 +913,24 @@ func _force_fig_step(dt: float) -> void:
 	if _force_fig_t > 0.0 or hero.dashing or touching:
 		return
 	_force_fig_t = 4.2 if _force_fig == "triangle" else 2.6
+	if _force_fig == "plain" and not _mannequins.is_empty():
+		# captures des pinceaux : le héros revient à sa place et balaie la rangée de mannequins d'un grand arc (~11 m)
+		for me in _mannequins:
+			if is_instance_valid(me):
+				me.hp = 9999.0
+		var o: Vector3 = _mann_at
+		hero.position = o
+		_prev_hero = o
+		var arc: Array = [o + Vector3(-2.4, 0, -2.2), o + Vector3(-1.2, 0, -4.4), o + Vector3(1.2, 0, -4.6), o + Vector3(2.6, 0, -2.6), o + Vector3(2.9, 0, -0.4)]
+		var ps := InkStroke.new(o, stroke_layer)
+		stroke_layer += 1
+		add_child(ps)
+		for p in arc:
+			ps.extend_to(_clamp_point(p), 40.0)
+		_launch(ps)
+		if _fig_shot != "" and _fig_shot_n < 4:
+			_fig_snap()
+		return
 	var target: Vector3 = hero.position + Vector3(0, 0, -6)
 	var near: Array = nearest_enemies(hero.position, 40.0, 1, null)
 	if near.is_empty():
@@ -905,7 +948,16 @@ func _force_fig_step(dt: float) -> void:
 		if away.length() > reach + 0.5:
 			hero.position = arena.clamp_walk(target + away.normalized() * reach, 0.5)
 			_prev_hero = hero.position
-	var wps := BotShapes.plan(_force_fig, hero.position, target, Callable(self, "_clamp_point"))
+	var wps: Array = []
+	if _force_fig == "plain":
+		# captures des pinceaux : un trait simple, légèrement courbe, qui traverse la cible et file au-delà
+		var to := target - hero.position
+		to.y = 0.0
+		var dn := to.normalized() if to.length() > 0.01 else Vector3(0, 0, -1)
+		var side := Vector3(-dn.z, 0, dn.x)
+		wps = [hero.position + dn * 2.0 + side * 0.5, target, target + dn * 2.5 - side * 0.6, target + dn * 6.0 - side * 0.2, target + dn * 9.0 + side * 0.6]
+	else:
+		wps = BotShapes.plan(_force_fig, hero.position, target, Callable(self, "_clamp_point"))
 	if wps.is_empty():
 		return
 	var s := InkStroke.new(hero.position, stroke_layer)
@@ -917,11 +969,13 @@ func _force_fig_step(dt: float) -> void:
 		s.queue_free()
 		return
 	_launch(s)
+	if _force_fig == "plain" and _fig_shot != "" and _fig_shot_n < 4:
+		_fig_snap()  # (trait simple : pas de technique, les captures suivent le trait)
 
 
 ## Captures `&figshot=` : la technique en action (instants propres à chaque figure), deux fois, puis sortie.
 func _fig_snap() -> void:
-	var times: Array = [0.4, 1.6, 3.05] if _force_fig == "triangle" else [0.12, 0.35]
+	var times: Array = [0.4, 1.6, 3.05] if _force_fig == "triangle" else ([0.3, 1.0] if _force_fig == "plain" else [0.12, 0.35])
 	var t0 := 0.0
 	for t in times:
 		await get_tree().create_timer(float(t) - t0, true, false, true).timeout
@@ -2180,7 +2234,8 @@ func _gear_query(q: String) -> void:
 	var wq := q.find("won=")
 	if wq >= 0:
 		var n := clampi(int(q.substr(wq + 4).get_slice("&", 0)), 0, Meta.WORLD_COUNT)
-		meta.won_top = n
+		meta.test_won = n
+		meta.aspects_won = {}
 		meta.charms_won = {}
 		for cid in Gear.CHARM_ORDER:
 			if int(Gear.CHARMS[cid]["world"]) <= n:

@@ -31,8 +31,8 @@ const SEAL_TILT := 0.62  # inclinaison vers la caméra (rad, ~35°)
 const FACE_PX := 256  # côté de la texture d'un sceau
 const NEAR := 3.2  # distance (m) où l'approche commence
 const NEAR_FULL := 1.3  # distance où le sceau est pleinement éveillé
-const GATE3_DX := 3.05  # omamori des portes : trois torii, écart entre deux voisins (parvis sur toute la largeur)
-const GATE3_K := 0.9  # … un peu plus petits (× GATE_K) pour tenir dans l'arène (±4,6 m)
+const GATE3_DX := 3.1  # omamori des portes : trois torii, écart entre deux voisins (parvis sur toute la largeur)
+const GATE3_K := 0.82  # … un peu plus petits (× GATE_K) pour tenir dans l'arène (±4,6 m)
 
 
 ## Abscisses des torii (repère du nœud, centré sur gate_pos) pour `n` portes (2, ou 3 avec l'omamori des portes).

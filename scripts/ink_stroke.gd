@@ -211,8 +211,8 @@ func _strip(tint: Color, side_k: float) -> void:
 
 ## Calame de sang : au-delà des mètres gratuits, des gouttes de sang le long du trait (le prix en vie).
 func _blood_drops(tint: Color) -> void:
-	var red := Color(0.84, 0.22, 0.17) if not drying else Color.WHITE
-	_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var red := Color(0.93, 0.25, 0.18) if not drying else Color.WHITE
+	var begun := false  # (pas de surface vide : Godot s'en plaint)
 	var s := 0.0
 	var next := Gear.CHI_FREE
 	var k := 0
@@ -227,8 +227,11 @@ func _blood_drops(tint: Color) -> void:
 		t.y = 0
 		var side := Vector3(-t.z, 0, t.x).normalized() if t.length_squared() > 0.000001 else Vector3.RIGHT
 		var c := p + side * (0.32 if k % 2 == 0 else -0.28) + Vector3(0, _y + 0.001 - p.y, 0)
-		var r := 0.07 + 0.03 * float(k % 3)
+		var r := 0.1 + 0.04 * float(k % 3)
 		var col := Color(red, 0.95) if not drying else Color(tint, 0.95)
+		if not begun:
+			_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+			begun = true
 		for j in 6:
 			var a0 := TAU * float(j) / 6.0
 			var a1 := TAU * float(j + 1) / 6.0
@@ -238,4 +241,5 @@ func _blood_drops(tint: Color) -> void:
 			_imesh.surface_add_vertex(c + Vector3(cos(a1), 0, sin(a1)) * r)
 			_imesh.surface_set_color(col)
 			_imesh.surface_add_vertex(c + Vector3(cos(a0), 0, sin(a0)) * r)
-	_imesh.surface_end()
+	if begun:
+		_imesh.surface_end()
