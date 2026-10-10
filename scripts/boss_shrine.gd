@@ -131,6 +131,7 @@ static func build(wid: int, boss: bool, parent: Node3D, rng_seed: int) -> Node3D
 	var ctx := {"vc": {}, "g": {}, "mm": {}, "root": root, "p": p, "wid": wid, "boss": boss, "rng": rng, "lights": 0}
 	_floor(ctx)
 	_terraces(ctx)
+	_accents(ctx)
 	_south_steps(ctx)
 	if open_north(wid, boss):
 		_north_water(ctx)
@@ -810,6 +811,113 @@ static func _terraces(ctx: Dictionary) -> void:
 		_sacred_tree(ctx, Vector3((TERR_IN + tw * 0.5) * (1.0 if ctx["rng"].randf() < 0.5 else -1.0), TERR_Y, -5.6), 0.85)
 
 
+## Lisière du monde, derrière les terrasses (x ≈ 7,6, haut de l'écran seulement : plus bas, le cadre ne
+## montre pas si loin) : bambous à tanzaku (2), pins enneigés (3), aiguilles de basalte (4), pins d'encre (5),
+## cèdres (6), coraux (7), sotoba (8). Le monde 1 a ses galeries sur pieux et le large.
+static func _accents(ctx: Dictionary) -> void:
+	var wid: int = ctx["wid"]
+	var boss: bool = ctx["boss"]
+	var rng: RandomNumberGenerator = ctx["rng"]
+	var p: Dictionary = ctx["p"]
+	if wid == 1:
+		return
+	var x0 := TERR_IN + (2.3 if boss else 1.5) + 0.45
+	var socle := _paint(p["stone_dk"], true)
+	for s: float in [-1.0, 1.0]:
+		var z := -12.6 + rng.randf_range(0.0, 0.8)
+		while z < -1.5:
+			var x := s * (x0 + rng.randf_range(0.0, 0.5))
+			var at := Vector3(x, VOID_Y, z)
+			if wid != 7 and wid != 8:
+				# socle de roche qui sort du vide
+				_put(ctx, socle, Worlds._cyl(0.34, 0.46, 0.5, 6), Worlds._at(at + Vector3(0, 0.2, 0), Vector3(0, rng.randf() * TAU, 0)))
+			var base := at + Vector3(0, 0.45, 0)
+			match wid:
+				2:
+					_bamboo(ctx, base, rng)
+				3:
+					_snow_pine(ctx, base, rng, p)
+				4:
+					for k in 3:
+						var o := Vector3(rng.randf_range(-0.25, 0.25), 0, rng.randf_range(-0.25, 0.25))
+						var h := rng.randf_range(0.9, 2.0)
+						_put(ctx, _paint(Color("#2E2A2A"), true), Worlds._cyl(0.0, rng.randf_range(0.16, 0.28), h, 5), Worlds._at(base + o + Vector3(0, h * 0.5 - 0.1, 0), Vector3(rng.randf_range(-0.15, 0.15), 0, rng.randf_range(-0.15, 0.15))))
+				5:
+					_ink_pine(ctx, base, rng)
+				6:
+					for k in 2:
+						var o := Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3))
+						var h := rng.randf_range(2.6, 3.8)
+						var lc: Array = p["leaf"]
+						_put(ctx, _paint(p["bark"], true), Worlds._cyl(0.07, 0.1, 0.6, 5), Worlds._at(base + o + Vector3(0, 0.3, 0)))
+						_put(ctx, _paint(lc[k % lc.size()], true), Worlds._cyl(0.0, rng.randf_range(0.45, 0.6), h, 6), Worlds._at(base + o + Vector3(0, 0.5 + h * 0.5, 0)))
+				7:
+					_coral(ctx, Vector3(at.x, VOID_Y, z), rng, p)
+				8:
+					for k in 3:
+						var o := Vector3(rng.randf_range(-0.3, 0.3), 0, -0.25 + 0.25 * k)
+						var h := rng.randf_range(1.0, 1.6)
+						var sx := Worlds._at(Vector3(at.x, VOID_Y, z) + o + Vector3(0, h * 0.5, 0), Vector3(rng.randf_range(-0.12, 0.12), rng.randf_range(-0.3, 0.3), rng.randf_range(-0.1, 0.1)))
+						_put(ctx, _paint(Color("#8C8478"), true), Worlds._box(Vector3(0.14, h, 0.03)), sx)
+						_put(ctx, _paint(Color("#3A363E"), false), Worlds._box(Vector3(0.05, h * 0.5, 0.035)), sx * Worlds._at(Vector3(0, h * 0.1, 0)))
+			z += rng.randf_range(2.6, 3.4)
+
+
+## Touffe de deux bambous à nœuds, feuillage en fers de lance, tanzaku de papier pastel.
+static func _bamboo(ctx: Dictionary, base: Vector3, rng: RandomNumberGenerator) -> void:
+	var stem := _paint(Decor.BAMBOO, true)
+	var node := _paint(Decor.BAMBOO_NODE, false)
+	var leaf := _paint(Decor.BAMBOO_LEAF, true)
+	for k in 2:
+		var o := Vector3(rng.randf_range(-0.25, 0.25), 0, rng.randf_range(-0.25, 0.25))
+		var h := rng.randf_range(2.4, 3.4)
+		var lean := Vector3(rng.randf_range(-0.2, 0.2), 0, rng.randf_range(-0.2, 0.2))
+		var a := base + o
+		var b := a + Vector3(0, h, 0) + lean
+		_limb(ctx, stem, a, b, 0.05, 0.04, 5)
+		_put(ctx, node, Worlds._box(Vector3(0.1, 0.03, 0.1)), Worlds._at(a.lerp(b, 0.5)))
+		for q in 2:
+			var c := b + Vector3(rng.randf_range(-0.3, 0.3), -0.15 - 0.3 * q, rng.randf_range(-0.3, 0.3))
+			_put(ctx, leaf, Worlds._cyl(0.0, 0.2, 0.5, 4), Worlds._at(c, Vector3(rng.randf_range(-1.2, 1.2), 0, rng.randf_range(-1.2, 1.2))))
+		var tz: Color = Worlds.TANZAKU[rng.randi_range(0, Worlds.TANZAKU.size() - 1)]
+		_put(ctx, _paint(tz, false), Worlds._box(Vector3(0.07, 0.22, 0.01)), Worlds._at(a.lerp(b, 0.62) + Vector3(0.09, -0.12, 0)))
+
+
+## Pin couvert de neige : tronc, deux étages coniques sombres coiffés de blanc.
+static func _snow_pine(ctx: Dictionary, base: Vector3, rng: RandomNumberGenerator, p: Dictionary) -> void:
+	var lc: Array = p["leaf"]
+	_put(ctx, _paint(p["bark"], true), Worlds._cyl(0.06, 0.09, 0.5, 5), Worlds._at(base + Vector3(0, 0.25, 0)))
+	var h := rng.randf_range(0.9, 1.2)
+	for k in 2:
+		var r := 0.7 - 0.22 * k
+		var y := 0.4 + 0.65 * k
+		_put(ctx, _paint(lc[k % 2], true), Worlds._cyl(0.0, r, h * 0.85, 6), Worlds._at(base + Vector3(0, y + h * 0.42, 0)))
+		_put(ctx, _paint(lc[2], false), Worlds._cyl(0.0, r * 0.62, h * 0.45, 6), Worlds._at(base + Vector3(0, y + h * 0.62, 0)))
+
+
+## Pin d'encre : tronc penché, deux plateaux sumi aplatis (les pins des estampes du monde 5).
+static func _ink_pine(ctx: Dictionary, base: Vector3, rng: RandomNumberGenerator) -> void:
+	var bark := _paint(Color("#2A2830"), true)
+	var lean := Vector3(rng.randf_range(-0.5, 0.5), 0, rng.randf_range(-0.3, 0.3))
+	var top := base + Vector3(0, 2.2, 0) + lean
+	_limb(ctx, bark, base, top, 0.1, 0.05, 5)
+	_put(ctx, _paint(Color("#3A3A3C"), true), Worlds._ball(0.8, 0.26, 7, 3), Worlds._at(top))
+	_put(ctx, _paint(Color("#4E4E50"), true), Worlds._ball(0.55, 0.2, 7, 3), Worlds._at(base.lerp(top, 0.6) + Vector3(-lean.x * 0.8 + 0.3, 0, 0.1)))
+
+
+## Massif de corail : branches roses, pêche ou mauves sur une butte de sable.
+static func _coral(ctx: Dictionary, at: Vector3, rng: RandomNumberGenerator, p: Dictionary) -> void:
+	var lc: Array = p["leaf"]
+	_put(ctx, _paint(Color("#C4B094"), true), Worlds._ball(0.5, 0.5, 6, 2), Worlds._at(at + Vector3(0, 0.12, 0)))
+	for k in 3:
+		var col: Color = lc[rng.randi_range(0, lc.size() - 1)]
+		var a := at + Vector3(rng.randf_range(-0.25, 0.25), 0.3, rng.randf_range(-0.25, 0.25))
+		var b := a + Vector3(rng.randf_range(-0.35, 0.35), rng.randf_range(0.6, 1.1), rng.randf_range(-0.2, 0.2))
+		_limb(ctx, _paint(col, true), a, b, 0.07, 0.04, 5)
+		var c := b.lerp(a, 0.45)
+		_limb(ctx, _paint(col, true), c, c + Vector3(rng.randf_range(-0.3, 0.3), 0.35, rng.randf_range(-0.15, 0.15)), 0.04, 0.025, 4)
+
+
 ## Volée de marches qui descend du parvis dans le vide, au sud (l'arrivée du héros, bas de l'écran).
 static func _south_steps(ctx: Dictionary) -> void:
 	var p: Dictionary = ctx["p"]
@@ -839,6 +947,8 @@ static func _lantern_mesh(wid: int) -> ArrayMesh:
 	_put(c, Worlds._glow(p["flame"], 1.1), Worlds._box(Vector3(0.24, 0.22, 0.24)), Worlds._at(Vector3(0, 0.82, 0)))
 	_put(c, dark, Worlds._cyl(0.05, 0.31, 0.2, 6), Worlds._at(Vector3(0, 1.03, 0)))
 	_put(c, stone, Worlds._box(Vector3(0.09, 0.12, 0.09)), Worlds._at(Vector3(0, 1.17, 0), Vector3(0, PI * 0.25, 0)))
+	if Color(p["cap"]).a > 0.0:
+		_put(c, _paint(p["cap"], true), Worlds._cyl(0.04, 0.26, 0.09, 6), Worlds._at(Vector3(0, 1.1, 0)))
 	var mesh := ArrayMesh.new()
 	var vcm: Dictionary = c["vc"]
 	var arr := _vc_arrays(vcm, true)
