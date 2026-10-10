@@ -621,6 +621,9 @@ func _ready() -> void:
 		_prev_hero = hero.position
 		_cam_dz = _cam_target()
 		arena.follow_camera(_cam_dz)
+	# `?room=N&portes=fire,gold[&proche]` (maquette) : la sortie de l'étape remplacée par deux torii à sceaux
+	if "portes" in wsearch and state == "play":
+		load("res://scripts/seal_gate.gd").mock(self, wsearch)
 	if "atelier" in wsearch:
 		# `?atelier&tab=1` (captures) : l'onglet N ouvert ; `&fresh` : encre et rangs remis à zéro (prix visibles)
 		if "fresh" in wsearch:
