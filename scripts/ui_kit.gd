@@ -94,7 +94,7 @@ const A_RULE := 0.15
 const A_WASH := 0.05
 const A_PATTERN := 0.06
 
-static var _last_ms := 0
+static var _last_ms := 0  # (µs, malgré le nom)
 static var _frame := -1
 static var _delta := 0.0
 
@@ -110,8 +110,10 @@ static func real_delta() -> float:
 	var f := Engine.get_process_frames()
 	if f != _frame:
 		_frame = f
-		var now := Time.get_ticks_msec()
-		_delta = 0.0 if _last_ms == 0 else minf(float(now - _last_ms) / 1000.0, 0.1)
+		# en µs : à la milliseconde près, une image de 8,3 ms (120 Hz) comptait 8 ou 9 ms, et les animations de
+		# l'interface (bulles du coach, HUD) avançaient par à-coups
+		var now := Time.get_ticks_usec()
+		_delta = 0.0 if _last_ms == 0 else minf(float(now - _last_ms) / 1000000.0, 0.1)
 		_last_ms = now
 		if Perf.sim_dt > 0.0:
 			_delta = Perf.sim_dt  # relevé --perf au pas fixe : le temps réel de l'interface suit le pas du moteur
@@ -181,9 +183,22 @@ static func figure(ci: CanvasItem, shape: String, c: Vector2, r: float, a: float
 			ci.draw_polyline(Transform2D(0.0, Vector2(s, s), 0.0, c) * fig_pts(shape), ink, w * 1.1, true)
 
 
+static var _gp := {}  # figure -> points du geste (calculés une fois)
+
+
 ## Geste d'une figure, en coordonnées 0..1 du cadre (tracé de bas en haut, comme au doigt).
-## Partagé par le tutoriel (coach.gd) et le carnet du dojo (dojo.gd).
+## Partagé par le tutoriel (coach.gd), le carnet du dojo (dojo.gd) et l'intro. En cache (les planches animées le
+## redemandent à chaque image) : ne pas modifier le tableau rendu.
 static func gesture_points(kind: String) -> PackedVector2Array:
+	var got = _gp.get(kind)
+	if got != null:
+		return got
+	var p := _gesture_points_build(kind)
+	_gp[kind] = p
+	return p
+
+
+static func _gesture_points_build(kind: String) -> PackedVector2Array:
 	var p := PackedVector2Array()
 	match kind:
 		"loop":
@@ -238,26 +253,35 @@ static func gesture_points(kind: String) -> PackedVector2Array:
 ## La figure se trace en boucle dans un petit cadre (t : horloge en secondes). col : encre du tracé
 ## (alpha 0 : papier clair sur cadre d'encre) ; light : cadre clair teinté de col ; start : marque le point
 ## de départ d'un petit rond (sens du geste). sb : StyleBoxFlat réutilisée par l'écran qui dessine.
+## part : 0 tout ; 1 la partie fixe (cadre, tracé pâle, point de départ), dessinée une fois sur un calque ;
+## 2 la partie animée (trait qui avance, pointe), redessinée à chaque image par-dessus.
 static func draw_gesture(ci: CanvasItem, sb: StyleBoxFlat, kind: String, frame: Rect2, u: float, a: float, t: float,
-		col := Color(0, 0, 0, 0), light := false, start := false) -> void:
+		col := Color(0, 0, 0, 0), light := false, start := false, part := 0) -> void:
 	var c := Toon.WASHI if col.a <= 0.0 else Color(col, 1.0)
-	if light:
-		ci.draw_style_box(box(sb, Color(c, 0.12 * a), int(8.0 * u), Color(c, 0.6 * a), int(maxf(1.0, 1.2 * u))), frame)
-	else:
-		ci.draw_style_box(box(sb, Color(Toon.SUMI, 0.9 * a), int(8.0 * u)), frame)
+	if part != 2:
+		if light:
+			ci.draw_style_box(box(sb, Color(c, 0.12 * a), int(8.0 * u), Color(c, 0.6 * a), int(maxf(1.0, 1.2 * u))), frame)
+		else:
+			ci.draw_style_box(box(sb, Color(Toon.SUMI, 0.9 * a), int(8.0 * u)), frame)
 	var inner := frame.grow(-8.0 * u)
 	var pts := gesture_points(kind)
 	var k := clampf(fmod(maxf(t, 0.0), 2.2) / 1.6, 0.0, 1.0)
 	var n := int(k * float(pts.size() - 1))
 	var mapped := PackedVector2Array()
-	for p in pts:
-		mapped.append(inner.position + p * inner.size)
-	ci.draw_polyline(mapped, Color(c, 0.2 * a), 2.0 * u, true)
-	if start:
-		# point de départ : seul accent, toujours vermillon (planches monotones du coach et du carnet)
-		ci.draw_circle(mapped[0], 3.5 * u, Color(Toon.VERMILION, 0.9 * a))
+	# partie animée seule : les points jusqu'à la pointe suffisent
+	var cnt := n + 1 if part == 2 else pts.size()
+	mapped.resize(cnt)
+	for i in cnt:
+		mapped[i] = inner.position + pts[i] * inner.size
+	if part != 2:
+		ci.draw_polyline(mapped, Color(c, 0.2 * a), 2.0 * u, true)
+		if start:
+			# point de départ : seul accent, toujours vermillon (planches monotones du coach et du carnet)
+			ci.draw_circle(mapped[0], 3.5 * u, Color(Toon.VERMILION, 0.9 * a))
+		if part == 1:
+			return
 	if n >= 1:
-		ci.draw_polyline(mapped.slice(0, n + 1), Color(c, a), 2.5 * u, true)
+		ci.draw_polyline(mapped if part == 2 else mapped.slice(0, n + 1), Color(c, a), 2.5 * u, true)
 	ci.draw_circle(mapped[n], 4.0 * u, Color(Toon.VERMILION, 0.9 * a))
 
 
@@ -1435,11 +1459,29 @@ static func hanko(ci: CanvasItem, r: Rect2, chars: String, col: Color, paper: Co
 
 
 ## Marges de sécurité (encoche en haut, barre de geste en bas) en pixels de l'écran `view` ; nulles sur ordinateur.
+static var _safe := Rect2i()
+static var _safe_win := Vector2i(-1, -1)
+static var _safe_ms := -100000
+
+
+## Zone sûre de l'écran (encoche, barres système), en cache. Sur Android, chaque demande au système est un appel
+## Java qui alloue (encarts de la fenêtre, découpe) : faite à chaque image par le HUD et le coach, elle faisait
+## saccader le jeu (ramasse-miettes). Relue quand la fenêtre change de taille, et au plus une fois par seconde.
+static func safe_area() -> Rect2i:
+	var win := DisplayServer.window_get_size()
+	var now := Time.get_ticks_msec()
+	if win != _safe_win or now - _safe_ms > 1000:
+		_safe_win = win
+		_safe_ms = now
+		_safe = DisplayServer.get_display_safe_area()
+	return _safe
+
+
 static func safe_insets(view: Vector2) -> Vector2:
 	if not (OS.has_feature("android") or OS.has_feature("ios")):
 		return Vector2.ZERO
 	var win := DisplayServer.window_get_size()
-	var safe := DisplayServer.get_display_safe_area()
+	var safe := safe_area()
 	if win.y <= 0 or safe.size.y <= 0:
 		return Vector2.ZERO
 	var k := view.y / float(win.y)

@@ -11,6 +11,8 @@ extends Node
 ## c'est le vrai coût d'une image, rendu compris).
 ## Postes de script : chaque gros _process / _draw mesuré s'enveloppe de Perf.t0() / Perf.add(&"poste", t)
 ## (rien n'est mesuré sans --perf : une seule lecture de booléen statique).
+## `--perftrace` (avec --perf) : une ligne « PERFT » par image (temps, appels de dessin 2D, postes de script, bulle du
+## coach affichée et figée ou non) pour suivre une animation image par image (ex. l'apparition d'une bulle du tutoriel).
 
 const PERF_WINDOW := 150  # images par fenêtre (5 s à 30 images/s)
 const TOP_N := 10
@@ -255,6 +257,7 @@ func _label(n: Node) -> String:
 # `--shadercheck` : sortes de matières (une sorte = un shader à compiler) vues à l'écran ; celles qui paraissent
 # après la fin du préchauffage (main.warmed) sont signalées avec le nœud qui les porte : shader compilé en partie
 var _shader_check := false
+var _trace := false  # `--perftrace` : une ligne par image (temps, postes de script, bulle du coach)
 var _mat_seen := {}  # signature -> true
 var _mat_sig_cache := {}  # id de matière -> signature
 var _warm_done := false
@@ -262,6 +265,7 @@ var _warm_done := false
 
 func _ready() -> void:
 	_shader_check = "--shadercheck" in OS.get_cmdline_user_args()
+	_trace = "--perftrace" in OS.get_cmdline_user_args()
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("--census="):
 			for v in String(a).substr(9).split(","):
@@ -291,7 +295,11 @@ func _where() -> String:
 	var w = main.get("current_world")
 	var r = main.get("room")
 	var s = main.get("state")
-	return "monde %s salle %s état %s" % [str(w), str(r), str(s)]
+	var out := "monde %s salle %s état %s" % [str(w), str(r), str(s)]
+	var co = main.get("coach")
+	if co != null and String(co.get("mark")) != "":
+		out += " bulle %s%s" % [String(co.get("mark")), " figée" if float(co.get("_fz")) >= 0.0 else ""]
+	return out
 
 
 func _process(_delta: float) -> void:
@@ -337,6 +345,13 @@ func _process(_delta: float) -> void:
 		if not _keys_win.has(k):
 			_keys_win[k] = []
 		(_keys_win[k] as Array).append(us)
+	if _trace:
+		var ks: Array = []
+		for k in _acc.keys():
+			if int(_acc[k]) >= 20:
+				ks.append("%s %d" % [k, int(_acc[k])])
+		print("PERFT %d img %.2f proc %.2f canvas %d prims %d [%s] %s" % [_frames, img, float(vals["proc"]), int(vals["d_canvas"]),
+			int(vals["prims"]), _where(), ", ".join(ks)])
 	_acc.clear()
 	_calls.clear()
 	_phys_us = 0

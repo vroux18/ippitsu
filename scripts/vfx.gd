@@ -3689,6 +3689,11 @@ func _process(delta: float) -> void:
 	# temps réel : les effets ne ralentissent pas avec le jeu
 	var dt := UiKit.unscaled(delta, 0.05)
 	_frame_big = false
+	if delta <= 0.0 and Engine.time_scale <= 0.0:
+		# jeu figé (pause, arrêt sur image du coach) : les effets ne bougent pas (pas nul), inutile de les parcourir
+		if _pt != 0:
+			Perf.add(&"vfx", _pt)
+		return
 	if main and main.hero and is_instance_valid(main.hero) and main.hero.dashing:
 		trail_point(main.hero.position)
 	_update_trail(dt)
