@@ -1,18 +1,20 @@
 extends Control
-## Coach : le tutoriel se fait en jouant. Petites bulles d'encre posées sur le jeu, près du héros,
-## au moment où chaque geste sert : tracer, trancher, l'encre, une figure, l'ultime, la course.
-## (Pas de bulle « esquive » : le simple tap ne fait rien, on s'écarte d'un coup en traçant un trait.)
-## Chaque bulle ne vient qu'une fois (meta.coach_seen) et part dès que le geste est fait (ou au bout
-## de quelques secondes). Chaque bulle arrive en arrêt sur image : le jeu se fige, voile d'encre, bulle
-## en grand, geste fantôme animé, puis un doigt qui pulse (invite à toucher) ; ce toucher relance le jeu
-## (jamais un trait) et la bulle reste en petit rappel. La première garde ensuite le temps ralenti jusqu'au trait.
-## Leçon des figures (« figures ») : au 2e combat, une planche des six figures, puis « Un zigzag ».
-## Moins de texte, plus de visuel : chaque bulle tient en quelques mots, le geste fantôme porte la consigne.
+## Coach : le tutoriel se fait en jouant. Bandeau v2 en haut de l'écran (zone 88–130 u, même coup de pinceau que
+## le bandeau d'événement du HUD : sceau vermillon à picto, titre en capitales, une ligne), geste fantôme sur le
+## terrain (main fantôme, trait fantôme, taps), au moment où chaque geste sert : tracer, trancher, l'encre, une
+## figure, l'ultime, la course. (Pas de bulle « esquive » : le simple tap ne fait rien, on s'écarte en traçant.)
+## Chaque leçon ne vient qu'une fois (meta.coach_seen) et part dès que le geste est fait (ou au bout de quelques
+## secondes). Chaque leçon arrive en arrêt sur image : le jeu se fige, voile d'encre percé d'un projecteur sur le
+## geste, bandeau, geste fantôme animé, puis une main qui pulse (invite à toucher, sans un mot) ; ce toucher
+## relance le jeu (jamais un trait) et le bandeau reste en rappel. La première garde ensuite le temps ralenti
+## jusqu'au trait. Leçon des figures (« figures ») : au 2e combat, une planche des six figures, puis « Un zigzag ».
+## Pas de texte d'interaction (UI v2) : le picto, le geste fantôme et la main portent la consigne.
 ## main appelle on_launch, on_event, on_pick, slows, frozen, freeze_tap, is_over_ui et skip ;
 ## le coach lit l'état de main.
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 
 # une bulle = quelques mots ; le geste fantôme (main, trait, taps) montre le reste
@@ -24,6 +26,18 @@ const TEXTS := {
 	"run": "Maintiens : cours",
 	"figures": "Un zigzag",
 }
+# une ligne sous le titre (comme la planche Coach : « Le ronin suit ton doigt et tranche. »)
+const SUBS := {
+	"stroke": "Le ronin suit ton doigt et tranche.",
+	"cut": "Passe à travers lui d'un trait.",
+	"ink": "Elle revient quand tu ne traces pas.",
+	"ult": "Deux taps : la lame balaie l'écran.",
+	"run": "Doigt posé : le ronin court.",
+	"figures": "Une forme frappe plus fort.",
+	"figure": "Sa technique est à toi.",
+}
+# picto du sceau du bandeau (clé ui_icons.gd, ou glyph UiKit) ; les leçons de figure montrent la figure elle-même
+const ICONS := {"stroke": "hud/slash", "cut": "hud/slash", "ink": "water", "ult": "interface/double_tap", "run": "effets/vitesse"}
 # mode pad (option) : le geste se fait dans le pad du bas, pas sur le terrain
 const TEXTS_PAD := {
 	"stroke": "Trace dans le pad",
@@ -56,8 +70,8 @@ const FREEZE_HINT := 0.8  # arrêt sur image : le doigt qui pulse (invite à tou
 const FREEZE_MAX := 12.0  # garde-fou : l'arrêt sur image se lève seul (s réelles)
 const FREEZE_MAX_BOT := 3.0  # robot (CI) : jamais bloqué longtemps
 const FREEZE_HARD_MS := 60000  # garde-fou absolu (horloge murale), même si le coach ne tournait plus
-const VEIL := 0.32  # voile d'encre de l'arrêt sur image
-const BIG := 1.35  # texte de la bulle agrandi pendant l'arrêt sur image
+const VEIL := 0.55  # voile d'encre de l'arrêt sur image (percé d'un projecteur sur le geste)
+const BIG := 1.06  # bandeau à peine agrandi pendant l'arrêt sur image
 
 var main: Node
 var mark := ""  # bulle affichée ("" : aucune)
@@ -74,7 +88,11 @@ var _big := 1.0  # échelle de la bulle (suit l'arrêt sur image)
 var _skip_rect := Rect2()
 var _force := ""  # bulle à montrer dès que possible, sans condition (captures : `?coach=figures`)
 var _ui := FontVariation.new()
+var _title := FontVariation.new()  # titre du bandeau : Shippori espacé
 var _sb := StyleBoxFlat.new()
+var _shape := PackedVector2Array()  # coup de pinceau du bandeau (gabarit 228 × 38 du HUD, normalisé 0..1)
+var _line := PackedVector2Array()  # son filet vermillon (normalisé)
+var _pts := PackedVector2Array()  # tampon de points (polygones du bandeau, du projecteur)
 
 
 func _ready() -> void:
@@ -82,6 +100,29 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 1
+	_title.base_font = UiKit.TITLE_FONT
+	# même coup de pinceau que hud.gd (_banner_shape) : les deux bandeaux se ressemblent trait pour trait
+	_shape.append(Vector2(6, 10))
+	_cubic(_shape, Vector2(6, 10), Vector2(40, 3), Vector2(120, 5), Vector2(222, 7), 8)
+	_shape.append(Vector2(218, 16))
+	_shape.append(Vector2(224, 22))
+	_cubic(_shape, Vector2(224, 22), Vector2(150, 34), Vector2(70, 34), Vector2(4, 30), 8)
+	_shape.append(Vector2(10, 21))
+	for i in _shape.size():
+		_shape[i] = _shape[i] / Vector2(228.0, 38.0)
+	_line.append(Vector2(30, 31))
+	_cubic(_line, Vector2(30, 31), Vector2(90, 35), Vector2(150, 34), Vector2(200, 30), 6)
+	for i in _line.size():
+		_line[i] = _line[i] / Vector2(228.0, 38.0)
+
+
+static func _cubic(out: PackedVector2Array, p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, n: int) -> void:
+	for i in range(1, n + 1):
+		var t := float(i) / float(n)
+		var a := p0.lerp(p1, t)
+		var b := p1.lerp(p2, t)
+		var c := p2.lerp(p3, t)
+		out.append(a.lerp(b, t).lerp(b.lerp(c, t), t))
 
 
 func active() -> bool:
@@ -341,41 +382,58 @@ func _draw() -> void:
 		return
 	var u := size.x / 400.0
 	var insets := UiKit.safe_insets(size)
-	# arrêt sur image : léger voile d'encre sur le jeu figé (la bulle et le geste fantôme restent nets)
+	var a := clampf(_t / 0.3, 0.0, 1.0)
+	var hero: Node3D = main.hero
+	var hp := hero.position
+	var feet := _screen(hp)
+	# mode pad : les gestes fantômes se font dans le pad (le terrain garde le bandeau)
+	var pr := _pad()
+	var in_pad := pr.size.x >= 10.0
+	if in_pad:
+		feet = pr.get_center()
+	# arrêt sur image : voile d'encre percé d'un projecteur (ellipse) sur le geste à faire
 	if _veil > 0.005:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.SUMI, _veil))
+		var sc := Vector2(-9999, -9999)
+		var sr := Vector2(120.0, 190.0) * u
+		match mark:
+			"stroke":
+				sc = pr.get_center() if in_pad else _screen(hp + Vector3(0, 0, -1.8))
+				if in_pad:
+					sr = pr.size * 0.5
+			"cut":
+				var e := _first_enemy()
+				sc = _screen(e.position).lerp(feet, 0.5) if e != null else feet
+				sr = Vector2(110.0, 170.0) * u
+			"ink":
+				var ir: Rect2 = main.hud.ink_rect()
+				sc = ir.get_center()
+				sr = Vector2(44.0 * u, ir.size.y * 0.7)
+			"figure", "ult", "run":
+				sc = feet
+				sr = Vector2(120.0, 150.0) * u
+		if sc.x < -9000.0 or mark == "" or mark == "figures":
+			draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, _veil))
+		else:
+			_draw_spot(sc, sr, _veil)
 	if _skip_shown():
 		_draw_skip(u, insets)
 	if mark == "":
 		return
-	var a := clampf(_t / 0.3, 0.0, 1.0)
-	var big := _big
-	var hero: Node3D = main.hero
-	var hp := hero.position
-	var head := _screen(hp + Vector3(0, 2.3, 0))
-	var feet := _screen(hp)
 	var txt := String(TEXTS.get(mark, ""))
-	# mode pad : les gestes fantômes se font dans le pad (le terrain montre seulement la bulle)
-	var pr := _pad()
-	var in_pad := pr.size.x >= 10.0
 	if in_pad:
 		txt = String(TEXTS_PAD.get(mark, txt))
-		feet = pr.get_center()
+	var sub := String(SUBS.get(mark, ""))
+	var icon := String(ICONS.get(mark, ""))
 	match mark:
 		"stroke":
 			if in_pad:
 				_ghost_pad_path(pr, u, a)
 			else:
 				_ghost_path(hp, u, a)
-			_bubble(txt, head, u, a, false, 0.0, big)
 		"cut":
 			var e := _first_enemy()
 			if e != null:
-				var ep := _screen(e.position)
-				_ghost_line(_screen(hp), ep, u, a)  # chemin du rōnin sur le terrain (aussi en mode pad)
-				_bubble(txt, _screen(e.position + Vector3(0, 2.2, 0)), u, a, false, 0.0, big)
-			else:
-				_bubble(txt, head, u, a, false, 0.0, big)
+				_ghost_line(_screen(hp), _screen(e.position), u, a)  # chemin du rōnin sur le terrain (aussi en mode pad)
 		"ink":
 			# la jauge d'encre du HUD (bord droit), avec son cadre : géométrie lue dans le HUD (raccourcie au-dessus du pad)
 			var ir: Rect2 = main.hud.ink_rect()
@@ -387,53 +445,83 @@ func _draw() -> void:
 			_sb.set_border_width_all(int(maxf(2.0, 3.0 * u)))
 			_sb.shadow_size = 0
 			draw_style_box(_sb, gr.grow((4.0 + 3.0 * pulse) * u))
-			_bubble(txt, Vector2(gr.position.x - 10.0 * u, gr.get_center().y), u, a, true, 0.0, big)
 		"figure":
-			var ft := String(FIG_TEXT.get(_fig, "Dessine la figure"))
-			var r := _bubble(ft, head, u, a, false, 64.0 * u, big)
-			var demo := Rect2(Vector2(r.end.x - 60.0 * u, r.position.y + 4.0 * u), Vector2(56.0 * u, r.size.y - 8.0 * u))
-			_draw_figure(_fig, demo, u, a)
+			txt = String(FIG_TEXT.get(_fig, "Dessine la figure"))
+			icon = "fig:" + _fig
 		"figures":
+			icon = "fig:zigzag"
 			if _fz >= 0.0:
-				_draw_lesson(u, a)  # planche des six figures
-			else:
-				# rappel : le zigzag fantôme (encre sumi, comme la planche)
-				var r := _bubble(txt, head, u, a, false, 64.0 * u, big)
-				var demo := Rect2(Vector2(r.end.x - 60.0 * u, r.position.y + 4.0 * u), Vector2(56.0 * u, r.size.y - 8.0 * u))
-				_draw_figure("zigzag", demo, u, a)
+				_draw_lesson(u, a)  # planche des six figures (elle porte son propre titre : pas de bandeau)
+				txt = ""
 		"ult":
 			_ghost_double_tap(feet, u, a)
-			_bubble(txt, head, u, a, false, 0.0, big)
 		"run":
 			if in_pad:
 				_ghost_pad_hold(feet, u, a)
 			else:
 				_ghost_hold(feet, hp, u, a)
-			_bubble(txt, head, u, a, false, 0.0, big)
+	if txt != "":
+		_banner(txt, sub, icon, u, a)
 	if _fz >= 0.0:
 		_draw_hint(u, insets)
 
 
-## Invite à toucher (arrêt sur image) : un doigt fantôme qui pulse en bas, sans un mot, un instant après l'arrêt.
+## Voile d'encre percé d'un projecteur : ellipse claire (centre c, demi-axes r) autour du geste, le reste
+## de l'écran sous le voile ; liseré washi pointillé sur l'ellipse (planche Coach). Sans flou : anneau de quads.
+func _draw_spot(c: Vector2, r: Vector2, k: float) -> void:
+	var n := 48
+	var veil := Color(Toon.VEIL, k)
+	var prev_e := Vector2.ZERO
+	var prev_b := Vector2.ZERO
+	for i in n + 1:
+		var ang := TAU * float(i) / float(n)
+		var d := Vector2(cos(ang), sin(ang))
+		var e := c + Vector2(d.x * r.x, d.y * r.y)
+		# point du bord de l'écran dans la même direction (le rayon sort par le côté le plus proche)
+		var tx := 1.0e9
+		if absf(d.x) > 0.0001:
+			tx = ((size.x + 4.0 - c.x) if d.x > 0.0 else (-4.0 - c.x)) / d.x
+		var ty := 1.0e9
+		if absf(d.y) > 0.0001:
+			ty = ((size.y + 4.0 - c.y) if d.y > 0.0 else (-4.0 - c.y)) / d.y
+		var b := c + d * maxf(minf(tx, ty), 0.0)
+		if i > 0:
+			_pts.resize(4)
+			_pts[0] = prev_e
+			_pts[1] = e
+			_pts[2] = b
+			_pts[3] = prev_b
+			draw_colored_polygon(_pts, veil)
+		prev_e = e
+		prev_b = b
+	# liseré pointillé (4 / 8 u) sur l'ellipse
+	var u := size.x / 400.0
+	var per := 2.0 * PI * sqrt((r.x * r.x + r.y * r.y) * 0.5)
+	var m := maxi(12, int(per / (12.0 * u)))
+	for j in m:
+		var a0 := TAU * float(j) / float(m)
+		var a1 := a0 + TAU / float(m) * 0.35
+		draw_line(c + Vector2(cos(a0) * r.x, sin(a0) * r.y), c + Vector2(cos(a1) * r.x, sin(a1) * r.y), Color(Toon.WASHI, 0.5 * k / VEIL), 1.5 * u, true)
+
+
+## Invite à toucher (arrêt sur image) : une main fantôme qui pulse en bas, sans un mot, un instant après l'arrêt.
 func _draw_hint(u: float, insets: Vector2) -> void:
 	var k := clampf((_fz - FREEZE_HINT) / 0.3, 0.0, 1.0)
 	if k <= 0.0:
 		return
-	var y := size.y - insets.y - 96.0 * u
+	var y := size.y - insets.y - 110.0 * u
 	var pr := _pad()
 	if pr.size.x >= 10.0:
-		y = minf(y, pr.position.y - 72.0 * u)  # au-dessus du pad (et du bouton passer)
+		y = minf(y, pr.position.y - 86.0 * u)  # au-dessus du pad (et du bouton passer)
 	if _lesson_bottom > 0.0:
 		y = _lesson_bottom + 30.0 * u  # leçon des figures : juste sous la planche, jamais dessus
 	var c := Vector2(size.x * 0.5, y)
 	var t := fmod(_t, 1.2)
-	# onde qui part du doigt, puis le doigt qui s'enfonce
+	# onde qui part du doigt, puis la main qui s'enfonce
 	if t < 0.7:
 		draw_arc(c, (12.0 + 30.0 * t) * u, 0, TAU, 28, Color(Toon.WASHI, (0.7 - t) * k), 2.0 * u, true)
 	var press := 1.0 if t < 0.15 else 0.0
-	draw_circle(c, 14.0 * u, Color(Toon.ui_paper, 0.9 * k))
-	draw_arc(c, 14.0 * u, 0, TAU, 28, Color(Toon.ui_ink, 0.5 * k), maxf(1.0, 1.2 * u), true)
-	_finger(c, u * 0.9, k, 1.0 - press)
+	_finger(c + Vector2(0, 3.0 * u * press), u, k, 1.0 - press)
 
 
 ## Leçon des figures (arrêt sur image) : planche de papier, une ligne, puis les six figures qui se
@@ -517,68 +605,117 @@ func _draw_skip(u: float, insets: Vector2) -> void:
 	draw_line(Vector2(c.x + 7.0 * u, c.y - 5.5 * u), Vector2(c.x + 7.0 * u, c.y + 5.5 * u), col, wdt, true)
 
 
-## Bulle d'encre (papier, liseré d'encre, queue vers `anchor`). side : à gauche de l'ancre (sinon au-dessus).
-## extra : place réservée à droite du texte (démonstration de la figure). big : agrandie (arrêt sur image),
-## et ramenée vers le centre de l'écran. Renvoie le cadre de la bulle.
-func _bubble(txt: String, anchor: Vector2, u: float, a: float, side: bool, extra := 0.0, big := 1.0) -> Rect2:
-	var t := UiKit.plain(txt)
-	var ub := u * big
-	var fs := int(14.0 * ub)
-	var maxw := size.x * 0.84 - extra - 28.0 * ub
-	var tw := _ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	if tw > maxw and tw > 1.0:
-		fs = maxi(8, int(float(fs) * maxw / tw))
-		tw = _ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var h := 40.0 * ub if extra <= 0.0 else maxf(64.0 * u, 40.0 * ub)
-	var w := tw + 28.0 * ub + extra
-	var anc := anchor
-	if anc.x < -9000.0:
-		anc = Vector2(size.x * 0.5, size.y * 0.4)
-	var top_clear: float = main.hud.top_clear()
-	var top_min := top_clear + 6.0 * u  # sous les pastilles du haut (et la barre du boss)
-	var pos := Vector2.ZERO
-	var tail := PackedVector2Array()
-	if side:
-		if side and w > anc.x - 12.0 * u:
-			fs = maxi(8, int(float(fs) * (anc.x - 40.0 * u) / maxf(w, 1.0)))
-			tw = _ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			w = tw + 28.0 * ub
-		pos = Vector2(anc.x - 12.0 * u - w, anc.y - h * 0.5)
-		pos.x = maxf(pos.x, 8.0 * u)
-		tail = PackedVector2Array([Vector2(pos.x + w - 2.0 * u, anc.y - 7.0 * u), anc, Vector2(pos.x + w - 2.0 * u, anc.y + 7.0 * u)])
+## Bandeau du coach (UI v2, planche Coach) : même coup de pinceau sumi 92 % que le bandeau d'événement du HUD,
+## centré dans la zone 88–130 u (sous la barre haute ou le makimono du gardien ; plus bas si le HUD annonce
+## quelque chose), filet vermillon, sceau vermillon carré à picto (entaille, figure, goutte, double tap,
+## vitesse ; « fig:<figure> » : la figure qui se trace), titre Shippori en capitales espacées, une ligne dessous.
+## Le trait se peint de gauche à droite (260 ms), le texte suit en fondu ; à peine agrandi en arrêt sur image.
+func _banner(title: String, sub: String, icon: String, u: float, a: float) -> void:
+	var t := UiKit.plain(title).to_upper()
+	var st := UiKit.plain(sub)
+	var k_in := clampf(_t / 0.26, 0.0, 1.0)
+	var ein := UiKit.ease_out(k_in)
+	var bw := 324.0 * u
+	var h := 60.0 * u
+	var top: float = main.hud.top_clear()
+	var hb = main.hud.get("_banner_t")
+	if hb != null and float(hb) >= 0.0:
+		top += 64.0 * u  # le HUD annonce (étape nettoyée, boss…) : le coach se range dessous
+	var cy := top + 8.0 * u + h / 2.0
+	var cx := size.x * 0.5
+	draw_set_transform(Vector2(cx, cy), 0.0, Vector2(_big, _big))
+	var x0 := -bw / 2.0
+	var reach := 0.15 + 0.85 * ein
+	# le coup de pinceau, tronqué à droite tant qu'il se peint, puis le filet vermillon
+	_pts.resize(_shape.size())
+	for i in _shape.size():
+		var p := _shape[i]
+		_pts[i] = Vector2(x0 + minf(p.x, reach) * bw, -h / 2.0 + p.y * h)
+	draw_colored_polygon(_pts, Color(UIColors.SUMI_HUD_BG, UIColors.SUMI_HUD_BG.a * a))
+	_pts.resize(_line.size())
+	for i in _line.size():
+		var p := _line[i]
+		_pts[i] = Vector2(x0 + minf(p.x, reach) * bw, -h / 2.0 + p.y * h)
+	draw_polyline(_pts, Color(Toon.VERMILION, 0.95 * a), 2.5 * u, true)
+	# sceau carré vermillon, posé comme un tampon (penché de 5°) juste après le trait, son picto en washi
+	var sk := clampf((_t - 0.1) / 0.22, 0.0, 1.0)
+	var sc := Vector2(x0 + 38.0 * u, 0.0)
+	if sk > 0.0:
+		var z := lerpf(1.6, 1.0, UiKit.ease_out(sk))
+		var half := 19.0 * u * z
+		draw_set_transform(Vector2(cx, cy) + sc * _big, -0.087, Vector2(_big, _big))
+		draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, a * sk), int(5 * u), Color(UIColors.WASHI, 0.85 * a * sk), maxi(1, int(1.5 * u))), Rect2(-Vector2(half, half), Vector2(half, half) * 2.0))
+		_seal_icon(icon, Vector2.ZERO, 22.0 * u * z, a * sk)
+		draw_set_transform(Vector2(cx, cy), 0.0, Vector2(_big, _big))
+	# titre et ligne, rétrécis s'ils débordent
+	var ta := a * clampf((_t - 0.08) / 0.2, 0.0, 1.0)
+	var sp := maxi(1, int(3.0 * u))
+	if _title.spacing_glyph != sp:
+		_title.spacing_glyph = sp
+	var tx := x0 + 68.0 * u
+	var room := bw - 84.0 * u
+	var fs := int(16 * u)
+	while fs > 10 and _title.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
+		fs -= 1
+	var sfs := int(11 * u)
+	while st != "" and sfs > 7 and UiKit.UI_FONT.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > room:
+		sfs -= 1
+	if st == "":
+		draw_string(_title, Vector2(tx + (1.0 - ein) * 10.0 * u, fs * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.WASHI, ta))
 	else:
-		# arrêt sur image : la bulle agrandie glisse vers le centre (la queue pointe toujours l'ancre)
-		var kc := clampf((big - 1.0) / maxf(BIG - 1.0, 0.01), 0.0, 1.0)
-		pos = Vector2(lerpf(anc.x, size.x * 0.5, kc * 0.6) - w * 0.5, anc.y - h - 14.0 * u)
-		pos.x = clampf(pos.x, 10.0 * u, size.x - w - 10.0 * u)
-		pos.y = clampf(pos.y, top_min, size.y - h - 80.0 * u)
-		var tx := clampf(anc.x, pos.x + 16.0 * u, pos.x + w - 16.0 * u)
-		var tip := Vector2(anc.x, minf(anc.y, pos.y + h + 14.0 * u))
-		if tip.y < pos.y + h + 4.0 * u:
-			tip.y = pos.y + h + 10.0 * u
-		tail = PackedVector2Array([Vector2(tx - 8.0 * u, pos.y + h - 2.0 * u), tip, Vector2(tx + 8.0 * u, pos.y + h - 2.0 * u)])
-	# légère respiration à l'apparition
-	var k := UiKit.ease_out(a)
-	pos.y += (1.0 - k) * 8.0 * u
-	var r := Rect2(pos, Vector2(w, h))
-	var ink := Color(Toon.ui_ink, 0.9 * a)
-	UiKit.box(_sb, Color(Toon.ui_paper, 0.95 * a), int(14.0 * u), ink, int(maxf(1.0, 1.6 * u)))
-	_sb.shadow_color = Color(0, 0, 0, 0.25 * a)
-	_sb.shadow_size = int(8.0 * u)
-	draw_colored_polygon(tail, Color(Toon.ui_paper, 0.95 * a))
-	draw_polyline(PackedVector2Array([tail[0], tail[1], tail[2]]), ink, 1.6 * u, true)
-	draw_style_box(_sb, r)
-	# trait vermillon au pinceau à gauche, puis le texte
-	draw_rect(Rect2(r.position + Vector2(9.0 * u, h * 0.3), Vector2(3.0 * u, h * 0.4)), Color(Toon.VERMILION, a))
-	draw_string(_ui, Vector2(r.position.x + 18.0 * ub, r.position.y + h * 0.5 + fs * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.ui_ink, a))
-	return r
+		draw_string(_title, Vector2(tx + (1.0 - ein) * 10.0 * u, -3.0 * u), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.WASHI, ta))
+		draw_string(UiKit.UI_FONT, Vector2(tx, 14.0 * u), st, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(UIColors.WASHI, 0.85 * ta))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
-## Bout du doigt fantôme (pastille vermillon cerclée de papier).
+## Picto du sceau du bandeau, en washi : picto v2 (ui_icons.gd), glyph UiKit (« water » : la goutte), ou la
+## figure « fig:<kind> » qui se trace en boucle (trait washi, point en tête).
+func _seal_icon(icon: String, c: Vector2, sz: float, a: float) -> void:
+	if icon.begins_with("fig:"):
+		var kind := icon.substr(4)
+		var pts := UiKit.gesture_points(kind)
+		var box := Rect2(c - Vector2(sz, sz) * 0.5, Vector2(sz, sz))
+		var k := clampf(fmod(_t, 2.2) / 1.6, 0.0, 1.0)
+		var n := int(k * float(pts.size() - 1))
+		_pts.resize(pts.size())
+		for i in pts.size():
+			_pts[i] = box.position + pts[i] * box.size
+		draw_polyline(_pts, Color(Toon.WASHI, 0.3 * a), maxf(1.5, sz * 0.08), true)
+		if n >= 1:
+			draw_polyline(_pts.slice(0, n + 1), Color(Toon.WASHI, a), maxf(1.8, sz * 0.1), true)
+		draw_circle(_pts[n], sz * 0.11, Color(Toon.WASHI, a))
+		return
+	if icon == "" or UiKit.draw_icon(self, icon, c, sz, a, Toon.WASHI):
+		return
+	UiKit.glyph(self, icon, c, sz * 0.42, Toon.WASHI, Toon.VERMILION, a)
+
+
+## Main fantôme (planche Coach) : halo washi doux (deux disques, sans flou), index tendu vers `p` (le bout du
+## doigt), poing et pouce ; contour sumi, chair washi. press : 1 posée, 0 relevée (le halo s'ouvre un peu).
 func _finger(p: Vector2, u: float, a: float, press := 1.0) -> void:
-	draw_circle(p + Vector2(3, 5) * u, 9.0 * u, Color(0, 0, 0, 0.18 * a))
-	draw_circle(p, (7.0 + 1.5 * (1.0 - press)) * u, Color(Toon.VERMILION, 0.85 * a))
-	draw_arc(p, 11.0 * u, 0, TAU, 20, Color(Toon.WASHI, 0.7 * a), 1.6 * u, true)
+	if a <= 0.01:
+		return
+	draw_circle(p, (20.0 + 4.0 * (1.0 - press)) * u, Color(Toon.WASHI, 0.22 * a))
+	draw_circle(p, 12.0 * u, Color(Toon.WASHI, 0.45 * a))
+	var ink := Color(Toon.SUMI, 0.9 * a)
+	var skin := Color(Toon.WASHI, a)
+	var q := p + Vector2(-4.0, 4.0) * u  # la main vient du bas gauche, comme sur la planche
+	# ombre portée légère
+	draw_circle(q + Vector2(10.0, 30.0) * u, 11.0 * u, Color(0, 0, 0, 0.15 * a))
+	# index (du bout vers la première phalange), puis le poing et le pouce ; contours d'abord, chair ensuite
+	var knuckle := q + Vector2(3.0, 18.0) * u
+	draw_line(q, knuckle, ink, 10.0 * u, true)
+	draw_circle(q + Vector2(9.0, 27.0) * u, 11.5 * u, ink)
+	draw_circle(q + Vector2(12.0, 19.0) * u, 5.5 * u, ink)
+	draw_circle(q + Vector2(17.0, 23.0) * u, 5.5 * u, ink)
+	draw_circle(q + Vector2(-2.0, 26.0) * u, 6.0 * u, ink)
+	draw_line(q, knuckle, skin, 7.0 * u, true)
+	draw_circle(q + Vector2(9.0, 27.0) * u, 9.5 * u, skin)
+	draw_circle(q + Vector2(12.0, 19.0) * u, 3.8 * u, skin)
+	draw_circle(q + Vector2(17.0, 23.0) * u, 3.8 * u, skin)
+	draw_circle(q + Vector2(-2.0, 26.0) * u, 4.3 * u, skin)
+	# pli des doigts repliés
+	draw_line(q + Vector2(10.0, 21.0) * u, q + Vector2(14.0, 25.0) * u, Color(Toon.SUMI, 0.35 * a), 1.2 * u, true)
 
 
 ## Trait fantôme devant le héros : le pinceau le trace en boucle, le doigt en tête.
