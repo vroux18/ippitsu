@@ -53,6 +53,9 @@ const WORLD_LUM := {1: 1.0, 2: 0.88, 3: 0.95, 4: 0.9, 5: 0.97, 6: 0.94, 7: 0.9, 
 var world_id := 1
 var kinds: Array = ["fire", "gold"]
 var hero: Node3D = null  # héros suivi (approche) ; retrouvé dans la scène s'il manque
+const RISE_T := 0.55  # durée de la montée d'une porte (s)
+const RISE_GAP := 0.18  # décalage entre deux portes (s)
+const RISE_DEPTH := 1.4  # profondeur de départ sous le sol (m)
 var hover_force := -1  # captures : porte forcée en état « approché » (-1 : selon la distance du héros)
 var hover: Array = [0.0, 0.0, 0.0]  # éveil de chaque porte (0..1), lissé
 var opened := false  # étape nettoyée : les portes s'éveillent (avant : sceaux visibles mais éteints)
@@ -72,6 +75,8 @@ func build(_arena: Node = null) -> void:
 	var xs := offsets(kinds.size())
 	for i in xs.size():
 		_gates.append(_build_gate(i, String(kinds[i]), Vector3(float(xs[i]), 0, 0)))
+	# pendant le combat, ni portes ni sceaux : le choix ne se découvre qu'une fois l'étape nettoyée (open)
+	visible = opened
 
 
 ## Étape nettoyée : les sceaux s'éveillent (halo, balancement), l'approche devient possible.
@@ -79,6 +84,7 @@ func open() -> void:
 	if not opened:
 		opened = true
 		_open_t = 0.0
+		visible = true
 
 
 ## Éclat de la porte `i` franchie (rituel du torii).
@@ -269,6 +275,11 @@ func _process(delta: float) -> void:
 	for i in _gates.size():
 		var g: Dictionary = _gates[i]
 		var root: Node3D = g["root"]
+		# apparition : chaque porte surgit du sol l'une après l'autre (0,55 s, léger dépassement)
+		var rk := clampf((_open_t - RISE_GAP * float(i)) / RISE_T, 0.0, 1.0) if opened else 0.0
+		var rise := 1.0 - pow(1.0 - rk, 3.0) + 0.12 * sin(PI * rk)
+		root.position.y = -RISE_DEPTH * (1.0 - minf(rise, 1.0)) + 0.06 * maxf(rise - 1.0, 0.0)
+		root.scale = Vector3(1.0, maxf(rise, 0.001), 1.0)
 		var want := 0.0
 		_flash[i] = maxf(0.0, float(_flash[i]) - delta * 2.0)
 		var fl: float = _flash[i]
