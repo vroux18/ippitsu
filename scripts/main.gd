@@ -657,6 +657,10 @@ func _ready() -> void:
 	# `?bestiaire` (captures) : ouvre l'encyclopédie des yōkai depuis l'accueil (avec `unlockall` : complète)
 	if "bestiaire" in wsearch:
 		_open_bestiary()
+		# `?bestiaire&fiche=kappa` (`boss_uwabami`, ou l'index N) : ce détail de l'encyclopédie ouvert
+		var bf := wsearch.find("fiche=")
+		if bf >= 0:
+			bestiary.call("open_fiche", wsearch.substr(bf + 6).get_slice("&", 0))
 	# `?carnet` (captures) : le dojo, carnet des figures ouvert
 	if "carnet" in wsearch:
 		_start_dojo()
@@ -796,6 +800,28 @@ const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins
 ## Même chose pour les nœuds « top_level » (zones d'attaque, bulles, nuages, étoiles) : hors de la hiérarchie,
 ## ils ignoraient l'échelle et se posaient à l'origine du monde, plein cadre (goutte noire au centre de l'arène
 ## quand un combat commençait avant la fin du préchauffage).
+## Maillage d'une miniature de préchauffage dessinée en billboard : un quad de 1 mm portant la matière de surface.
+func _warm_tiny(m: Mesh) -> Mesh:
+	if m == null:
+		return null
+	var q := QuadMesh.new()
+	q.size = Vector2(0.001, 0.001)
+	if m.get_surface_count() > 0:
+		q.material = m.surface_get_material(0)
+	return q
+
+
+## Une matière de ce maillage est en billboard sans garder l'échelle du nœud.
+func _warm_unscaled(mi: MeshInstance3D) -> bool:
+	if mi.mesh == null:
+		return false
+	for si in mi.mesh.get_surface_count():
+		var mm := mi.get_active_material(si) as BaseMaterial3D
+		if mm != null and mm.billboard_mode != BaseMaterial3D.BILLBOARD_DISABLED and not mm.billboard_keep_scale:
+			return true
+	return false
+
+
 ## Les pièces face caméra (billboard sans « keep scale » : particules de fumée et de braises, étoiles du butin,
 ## papiers des énigmes) perdent toute échelle dans le shader : dessinées en taille réelle à 2 m devant l'objectif
 ## (losange noir plein cadre pendant l'entrée d'un boss quand le préchauffage n'était pas fini). Elles sortent
@@ -803,6 +829,18 @@ const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins
 func _warm_shrink(n: Node) -> void:
 	if n is GPUParticles3D or n is CPUParticles3D:
 		n.set("local_coords", true)
+	# billboard sans « keep_scale » (particules, halos en quad) : le shader jette l'échelle du nœud, la miniature
+	# se dessinait en grand (losanges noirs cernés d'or du kasha et du hinotama devant la barque de l'accueil, des
+	# secondes durant) : maillage minuscule, même matière (le shader se compile toujours)
+	if n is CPUParticles3D:
+		var cp := n as CPUParticles3D
+		cp.mesh = _warm_tiny(cp.mesh)
+	elif n is GPUParticles3D:
+		var gpp := n as GPUParticles3D
+		gpp.draw_pass_1 = _warm_tiny(gpp.draw_pass_1)
+	elif n is MeshInstance3D and _warm_unscaled(n as MeshInstance3D):
+		var mi := n as MeshInstance3D
+		mi.mesh = _warm_tiny(mi.mesh)
 	if n is Node3D and n.top_level:
 		n.top_level = false
 		n.position = Vector3.ZERO

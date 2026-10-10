@@ -60,6 +60,7 @@ const BTN_MAIN_H := 64.0  # pinceau principal (REJOUER, REPRENDRE, MONDE SUIVANT
 const BTN_H := 46.0  # bouton secondaire (texte, fantôme, ACHETER)
 const BTN_SMALL_H := 28.0  # prix dans une tuile (la tuile entière est la cible)
 const ICON_BTN := 46.0  # bouton rond à icône : retour, réglages, son (diamètre)
+const TOUCH_MIN := 44.0  # zone tactile minimale (u), quel que soit le dessin (onglets, petites étiquettes)
 const ICON_MIN := 28.0  # plus petite cible tactile
 const ICON_GLYPH := 0.5  # pictogramme d'un bouton rond : moitié de son rayon
 const HEAD_X := 37.0  # centre du bouton retour depuis le bord gauche (de l'écran ou de la carte)
@@ -1099,6 +1100,13 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 			if cut:
 				_arc(ci, c, s, Vector2(-0.18, 0.38), 0.3, PI * 0.9, PI * 1.35, b, maxf(1.0, w * 0.7))
 		"at_seal":
+			if not cut:
+				# sans fond à découper (gains des résultats, prix grisé) : sceau au trait, sinon un carré plein muet
+				ci.draw_rect(Rect2(c + Vector2(-0.74, -0.74) * s, Vector2(1.48, 1.48) * s), k, false, maxf(1.0, w * 0.8))
+				_box(ci, c, s, Vector2(-0.36, -0.42), Vector2(0.36, -0.24), k)
+				_box(ci, c, s, Vector2(-0.09, -0.24), Vector2(0.09, 0.4), k)
+				_box(ci, c, s, Vector2(-0.4, 0.12), Vector2(0.4, 0.3), k)
+				return
 			_box(ci, c, s, Vector2(-0.78, -0.78), Vector2(0.78, 0.78), k)
 			if cut:
 				ci.draw_rect(Rect2(c + Vector2(-0.56, -0.56) * s, Vector2(1.12, 1.12) * s), b, false, maxf(1.0, w * 0.55))
@@ -2372,7 +2380,8 @@ static func ink_counter(ci: CanvasItem, sb: StyleBoxFlat, x: float, cy: float, v
 
 ## Onglets (UI v2, Boutons) : un mot centré par onglet (tab_font, FS_BODY), coup de pinceau `stroke` derrière l'actif
 ## (texte `on_text`), les autres en `off_text`. active peut être fractionnaire (glissement) ; dots : indices des
-## onglets qui portent une pastille vermillon. Chaque onglet occupe une part égale de r ; renvoie ces cadres (tactiles).
+## onglets qui portent une pastille vermillon. Chaque onglet occupe une part égale de r ; renvoie ces cadres (tactiles,
+## agrandis en hauteur jusqu'à 44 u : les filtres de 30 u restaient sous la zone tactile minimale).
 static func tabs(ci: CanvasItem, labels: Array, r: Rect2, active: float, stroke: Color, on_text: Color, off_text: Color,
 		a: float, u: float, dots := []) -> Array:
 	var n := labels.size()
@@ -2395,7 +2404,8 @@ static func tabs(ci: CanvasItem, labels: Array, r: Rect2, active: float, stroke:
 	ci.draw_colored_polygon(pts, Color(stroke, a))
 	for i in n:
 		var cr := Rect2(Vector2(r.position.x + cw * float(i), r.position.y), Vector2(cw, r.size.y))
-		rects.append(cr)
+		var tg := maxf(0.0, (TOUCH_MIN * u - r.size.y) / 2.0)
+		rects.append(cr.grow_individual(0.0, tg, 0.0, tg))
 		var on := clampf(1.0 - absf(active - float(i)), 0.0, 1.0)
 		var lab := plain(String(labels[i]))
 		var col: Color = off_text.lerp(on_text, on)

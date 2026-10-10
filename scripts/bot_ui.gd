@@ -243,7 +243,7 @@ func _step_menu() -> bool:
 	_ok("accueil")
 	# pinceau JOUER posé, entrées à icône visibles et assez grandes pour le doigt
 	var mn = main.menu
-	await _until(func(): return float(mn._t) >= 1.6, "accueil : encre posée", 5.0)
+	await _until(func(): return float(mn._t) >= 1.6, "accueil : encre posée")  # (délai complet : le premier affichage peut ramer)
 	var small := ""
 	for b in [mn._play, mn._atelier, mn._dojo, mn._wardrobe, mn._help, mn._gear, mn._sound]:
 		var bc: Control = b
@@ -652,7 +652,7 @@ func _wd_tap(key: String) -> void:
 	await _frames(2)
 
 
-## Garde-robe : tenue achetée à l'encre et portée, une apparence par type (écharpe, sillage, encre),
+## Garde-robe : une apparence par type (écharpe, sillage, encre : gagnées par les Vues, accordées ici),
 ## thème Nuit acheté et appliqué à l'accueil, retour au Washi, puis RETOUR.
 func _step_wardrobe() -> bool:
 	var meta = main.meta
@@ -663,15 +663,8 @@ func _step_wardrobe() -> bool:
 	if not await _until(func(): return bool(wd.visible) and float(wd._t) >= 0.4 and wd._hits.size() > 0, "GARDE-ROBE ouvre la garde-robe"):
 		return false
 	_ok("garde-robe ouverte")
-	await _wd_tap("tab:0")
-	var oid := "kaki"
-	if not bool(meta.cosmetic_owned("outfit", oid)):
-		await _wd_tap("item:" + oid)
-		await _press(wd._buy, "ACHETER")
-	else:
-		await _wd_tap("item:" + oid)
-	_check(String(meta.outfit) == oid and bool(meta.cosmetic_owned("outfit", oid)), "garde-robe : tenue %s achetée et portée" % oid, "tenue %s" % String(meta.outfit))
-	for i in range(1, 4):
+	# (plus d'onglet TENUE depuis a1ca132 : le hakama est fixe ; les onglets sont écharpe, sillage, encre, thème)
+	for i in range(0, 3):
 		var kind := String(wd.CATS[i])
 		await _wd_tap("tab:%d" % i)
 		var ids: Array = meta.cosmetic_ids(kind)
@@ -679,7 +672,7 @@ func _step_wardrobe() -> bool:
 		meta._grant(pid)
 		await _wd_tap("item:" + pid)
 		_check(bool(meta.cosmetic_worn(kind, pid)), "garde-robe : %s porté (%s)" % [kind, pid], "non porté")
-	await _wd_tap("tab:4")
+	await _wd_tap("tab:3")
 	await _wd_tap("item:nuit")
 	if not bool(meta.cosmetic_owned("theme", "nuit")):
 		await _press(wd._buy, "ACHETER")
@@ -1184,9 +1177,17 @@ func _step_sanctuary() -> bool:
 		var nc: int = main.curses.size()
 		var g0: int = main.run_gold
 		var hp0: int = main.hero.hp
-		var idx: int = 0 if take else main.picker._ids.size() - 1  # la dernière carte : « Passer »
-		if not await _pick_card(idx, "sanctuaire"):
-			return false
+		if take:
+			if not await _pick_card(0, "sanctuaire"):
+				return false
+		else:
+			# planche Sanctuaire v2 : on passe par le bouton REFUSER sous SCELLER (plus de carte « Passer »)
+			var pk = main.picker
+			if not await _until(func(): return bool(pk.visible) and int(pk._chosen) < 0 and float(pk._t) >= float(pk._ready_time()) + 0.05 and (pk._refuse_rect as Rect2).has_area(), "sanctuaire : REFUSER affiché"):
+				return false
+			_tap(pk, (pk._refuse_rect as Rect2).get_center())
+			if not _check(int(pk._chosen) >= 0, "sanctuaire : REFUSER touché", "aucun choix"):
+				return false
 		await _settle_play("après le pacte")
 		var want: int = nc + (1 if take else 0)
 		_check(main.curses.size() == want, "sanctuaire : %s" % ("malédiction acceptée %s" % str(main.curses) if take else "PASSER"), "%d malédiction(s), attendu %d" % [main.curses.size(), want])
@@ -1228,10 +1229,16 @@ func _step_run() -> bool:
 ## Gardien vaincu sans dégât : le rouleau « sans une égratignure » (épiques ou légendaires), choisi au toucher.
 func _step_flawless() -> bool:
 	await _settle_play("avant le rouleau sans égratignure")
+	# en jeu, ce rouleau suit toujours la chute du gardien (salle finie) ; la marche vers l'autel du sanctuaire a pu
+	# ouvrir le combat suivant (graine 2 : « salle finie false ») : on le nettoie d'abord, sinon fausse alerte
+	if not await _clear_room():
+		return false
 	var pk = main.picker
 	var p = main.powers
 	main._flawless_pending = true
 	if not await _until(func(): return String(main.state) == "pick" and bool(pk.visible) and String(main._pick_mode) == "flawless", "rouleau sans une égratignure ouvert"):
+		print("BOT UI diag égratignure : en attente %s, salle finie %s, ruée %s, doigt %s, course %s" % [str(main._flawless_pending),
+			str(main._room_done), str(main.hero.dashing), str(main.touching), str(main._running)])
 		main._flawless_pending = false
 		return false
 	var worst := 9
@@ -1284,10 +1291,14 @@ func _step_victory() -> bool:
 	main.meta.power_tier = 0
 	# le boss tombe : salle 15 nettoyée, vrai chemin de fin (_room_cleared -> _victory -> _finish_run)
 	var t0 := Time.get_ticks_msec()
-	while String(main.state) == "play":
+	while String(main.state) == "play" or String(main.state) == "pick":
 		if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
 			_fail("salle 15 nettoyée -> victoire (délai dépassé)")
 			return false
+		# une montée de niveau en attente (dernières pertes d'XP) peut ouvrir son rouleau avant la chute du boss
+		# (graine 2) : on le referme, comme un joueur, puis on reprend
+		if String(main.state) == "pick":
+			await _settle_play("rouleau de niveau avant la victoire")
 		for bo in main.bosses:
 			if is_instance_valid(bo):
 				bo.queue_free()

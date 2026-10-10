@@ -2937,6 +2937,12 @@ func _v2_fx_row(rw: Array, x0: float, x1: float, ym: float, s: float, el: Color,
 	var nw := nf.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs).x
 	var uw := font.get_string_size(unit, HORIZONTAL_ALIGNMENT_LEFT, -1, ufs).x + 1.5 * s if unit != "" else 0.0
 	var vx := x1 - (hw + nw + uw)
+	# libellé trop long pour « 50 → 80 » (BRÛLURE réduite à 4 px) : la valeur d'avant cède sa place d'abord
+	var lmin := maxi(5, int(7.0 * s))
+	if head != "" and lx + font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lmin).x + 6.0 * s > vx:
+		head = ""
+		hw = 0.0
+		vx = x1 - (nw + uw)
 	# le libellé rétrécit pour laisser au moins quelques points de conduite
 	while lfs > 5 and lx + font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x + 6.0 * s > vx:
 		lfs -= 1

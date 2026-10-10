@@ -49,8 +49,9 @@ const TEXTS_PAD := {
 const LESSON := [
 	"Une forme frappe plus fort",
 ]
-# technique de chaque figure (celle de son rouleau), en petit sous la figure
-const TECH := {"loop": "toupie", "zigzag": "éclair", "straight": "iaï", "return": "garde", "enso": "ensō", "hook": "estoc"}
+# technique de chaque figure (celle de son rouleau), en petit sous la figure ; glossaire du handoff v2 §6 :
+# l'ensō déclenche l'onde de choc (« ensō » sous ENSO ne répétait que le nom de la figure)
+const TECH := {"loop": "toupie", "zigzag": "éclair", "straight": "iaï", "return": "garde", "enso": "onde de choc", "hook": "estoc"}
 const GLUE := [":", ";", "!", "?", "%", "=", "»", "..."]
 const FIG_TEXT := {
 	"loop": "Une boucle",

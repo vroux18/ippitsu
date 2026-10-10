@@ -138,6 +138,8 @@ const BOSS_INFO := {
 # variantes (scission, gouttelettes, leurre) comptées avec leur ennemi ; "" : jamais compté
 const SUB_KINDS := {"kitsunebi_s": "kitsunebi", "sumidama_s": "sumidama", "tanuki_d": ""}
 const NINJAS := ["shinobi", "shuriken", "kemuri", "kunoichi"]
+# gardiens et boss tournés vers +Z en arène (vers le héros) : retournés pour la vue de leur fiche
+const BOSS_FACE_PLUS_Z := ["gashadokuro", "yukionna", "ibaraki", "daidara", "karasu_o", "umibozu_o", "ryujin", "gaki_o", "izanami"]
 
 signal closed
 
@@ -404,8 +406,8 @@ func _open_detail(i: int) -> void:
 	if meta != null:
 		meta.kind_viewed(_key(i))
 	_close_big()
-	if _can_3d and not bool(en["boss"]):
-		_make_big(_detail)
+	if _can_3d:
+		_make_big(_detail, bool(en["boss"]))
 
 
 func _close_detail() -> void:
@@ -429,6 +431,15 @@ func card_rect(id: String) -> Rect2:
 func reset_scroll() -> void:
 	_scroll = 0.0
 	_vel = 0.0
+
+
+## Captures (`?bestiaire&fiche=kappa`, `fiche=boss_uwabami`, `fiche=N` : N-ième fiche) : ouvre ce détail
+## directement, même pour une fiche pas encore vue (contrôle visuel de chaque entrée de l'encyclopédie).
+func open_fiche(key: String) -> void:
+	for i in _entries.size():
+		if _key(i) == key or str(i) == key:
+			_open_detail(i)
+			return
 
 
 # ------------------------------------------------------------------ entrée
@@ -612,6 +623,62 @@ func _build_model(id: String, parent: Node3D) -> Node3D:
 	return e
 
 
+## Gardien ou boss pour la vue tournante de sa fiche : son script de combat (main.BOSS_PATHS) bâtit le modèle,
+## figé (aucun _process : ni attaque, ni zone, ni dégâts) ; voir _boss_pose.
+func _build_boss(id: String, parent: Node3D) -> Node3D:
+	if main == null or not main.has_method("_boss_script") or not is_instance_valid(main.get("hero")):
+		return null
+	var scr = main.call("_boss_script", id)
+	if not (scr is GDScript):
+		return null
+	var b = (scr as GDScript).new()
+	if not (b is Node3D):
+		return null
+	var bn: Node3D = b as Node3D
+	bn.call("setup", id, main)
+	bn.process_mode = Node.PROCESS_MODE_DISABLED
+	parent.add_child(bn)
+	_boss_pose(bn, id)
+	return bn
+
+
+## Pose de fiche d'un boss : au centre, hors de l'eau ou de la lave d'où il surgit en combat ; ses nœuds
+## « top_level » (bulle de bouclier, zones, projectiles) restent cachés.
+func _boss_pose(b: Node3D, id: String) -> void:
+	b.position = Vector3.ZERO
+	# en arène, ceux-ci regardent +Z (le héros entre par là) : de face pour la caméra de la fiche (côté -Z)
+	if id in BOSS_FACE_PLUS_Z:
+		b.rotation.y = PI
+	# Gashadokuro : tout son corps est sous un pivot « top_level » (_rig) : on le rattache au boss
+	var rig = b.get("_rig")
+	if rig is Node3D:
+		(rig as Node3D).top_level = false
+		(rig as Node3D).transform = Transform3D.IDENTITY
+	# l'entrée en scène part d'un corps minuscule (body.scale 0,01) ou enfoui (rig, torse, vague sous le sol) :
+	# on pose directement l'état de fin d'apparition
+	for prop in ["body", "rig", "_torso", "_wave"]:
+		var v = b.get(prop)
+		if v is Node3D:
+			var p: Node3D = v as Node3D
+			if p.scale.x < 0.5:
+				p.scale = Vector3.ONE
+			if p.position.y < 0.0:
+				p.position.y = 0.0
+	if b.get("_fade") != null:
+		b.set("_fade", 1.0)
+	var hands = b.get("_hands")
+	if hands is Array:
+		for h in hands:
+			if h is Dictionary and (h as Dictionary).has("grow"):
+				h["grow"] = 1.0
+	if b.has_method("_apply_pose"):
+		b.call("_apply_pose")
+	for n in b.find_children("*", "Node3D", true, false):
+		var nn := n as Node3D
+		if nn.top_level:
+			nn.visible = false
+
+
 ## Pose de portrait : au centre, face à la caméra, apparition terminée, animation d'attente (elle seule tourne).
 func _pose(e: Node3D) -> void:
 	e.position = Vector3.ZERO
@@ -724,18 +791,18 @@ func _step_portraits() -> void:
 	_vp.render_target_update_mode = SubViewport.UPDATE_ONCE
 
 
-func _make_big(id: String) -> void:
+func _make_big(id: String, boss := false) -> void:
 	var parts: Array = _make_stage(BIG_VIEW, true)
 	_big = parts[0]
 	_big_cam = parts[1]
 	var root: Node3D = parts[2]
 	_big_pivot = Node3D.new()
 	root.add_child(_big_pivot)
-	var e := _build_model(id, _big_pivot)
+	var e := _build_boss(id, _big_pivot) if boss else _build_model(id, _big_pivot)
 	if e == null:
 		_close_big()
 		return
-	_frame_cam(e, _big_cam, float(BIG_VIEW.x) / float(BIG_VIEW.y), 1.2)
+	_frame_cam(e, _big_cam, float(BIG_VIEW.x) / float(BIG_VIEW.y), 1.45 if boss else 1.2)  # (boss : longues silhouettes)
 
 
 func _close_big() -> void:
@@ -882,12 +949,24 @@ func _draw() -> void:
 	var hy := _top
 	UiKit.screen_title(self, _title, "BESTIAIRE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a,
 		"", w - 2.0 * 96.0 * u, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
-	# fiches découvertes / total, en haut à droite
-	var txt := "%d/%d" % [_found, _entries.size()]
-	var fs := int(UiKit.FS_NUMBER * 0.8 * u)
-	var tw := UiKit.TITLE_FONT.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	draw_string(UiKit.TITLE_FONT, Vector2(w - UiKit.SP_M * u - tw, hy + UiKit.HEAD_Y * u + float(fs) * 0.36), txt,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(_ink, 0.75 * a))
+	# fiches découvertes / total, en haut à droite (planche Bestiaire) : pilule sumi, picto oni, « 3 » en Zen Kaku 900
+	# et « /55 » en petit (règle 3 : jamais de Shippori pour un chiffre)
+	var nf := UiKit.num_font()
+	var big := str(_found)
+	var small := "/%d" % _entries.size()
+	var fs := int(15.0 * u)
+	var sfs := int(10.0 * u)
+	var bw := nf.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var sw := nf.get_string_size(small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+	var ph := 30.0 * u
+	var pw := 12.0 * u + 16.0 * u + 6.0 * u + bw + sw + 12.0 * u
+	var pill := Rect2(Vector2(w - UiKit.SP_M * u - pw, hy + UiKit.HEAD_Y * u - ph / 2.0), Vector2(pw, ph))
+	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.92 * a), int(ph / 2.0)), pill)
+	var cy := pill.get_center().y
+	UiKit.draw_icon(self, "hud/oni", Vector2(pill.position.x + 12.0 * u + 8.0 * u, cy), 16.0 * u, a, Toon.WASHI)
+	var tx := pill.position.x + 12.0 * u + 16.0 * u + 6.0 * u
+	draw_string(nf, Vector2(tx, cy + float(fs) * 0.36), big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.WASHI, a))
+	draw_string(nf, Vector2(tx + bw, cy + float(fs) * 0.36), small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(Toon.WASHI, 0.6 * a))
 
 
 func _draw_list() -> void:
@@ -905,7 +984,25 @@ func _draw_list() -> void:
 		var wi := int(hd[1])
 		var wd: Dictionary = Worlds.world(wi)
 		var lab := UiKit.plain("MONDE %d  ·  %s" % [wi, String(wd.get("name", ""))]).to_upper()
-		UiKit.section(_list, _ui, lab, x0, x1, y, u, _ink, a, String(wd.get("kanji", "")))
+		# planche Bestiaire : picto du monde (carré à sa couleur) devant le titre, fiches vues / total au bout du filet
+		var bs := 16.0 * u
+		var mid := y - float(int(UiKit.FS_CAPTION * u)) * 0.36
+		UiKit.world_badge(_list, _sb, Rect2(Vector2(x0, mid - bs / 2.0), Vector2(bs, bs)), String(wd.get("kanji", "")),
+			Color(wd.get("color", Toon.PRUSSIAN)), a)
+		var seen := 0
+		var tot := 0
+		for ei in _entries.size():
+			if int(_entries[ei]["world"]) == wi:
+				tot += 1
+				if _is_seen(ei):
+					seen += 1
+		var nf := UiKit.num_font()
+		var cfs := int(11.0 * u)
+		var cnt := "%d/%d" % [seen, tot]
+		var cw := nf.get_string_size(cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+		_list.draw_string(nf, Vector2(x1 - cw, mid + float(cfs) * 0.36), cnt, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs,
+			Color(_ink, (0.75 if seen == tot else 0.45) * a))
+		UiKit.section(_list, _ui, lab, x0 + bs + 6.0 * u, x1 - cw - 4.0 * u, y, u, _ink, a)
 	for c in _cards:
 		var r: Rect2 = c[0]
 		var rr := Rect2(r.position - Vector2(0, _scroll), r.size)
@@ -1012,7 +1109,8 @@ func _draw_sheet() -> void:
 	_view3d = Rect2(Vector2(px + 16.0 * u, py + 62.0 * u), Vector2(pw - 32.0 * u, vh))
 	var vc := _view3d.get_center()
 	UiKit.enso(_sheet, vc, vh * 0.44, 3.0 * u, Color(_ink, 0.12 * k), k)
-	if boss:
+	if boss and _big == null:
+		# (sans rendu 3D : headless) le sceau du gardien ou du boss
 		var s := vh * 0.62
 		UiKit.monster_badge(_sheet, _sb, Rect2(vc - Vector2(s, s) / 2.0, Vector2(s, s)), bool(en["mini"]), k, u)
 	else:
