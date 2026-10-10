@@ -3157,11 +3157,19 @@ func _add_parvis(mine: Array) -> bool:
 		var rr: Rect2 = r
 		if rr.position.y < high.position.y or (is_equal_approx(rr.position.y, high.position.y) and absf(rr.get_center().x) < absf(high.get_center().x)):
 			high = rr
-	var x0 := maxf(high.position.x, -PARVIS_W * 0.5)
-	var x1 := minf(high.end.x, PARVIS_W * 0.5)
+	# plateforme du haut décalée sur un côté : le parvis s'y allonge (jusqu'au bord de l'arène) pour garder
+	# un passage franc ; sans cela l'étape retombait sur un seul torii
+	var px0 := -PARVIS_W * 0.5
+	var px1 := PARVIS_W * 0.5
+	if high.position.x > px1 - JOIN_MIN:
+		px1 = minf(HALF.x, high.position.x + JOIN_MIN)
+	if high.end.x < px0 + JOIN_MIN:
+		px0 = maxf(-HALF.x, high.end.x - JOIN_MIN)
+	var x0 := maxf(high.position.x, px0)
+	var x1 := minf(high.end.x, px1)
 	if x1 - x0 < JOIN_MIN:
 		return false
-	var pr := Rect2(-PARVIS_W * 0.5, high.position.y, PARVIS_W, minf(PARVIS_D, CHUNK_L * 0.5))
+	var pr := Rect2(px0, high.position.y, px1 - px0, minf(PARVIS_D, CHUNK_L * 0.5))
 	rects.append(pr)
 	mine.append(pr)
 	return true
