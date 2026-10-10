@@ -18,20 +18,20 @@ signal finished
 
 # ------------------------------------------------------------------ minutage (secondes depuis play)
 const T_WAVE := 1.0  # le pinceau commence la Grande Vague (coups de pinceau : voir _build_painting)
-const T_DARK := 11.4  # l'encre noire monte de la crête
-const T_MASK := 13.0  # le masque de nō se forme
-const T_EAT := 13.6  # première estampe avalée (puis une toutes les EAT_STEP s)
+const T_DARK := 11.4  # l'encre noire monte de la crête : la Vague Noire
+const T_MASK := 13.2  # le masque de nō émerge dans sa crête
+const T_EAT := 13.8  # première estampe happée (puis une toutes les EAT_STEP s)
 const EAT_STEP := 0.5
-const T_DIP := 17.4  # le pinceau plonge dans le sumi
-const T_ONE := 18.4  # début du trait unique
+const T_DIP := 17.6  # le pinceau plonge dans le sumi
+const T_ONE := 18.6  # début du trait unique
 const ONE_DUR := 5.0  # durée du trait unique
-const T_FILL := 23.6  # les couleurs prennent (chapeau, kimono, hakama, peau)
-const T_SCARF := 24.7  # l'écharpe se colore en dernier
-const T_EYES := 25.6  # le ronin ouvre les yeux
-const T_PUSH := 26.6  # le pinceau le pousse dans la feuille
-const T_ZOOM := 28.0  # plongée dans la vague
-const T_ENSO := 29.3  # l'encre tourbillonne (ensō), puis recouvre tout
-const T_FADE := 31.0  # l'encre s'efface sur la mer réelle
+const T_FILL := 23.8  # les couleurs prennent (chapeau, kimono, hakama, peau)
+const T_SCARF := 24.9  # l'écharpe se colore en dernier
+const T_EYES := 25.8  # le ronin ouvre les yeux
+const T_PUSH := 26.8  # le pinceau le pousse dans la feuille
+const T_ZOOM := 28.2  # plongée dans la vague
+const T_ENSO := 29.5  # l'ensō se peint au cœur de la vague, puis l'encre en déborde et recouvre tout
+const T_FADE := 31.0  # l'encre s'ouvre (iris d'ensō) sur la mer réelle : l'accueil se peint dessous
 const T_END := 33.4  # fin
 const SKIP_HOLD := 0.75  # toucher maintenu pour passer
 const SKIP_FADE := 0.55
@@ -62,8 +62,10 @@ const OUTER := [Vector2(0.0, 0.98), Vector2(0.02, 0.78), Vector2(0.08, 0.55), Ve
 const INNER := [Vector2(0.3, 0.98), Vector2(0.28, 0.82), Vector2(0.28, 0.66), Vector2(0.33, 0.5), Vector2(0.42, 0.38),
 	Vector2(0.52, 0.31), Vector2(0.6, 0.29), Vector2(0.67, 0.3), Vector2(0.71, 0.32), Vector2(0.73, 0.33)]
 const W2 := [Vector2(0.54, 1.02), Vector2(0.65, 0.86), Vector2(0.77, 0.72), Vector2(0.88, 0.62), Vector2(0.96, 0.6), Vector2(1.02, 0.64)]
-const KURO := [Vector2(276, 355), Vector2(318, 318), Vector2(352, 250), Vector2(362, 170), Vector2(340, 95), Vector2(290, 48),
-	Vector2(215, 30), Vector2(140, 38), Vector2(85, 78), Vector2(70, 130)]
+const KURO_OUT := [Vector2(236, 330), Vector2(262, 262), Vector2(300, 196), Vector2(326, 130), Vector2(326, 66), Vector2(292, 22),
+	Vector2(226, 4), Vector2(160, 10), Vector2(110, 36), Vector2(84, 70)]
+const KURO_IN := [Vector2(296, 352), Vector2(318, 290), Vector2(328, 222), Vector2(316, 156), Vector2(290, 104), Vector2(242, 74),
+	Vector2(186, 62), Vector2(136, 66), Vector2(102, 78), Vector2(84, 70)]
 const CREST := Vector2(0.6, 0.3)  # cœur de la vague : où le ronin plonge, centre de la plongée
 
 var sfx: Node  # posé par main (sons : whoosh, slash, torii, shot, ink, iai)
@@ -86,7 +88,9 @@ var _sheet := Rect2()  # la feuille de washi
 var _a := 1.0
 var _strokes: Array = []  # coups de pinceau de la Grande Vague, dans l'ordre de dessin (voir _build_painting)
 var _strokes_sheet := Rect2()  # feuille pour laquelle ils ont été calculés
-var _kuro := PackedVector2Array()  # chemin de la Vague Noire (pixels)
+var _kuro_o := PackedVector2Array()  # la Vague Noire : son dos (pixels), de la crête peinte à sa langue
+var _kuro_i := PackedVector2Array()  # et sa face
+var _paint := Rect2()  # la partie de la feuille où se peint la Grande Vague (le haut reste ciel)
 var _ronin_path := PackedVector2Array()  # le trait unique, en unités du ronin
 var _ronin_len := PackedFloat32Array()  # longueur cumulée le long du trait
 var _paper: Control  # calque écrêté à la feuille : la Grande Vague et le ronin n'en débordent pas
@@ -243,6 +247,8 @@ func _sounds() -> void:
 		_cue("enso", "ink", 0.6, -6.0)
 	if _t >= T_FADE:
 		_cue("torii", "torii", 1.0, -6.0)
+	if _t >= T_FADE + 0.3:
+		_cue("sea", "whoosh", 0.8, -10.0)
 
 
 func _cue(key: String, snd: String, pitch: float, db: float) -> void:
@@ -257,17 +263,19 @@ func _layout() -> void:
 	var u := minf(size.x / 400.0, size.y / 800.0)
 	_u = u
 	_f = Rect2((size - Vector2(400, 800) * u) / 2.0, Vector2(400, 800) * u)
-	_sheet = Rect2(_f.position + Vector2(34, 232) * u, Vector2(332, 372) * u)
+	# la feuille prend 70 % de la hauteur ; au-dessus, le mur et ses estampes ; dessous, le plancher
+	_sheet = Rect2(_f.position + Vector2(30, 118) * u, Vector2(340, 562) * u)
+	_paint = Rect2(_sheet.position + Vector2(0, 0.18 * _sheet.size.y), Vector2(_sheet.size.x, 0.82 * _sheet.size.y))
 	if _sheet != _strokes_sheet:
 		_build_painting()
 	var safe := UiKit.safe_insets(size)
 	_skip_btn.visible = _t > 2.0 and _end_t < 0.0 and _t < T_FADE
 	_skip_btn.size = Vector2(96, 36) * u
-	_skip_btn.position = Vector2(_f.end.x - 104.0 * u, _f.position.y + safe.x + 14.0 * u)
+	_skip_btn.position = Vector2(_f.end.x - 104.0 * u, _f.end.y - safe.y - 52.0 * u)
 	_skip_btn.font_size = int(12 * u)
 	_skip_btn.modulate.a = UiKit.ease_out((_t - 2.0) / 0.5) * 0.8
 	# le calque de la feuille suit la plongée (grossie autour du cœur de la vague) et s'élargit pour couvrir l'écran
-	var zoom := _k(_t, T_ZOOM, 1.6)
+	var zoom := _k(_t, T_ZOOM, 1.3)
 	var z := 1.0 + 7.0 * pow(zoom, 1.7)
 	var g := zoom * 400.0 * u
 	var xf := _cur_zoom_xf()
@@ -288,22 +296,20 @@ func _draw() -> void:
 	if _t < 0.0 or size.x < 10.0:
 		return
 	_alpha()
-	if _a <= 0.002:
+	if modulate.a <= 0.002:
 		return
-	var zoom := _k(_t, T_ZOOM, 1.6)
-	# fond : la nuit de l'atelier
-	_ci.draw_rect(Rect2(Vector2.ZERO, size), _c(NIGHT))
+	var zoom := _k(_t, T_ZOOM, 1.3)
 	if zoom < 1.0:
+		# fond : la nuit de l'atelier
+		_ci.draw_rect(Rect2(Vector2.ZERO, size), _c(NIGHT))
 		_atelier(1.0 - zoom)
 
 
-## Opacité globale : l'encre s'efface sur la mer réelle (ou fondu court après PASSER).
+## Opacité globale : seulement le fondu court après PASSER (modulate sur tout le contrôle, calques compris) ;
+## la vraie sortie est l'iris d'encre de _enso_swirl.
 func _alpha() -> void:
 	_a = 1.0
-	if _end_t >= 0.0:
-		_a = 1.0 - UiKit.ease_out(_end_t / SKIP_FADE)
-	elif _t >= T_FADE:
-		_a = 1.0 - smoothstep(T_FADE, T_END - 0.3, _t)
+	modulate.a = 1.0 - UiKit.ease_out(_end_t / SKIP_FADE) if _end_t >= 0.0 else 1.0
 
 
 ## Dessin des calques : "paper" (la feuille, écrêtée, dans le repère écran d'avant la plongée) et "over"
@@ -312,12 +318,14 @@ func _draw_part(ci: CanvasItem, part: String) -> void:
 	if _t < 0.0 or size.x < 10.0:
 		return
 	_alpha()
-	if _a <= 0.002:
+	if modulate.a <= 0.002:
 		return
 	_ci = ci
 	var u := _u
-	var zoom := _k(_t, T_ZOOM, 1.6)
+	var zoom := _k(_t, T_ZOOM, 1.3)
 	if part == "paper":
+		if _t >= T_ENSO + 1.5:
+			return  # l'encre a tout recouvert
 		var g := zoom * 400.0 * u
 		_base = Transform2D(0.0, -(_sheet.position - Vector2(g, g)))
 		_ci.draw_set_transform_matrix(_base)
@@ -329,12 +337,9 @@ func _draw_part(ci: CanvasItem, part: String) -> void:
 			if _t > T_DARK:
 				_kuronami(1.0 - zoom)
 			_hand(1.0 - zoom)
-		# l'ensō d'encre qui tourbillonne et avale l'écran
+		# l'ensō d'encre, l'encre qui recouvre tout, puis l'iris qui s'ouvre sur la mer
 		if _t >= T_ENSO:
 			_enso_swirl()
-		var ink_fill := UiKit.ease_out(_k(_t, T_ENSO + 0.8, 0.7))  # l'encre a tout recouvert
-		if ink_fill > 0.0:
-			_ci.draw_rect(Rect2(Vector2.ZERO, size), _c(BLACK_INK, ink_fill))
 		# le toucher maintenu : anneau qui se remplit
 		if _holding and _hold_t > 0.08:
 			var k := _hold_t / SKIP_HOLD
@@ -351,7 +356,7 @@ func _zoom_xf(wave_c: Vector2, z: float, zoom: float) -> Transform2D:
 
 ## La transformation de plongée à cet instant (identité avant T_ZOOM).
 func _cur_zoom_xf() -> Transform2D:
-	var zoom := _k(_t, T_ZOOM, 1.6)
+	var zoom := _k(_t, T_ZOOM, 1.3)
 	return _zoom_xf(_sp(CREST.x, CREST.y), 1.0 + 7.0 * pow(zoom, 1.7), zoom)
 
 
@@ -364,8 +369,8 @@ func _atelier(k: float) -> void:
 	_ci.draw_rect(Rect2(Vector2(0, 0), Vector2(size.x, floor_y)), _c(WALL, 0.9 * k))
 	_ci.draw_rect(Rect2(Vector2(0, floor_y), Vector2(size.x, size.y)), _c(WOOD, k))
 	_ci.draw_line(Vector2(0, floor_y), Vector2(size.x, floor_y), _c(BLACK_INK, 0.6 * k), 2.0 * u)
-	for i in 5:
-		var y := floor_y + (20.0 + 36.0 * i) * u
+	for i in 3:
+		var y := floor_y + (24.0 + 34.0 * i) * u
 		_ci.draw_line(Vector2(0, y), Vector2(size.x, y), _c(BLACK_INK, 0.18 * k), 1.0 * u)
 	# andon : lampe de papier posée au sol, à gauche de la table ; halo chaud qui respire, vacille quand
 	# la Vague Noire monte
@@ -376,12 +381,12 @@ func _atelier(k: float) -> void:
 		if _t > T_EAT and fmod(_t * 1.7, 1.0) < 0.12:
 			flick *= 0.35
 		flick = lerpf(1.0, flick, _k(_t, T_DARK, 1.5))
-	var lc := Vector2(f.position.x + 58.0 * u, floor_y + 46.0 * u)
+	var lc := Vector2(f.position.x + 54.0 * u, floor_y + 42.0 * u)
 	var glow := (0.5 + 0.03 * sin(_t * 2.1)) * flick
 	for i in 7:
 		var r := (30.0 + 56.0 * i) * u
 		_ci.draw_circle(lc, r, _c(LAMP, 0.1 * glow * (1.0 - float(i) / 7.5)))
-	var body := Rect2(lc + Vector2(-20, -42) * u, Vector2(40, 68) * u)
+	var body := Rect2(lc + Vector2(-18, -36) * u, Vector2(36, 60) * u)
 	_ci.draw_rect(body, _c(Color("#F6D9A0").lerp(LAMP, 0.3), (0.75 + 0.25 * flick) * k))
 	_ci.draw_rect(body, _c(BLACK_INK, 0.85 * k), false, 1.6 * u)
 	for i in 3:
@@ -390,14 +395,21 @@ func _atelier(k: float) -> void:
 	_ci.draw_line(Vector2(body.get_center().x, body.position.y), Vector2(body.get_center().x, body.end.y), _c(BLACK_INK, 0.25 * k), 1.0 * u)
 	_ci.draw_colored_polygon(PackedVector2Array([body.position + Vector2(-5, 0) * u, body.position + Vector2(body.size.x + 5.0 * u, 0), body.position + Vector2(body.size.x - 3.0 * u, -5.0 * u), body.position + Vector2(3, -5) * u]), _c(BLACK_INK, k))
 	_ci.draw_rect(Rect2(body.position + Vector2(-5.0 * u, body.size.y), Vector2(body.size.x + 10.0 * u, 5.0 * u)), _c(BLACK_INK, k))
-	# estampes accrochées au mur (mondes 2 à 8), une par une avalées par la Vague Noire ; la tache reste
+	# estampes accrochées au mur (mondes 2 à 8) : happées une à une dans la crête de la Vague Noire
+	# (elles glissent vers elle en rapetissant, et disparaissent dans l'encre)
 	for i in PRINTS.size():
 		var pr := _print_rect(i)
-		var eat := _k(_t, _eat_time(i), 0.5)
-		if eat < 1.0:
-			_print(i, pr, k * (1.0 - eat))
+		var eat := UiKit.ease_out(_k(_t, _eat_time(i), 0.55))
+		if eat >= 1.0:
+			continue
+		if eat > 0.0:
+			var to := _kuro_mouth(i)
+			var c := pr.get_center().lerp(to, eat)
+			var sz := pr.size * (1.0 - 0.85 * eat)
+			pr = Rect2(c - sz / 2.0, sz)
+		_print(i, pr, k * (1.0 - eat * eat))
 	# table : pierre à encre et bâton de sumi, à droite de la feuille
-	var stone := f.position + Vector2(318, 690) * u
+	var stone := Vector2(f.position.x + 318.0 * u, floor_y + 62.0 * u)
 	_ellipse(stone + Vector2(0, 6) * u, 40.0 * u, 16.0 * u, _c(BLACK_INK, 0.45 * k))
 	_ellipse(stone, 38.0 * u, 14.0 * u, _c(Color("#2E2B30"), k))
 	_ellipse(stone, 26.0 * u, 8.0 * u, _c(BLACK_INK, k))
@@ -405,11 +417,10 @@ func _atelier(k: float) -> void:
 	_ci.draw_rect(Rect2(stone + Vector2(-70, -14) * u, Vector2(14, 28) * u), _c(Toon.GOLD, 0.6 * k), false, 1.0 * u)
 
 
+## Les sept estampes, en une rangée au-dessus de la feuille.
 func _print_rect(i: int) -> Rect2:
 	var u := _u
-	if i < 4:
-		return Rect2(_f.position + Vector2(100.0 + 60.0 * i, 56.0) * u, Vector2(50, 66) * u)
-	return Rect2(_f.position + Vector2(118.0 + 66.0 * (i - 4), 150.0) * u, Vector2(54, 64) * u)
+	return Rect2(_f.position + Vector2(32.0 + 48.0 * i, 48.0) * u, Vector2(44, 58) * u)
 
 
 ## Heure à laquelle l'estampe i est avalée (ordre EAT_ORDER : de la crête vers la gauche, rangée par rangée).
@@ -465,105 +476,81 @@ func _print(i: int, r: Rect2, k: float) -> void:
 			_ci.draw_polyline(pts, ink, w * 0.8, true)
 
 
-## La Vague Noire (Kuro-Nami) : une vague d'encre noire qui jaillit de la crête peinte, monte le long du mur,
-## se recourbe au-dessus des estampes (griffes d'encre qui pendent, gouttes qui montent), prend un masque de nō
-## (direction « Masque d'encre » : masque washi aux yeux fendus) et tend des tentacules vers les estampes.
+## La Vague Noire (Kuro-Nami) : une vraie crête de vague en sumi, même construction que la Grande Vague
+## mais noire (corps en cinq coups, crête recourbée, griffes d'écume noires), qui monte depuis la crête peinte,
+## déborde du cadre et se recourbe au-dessus des estampes ; des gouttes montent (l'encre coule à l'envers) ;
+## le masque de nō (direction « Masque d'encre » : washi cerné d'encre, yeux fendus, bouche) émerge dans la
+## crête ; les estampes happées disparaissent dans une tache d'encre au bord de sa face.
 func _kuronami(k: float) -> void:
 	var u := _u
-	var rise := _k(_t, T_DARK, 2.6)
-	var kp := _kuro
-	var n := kp.size()
-	var reach := UiKit.ease_out(rise)
-	# la masse : trait qui grossit en avançant, bords vivants
-	var total := float(n - 1)
-	var lim := reach * total
-	var prev := kp[0]
-	for i in range(1, n):
-		if float(i) > lim + 1.0:
-			break
-		var fr := float(i) / total
-		var p := kp[i]
-		if float(i) > lim:
-			p = kp[i - 1].lerp(kp[i], lim - float(i - 1))
-		var w := lerpf(10.0, 62.0, pow(fr, 0.7)) * u * (1.0 + 0.1 * sin(fr * 21.0 + _t * 2.6))
-		_ci.draw_line(prev, p, _c(BLACK_INK, 0.97 * k), w, true)
-		_ci.draw_circle(p, w * 0.5, _c(BLACK_INK, 0.97 * k))
-		prev = p
-	# griffes d'encre qui pendent du ventre de la vague noire, et gouttes qui montent (l'encre coule à l'envers)
-	var claws := _k(_t, T_DARK + 1.6, 1.0)
+	var rise := UiKit.ease_out(_k(_t, T_DARK, 2.4))
+	if rise <= 0.0:
+		return
+	var ink := _c(BLACK_INK, k)
+	# le corps : cinq coups larges du dos vers la face, qui s'allongent ensemble depuis la crête peinte
 	for i in 6:
-		var kk := _k(claws, float(i) / 7.0, 0.3)
+		var fr := float(i) / 5.0
+		var path := _mix(_kuro_o, _kuro_i, fr)
+		_brush(path, _k(rise, 0.05 * i, 0.8), 26.0 * u, ink, 0.3)
+	# les griffes d'écume noires qui retombent du dessous de la langue, puis des bords du dos
+	var claws := _k(_t, T_DARK + 1.5, 1.0)
+	for i in 7:
+		var kk := _k(claws, float(i) / 8.0, 0.3)
 		if kk <= 0.0:
 			continue
-		var p0 := _pt_at(kp, 0.56 + 0.07 * i) + Vector2(0, 16.0 + 6.0 * (i % 2)) * u
-		var ln := (26.0 + 14.0 * (i % 3)) * u
-		var claw := PackedVector2Array()
-		for j in 6:
-			var a := float(j) / 5.0 * kk
-			claw.append(p0 + Vector2(0.4 * a - 0.5 * a * a, 1.3 * a) * ln)
-		_brush(claw, 1.0, 7.0 * u, _c(BLACK_INK, 0.95 * k), 0.8)
+		var p0 := _pt_at(_kuro_i, 0.98 - 0.06 * i)
+		var dir := Vector2(-0.3 - 0.08 * i, 1.0).normalized()
+		_brush(_claw(p0, dir, (22.0 + 12.0 * (i % 3)) * u, 0.35), kk, 7.0 * u, ink, 0.9)
 	for i in 9:
 		var ph := fmod(_t * (0.5 + 0.1 * (i % 3)) + i * 0.37, 1.0)
-		var base := _pt_at(kp, 0.04 + 0.04 * i)
-		var py := base.y - (40.0 + 30.0 * ph) * u
-		_ci.draw_circle(Vector2(base.x + (12.0 * sin(i * 2.3)) * u, py), (3.5 - 2.5 * ph) * u, _c(BLACK_INK, (1.0 - ph) * rise * k))
-	# tentacules vers chaque estampe, puis la tache qui l'avale
+		var base := _pt_at(_kuro_o, 0.02 + 0.03 * i)
+		_ci.draw_circle(base + Vector2(16.0 * sin(i * 2.3), -(10.0 + 30.0 * ph)) * u, (3.5 - 2.5 * ph) * u, _c(BLACK_INK, (1.0 - ph) * rise * k))
+	# les estampes happées : tache d'encre qui gonfle au bord de la face, là où chacune disparaît
 	for i in PRINTS.size():
-		var t0 := _eat_time(i) - 0.45
-		var tr := UiKit.ease_out(_k(_t, t0, 0.5))
-		if tr <= 0.0:
+		var eat := _k(_t, _eat_time(i), 0.55)
+		if eat <= 0.0:
 			continue
-		var pr := _print_rect(i)
-		var to := pr.get_center()
-		var from := _kuro_near(to)
-		var ctrl := (from + to) / 2.0 + Vector2(sin(_t * 3.0 + i), 0) * 14.0 * u
-		var tp := PackedVector2Array()
-		for j in 17:
-			tp.append(_bez(from, ctrl, to, tr * float(j) / 16.0))
-		_brush(tp, 1.0, 9.0 * u, _c(BLACK_INK, 0.95 * k), 0.5)
-		var eat := _k(_t, t0 + 0.45, 0.5)
-		if eat > 0.0:
-			var blot := PackedVector2Array()
-			var rr := pr.size.length() * 0.5 * (0.3 + 0.9 * UiKit.ease_out(eat))
-			for j in 20:
-				var ang := TAU * float(j) / 20.0
-				blot.append(to + Vector2.from_angle(ang) * rr * (1.0 + 0.2 * sin(ang * 5.0 + _t * 4.0 + i)))
-			_ci.draw_colored_polygon(blot, _c(BLACK_INK, k))
-	# le masque de nō à la tête de la vague : visage de washi, yeux fendus, bouche close, qui émerge de l'encre
-	var mk := UiKit.ease_out(_k(_t, T_MASK, 1.4))
+		var m := _kuro_mouth(i)
+		var rr := (6.0 + 22.0 * sin(minf(eat * 1.3, 1.0) * PI)) * u
+		var blot := PackedVector2Array()
+		for j in 16:
+			var ang := TAU * float(j) / 16.0
+			blot.append(m + Vector2.from_angle(ang) * rr * (1.0 + 0.25 * sin(ang * 3.0 + _t * 5.0 + i)))
+		_ci.draw_colored_polygon(blot, ink)
+	# le masque de nō, dans la crête : visage de washi cerné d'encre, yeux fendus, sourcils hauts, bouche
+	var mk := UiKit.ease_out(_k(_t, T_MASK, 1.2))
 	if mk > 0.0:
-		var head := kp[n - 1]
-		var mc := head + Vector2(10.0, lerpf(30.0, 6.0, mk)) * u
-		var ms := 44.0 * u * (0.6 + 0.4 * mk)
+		var mc := _pt_at(_kuro_o, 0.8).lerp(_pt_at(_kuro_i, 0.8), 0.5) + Vector2(0, 14.0 * (1.0 - mk)) * u
+		var ms := 24.0 * u * (0.7 + 0.3 * mk)
 		var face := PackedVector2Array()
 		for j in 24:
 			var ang := TAU * float(j) / 24.0
-			var rr := ms * (1.0 + 0.22 * cos(ang * 2.0)) * (1.0 - 0.15 * maxf(0.0, sin(ang)))  # ovale au menton étroit
+			var rr := ms * (1.0 + 0.2 * cos(ang * 2.0)) * (1.0 - 0.15 * maxf(0.0, sin(ang)))  # ovale au menton étroit
 			face.append(mc + Vector2(cos(ang) * rr * 0.86, sin(ang) * rr * 1.1))
 		_ci.draw_colored_polygon(face, _c(MASK, mk * k))
 		_outline(face, _c(BLACK_INK, mk * k), 1.6 * u)
-		# yeux fendus (encre noire qui déborde en coulure), sourcils hauts, bouche close
 		var sq := 0.6 + 0.4 * absf(sin(_t * 0.9))
 		for sgn in [-1.0, 1.0]:
 			var ec := mc + Vector2(sgn * 0.42, -0.12) * ms
 			_ci.draw_colored_polygon(PackedVector2Array([ec + Vector2(-0.3, 0) * ms, ec + Vector2(0, -0.11 * sq) * ms, ec + Vector2(0.3, 0) * ms, ec + Vector2(0, 0.08 * sq) * ms]), _c(BLACK_INK, mk * k))
-			_ci.draw_line(ec + Vector2(0.1 * sgn, 0.05) * ms, ec + Vector2(0.14 * sgn, 0.42) * ms, _c(BLACK_INK, 0.8 * mk * k), 1.6 * u, true)
-			_ci.draw_arc(ec + Vector2(0, 0.12) * ms, 0.4 * ms, PI * 1.15, PI * 1.85, 8, _c(BLACK_INK, 0.9 * mk * k), 1.4 * u, true)
-		_ci.draw_arc(mc + Vector2(0, 0.42) * ms, 0.26 * ms, PI * 0.15, PI * 0.85, 8, _c(BLACK_INK, 0.7 * mk * k), 1.6 * u, true)
+			_ci.draw_line(ec + Vector2(0.1 * sgn, 0.05) * ms, ec + Vector2(0.14 * sgn, 0.42) * ms, _c(BLACK_INK, 0.8 * mk * k), 1.4 * u, true)
+			_ci.draw_arc(ec + Vector2(0, 0.12) * ms, 0.4 * ms, PI * 1.15, PI * 1.85, 8, _c(BLACK_INK, 0.9 * mk * k), 1.3 * u, true)
+		_ci.draw_arc(mc + Vector2(0, 0.42) * ms, 0.26 * ms, PI * 0.15, PI * 0.85, 8, _c(BLACK_INK, 0.7 * mk * k), 1.5 * u, true)
 		_ci.draw_arc(mc + Vector2(0, 0.42) * ms, 0.26 * ms, PI * 0.15, PI * 0.85, 8, _c(Toon.VERMILION, 0.5 * mk * k), 0.9 * u, true)
 
 
-## Point de la Vague Noire d'où part le tentacule vers `to` : le plus proche, sur sa partie haute.
-func _kuro_near(to: Vector2) -> Vector2:
-	var best := _kuro[0]
+## Où l'estampe i disparaît : le point de la face de la Vague Noire au-dessus d'elle (le plus proche en x).
+func _kuro_mouth(i: int) -> Vector2:
+	var to := _print_rect(i).get_center()
+	var best := _kuro_i[0]
 	var bd := INF
-	var n := _kuro.size()
-	for i in range(int(n * 0.3), n):
-		var d := absf(_kuro[i].x - to.x) + absf(_kuro[i].y - to.y) * 0.5
+	var n := _kuro_i.size()
+	for j in range(int(n * 0.45), n):
+		var d := absf(_kuro_i[j].x - to.x)
 		if d < bd:
 			bd = d
-			best = _kuro[i]
-	return best
+			best = _kuro_i[j]
+	return best + Vector2(0, 6.0 * _u)
 
 
 ## La feuille de washi et ce qu'on y peint : la Grande Vague, puis le Ronin de papier.
@@ -588,8 +575,8 @@ func _sheet_and_painting(zoom: float) -> void:
 func _build_painting() -> void:
 	_strokes_sheet = _sheet
 	_strokes = []
-	var W := _sheet.size.x
-	var H := _sheet.size.y
+	var W := _paint.size.x
+	var H := _paint.size.y
 	var outer := _curve(OUTER)
 	var inner := _curve(INNER)
 	# la mer du creux (sous tout le reste)
@@ -636,13 +623,17 @@ func _build_painting() -> void:
 		var xf := Transform2D(-0.25 if i == 0 else -0.6, b0)
 		_add("boat", 9.1 + 0.3 * i, 0.35, xf * PackedVector2Array([Vector2(-bl, -0.18 * bl), Vector2(-bl * 0.6, 0), Vector2(bl * 0.5, 0), Vector2(bl, -0.22 * bl)]), 0.012 * W, Toon.SUMI, 0.0)
 	# le sceau du peintre, dans le ciel en haut à droite
-	var sc := _sp(0.88, 0.1)
+	var sc := _sheet.position + Vector2(0.9, 0.07) * _sheet.size
 	_add("seal", 9.9, 0.3, PackedVector2Array([sc, sc]), 0.0, Toon.VERMILION, 0.0)
-	# la Vague Noire : son chemin, de la crête peinte jusqu'au-dessus des estampes
-	var kk := []
-	for p in KURO:
-		kk.append(_f.position + p * _u)
-	_kuro = _smooth(kk, 6)
+	# la Vague Noire : son dos et sa face, de la crête peinte jusqu'à sa langue au-dessus des estampes
+	var ko := []
+	var ki := []
+	for p in KURO_OUT:
+		ko.append(_f.position + p * _u)
+	for p in KURO_IN:
+		ki.append(_f.position + p * _u)
+	_kuro_o = _smooth(ko, 6)
+	_kuro_i = _smooth(ki, 6)
 
 
 func _add(kind: String, t0: float, dur: float, pts: PackedVector2Array, w: float, col: Color, taper: float) -> void:
@@ -798,26 +789,27 @@ func _build_ronin_path() -> void:
 		_ronin_len.append(acc)
 
 
-## La main âgée du peintre, en silhouette d'encre : avant-bras venu du bas à droite, doigts noués sur le
-## pinceau ; la pointe (lissée) suit ce qui se peint, trempe dans le sumi, pousse le ronin, puis se retire.
+## La main âgée du peintre, en silhouette de sumi plein : manche de kimono en trapèze venue du bas à droite,
+## poing fermé sur le manche, deux doigts allongés le long du pinceau ; la pointe (lissée) suit ce qui se peint,
+## trempe dans le sumi, pousse le ronin, puis se retire.
 func _hand(k: float) -> void:
 	var u := _u
-	var rest := _f.position + Vector2(392, 700) * u  # au repos : en bas à droite, sur la table
+	var rest := _f.position + Vector2(400, 740) * u  # au repos : en bas à droite, sur la table
 	var target := rest
 	if _t < T_WAVE - 0.4:
-		target = _f.position + Vector2(470, 780) * u  # hors champ avant d'entrer
+		target = _f.position + Vector2(480, 820) * u  # hors champ avant d'entrer
 	elif _t < T_WAVE + 10.3:
 		target = _wave_tip()
 	elif _t < T_DIP:
 		target = rest  # se retire pendant que la Vague Noire monte
 	elif _t < T_ONE:
-		var stone := _f.position + Vector2(318, 690) * u
+		var stone := Vector2(_f.position.x + 318.0 * u, _sheet.end.y + 72.0 * u)
 		var dk := _k(_t, T_DIP, 1.0)
 		target = stone + Vector2(0, -10.0 + 12.0 * sin(dk * PI)) * u
 	elif _t < T_ONE + ONE_DUR:
 		target = _one_tip(_k(_t, T_ONE, ONE_DUR))
 	elif _t < T_PUSH:
-		target = _f.position + Vector2(372, 620) * u
+		target = _f.position + Vector2(380, 700) * u
 	else:
 		var push := UiKit.ease_out(_k(_t, T_PUSH, 1.4))
 		var s := lerpf(3.0, 1.0, push) * u
@@ -827,28 +819,30 @@ func _hand(k: float) -> void:
 		_tip_set = true
 	_tip = _tip.lerp(target, clampf(UiKit.real_delta() * 9.0, 0.0, 1.0))
 	var tip := _tip
-	if tip.x > _f.end.x + 60.0 * u:
+	if tip.x > _f.end.x + 70.0 * u:
 		return
-	# pinceau : manche de bambou tenu en oblique, virole, touffe de poils effilée vers la pointe
-	var dir := Vector2(0.52, -1.0).normalized()  # vers le haut à droite : le manche monte à droite
-	var ferrule := tip + dir * 26.0 * u
-	var top := tip + dir * 150.0 * u
-	_ci.draw_line(ferrule, top, _c(Toon.SUMI, k), 5.0 * u, true)
-	_ci.draw_line(ferrule, top, _c(Color("#8A6A45"), k), 3.2 * u, true)
-	_ci.draw_line(ferrule - dir * 2.0 * u, ferrule + dir * 5.0 * u, _c(Toon.GOLD, k), 5.4 * u, true)
-	_ci.draw_colored_polygon(PackedVector2Array([ferrule + dir.orthogonal() * 3.0 * u, ferrule - dir.orthogonal() * 3.0 * u, tip]), _c(BLACK_INK, k))
-	# la main : poing fermé sur le manche (doigts noueux), avant-bras dans la manche, venu du bas à droite
-	var grip := tip + dir * 62.0 * u
 	var sumi := _c(Toon.SUMI, k)
-	var arm_from := grip + Vector2(150, 110) * u
-	_ci.draw_line(grip + Vector2(8, 10) * u, arm_from, sumi, 32.0 * u, true)
-	_ci.draw_line(grip + Vector2(8, 10) * u, arm_from, _c(HEM.lightened(0.05), k), 26.0 * u, true)  # manche de kimono sombre
-	_ci.draw_circle(grip + Vector2(2, 6) * u, 13.0 * u, sumi)  # paume
-	for i in 4:
-		var fc := grip + Vector2(-9.0 + 2.0 * i, -8.0 + 7.0 * i) * u
-		_ci.draw_circle(fc, (5.6 - 0.5 * i) * u, sumi)
-		_ci.draw_circle(fc + Vector2(-5, 1) * u, (4.2 - 0.4 * i) * u, sumi)
-	_ci.draw_circle(grip + Vector2(6, -12) * u, 4.6 * u, sumi)  # pouce
+	# pinceau : manche de bambou tenu en oblique (vers le haut à droite), virole d'or, touffe effilée
+	var dir := Vector2(0.52, -1.0).normalized()
+	var ferrule := tip + dir * 24.0 * u
+	var top := tip + dir * 150.0 * u
+	_ci.draw_line(ferrule, top, sumi, 5.2 * u, true)
+	_ci.draw_line(ferrule, top, _c(Color("#8A6A45"), k), 3.2 * u, true)
+	_ci.draw_line(ferrule - dir * 2.0 * u, ferrule + dir * 5.0 * u, _c(Toon.GOLD, k), 5.6 * u, true)
+	_ci.draw_colored_polygon(PackedVector2Array([ferrule + dir.orthogonal() * 3.2 * u, ferrule - dir.orthogonal() * 3.2 * u, tip]), _c(BLACK_INK, k))
+	# la manche : trapèze de sumi, du poignet (étroit) vers le bas à droite (large, hors champ)
+	var grip := tip + dir * 58.0 * u
+	var wrist := grip + Vector2(10, 12) * u
+	var down := Vector2(0.62, 0.78)
+	var side := down.orthogonal()
+	var cuff := wrist + down * 150.0 * u
+	_ci.draw_colored_polygon(PackedVector2Array([wrist + side * 14.0 * u, cuff + side * 40.0 * u, cuff - side * 34.0 * u, wrist - side * 14.0 * u]), sumi)
+	# le poing sur le manche, le pouce, deux doigts allongés le long du pinceau
+	_ci.draw_circle(grip + Vector2(3, 5) * u, 13.0 * u, sumi)
+	_ci.draw_circle(wrist + Vector2(-4, -2) * u, 10.0 * u, sumi)
+	_ci.draw_circle(grip + Vector2(7, -11) * u, 5.0 * u, sumi)
+	_ci.draw_line(grip + Vector2(-4, -2) * u, grip - dir * 24.0 * u + Vector2(-6, 0) * u, sumi, 6.5 * u, true)
+	_ci.draw_line(grip + Vector2(2, 6) * u, grip - dir * 16.0 * u + Vector2(3, 4) * u, sumi, 6.0 * u, true)
 
 
 ## Où se trouve la pointe du pinceau pendant le trait unique (k ∈ 0..1).
@@ -865,22 +859,47 @@ func _one_tip(k: float) -> Vector2:
 	return xf * _ronin_path[_ronin_path.size() - 1]
 
 
-## L'ensō d'encre : un cercle au pinceau se trace au cœur de la vague, puis l'encre en déborde et avale l'écran.
+## L'ensō d'encre : un cercle au pinceau se peint au cœur de la vague, l'encre en déborde et recouvre tout ;
+## puis l'encre s'ouvre depuis le centre (iris aux bords d'ensō) sur la mer réelle de l'accueil.
 func _enso_swirl() -> void:
 	var u := _u
 	var c := _f.get_center()
-	var ke := _k(_t, T_ENSO, 0.9)
+	var ke := _k(_t, T_ENSO, 0.8)
 	var r := 130.0 * u
-	UiKit.enso(_ci, c, r, 44.0 * u, _c(BLACK_INK, 0.95), ke, -PI * 0.4)
-	for i in 2:
-		var kk := UiKit.ease_out(_k(_t, T_ENSO + 0.3 + 0.25 * i, 0.9))
-		if kk <= 0.0:
-			continue
-		UiKit.enso(_ci, c, r * (1.9 + 0.9 * i), (80.0 + 50.0 * i) * u * kk, _c(BLACK_INK, 0.9), kk, -PI * 0.4 + 1.2 * (i + 1))
-	# le cœur se remplit en dernier
-	var core := UiKit.ease_out(_k(_t, T_ENSO + 0.7, 0.6))
-	if core > 0.0:
-		_ci.draw_circle(c, (r + 30.0 * u) * core, _c(BLACK_INK, 0.95))
+	var open := UiKit.ease_out(_k(_t, T_FADE, 1.5))
+	if open <= 0.0:
+		UiKit.enso(_ci, c, r, 46.0 * u, _c(BLACK_INK), ke, -PI * 0.4)
+		# l'encre déborde de l'ensō : tache qui gonfle jusqu'à couvrir l'écran
+		var flood := UiKit.ease_out(_k(_t, T_ENSO + 0.7, 0.7))
+		if flood > 0.0:
+			_ink_disc(c, (r - 10.0 * u) + (size.length() * 0.6) * flood, 1.0)
+		return
+	# l'iris : l'encre recule en anneau, du centre vers les bords (il reste un cerne d'ensō, puis plus rien)
+	var hole := (size.length() * 0.62) * open
+	_ink_ring(c, hole, size.length() * 0.75, 1.0 - _k(open, 0.9, 0.1))
+
+
+## Disque d'encre aux bords vivants.
+func _ink_disc(c: Vector2, r: float, a: float) -> void:
+	var pts := PackedVector2Array()
+	for j in 40:
+		var ang := TAU * float(j) / 40.0
+		pts.append(c + Vector2.from_angle(ang) * r * (1.0 + 0.06 * sin(ang * 5.0 + _t * 2.0) + 0.03 * sin(ang * 11.0)))
+	_ci.draw_colored_polygon(pts, _c(BLACK_INK, a))
+
+
+## Anneau d'encre (trou de rayon r0, extérieur r1) : secteurs opaques, bord intérieur vivant comme un ensō.
+func _ink_ring(c: Vector2, r0: float, r1: float, a: float) -> void:
+	if a <= 0.003:
+		return
+	var n := 48
+	var col := _c(BLACK_INK, a)
+	for j in n:
+		var a0 := TAU * float(j) / float(n)
+		var a1 := TAU * float(j + 1) / float(n)
+		var w0 := r0 * (1.0 + 0.05 * sin(a0 * 4.0 + _t * 1.5) + 0.025 * sin(a0 * 9.0))
+		var w1 := r0 * (1.0 + 0.05 * sin(a1 * 4.0 + _t * 1.5) + 0.025 * sin(a1 * 9.0))
+		_ci.draw_colored_polygon(PackedVector2Array([c + Vector2.from_angle(a0) * w0, c + Vector2.from_angle(a0) * r1 * 1.02, c + Vector2.from_angle(a1) * r1 * 1.02, c + Vector2.from_angle(a1) * w1]), col)
 
 
 ## Le Ronin de papier (intro.gd _ronin, même allure que le héros 3D), avec ses couleurs qui prennent :
@@ -1160,9 +1179,9 @@ func _c(col: Color, k := 1.0) -> Color:
 	return Color(col.r, col.g, col.b, col.a * k * _a)
 
 
-## Point de la feuille, en fractions de sa taille.
+## Point de l'estampe (la partie peinte de la feuille), en fractions de sa taille.
 func _sp(x: float, y: float) -> Vector2:
-	return _sheet.position + Vector2(x, y) * _sheet.size
+	return _paint.position + Vector2(x, y) * _paint.size
 
 
 ## Avancement 0..1 d'une étape qui commence à t0 et dure dur.
