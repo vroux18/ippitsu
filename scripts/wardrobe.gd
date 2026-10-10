@@ -281,15 +281,10 @@ func _draw() -> void:
 	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, vh), Vector2(0, vh)]), top)
 	# en-tête commun : retour à gauche (InkButton rond), titre souligné de vermillon
 	var hy := _safe.x
-	var tmax: float = w - 2.0 * 96.0 * u
+	var tmax: float = w - 2.0 * 112.0 * u  # place pour le compteur d'encre à droite
 	UiKit.screen_title(self, _title, "GARDE-ROBE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a, "", tmax, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
-	# compteur d'encre (en haut à droite, sur la ligne de l'en-tête)
-	var ifs: int = int(UiKit.FS_NUMBER * 0.9 * u)
-	var itxt := str(int(meta.sumi))
-	var iw := _ui.get_string_size(itxt, HORIZONTAL_ALIGNMENT_LEFT, -1, ifs).x
-	var ip := Vector2(w - UiKit.SP_M * u - iw - 16 * u, hy + UiKit.HEAD_Y * u)
-	draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, a), int(2 * u), Color(Toon.GOLD, a), int(maxf(1.0, 1.5 * u))), Rect2(ip + Vector2(0, -12) * u, Vector2(9, 24) * u))
-	draw_string(_ui, ip + Vector2(16, 6) * u, itxt, HORIZONTAL_ALIGNMENT_LEFT, -1, ifs, Color(_ink, a))
+	# compteur d'encre (UI v2 : pilule sumi, goutte, chiffre en Zen Kaku), en haut à droite sur la ligne de l'en-tête
+	UiKit.ink_counter(self, _sb, w - UiKit.SP_M * u, hy + UiKit.HEAD_Y * u, int(meta.sumi), u, a, true)
 	# panneau de papier : coins hauts arrondis, ombre vers le haut, asanoha (motif de kimono) très pâle, fibres
 	var pr := _panel(h, u)
 	pr.position.y += 40 * u * (1.0 - a)
@@ -303,7 +298,6 @@ func _draw() -> void:
 	_sb.shadow_size = 0
 	_sb.shadow_offset = Vector2.ZERO
 	var tx := 12.0 * u
-	var tw := (w - 24.0 * u) / float(CATS.size())
 	var ty := pr.position.y + 22 * u
 	# sous les onglets : asanoha (motif de kimono) très pâle, fibres du papier
 	var pat_y: float = ty + (UiKit.CHIP_H + 6.0) * u
@@ -311,15 +305,11 @@ func _draw() -> void:
 	UiKit.asanoha(self, pat, Color(_ink, 0.045 * a), 26.0 * u)
 	UiKit.fibres(self, pr, _ink, a, u, 4.0, 12)
 	draw_line(Vector2(w / 2.0 - 22 * u, pr.position.y + 9 * u), Vector2(w / 2.0 + 22 * u, pr.position.y + 9 * u), Color(_ink, 0.2 * a), 3 * u, true)
-	# onglets : puces en pilule (même dessin que les choix des options)
-	var tfs: int = int(UiKit.FS_CAPTION * u)
-	for i in CATS.size():
-		var r := Rect2(Vector2(tx + tw * i + 2 * u, ty), Vector2(tw - 4 * u, UiKit.CHIP_H * u))
-		var on := i == cat
-		var tkey := "tab:%d" % i
-		var dr: Rect2 = r.grow(-1.0 * u) if _pressed == tkey else r
-		UiKit.chip(self, _sb, dr, UiKit.plain(String(CAT_LABELS[i])), _ui, tfs, on, _ink, _paper, a)
-		_hits.append([r, tkey])
+	# onglets (UI v2, Boutons) : un mot par onglet, coup de pinceau d'encre derrière l'actif
+	var trs: Array = UiKit.tabs(self, CAT_LABELS, Rect2(Vector2(tx, ty), Vector2(w - 24.0 * u, UiKit.CHIP_H * u)), float(cat),
+		_ink, _paper, Color(_ink, 0.7), a, u)
+	for i in trs.size():
+		_hits.append([trs[i], "tab:%d" % i])
 	# éléments de la catégorie
 	var c := cat_id()
 	var ids: Array = meta.cosmetic_ids(c)
