@@ -120,6 +120,9 @@ var _lv_flash := 0.0  # éclat du passage de niveau (1 -> 0)
 var _gain_from := 0  # premier segment regagné (soin)
 var _gain_t := 0.0
 var _gold_shown := -1
+var _gold_pop := 0.0  # bond de la pilule d'or (1 -> 0 en 180 ms)
+var _gold_pops: Array = []  # gains d'or annoncés près de la pilule : [montant, âge]
+var _stage_end_x := 0.0  # bord droit de la pilule d'étape (la pilule d'or vient après)
 var _score_shown := 0.0  # le compteur rattrape le score
 var _score_int := -1  # valeur affichée (son texte est refait seulement quand elle change)
 var _score_txt := "0"
@@ -380,6 +383,7 @@ func _draw() -> void:
 		if not dojo:
 			_draw_shape_pop(sz, u)
 			_draw_stage(u)
+			_draw_gold(u)
 			_draw_score(sz, u)
 			_draw_pause_disc(sz, u)
 		if boss_name != "":
@@ -509,8 +513,14 @@ func _tick_status(real: float) -> void:
 	if _gold_shown < 0:
 		_gold_shown = gold
 	if gold > _gold_shown and score >= 0:
-		score_pop("OR", gold - _gold_shown)
+		_gold_gain(gold - _gold_shown)
 	_gold_shown = gold
+	_gold_pop = maxf(0.0, _gold_pop - real / 0.18)
+	for i in range(_gold_pops.size() - 1, -1, -1):
+		var gp: Array = _gold_pops[i]
+		gp[1] = float(gp[1]) + real
+		if float(gp[1]) >= 1.3:
+			_gold_pops.remove_at(i)
 	# score : le compteur monte vers sa valeur (la pastille bondit), il repart de zéro à la partie suivante
 	var sc := float(maxi(score, 0))
 	if sc < _score_shown:
@@ -810,6 +820,7 @@ func _draw_stage(u: float) -> void:
 	var col_w := maxf(nw + sw, cw)
 	var pill := Rect2(Vector2(14.0 * u, cy - BAR_H * u / 2.0), Vector2((7.0 + 30.0 + 9.0 + 14.0) * u + col_w, BAR_H * u))
 	_pill(pill, u)
+	_stage_end_x = pill.end.x
 	var sq := Rect2(Vector2(pill.position.x + 7.0 * u, cy - 15.0 * u), Vector2(30.0, 30.0) * u)
 	draw_style_box(UiKit.box(_sb, world_color, int(5.0 * u), UIColors.WASHI, maxi(1, int(1.5 * u))), sq)
 	UiKit.draw_icon(self, String(UIColors.WORLD_ICON.get(world_kanji, "hud/vague")), sq.get_center(), 18.9 * u, 1.0, UIColors.WASHI)
@@ -823,6 +834,67 @@ func _draw_stage(u: float) -> void:
 			draw_style_box(UiKit.box(_sb, UIColors.GOLD, int(2.0 * u)), cr)
 		else:
 			draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(2.0 * u), Color(UIColors.WASHI, 0.7), maxi(1, int(1.0 * u))), cr)
+
+
+## Pièce d'or (koban) : ovale d'or cerné d'encre, estampille carrée et deux marques au centre.
+func _coin(c: Vector2, r: float, a := 1.0) -> void:
+	_fill_pts.resize(20)
+	for k in 20:
+		_fill_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * r * 0.78, sin(TAU * float(k) / 20.0) * r)
+	draw_colored_polygon(_fill_pts, Color(UIColors.SUMI, a))
+	for k in 20:
+		_fill_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * (r * 0.78 - 1.5), sin(TAU * float(k) / 20.0) * (r - 1.5))
+	draw_colored_polygon(_fill_pts, Color(UIColors.GOLD, a))
+	for k in 20:
+		_fill_pts[k] = c + Vector2(cos(TAU * float(k) / 20.0) * (r * 0.78 - 3.5), sin(TAU * float(k) / 20.0) * (r - 3.5))
+	draw_polyline(_fill_pts, Color(UIColors.SUMI, 0.45 * a), maxf(1.0, r * 0.08), true)
+	draw_rect(Rect2(c + Vector2(-r * 0.2, -r * 0.42), Vector2(r * 0.4, r * 0.34)), Color(UIColors.SUMI, 0.7 * a))
+	draw_rect(Rect2(c + Vector2(-r * 0.22, r * 0.05), Vector2(r * 0.44, r * 0.1)), Color(UIColors.SUMI, 0.7 * a))
+	draw_rect(Rect2(c + Vector2(-r * 0.22, r * 0.28), Vector2(r * 0.44, r * 0.1)), Color(UIColors.SUMI, 0.7 * a))
+
+
+## Gain d'or : « +N » avec une pièce, près de la pilule d'or ; des gains rapprochés se cumulent.
+func _gold_gain(n: int) -> void:
+	_gold_pop = 1.0
+	for gp in _gold_pops:
+		if float(gp[1]) < 0.6:
+			gp[0] = int(gp[0]) + n
+			gp[1] = 0.0
+			return
+	_gold_pops.append([n, 0.0])
+	if _gold_pops.size() > 2:
+		_gold_pops.pop_front()
+
+
+## Pilule d'or (h32) après la pilule d'étape : pièce + compte ; elle bondit à chaque gain, et le gain s'annonce
+## en « +N » qui monte et s'efface au-dessus d'elle.
+func _draw_gold(u: float) -> void:
+	if score < 0 or gold < 0:
+		return
+	var cy := (BAR_Y + BAR_H / 2.0) * u
+	var nf := UiKit.num_font()
+	var fs := int(15 * u)
+	var txt := str(gold)
+	var tw := nf.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var pill := Rect2(Vector2(_stage_end_x + 8.0 * u, cy - 16.0 * u), Vector2(30.0 * u + tw + 10.0 * u, 32.0 * u))
+	var kp := 1.0 - _gold_pop
+	var sc := 1.0 + 0.25 * sin(PI * kp) * (1.0 + 0.6 * (1.0 - kp))
+	var anchor := pill.get_center()
+	draw_set_transform(Vector2(0, top_off) + anchor * (1.0 - sc), 0.0, Vector2(sc, sc))
+	_pill(pill, u)
+	_coin(Vector2(pill.position.x + 15.0 * u, cy), 9.0 * u)
+	draw_string(nf, Vector2(pill.position.x + 28.0 * u, cy + fs * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, UIColors.GOLD.lightened(0.25))
+	draw_set_transform(Vector2(0, top_off))
+	for gp in _gold_pops:
+		var age := float(gp[1])
+		var a := clampf(minf(age / 0.1, (1.3 - age) / 0.35), 0.0, 1.0)
+		var ptxt := "+%d" % int(gp[0])
+		var pfs := int(14 * u)
+		var py := pill.end.y + 14.0 * u + 10.0 * u * UiKit.ease_out(clampf(age / 1.3, 0.0, 1.0)) - 6.0 * u * UiKit.ease_out(clampf(age / 0.3, 0.0, 1.0))
+		var px := pill.position.x + 8.0 * u
+		_coin(Vector2(px + 7.0 * u, py - pfs * 0.3), 7.0 * u, a)
+		draw_string_outline(nf, Vector2(px + 18.0 * u, py), ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs, maxi(2, int(3.0 * u)), Color(UIColors.SUMI, 0.9 * a))
+		draw_string(nf, Vector2(px + 18.0 * u, py), ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs, Color(UIColors.GOLD.lightened(0.25), a))
 
 
 ## Score : pilule h44 à droite (bord droit à 66 u de l'écran), chiffres en 21 ; collée à gauche, la puce du
