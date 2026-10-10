@@ -28,8 +28,6 @@ var elan_empty := false
 var wave := 1  # étape en cours (1..rooms_total)
 var rooms_total := 8
 var gate_hint := false
-var gate_hint_at := Vector2.INF  # point d'ancrage à l'écran (sur les dalles, devant les portes) ; INF : en haut, au centre
-var gate_hint_dir := Vector2.UP
 var boss_name := ""
 var boss_hint := ""  # point faible du boss affiché sous sa barre
 var boss_ratio := 1.0
@@ -970,11 +968,17 @@ func _draw_ink(u: float) -> void:
 	var fh := ir.size.y * clampf(elan, 0.0, 1.0)
 	if fh > 1.0:
 		_ci.draw_style_box(UiKit.box(_sb, ink, int(6.0 * u)), Rect2(Vector2(ir.position.x, ir.end.y - fh), Vector2(ir.size.x, fh)))
-	# Réserve (Arbre du pinceau) : l'encre qui déborde de la jauge pleine, en or, le long de son bord droit
+	# Réserve (Arbre du pinceau) : l'encre en plus de la jauge pleine, en or sur toute la largeur, en haut
+	# (c'est elle que le trait boit d'abord : elle descend du haut et laisse la jauge pleine dessous)
 	var over := clampf(elan - 1.0, 0.0, 1.0)
 	if over > 0.0:
 		var oh := ir.size.y * over
-		_ci.draw_style_box(UiKit.box(_sb, UIColors.GOLD, int(3.0 * u)), Rect2(Vector2(ir.end.x - ir.size.x * 0.35, ir.end.y - oh), Vector2(ir.size.x * 0.35, oh)))
+		var orr := Rect2(ir.position, Vector2(ir.size.x, oh))
+		var sbg := UiKit.box(_sb, UIColors.GOLD, int(6.0 * u))
+		sbg.corner_radius_bottom_left = int(2.0 * u)
+		sbg.corner_radius_bottom_right = int(2.0 * u)
+		_ci.draw_style_box(sbg, orr)
+		_ci.draw_line(Vector2(ir.position.x + 2.0 * u, orr.end.y), Vector2(ir.end.x - 2.0 * u, orr.end.y), Color(UIColors.WASHI, 0.8), maxf(1.0, 1.5 * u))
 	# graduations : une encoche tous les 2 m de trait
 	var ticks := int(elan_m / 2.0)
 	for i in range(1, ticks + 1):
@@ -1531,20 +1535,10 @@ func _maki_fill(k: float, col: Color) -> void:
 
 func _draw_gate_hint(sz: Vector2, u: float) -> void:
 	var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-	var c := Vector2(sz.x / 2.0, top_off + (_band_k + 62.0) * u)
-	var dir := Vector2.UP
-	if gate_hint_at != Vector2.INF:
-		# sur les dalles, gardée dans l'écran (sous le bandeau du haut, au-dessus des jauges)
-		c = Vector2(clampf(gate_hint_at.x, 60.0 * u, sz.x - 60.0 * u),
-			clampf(gate_hint_at.y, top_off + (_band_k + 40.0) * u, sz.y * 0.72))
-		dir = gate_hint_dir
-	# va-et-vient vers le but
-	c += dir * 8.0 * u * pulse
-	var side := Vector2(-dir.y, dir.x)
-	var pts: Array[Vector2] = [Vector2(0, -16), Vector2(16, 6), Vector2(6, 6), Vector2(6, 22), Vector2(-6, 22), Vector2(-6, 6), Vector2(-16, 6)]
-	var arrow := PackedVector2Array()
-	for p in pts:
-		arrow.append(c + (side * p.x - dir * p.y) * u)
+	var ax := sz.x / 2.0
+	var ay := top_off + (_band_k + 62.0) * u - 8.0 * u * pulse
+	var arrow := PackedVector2Array([Vector2(ax, ay - 16 * u), Vector2(ax + 16 * u, ay + 6 * u), Vector2(ax + 6 * u, ay + 6 * u),
+		Vector2(ax + 6 * u, ay + 22 * u), Vector2(ax - 6 * u, ay + 22 * u), Vector2(ax - 6 * u, ay + 6 * u), Vector2(ax - 16 * u, ay + 6 * u)])
 	_ci.draw_colored_polygon(arrow, Color(UIColors.GOLD, 0.55 + 0.4 * pulse))
 	_outline(arrow, Color(UiKit.GOLD_INK, 0.6 + 0.4 * pulse), 2.0 * u)
 

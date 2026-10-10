@@ -463,14 +463,6 @@ static func build_spirit(n: Node3D, pk: Dictionary) -> void:
 	for i in (2 if Toon.lite else 4):
 		wisps.append(_part_flat(n, _mesh("sp_wisp"), _mat("spirit_wisp"), sp.position, Vector3.ONE * (1.0 - 0.17 * float(i))))
 	pk["wisps"] = wisps
-	# icône du geste, inclinée face à la caméra : boucle fléchée, un point en fait le tour
-	var ic := Node3D.new()
-	sp.add_child(ic)
-	ic.position = Vector3(0, 0.88, 0)
-	ic.rotation.x = 0.54
-	_part_flat(ic, _mesh("icon_dark"), _mat("icon_dark"), Vector3.ZERO)
-	_part_flat(ic, _mesh("icon_light"), _mat("icon_light"), Vector3(0, 0.004, 0))
-	pk["dot"] = _part_flat(ic, _mesh("icon_dot"), _mat("icon_dot"), Vector3(0.2, 0.012, 0))
 	pk["at"] = 0.0
 
 
