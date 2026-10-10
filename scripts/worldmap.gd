@@ -141,6 +141,9 @@ var _go: InkButton
 var _back: InkButton
 
 
+var _bg_sig: Array = []  # entrées du dernier dessin du fond (vide : à refaire)
+
+
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -560,7 +563,16 @@ func _process(_delta: float) -> void:
 			return
 
 	_layout()
-	queue_redraw()
+	# fond (papier à seigaiha, titre, papier des cartes, points de page) : fixe une fois arrivé, tant que le carrousel
+	# ne bouge pas ; les estampes (animées) et les cadres se redessinent toujours
+	if _t < 0.6 or _deny > 0.0 or _leaving != 0 or (_reveal_id > 0 and not _reveal_done()):
+		_bg_sig = []
+		queue_redraw()
+	else:
+		var sig := [size, Toon.ui_rev, _view(), _sel(), _unlocked, _worlds.size(), _ccy, _cw, _ch, _dots_y, _top, _u]
+		if sig != _bg_sig:
+			_bg_sig = sig
+			queue_redraw()
 	_front.queue_redraw()
 	_overlay.queue_redraw()
 
