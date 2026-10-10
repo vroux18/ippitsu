@@ -369,13 +369,15 @@ func _draw() -> void:
 		sub = UiKit.plain(String(meta.cosmetic_how(c, shown)))
 	var bfs: int = int(UiKit.FS_BODY * u)
 	var lines := UiKit.wrap(_ui, sub, bfs, w - 60 * u, ["·", ":", "»"])
-	for li in mini(lines.size(), 2):
+	var nl := mini(lines.size(), 2)
+	for li in nl:
 		var lw3 := UiKit.text(self, _ui, lines[li], Vector2(w / 2.0, dy + 27 * u + 15 * u * li), bfs, sc)
 		if check and li == 0:
 			UiKit.glyph(self, "check", Vector2(w / 2.0 - lw3 / 2.0 - 10.0 * u, dy + 27 * u - bfs * 0.36), 4.5 * u, Color(_accent, a), UiKit.NONE, a)
 	# échantillon pour le sillage et l'encre (invisibles sur le héros immobile)
 	if c == "trail" or c == "ink":
-		var sp := Vector2(w - 58 * u, dy)
+		# centré sous la description (à droite, il mangeait la fin de la ligne)
+		var sp := Vector2(w / 2.0, dy + 27 * u + 15 * u * nl + 30 * u)
 		_sample_stroke(c, shown, sp, u, a)
 
 
@@ -398,6 +400,9 @@ func _swatch(c: String, id: String, p: Vector2, r: float, a: float) -> void:
 			draw_rect(Rect2(card.position + Vector2(r * 0.18, r * 0.72), Vector2(r * 0.3, r * 0.14)), Color(acc, a))
 		"trail":
 			draw_circle(p, r, Color(Toon.SUMI, 0.9 * a))
+			if col.get_luminance() < 0.25:
+				# sillage sombre : liseré de papier, sinon noir sur noir
+				draw_arc(p, r * 0.58, PI * 0.85, PI * 2.05, 18, Color(Toon.WASHI, 0.7 * a), r * 0.36, true)
 			draw_arc(p, r * 0.58, PI * 0.85, PI * 2.05, 18, Color(col, a), r * 0.26, true)
 		"ink":
 			draw_circle(p, r, Color(Toon.PAPER, a))

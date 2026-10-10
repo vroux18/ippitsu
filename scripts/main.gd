@@ -794,6 +794,16 @@ func _ready() -> void:
 			refuge.call("select_node", wsearch.substr(nq + 6).get_slice("&", 0))
 			if "apprendre" in wsearch:
 				refuge.call("_learn")
+	if "garderobe" in wsearch and state == "menu":
+		# `?garderobe&cat=1&sel=w5_mini` (captures) : la garde-robe ouverte sur cet onglet et cet élément
+		_open_wardrobe()
+		var cq := wsearch.find("cat=")
+		if cq >= 0:
+			wardrobe.set("cat", int(wsearch.substr(cq + 4).get_slice("&", 0)))
+		var sq := wsearch.find("sel=")
+		if sq >= 0:
+			wardrobe.set("_sel", wsearch.substr(sq + 4).get_slice("&", 0))
+			wardrobe.set("_sel_on", true)
 	if "dojo" in wsearch:
 		_start_dojo()
 	if "tuto" in wsearch:
