@@ -5751,8 +5751,6 @@ func _process(_delta: float) -> void:
 	hud.level = level
 	hud.xp_ratio = float(xp) / float(xp_need())
 	hud.gold = run_gold
-	hud.chain_left = 1.0 - _chain_t / CHAIN_TIMEOUT
-	hud.chain_mult = chain_mult()
 	hud.score = int(score.points) if state != "tuto" else -1
 	hud.score_mult = Score.mult(chain) if state != "tuto" else 1.0
 	var bars: Array = []
@@ -5780,19 +5778,11 @@ func _process(_delta: float) -> void:
 	hud.wave = stage_i + 1
 	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
 	hud.gate_hint = state == "play" and (arena.gate_open or (arena.stage and _enc < 0 and arena.zones_left() > 0))
-	# barre d'avancée de l'étape (héros, zones de combat) et compte des combats
+	# compte des combats de l'étape (crans de la pilule d'étape)
 	if arena.stage and not in_hub:
-		hud.stage_k = arena.progress_of(hero.position)
-		var marks: Array = []
-		for i in arena.zones.size():
-			var sp: Vector2 = arena.zone_span(i)
-			marks.append([sp.x, sp.y, int(arena.zone_state[i])])
-		hud.stage_marks = marks
 		hud.enc_done = arena.zones_done()
 		hud.enc_total = arena.zones.size()
 	else:
-		hud.stage_k = -1.0
-		hud.stage_marks = []
 		hud.enc_done = 0
 		hud.enc_total = 0
 	hud.boss_name = ""

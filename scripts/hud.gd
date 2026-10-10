@@ -38,10 +38,8 @@ var boss_vuln_len := 6.0
 var boss_phase := 0  # phase en cours et nombre de phases (encoches d'or du makimono) ; 0 : inconnu, pas d'encoche
 var boss_phases := 0
 var wipe := 0.0  # rideau d'encre de la transition entre étapes (0..1)
-# expédition (main) : avancée dans l'étape (0..1, < 0 = cachée), zones [début, fin, état 0/1/2], combats
-var stage_k := -1.0
+# expédition (main) : combats de l'étape gagnés / en tout (crans de la pilule d'étape)
 var top_off := 0.0  # marge du haut : encoche / barre d'état du téléphone (zone de sécurité) + un peu d'air
-var stage_marks: Array = []
 var enc_done := 0
 var enc_total := 0
 var wash := 0.0  # lavis d'encre du rituel du torii (0..1), qui s'étend depuis wash_c
@@ -53,8 +51,6 @@ var world_kanji := "波"  # clé du monde (main) : sert à choisir son picto (UI
 var world_color := Toon.PRUSSIAN
 var combo := 0
 var chain := 0  # ruées réussies d'affilée sans prendre de coup
-var chain_left := 1.0  # temps restant avant extinction (0..1)
-var chain_mult := 1.0
 var chain_break := 0.0  # éclat quand la chaîne se brise (1 -> 0)
 var chain_lost := 0
 var score := -1  # points de la partie (-1 : pas de score, dojo)
@@ -571,6 +567,13 @@ func _draw_over(sz: Vector2, u: float) -> void:
 func _refresh_layers() -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var vis := is_visible_in_tree()
+	if not vis:
+		# HUD caché (accueil, carte) : rien à comparer ; toutes les couches seront redessinées à son retour
+		for i in _layer_sig.size():
+			_layer_sig[i] = null
+		if _pt != 0:
+			Perf.add(&"hud", _pt)
+		return
 	var u := size.x / 400.0
 	var low := hp > 0 and (hp == 1 or float(hp) <= float(maxi(max_hp, 1)) * 0.25)
 	var cl := _cluster_top()
