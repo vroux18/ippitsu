@@ -15,11 +15,15 @@ extends Node3D
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
-const ORANGE := Color("#E08A3C")
-const WHITE := Color("#F3EEE4")
-const ASH := Color("#5C5862")
+# apparence « Masque d'encre » (règles en tête de yokai_ink_w1.gd ; famille du monde 2 : yokai_ink_w2.gd)
+const INK_FOX := Color("#1E1C26")  # encre froide des renards
+const CLOTH := Color("#2E3B4E")  # étoffe de la nuit de Tanabata (collerette)
+const WAVE := Color("#F1E3A6")  # or pâle du feu de renard (pointes des queues, écailles, nimbe)
+const EMBER := Color("#6E2A24")  # braise sombre (intérieur des oreilles)
+const ASH := Color("#5C5862")  # queue éteinte
 const TAILS := 9
 const FOX_SCALE := 1.2
 const CENTER := Vector3(0, 0, -1.0)  # centre de l'anneau des queues
@@ -60,10 +64,11 @@ var _flash := 0.0
 var _stun := 0.0
 var _last_stroke := -1
 
-# matériaux partagés
+# matériaux partagés : toon à couleurs de sommets (tous les renards et les queues plantées), cendre des queues
+# éteintes ; l'aplat lumineux (yeux d'or, feu de renard) est celui des yōkai d'encre (Yokai.ink_flat_mat)
 var _fur: StandardMaterial3D
-var _white: StandardMaterial3D
 var _ash: StandardMaterial3D
+var _fox_meshes := {}  # maillage du renard par variante (vrai : yeux d'or ; illusion : fentes d'encre)
 
 # renards : le vrai (_fox, racine = self) et les deux illusions
 var _fox := {}
@@ -125,8 +130,11 @@ func _ready() -> void:
 	radius = 0.9
 	hp *= max_hp_mult
 	max_hp = hp
-	_fur = Toon.mat_shared(ORANGE)
-	_white = Toon.mat_shared(WHITE)
+	_fur = Toon.mat(Color.WHITE, true, 0.03)
+	_fur.vertex_color_use_as_albedo = true
+	_fur.vertex_color_is_srgb = true
+	_fur.rim = 0.35
+	_fur.rim_tint = 0.5
 	_ash = Toon.mat_shared(ASH)
 	_fox = _build_fox(self, true)
 	for i in 2:
@@ -156,60 +164,33 @@ func _lp_sphere(r: float) -> SphereMesh:
 	return m
 
 
-## Renard low-poly (regarde vers -Z). Renvoie {node, body, shadow, tails, cones, stars, alive, anchor}.
+## Renard de washi et d'encre (regarde vers -Z) : corps de washi aux pattes et au ventre d'encre qui goutte,
+## collerette d'étoffe de la nuit à écailles d'or pâle, masque de renard relevé vers le ciel (cerne d'or, traits
+## vermillon et or), grandes oreilles, nimbe de feu de renard derrière la tête ; neuf queues d'encre à pointe de
+## feu de renard (pivots inchangés). Le vrai a les yeux d'or, les illusions des fentes d'encre.
+## Renvoie {node, body, shadow, tails, cones, stars, alive, anchor}.
 func _build_fox(root: Node3D, is_real: bool) -> Dictionary:
+	var lite := Toon.lite
 	var body := Node3D.new()
 	root.add_child(body)
 	body.scale = Vector3.ONE * FOX_SCALE
-	var dark := Toon.mat_shared(Toon.SUMI)
-	var red := Toon.flat(Toon.VERMILION)
-	# corps, poitrail blanc
-	Toon.part(body, _lp_sphere(0.5), _fur, Vector3(0, 0.78, 0.05), Vector3(0.8, 0.75, 1.3))
-	Toon.part(body, _lp_sphere(0.36), _white, Vector3(0, 0.82, -0.42), Vector3(0.95, 1.1, 0.8))
-	# pattes à chaussettes d'encre
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			Toon.part(body, Toon.cyl(0.07, 0.09, 0.55, 6), _fur, Vector3(sx * 0.2, 0.3, sz * 0.42 + 0.02))
-			Toon.part(body, _lp_sphere(0.09), dark, Vector3(sx * 0.2, 0.07, sz * 0.42 - 0.02), Vector3(1, 0.7, 1.3))
-	# cou + collier vermillon à clochette d'or
-	var neck := Toon.part(body, Toon.cyl(0.2, 0.26, 0.5, 8), _fur, Vector3(0, 1.05, -0.45))
-	neck.rotation.x = -0.5
-	var collar := Toon.part(body, Toon.cyl(0.25, 0.25, 0.08, 8), Toon.mat_shared(Toon.VERMILION), Vector3(0, 0.98, -0.5))
-	collar.rotation.x = -0.5
-	Toon.part(body, _lp_sphere(0.07), Toon.mat_shared(Toon.GOLD), Vector3(0, 0.86, -0.7))
-	# tête et masque blanc (kitsune-men)
-	Toon.part(body, _lp_sphere(0.32), _fur, Vector3(0, 1.32, -0.62), Vector3(1.0, 0.9, 1.0))
-	Toon.part(body, _lp_sphere(0.27), _white, Vector3(0, 1.32, -0.76), Vector3(1.0, 0.95, 0.7))
-	var muzzle := Toon.part(body, Toon.cyl(0.0, 0.15, 0.42, 6), _white, Vector3(0, 1.24, -0.98))
-	muzzle.rotation.x = -PI * 0.5
-	Toon.part(body, _lp_sphere(0.05), dark, Vector3(0, 1.24, -1.19))
-	# marques vermillon du masque
-	for sx in [-1.0, 1.0]:
-		var mk := Toon.part(body, Toon.box(Vector3(0.06, 0.02, 0.13)), red, Vector3(sx * 0.1, 1.47, -0.86))
-		mk.rotation = Vector3(-0.4, 0, sx * 0.5)
-		# yeux : or pour le vrai, fentes d'encre pour les illusions
-		if is_real:
-			Toon.part(body, _lp_sphere(0.06), Toon.flat(Toon.GOLD), Vector3(sx * 0.11, 1.37, -0.95))
-		else:
-			var slit := Toon.part(body, Toon.box(Vector3(0.11, 0.025, 0.03)), Toon.flat(Toon.SUMI), Vector3(sx * 0.11, 1.37, -0.95))
-			slit.rotation.z = -sx * 0.25
-		# oreilles
-		var ear := Toon.part(body, Toon.cyl(0.0, 0.12, 0.36, 4), _fur, Vector3(sx * 0.16, 1.62, -0.58))
-		ear.rotation.z = -sx * 0.25
-		Toon.part(ear, Toon.cyl(0.0, 0.07, 0.22, 4), Toon.mat_shared(WHITE, false), Vector3(0, -0.04, -0.05))
-	# les neuf queues en éventail (cônes à bout blanc)
+	var key := 1 if is_real else 0
+	if not _fox_meshes.has(key):
+		_fox_meshes[key] = _fox_mesh(is_real, lite)
+	_part(body, _fox_meshes[key], Vector3.ZERO)
+	# les neuf queues en éventail : fuseaux d'encre à bague d'or et pointe de feu
 	var tail_root := Node3D.new()
 	body.add_child(tail_root)
 	tail_root.position = Vector3(0, 0.85, 0.6)
 	var tails: Array = []
 	var cones: Array = []
+	var tm := _tail_mesh(lite, false)
 	for i in TAILS:
 		var pv := Node3D.new()
 		tail_root.add_child(pv)
 		var u := float(i) / float(TAILS - 1) * 2.0 - 1.0
 		pv.rotation = Vector3(0.75 + 0.3 * (1.0 - absf(u)), 0.0, u * 1.1)
-		var cone := Toon.part(pv, Toon.cyl(0.07, 0.2, 0.95, 6), _fur, Vector3(0, 0.5, 0))
-		Toon.part(pv, Toon.cyl(0.0, 0.08, 0.3, 6), _white, Vector3(0, 1.12, 0))
+		var cone := _part(pv, tm, Vector3.ZERO)
 		tails.append(pv)
 		cones.append(cone)
 	# ombre au sol : celle du vrai bouge (se balance, s'étire)
@@ -227,8 +208,120 @@ func _build_fox(root: Node3D, is_real: bool) -> Dictionary:
 	return {"node": root, "body": body, "shadow": shadow, "tails": tails, "cones": cones, "stars": stars, "alive": true, "anchor": Vector3.ZERO}
 
 
+## Pièce d'encre : surface 0 = toon à couleurs de sommets, surface 1 (s'il y en a une) = aplat lumineux.
+func _part(parent: Node3D, m: Mesh, pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.position = pos
+	mi.set_surface_override_material(0, _fur)
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	if Toon.lite:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+## Corps et tête du renard (unités du modèle, face vers -Z ; même encombrement que l'ancien renard).
+static func _fox_mesh(real: bool, lite: bool) -> ArrayMesh:
+	var a := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	var w := Yokai.FOX_W
+	# torse et poitrail de washi ; ventre d'encre, gouttes qui pendent sous les flancs
+	a.ball(Vector3(0, 0.78, 0.05), Vector3(0.42, 0.4, 0.66), w, Vector3.ZERO, 10)
+	a.ball(Vector3(0, 0.84, -0.42), Vector3(0.36, 0.38, 0.3), w, Vector3.ZERO, 8)
+	a.ball(Vector3(0, 0.6, 0.05), Vector3(0.38, 0.24, 0.62), INK_FOX, Vector3.ZERO, 8)
+	var drops: Array = [Vector3(0.34, 0.6, 0.25), Vector3(-0.34, 0.6, -0.1)]
+	if not lite:
+		drops.append(Vector3(0.1, 0.5, 0.62))
+	for q in drops:
+		var dp: Vector3 = q
+		var tip := a.spike(dp, 0.06, 0.26, INK_FOX, Vector3(PI, 0, -signf(dp.x) * 0.3), 0.3, 5)
+		a.ball(tip, Vector3(0.045, 0.05, 0.045), INK_FOX, Vector3.ZERO, 6)
+	# pattes : chaussettes d'encre, pattes en boule
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			var x := float(sx)
+			var z := float(sz)
+			a.cyl(Vector3(x * 0.2, 0.3, z * 0.42 + 0.02), Vector3(0.09, 0.55, 0.09), INK_FOX, Vector3.ZERO, 0.8, 6)
+			a.ball(Vector3(x * 0.2, 0.07, z * 0.42 - 0.02), Vector3(0.09, 0.063, 0.117), INK_FOX, Vector3.ZERO, 6)
+	# cou de washi ; collerette d'étoffe de la nuit cerclée d'or, écailles d'or pâle sur le dessus
+	var nrot := Vector3(-0.5, 0, 0)
+	var nb := Basis.from_euler(nrot)
+	var cc := Vector3(0, 0.98, -0.42)
+	a.cyl(Vector3(0, 1.05, -0.45), Vector3(0.26, 0.5, 0.26), w, nrot, 0.77, 8)
+	a.cyl(cc, Vector3(0.4, 0.16, 0.38), CLOTH, nrot, 0.85, 12)
+	a.cyl(cc + nb * Vector3(0, 0.085, 0), Vector3(0.36, 0.035, 0.34), Toon.GOLD, nrot, 1.0, 12)
+	a.cyl(cc + nb * Vector3(0, -0.085, 0), Vector3(0.41, 0.035, 0.39), Toon.GOLD, nrot, 1.0, 12)
+	var n := 5 if lite else 8
+	for i in n:
+		var t := PI / 2.0 - 1.6 + 3.2 * float(i) / float(n - 1)
+		a.ball(cc + nb * Vector3(cos(t) * 0.38, 0.03, sin(t) * 0.36), Vector3(0.07, 0.02, 0.055), WAVE, nrot, 6)
+	# crête d'encre sur la nuque, couchée vers l'arrière (lisible du dessus)
+	var crest := 2 if lite else 3
+	for i in crest:
+		var x := (float(i) - 0.5 * float(crest - 1)) * 0.12
+		a.spike(Vector3(x, 1.18 - absf(x) * 0.5, -0.3), 0.06, 0.32 - absf(x), INK_FOX, Vector3(1.2, 0, -x * 1.5), 0.0, 5)
+	# tête de washi ; masque de renard relevé vers le ciel (la caméra plonge) : plaque washi cernée d'or
+	var hc := Vector3(0, 1.32, -0.62)
+	a.ball(hc, Vector3(0.31, 0.28, 0.32), w, Vector3.ZERO, 10)
+	var mrot := Vector3(0.55, 0, 0)
+	var mb := Basis.from_euler(mrot)
+	var mc := Vector3(0, 1.36, -0.8)
+	a.ball(mc, Vector3(0.3, 0.34, 0.1), Yokai.MASK_WASHI, mrot, 10)
+	a.ball(mc + mb * Vector3(0, 0, 0.05), Vector3(0.34, 0.38, 0.07), Toon.GOLD, mrot, 10)
+	var fz := -0.095
+	# museau long, un peu baissé, truffe d'encre ; marque vermillon du front
+	var tip := a.spike(mc + mb * Vector3(0, -0.12, fz + 0.03), 0.1, 0.3, w, Vector3(0.55 - PI / 2.0 - 0.2, 0, 0), 0.3, 5, 0.7)
+	a.ball(tip, Vector3(0.04, 0.035, 0.035), Toon.SUMI, Vector3.ZERO, 6)
+	a.box(mc + mb * Vector3(0, 0.27, fz), Vector3(0.03, 0.07, 0.02), Toon.VERMILION, mrot)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		if real:
+			# yeux d'or (aplat) : le seul signe qui ne trompe pas
+			f.ball(mc + mb * Vector3(x * 0.12, 0.07, fz), Vector3(0.075, 0.05, 0.015), Yokai.EYE_GOLD, Vector3(0.55, 0, x * 0.35), 8)
+			f.ball(mc + mb * Vector3(x * 0.12, 0.07, fz - 0.012), Vector3(0.03, 0.035, 0.01), Toon.SUMI, mrot, 6)
+		else:
+			a.box(mc + mb * Vector3(x * 0.12, 0.07, fz), Vector3(0.14, 0.028, 0.02), Toon.SUMI, Vector3(0.55, 0, x * 0.35))
+		# traits peints : sourcil vermillon qui monte, marque d'or de la joue, lèvre vermillon
+		a.box(mc + mb * Vector3(x * 0.13, 0.18, fz), Vector3(0.16, 0.03, 0.02), Toon.VERMILION, Vector3(0.55, 0, x * 0.5))
+		a.box(mc + mb * Vector3(x * 0.21, -0.04, fz), Vector3(0.09, 0.024, 0.02), Toon.GOLD, Vector3(0.55, 0, x * 0.25))
+		if not lite:
+			a.box(mc + mb * Vector3(x * 0.07, -0.21, fz), Vector3(0.06, 0.02, 0.02), Toon.VERMILION, Vector3(0.55, 0, -x * 0.4))
+		# grandes oreilles de washi dressées, penchées vers l'extérieur, intérieur de braise
+		a.spike(Vector3(x * 0.17, 1.5, -0.56), 0.11, 0.42, w, Vector3(-0.15, 0, -x * 0.3), 0.0, 4, 0.5)
+		if not lite:
+			a.spike(Vector3(x * 0.165, 1.52, -0.6), 0.06, 0.3, EMBER, Vector3(-0.15, 0, -x * 0.3), 0.0, 4, 0.4)
+	# nimbe de feu de renard derrière la tête : couronne de gouttes d'or pâle (aplat), penchée vers la caméra
+	var nn := 8 if lite else 12
+	var rb := Basis.from_euler(Vector3(0.9, 0, 0))
+	for i in nn:
+		var t := TAU * float(i) / float(nn)
+		f.ball(Vector3(0, 1.45, -0.35) + rb * Vector3(cos(t) * 0.5, sin(t) * 0.5, 0), Vector3.ONE * 0.045, WAVE, Vector3.ZERO, 6)
+	return Yokai.two(a, f)
+
+
+## Queue (unité, pivot à la base, +Y vers le bout) : fuseau d'encre qui s'effile, bague d'or, pointe de feu de
+## renard (aplat). `ground` : la queue plantée, un peu plus grande. Même longueur que les anciens cônes.
+static func _tail_mesh(lite: bool, ground: bool) -> ArrayMesh:
+	var a := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	var h := 1.1 if ground else 0.95
+	var r := 0.22 if ground else 0.2
+	a.cyl(Vector3(0, h * 0.5, 0), Vector3(r, h, r), INK_FOX, Vector3.ZERO, 0.3, 6)
+	a.ball(Vector3(0, h * 0.38, 0), Vector3(r * 1.05, h * 0.3, r * 1.05), INK_FOX, Vector3.ZERO, 6)
+	a.cyl(Vector3(0, h * 0.74, 0), Vector3(r * 0.5, 0.05, r * 0.5), Toon.GOLD, Vector3.ZERO, 1.0, 6)
+	f.spike(Vector3(0, h - 0.04, 0), r * 0.45, 0.36, WAVE, Vector3.ZERO, 0.0, 6)
+	if not lite:
+		f.ball(Vector3(0, h + 0.02, 0), Vector3(r * 0.5, 0.07, r * 0.5), WAVE, Vector3.ZERO, 6)
+	return Yokai.two(a, f)
+
+
+## Queues plantées en cercle (phase 2) : fuseau d'encre à pointe de feu dressé sur un disque d'or, flamme
+## vermillon à cœur d'or au bout (c'est elle qui tire : la seule tache de vermillon).
 func _spawn_ground_tails() -> void:
 	_clear_ground_tails()
+	var tm := _tail_mesh(Toon.lite, true)
 	for i in TAILS:
 		var a := TAU * float(i) / float(TAILS) - PI * 0.5
 		var p := CENTER + Vector3(cos(a) * RING.x, 0, sin(a) * RING.y)
@@ -237,14 +330,13 @@ func _spawn_ground_tails() -> void:
 		add_child(n)
 		n.global_position = p
 		Toon.disc(n, 0.5, Color(Toon.GOLD, 0.25), 0.02)
-		var cone := Toon.part(n, Toon.cyl(0.06, 0.22, 1.1, 6), _fur, Vector3(0, 0.5, 0))
+		var cone := _part(n, tm, Vector3.ZERO)
 		cone.rotation = Vector3(0.2 * sin(a), 0, -0.2 * cos(a))
-		Toon.part(n, Toon.cyl(0.0, 0.09, 0.3, 6), _white, Vector3(0, 1.15, 0))
 		var flame := Node3D.new()
 		n.add_child(flame)
 		flame.position = Vector3(0, 1.45, 0)
-		Toon.part(flame, Toon.sphere(0.26), Toon.flat(Color(Toon.VERMILION, 0.85)), Vector3.ZERO, Vector3(1, 1.35, 1))
-		Toon.part(flame, Toon.sphere(0.14), Toon.flat(Toon.GOLD), Vector3(0, -0.04, 0), Vector3(1, 1.3, 1))
+		Toon.part(flame, _lp_sphere(0.26), Toon.flat(Color(Toon.VERMILION, 0.85)), Vector3.ZERO, Vector3(1, 1.35, 1))
+		Toon.part(flame, _lp_sphere(0.14), Toon.flat(Toon.GOLD), Vector3(0, -0.04, 0), Vector3(1, 1.3, 1))
 		n.scale = Vector3(1, 0.01, 1)
 		_tails.append({"node": n, "cone": cone, "flame": flame, "lit": true, "pos": p,
 			"fire": 1.8 + TAIL_PERIOD * float(i) / float(TAILS), "band": null, "fill": null, "dir": Vector3.ZERO})
@@ -804,7 +896,7 @@ func _relight_all() -> void:
 			var fl: Node3D = t["flame"]
 			fl.visible = true
 			var cone: MeshInstance3D = t["cone"]
-			cone.material_override = _fur
+			cone.material_override = null
 			t["fire"] = 1.6 + 0.45 * i
 			var tp: Vector3 = t["pos"]
 			main.splash(tp + Vector3(0, 1.4, 0), Toon.GOLD, 8)
@@ -813,7 +905,7 @@ func _relight_all() -> void:
 	_sync_body_tails()
 
 
-## Les queues du corps reflètent les feux encore allumés.
+## Les queues du corps reflètent les feux encore allumés (éteinte : toute la queue, pointe comprise, en cendre).
 func _sync_body_tails() -> void:
 	var cones: Array = _fox["cones"]
 	for i in cones.size():
@@ -821,7 +913,7 @@ func _sync_body_tails() -> void:
 		var lit := true
 		if _phase == 2 and i < _tails.size():
 			lit = bool(_tails[i]["lit"])
-		cone.material_override = _fur if lit else _ash
+		cone.material_override = null if lit else _ash
 
 
 func _make_band(t: Dictionary) -> void:
@@ -1053,7 +1145,7 @@ func _process(delta: float) -> void:
 			if _timer > 0.9:
 				body.scale = Vector3.ONE * FOX_SCALE * clampf(1.0 - (_timer - 0.9) / 1.0, 0.01, 1.0)
 			if int(_timer * 10.0) != int((_timer - delta) * 10.0) and _timer < 1.8:
-				main.splash(position + Vector3(0, 1.0 + _timer * 0.8, 0), Toon.GOLD if randf() < 0.5 else ORANGE, 4)
+				main.splash(position + Vector3(0, 1.0 + _timer * 0.8, 0), Toon.GOLD if randf() < 0.5 else WAVE, 4)
 			if _timer > 2.2:
 				queue_free()
 	if not dead:

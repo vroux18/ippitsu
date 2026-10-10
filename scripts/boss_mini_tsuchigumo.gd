@@ -6,11 +6,15 @@ extends "res://scripts/boss_mini_base.gd"
 ##  Prépare l'Ensō de Kyūbi (boucle autour des queues).
 ##  Attaques : salve de soie en éventail (lueur 0.8 s) ; bond sur le héros (zone r1.8, 1.1 s).
 
-const MINION = preload("res://assets/kaykit/Skeleton_Minion.glb")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 const SILK := Color("#F1EEE6")
-const SHELL := Color("#3A2F28")
-const LEG := Color("#2A221D")
+# apparence « Masque d'encre » (règles en tête de yokai_ink_w1.gd ; famille du monde 2 : yokai_ink_w2.gd)
+const INK := Color("#241C16")  # encre chaude des bêtes du monde 2
+const CLOTH := Color("#2E3B4E")  # étoffe de la nuit de Tanabata
+const WAVE := Color("#F1E3A6")  # or pâle du feu de renard (écailles)
+const MASK_EARTH := Color("#C4996A")  # hannya de terre cuite
+const EMBER := Color("#6E2A24")  # braise sombre (traits du masque)
 const BODY_SCALE := 1.1
 const HINT_R := 2.1  # cercle-guide au sol (rayon conseillé de la boucle)
 const LOOP_PTS := 120  # points mémorisés pour la boucle (_find_loop est quadratique)
@@ -21,6 +25,9 @@ const VOLLEY_TELE := 0.8
 
 var _legs: Array = []  # [pivot, phase]
 var _cocoon: Node3D
+var _mat: StandardMaterial3D  # toon à couleurs de sommets, propre au gardien (éclat des coups, lueur d'annonce)
+var _head: Node3D  # masque hannya et cou d'encre (il se cabre pour la salve, pend quand elle est renversée)
+var _glow := 0.0  # lueur vermillon d'annonce (salve)
 var _hint: Node3D
 var _pts: Array = []  # Vector2 de la ruée depuis le dernier end_stroke
 var _cycle := 0
@@ -36,32 +43,117 @@ func _ready() -> void:
 	radius = 1.1
 	_build()
 	_shield_init(SHIELD, Vector3(1.7, 1.3, 1.9), 1.0)
+	# elle apparaît déjà tournée vers le héros : l'entrée en scène montre le masque, pas l'abdomen
+	if hero != null:
+		_face(_dir_to_hero(), 1.0, 1.0)
 	_state = "spawn"
 	_timer = 1.2
 
 
 # ------------------------------------------------------------------ construction
 
+## Tsuchigumo : araignée d'encre — abdomen d'encre ceint de l'étoffe de la nuit à écailles d'or pâle et
+## liserés d'or, céphalothorax à huit yeux d'or, huit pattes d'encre aux articulations d'or et griffes d'or ;
+## au-dessus, sur un cou d'encre, le masque de nō « hannya » de terre cuite cerné d'or (cornes d'or, yeux
+## d'or, rictus à crocs), crinière d'encre qui coule en arrière. Les pivots des pattes, le cocon (bouclier)
+## et le cercle-guide gardent leurs places. Matériaux : toon propre (éclat, lueur), aplat partagé, cocon, guide.
 func _build() -> void:
+	var lite := Toon.lite
 	Toon.disc(self, 1.4, Color(0, 0, 0, 0.16))
 	body = Node3D.new()
 	add_child(body)
-	var shell := Toon.mat_shared(SHELL)
-	var gold := Toon.mat_shared(Toon.GOLD)
-	var leg_mat := Toon.mat_shared(LEG)
-	# abdomen rayé or (le « tigre » des terriers)
-	var ab := Node3D.new()
-	body.add_child(ab)
-	ab.position = Vector3(0, 1.0, 0.85)
-	ab.scale = Vector3(1.0, 0.85, 1.2)
-	Toon.part(ab, Toon.sphere(0.85), shell, Vector3.ZERO)
-	for dz in [-0.35, 0.05, 0.45]:
-		var rr := sqrt(0.85 * 0.85 - float(dz) * float(dz)) + 0.015
-		var band := Toon.part(ab, Toon.cyl(rr, rr, 0.09, 16), gold, Vector3(0, 0, float(dz)))
-		band.rotation.x = PI * 0.5
-	# céphalothorax
-	Toon.part(body, Toon.sphere(0.55), shell, Vector3(0, 0.85, -0.3), Vector3(1.0, 0.8, 1.1))
-	# huit pattes coudées, articulations or
+	_mat = Toon.mat(Color.WHITE, true, 0.03)
+	_mat.vertex_color_use_as_albedo = true
+	_mat.vertex_color_is_srgb = true
+	_mat.rim = 0.35
+	_mat.rim_tint = 0.5
+	_mat.emission_enabled = true
+	_mat.emission = Color.WHITE
+	_mat.emission_energy_multiplier = 0.0
+	var b := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	# abdomen : boule d'encre (même place et même volume qu'avant), large bande d'étoffe à écailles,
+	# liserés d'or, deux anneaux d'or ; gouttes qui pendent à l'arrière
+	var ac := Vector3(0, 1.0, 0.85)
+	var ar := Vector3(0.85, 0.72, 1.02)
+	b.ball(ac, ar, INK, Vector3.ZERO, 12)
+	b.cyl(ac + Vector3(0, 0, 0.05), Vector3(0.87, 0.5, 0.74), CLOTH, Vector3(PI / 2.0, 0, 0), 1.0, 14)
+	for dz in [-0.2, 0.3]:
+		b.cyl(ac + Vector3(0, 0, float(dz)), Vector3(0.885, 0.05, 0.755), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 14)
+	b.cyl(ac + Vector3(0, 0, -0.5), Vector3(0.74, 0.1, 0.63), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 14)
+	b.cyl(ac + Vector3(0, 0, 0.62), Vector3(0.68, 0.1, 0.58), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 14)
+	var n := 7 if lite else 11
+	for i in n:
+		var ang := -2.0 + 4.0 * float(i) / float(n - 1)
+		var at := ac + Vector3(sin(ang) * 0.87, cos(ang) * 0.74, 0.05)
+		b.ball(at, Vector3(0.11, 0.025, 0.09), WAVE, Vector3(0, 0, -ang), 6)
+		if not lite:
+			var ang2 := ang + 2.0 / float(n - 1)
+			var at2 := ac + Vector3(sin(ang2) * 0.87, cos(ang2) * 0.74, 0.22)
+			b.ball(at2, Vector3(0.1, 0.025, 0.08), WAVE, Vector3(0, 0, -ang2), 6)
+	var drops: Array = [Vector3(0.3, 0.45, 1.4), Vector3(-0.35, 0.5, 1.2)]
+	if not lite:
+		drops.append(Vector3(0.05, 0.4, 1.75))
+	for q in drops:
+		var dp: Vector3 = q
+		var tip := b.spike(dp, 0.09, 0.4, INK, Vector3(PI, 0, -signf(dp.x) * 0.25), 0.3, 5)
+		b.ball(tip, Vector3(0.06, 0.07, 0.06), INK, Vector3.ZERO, 6)
+	# céphalothorax : encre, rangée de huit yeux d'or sur le devant (ils regardent le ciel)
+	var cc := Vector3(0, 0.85, -0.3)
+	b.ball(cc, Vector3(0.55, 0.44, 0.6), INK, Vector3.ZERO, 10)
+	var eyes: Array = [Vector3(-0.3, 0.28, -0.42), Vector3(0.3, 0.28, -0.42), Vector3(-0.12, 0.38, -0.4), Vector3(0.12, 0.38, -0.4)]
+	if not lite:
+		eyes.append_array([Vector3(-0.42, 0.16, -0.38), Vector3(0.42, 0.16, -0.38), Vector3(-0.2, 0.2, -0.54), Vector3(0.2, 0.2, -0.54)])
+	for q in eyes:
+		var e: Vector3 = q
+		f.ball(cc + e, Vector3(0.075, 0.06, 0.075), Yokai.EYE_GOLD, Vector3(-0.6, 0, 0), 6)
+		f.ball(cc + e + Vector3(0, 0.03, -0.03), Vector3(0.03, 0.035, 0.03), Toon.SUMI, Vector3(-0.6, 0, 0), 6)
+	_part(body, Yokai.two(b, f), Vector3.ZERO)
+	# tête : cou d'encre, masque hannya relevé vers la caméra, crinière d'encre
+	_head = Node3D.new()
+	_head.position = Vector3(0, 1.2, -0.45)
+	body.add_child(_head)
+	var h := Yokai.Mesher.new(1.0)
+	var hf := Yokai.Mesher.new(1.0)
+	h.cyl(Vector3(0, 0.3, 0), Vector3(0.3, 0.7, 0.3), INK, Vector3.ZERO, 0.8, 8)
+	h.ball(Vector3(0, 0.62, 0.1), Vector3(0.36, 0.3, 0.36), INK, Vector3.ZERO, 10)
+	var mrot := Vector3(0.75, 0, 0)  # relevé vers le ciel (face -Z tournée vers le haut et l'avant) : la caméra plonge
+	var mb := Basis.from_euler(mrot)
+	var mc := Vector3(0, 0.8, -0.28)
+	h.ball(mc, Vector3(0.5, 0.56, 0.11), MASK_EARTH, mrot, 10)
+	h.ball(mc + mb * Vector3(0, 0, 0.045), Vector3(0.55, 0.61, 0.08), Toon.GOLD, mrot, 10)
+	var fz := -0.095
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		# sourcils de braise froncés, yeux d'or ronds, pommettes
+		h.box(mc + mb * Vector3(x * 0.2, 0.27, fz), Vector3(0.25, 0.06, 0.02), EMBER, Vector3(0.75, 0, x * 0.45))
+		hf.ball(mc + mb * Vector3(x * 0.19, 0.12, fz), Vector3(0.105, 0.085, 0.015), Yokai.EYE_GOLD, mrot, 8)
+		hf.ball(mc + mb * Vector3(x * 0.19, 0.12, fz - 0.012), Vector3(0.04, 0.05, 0.01), Toon.SUMI, mrot, 6)
+		if not lite:
+			h.box(mc + mb * Vector3(x * 0.34, -0.05, fz), Vector3(0.035, 0.18, 0.015), EMBER, Vector3(0.75, 0, x * 0.2))
+		# cornes d'or de la hannya : courbées vers le haut et l'arrière
+		h.spike(mc + mb * Vector3(x * 0.24, 0.5, 0.02), 0.08, 0.48, Toon.GOLD, Vector3(0.35, 0, -x * 0.45), 0.0, 5)
+		# crocs d'or aux coins du rictus
+		h.spike(mc + mb * Vector3(x * 0.21, -0.24, fz), 0.035, 0.14, Toon.GOLD, Vector3(PI + 0.6, 0, 0), 0.0, 4)
+	# rictus : trait sumi et bouche de braise (son souffle de soie part d'ici)
+	h.box(mc + mb * Vector3(0, -0.27, fz), Vector3(0.5, 0.08, 0.02), EMBER, mrot)
+	h.box(mc + mb * Vector3(0, -0.27, fz - 0.008), Vector3(0.5, 0.022, 0.012), Toon.SUMI, mrot)
+	# crinière d'encre qui coule en arrière du masque
+	var mane := 3 if lite else 5
+	for i in mane:
+		var x := (float(i) - 0.5 * float(mane - 1)) * 0.17
+		h.spike(Vector3(x, 1.0 - absf(x) * 0.4, 0.15), 0.08, 0.5 - absf(x) * 0.5, INK, Vector3(-1.3, 0, x * 1.2), 0.0, 5)
+	_part(_head, Yokai.two(h, hf), Vector3.ZERO)
+	# huit pattes d'encre coudées (mêmes pivots qu'avant), articulation et griffe d'or
+	var lm := Yokai.Mesher.new(1.0)
+	var knee := Vector3(0.85, 0.6, 0)
+	var foot := Vector3(1.45, -0.85, 0)
+	lm.ray(Vector3.ZERO, knee, 0.085, knee.length(), INK, 0.8, 6)
+	lm.ray(knee, foot - knee, 0.07, (foot - knee).length() - 0.12, INK, 0.75, 6)
+	lm.ball(knee, Vector3.ONE * 0.1, Toon.GOLD, Vector3.ZERO, 6)
+	lm.ball(Vector3.ZERO, Vector3(0.1, 0.09, 0.1), INK, Vector3.ZERO, 6)
+	lm.ray(foot - (foot - knee).normalized() * 0.14, foot - knee, 0.06, 0.2, Toon.GOLD, 0.0, 5)
+	var leg_mesh := lm.mesh()
 	for side in [-1.0, 1.0]:
 		for i in 4:
 			var a := 0.75 - 0.5 * float(i)
@@ -69,32 +161,31 @@ func _build() -> void:
 			body.add_child(pv)
 			pv.position = Vector3(float(side) * 0.35, 0.85, -0.45 + 0.28 * float(i))
 			pv.rotation.y = a if float(side) > 0.0 else PI - a
-			_limb(pv, Vector3.ZERO, Vector3(0.85, 0.6, 0), 0.08, leg_mat)
-			_limb(pv, Vector3(0.85, 0.6, 0), Vector3(1.45, -0.85, 0), 0.065, leg_mat)
-			Toon.part(pv, Toon.sphere(0.1), gold, Vector3(0.85, 0.6, 0))
+			_part(pv, leg_mesh, Vector3.ZERO)
 			_legs.append([pv, float(i) * 1.3 + (0.0 if float(side) > 0.0 else 0.65)])
-	# le buste d'os-soldat qui sort de la tête (Tsuchigumo à visage d'oni)
-	ch = Character.new()
-	body.add_child(ch)
-	ch.position = Vector3(0, 1.05, -0.45)
-	var tex: Texture2D = load("res://assets/kaykit/tex/skeleton_ink.png")
-	ch.setup(MINION, 1.35, [["Cloak", tex]], ["Skeleton_Minion_LegLeft", "Skeleton_Minion_LegRight"], Toon.GOLD)
-	ch.idle = "Idle_Combat"
-	ch.play("Idle_Combat")
-	# cocon de soie : coque translucide et fils enroulés
+	# cocon de soie : coque translucide et fils enroulés (quatre boucles de brins fusionnées en un maillage :
+	# le TorusMesh fin rendait par instants un cône géant d'encre en jeu)
 	_cocoon = Node3D.new()
 	body.add_child(_cocoon)
 	_cocoon.position = Vector3(0, 1.0, 0.2)
 	var shape := Vector3(1.15, 0.95, 1.4)
 	Toon.part(_cocoon, Toon.sphere(1.0), Toon.flat(Color(SILK, 0.38)), Vector3.ZERO, shape)
+	var silk := Yokai.Mesher.new(1.0)
+	var segs := 16 if lite else 24
 	for k in 4:
-		var tm := TorusMesh.new()
-		tm.inner_radius = 1.0
-		tm.outer_radius = 1.06
-		tm.rings = 24
-		tm.ring_segments = 6
-		var th := Toon.part(_cocoon, tm, Toon.flat(Color(SILK, 0.85)), Vector3.ZERO, shape)
-		th.rotation = Vector3(0.45 * float(k) + 0.2, 0.8 * float(k), 0.35)
+		var rb := Basis.from_euler(Vector3(0.45 * float(k) + 0.2, 0.8 * float(k), 0.35))
+		var prev := Vector3.ZERO
+		for i in segs + 1:
+			var t := TAU * float(i) / float(segs)
+			var q := shape * (rb * Vector3(cos(t) * 1.03, sin(t) * 1.03, 0))
+			if i > 0:
+				silk.ray(prev, q - prev, 0.032, (q - prev).length() + 0.02, SILK, 1.0, 4)
+			prev = q
+	var thread := MeshInstance3D.new()
+	thread.mesh = silk.mesh()
+	thread.material_override = Toon.flat(Color(SILK, 0.85))
+	thread.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_cocoon.add_child(thread)
 	# cercle-guide or : « trace ta boucle ici »
 	_hint = Node3D.new()
 	add_child(_hint)
@@ -107,6 +198,20 @@ func _build() -> void:
 	rm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_make_stars(body, 2.6)
 	body.scale = Vector3.ONE * 0.01
+
+
+## Pièce d'encre : surface 0 = toon du gardien, surface 1 (s'il y en a une) = aplat lumineux.
+func _part(parent: Node3D, m: Mesh, pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.position = pos
+	mi.set_surface_override_material(0, _mat)
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	if Toon.lite:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
 
 
 # ------------------------------------------------------------------ interface avec main
@@ -167,17 +272,16 @@ func _on_die() -> void:
 	_cocoon.visible = false
 	_hint.visible = false
 	body.position.y = 0.0
-	ch.set_glow(0.0)
+	_glow = 0.0
 
 
 ## Cocon déchiré : renversée, plus d'attaque jusqu'à la fin de la fenêtre.
 func _on_shield_break() -> void:
 	_clear_zones()
-	ch.set_glow(0.0)
+	_glow = 0.0
 	_state = "torn"
 	_cocoon.visible = false
 	body.position.y = 0.0
-	ch.play_once("Hit_A", 1.2)
 
 
 func _on_shield_back() -> void:
@@ -211,14 +315,12 @@ func _step(delta: float) -> void:
 				else:
 					_state = "volley"
 					_timer = VOLLEY_TELE
-					ch.play_once("Throw", ch.length("Throw") * 0.5 / VOLLEY_TELE)
 		"volley":
 			_face(dir, delta, 3.0)
 			_timer -= delta
-			if _flash <= 0.0:
-				ch.set_glow(0.55 * clampf(1.0 - _timer / VOLLEY_TELE, 0.0, 1.0), Toon.VERMILION)
+			_glow = 0.55 * clampf(1.0 - _timer / VOLLEY_TELE, 0.0, 1.0)
 			if _timer <= 0.0:
-				ch.set_glow(0.0)
+				_glow = 0.0
 				# boules de soie en éventail (plus nombreuses quand elle faiblit)
 				var n := 5 if hp > max_hp * 0.5 else 7
 				var spread := deg_to_rad(60.0 if n == 5 else 84.0)
@@ -254,8 +356,7 @@ func _step(delta: float) -> void:
 			_timer += delta
 			if not _death_played:
 				_death_played = true
-				ch.hold()
-				ch.play_once("Death_C_Skeletons", 1.2, 0.05)
+				_glow = 0.0
 			body.rotation.z = minf(_timer * 2.0, 1.0) * 0.5
 			if _timer > 1.2:
 				body.position.y -= delta * 1.5
@@ -271,7 +372,6 @@ func _start_leap() -> void:
 	_zone_disc(_leap_to, LEAP_R, LEAP_TELE, "leap")
 	_state = "leap"
 	_timer = LEAP_TELE
-	ch.play_once("Jump_Full_Short", ch.length("Jump_Full_Short") / LEAP_TELE)
 
 
 func _wrapped() -> bool:
@@ -287,9 +387,24 @@ func _tear() -> void:
 	_shield_dmg(shield_max)
 
 
-## Pattes qui pianotent, corps qui respire ; cocon et cercle-guide selon l'état.
-func _animate(_delta: float) -> void:
+## Pattes qui pianotent, corps qui respire, masque qui se cabre (salve) ou pend (renversée) ; éclat des
+## coups et lueur d'annonce sur l'encre ; cocon et cercle-guide selon l'état.
+func _animate(delta: float) -> void:
 	var fast := _state == "torn" or _state == "leap"
+	if _flash > 0.0:
+		_mat.emission = Color.WHITE
+		_mat.emission_energy_multiplier = 1.0
+	else:
+		_mat.emission = Toon.VERMILION
+		_mat.emission_energy_multiplier = _glow
+	var head_x := 0.0
+	if _state == "volley":
+		head_x = -0.45 * clampf(1.0 - _timer / VOLLEY_TELE, 0.0, 1.0)
+	elif _state == "torn" or _state == "dying":
+		head_x = 0.7
+	elif _state == "leap":
+		head_x = -0.3
+	_head.rotation.x = lerpf(_head.rotation.x, head_x + sin(_t * 1.8) * 0.04, minf(1.0, delta * 8.0))
 	for l in _legs:
 		var pv: Node3D = l[0]
 		var ph := float(l[1])
