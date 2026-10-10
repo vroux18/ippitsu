@@ -5581,7 +5581,11 @@ func _touch_move(sp: Vector2) -> void:
 		var live_shape := String(live.get("shape", ""))
 		# le crochet ne se confirme qu'au relâchement : doigt encore posé, une « barbe » est souvent le début du
 		# second segment d'un trait qui va chercher un autre ennemi (l'encre ne se teinte pas trop tôt)
-		stroke.set_figure("" if live_shape == "hook" else live_shape)
+		# même chose pour une boucle dont le trait n'est pas encore ressorti (ni enroulée) : en finissant le tour,
+		# ce cercle peut encore devenir un ensō
+		if live_shape == "hook" or (live_shape == "loop" and not bool(live.get("settled", true))):
+			live_shape = ""
+		stroke.set_figure(live_shape)
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
