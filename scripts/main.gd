@@ -137,6 +137,17 @@ const SEAL_CHANCE := 0.5  # part des coffres de recoin scellés
 const SEAL_NEAR := 3.0  # le trait passe à moins de 3 m du coffre
 const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l'expérience du niveau suivant)
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
+# yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un ofuda au front porte
+# une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
+# (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
+const SEALED_FIGS := ["loop", "zigzag", "return", "hook", "straight", "enso", "wave", "point", "triangle"]
+const SEALED_BASE := ["loop", "zigzag", "return", "hook", "straight", "enso"]  # connues d'emblée
+const SEALED_ROOM := 0.7  # part des combats qui ont au moins un scellé
+const SEALED_TWO := 0.35  # ... et un deuxième (jamais plus de deux)
+const SEALED_PICK := 0.45  # chance qu'un ennemi éligible soit le scellé (pas toujours le deuxième venu)
+const SEALED_GOLD := 3  # pièces lâchées par un sceau brisé
+const SEALED_INK := 0.25  # part de la jauge d'encre rendue par un sceau brisé
+const BotShapes = preload("res://scripts/bot_shapes.gd")  # (captures : la figure tracée à travers un scellé)
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const ROOMS := 15  # combats d'un monde
 const MINI_ROOM := 8  # combat du mini-boss (son arène)
@@ -422,6 +433,12 @@ var puzzles_seen := 0
 var puzzles_solved := 0
 var chests_sealed := 0  # coffres scellés posés / ouverts (robot de campagne)
 var chests_unsealed := 0
+var sealed_set := 0  # yōkai scellés posés / brisés à la figure (robot de campagne)
+var sealed_broken := 0
+var _seal_quota := 0  # scellés encore possibles dans ce combat
+var _room_spawned := 0  # ennemis posés depuis le début du combat (le premier n'est jamais scellé)
+var _cap_fige := -1.0  # captures (`fige=`) : délai entre le coup sur le sceau et l'image figée (< 0 : rien)
+var _cap_frozen := false
 # combat de boss sans dégât
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
@@ -642,6 +659,26 @@ func _ready() -> void:
 			get_tree().create_timer(float(wsearch.substr(rq + 5).get_slice("&", 0)), true, false, true).timeout.connect(_puzzle_fail.bind(cpk, ""))
 	elif pq >= 0 and state == "play":
 		spawn_puzzle(pqk, hero.position + Vector3(0, 0, -3.4))
+	# `?scelle=loop` (captures) : un yōkai scellé (figure loop ; `kind=kappa`) et deux autres, figés devant le héros ;
+	# `ricoche=1.5` : un trait droit le traverse à 1,5 s (le coup ricoche) ; `brise=2` : à 2 s, le héros trace sa
+	# figure à travers lui (le sceau se brise) ; `loin=1` : posés plus loin (distance de jeu ordinaire)
+	var scq := wsearch.find("scelle=")
+	if scq >= 0 and state == "play":
+		meta.tuto_done = true
+		if not "coach=seal" in wsearch:
+			meta.coach_seen["seal"] = true  # (pas de leçon qui fige l'image, sauf demandée)
+		var kq := wsearch.find("kind=")
+		var sfig := wsearch.substr(scq + 7).get_slice("&", 0)
+		_capture_sealed(sfig, wsearch.substr(kq + 5).get_slice("&", 0) if kq >= 0 else "", "loin=1" in wsearch)
+		var rq2 := wsearch.find("ricoche=")
+		if rq2 >= 0:
+			get_tree().create_timer(float(wsearch.substr(rq2 + 8).get_slice("&", 0)), true, false, true).timeout.connect(_capture_seal_stroke.bind(false))
+		var fq2 := wsearch.find("fige=")
+		if fq2 >= 0:
+			_cap_fige = float(wsearch.substr(fq2 + 5).get_slice("&", 0))
+		var bq := wsearch.find("brise=")
+		if bq >= 0:
+			get_tree().create_timer(float(wsearch.substr(bq + 6).get_slice("&", 0)), true, false, true).timeout.connect(_capture_seal_stroke.bind(true))
 	if "autel" in wsearch and state == "play":
 		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
 		for zi in arena.zones.size():
@@ -956,6 +993,16 @@ func _warmup() -> void:
 	el.process_mode = Node.PROCESS_MODE_DISABLED
 	el.promote(["blinde"], false)
 	el.give_shield(1.0)
+	# un scellé : papier de l'ofuda, figure, hanko (pivot orienté caméra sans billboard de matière : il rétrécit
+	# avec la miniature) ; éclats d'or du sceau brisé
+	var se := Enemy.new()
+	se.setup("oni", hero, self)
+	se.position = Vector3(0.6, 0, 0.6)
+	w.add_child(se)
+	se.process_mode = Node.PROCESS_MODE_DISABLED
+	se.set_seal("loop")
+	se._seal.visible = true
+	PuzzleArt._motes(w, Vector3(0.6, 1.0, 0.6), Toon.GOLD, 1, 0.5, 1.0, 0.2)
 	var b := Node3D.new()
 	w.add_child(b)
 	Toon.part(b, Toon.sphere(0.3), Toon.mat_shared(Toon.VERMILION, true, 0.05), Vector3.ZERO)
@@ -2558,6 +2605,9 @@ func _start(hub := true, tutorial := false) -> void:
 	puzzles_solved = 0
 	chests_sealed = 0
 	chests_unsealed = 0
+	sealed_set = 0
+	sealed_broken = 0
+	_seal_quota = 0
 	run_dist = 0.0
 	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
@@ -2584,6 +2634,8 @@ func _begin_room() -> void:
 	room += 1
 	_room_done = false
 	score.on_room_start()
+	_room_spawned = 0
+	_seal_quota = _seal_roll()
 	_alive_prev = 0
 	foam = powers.foam_per_room()
 	powers.on_room_start(room)
@@ -3066,8 +3118,140 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 				e.promote(Enemy.roll_affixes(current_world))
 				elite_n -= 1
 				_elite_due = maxi(0, _elite_due - 1)
+		# scellé : jamais le premier ennemi du combat (donc jamais seul au début), au plus _seal_quota
+		if _seal_quota > 0 and _room_spawned > 0 and e.can_be_sealed() and randf() < SEALED_PICK:
+			var figs := seal_figs()
+			if not figs.is_empty():
+				e.set_seal(String(figs[randi() % figs.size()]))
+				_seal_quota -= 1
+				sealed_set += 1
+		_room_spawned += 1
 		e.set_meta("max_hp", e.hp)
 		enemies.append(e)
+
+
+## Capture : un yōkai scellé (figure `fig`, sorte `k` ou la première du monde) devant le héros, deux autres à
+## ses côtés ; tous figés (mannequins), pour juger la lisibilité de l'ofuda à la distance de jeu.
+func _capture_sealed(fig: String, k: String, far: bool) -> void:
+	var kinds: Array = Worlds.world(current_world).get("enemies", {"oni": 1}).keys()
+	var kk := k if k != "" else String(kinds[0])
+	var hp := hero.position
+	var dz := 5.2 if far else 3.6
+	for pk in _pockets:
+		# recoins (coffres, stèles) retirés : rien d'autre que les yōkai dans l'image
+		if is_instance_valid(pk["node"]):
+			(pk["node"] as Node).queue_free()
+	_pockets.clear()
+	# les deux autres : des yōkai propres au monde (après les communs oni, kappa, brute, tate, funa)
+	var spots := [[kk, Vector3(0.4, 0, -dz), true], [String(kinds[mini(5, kinds.size() - 1)]), Vector3(-2.6, 0, -dz - 1.4), false],
+		[String(kinds[mini(7, kinds.size() - 1)]), Vector3(2.8, 0, -dz - 0.6), false]]
+	for sp in spots:
+		var e := Enemy.new()
+		e.setup(String(sp[0]), hero, self)
+		e.position = arena.clamp_walk(hp + Vector3(sp[1]), 0.8)
+		add_child(e)
+		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT
+		if bool(sp[2]):
+			e.set_seal(fig if fig != "" else "loop")
+			sealed_set += 1
+		e.dummy = true
+		e.set_meta("max_hp", e.hp)
+		enemies.append(e)
+
+
+## Capture : le héros trace un trait à travers le scellé : sa figure (`right`, le sceau se brise) ou un trait droit
+## (le coup ricoche).
+func _capture_seal_stroke(right: bool) -> void:
+	var tgt: Node3D = null
+	for e in enemies:
+		if is_instance_valid(e) and not e.dead and String(e.seal_fig) != "":
+			tgt = e
+	if tgt == null or hero == null:
+		return
+	var o := hero.position
+	var t := Vector3(tgt.position.x, 0, tgt.position.z)
+	var wps := PackedVector3Array()
+	if right:
+		wps = BotShapes.through(String(tgt.seal_fig), o, t, float(tgt.radius) + HIT_REACH * 0.6, Callable(self, "_clamp_point"))
+	if wps.is_empty():
+		wps.append(t + (t - o).normalized() * 2.6)
+	var s := InkStroke.new(o, stroke_layer)
+	stroke_layer += 1
+	add_child(s)
+	for p in wps:
+		s.extend_to(_clamp_point(p), 40.0)
+	_launch(s)
+
+
+## Scellés possibles dans le combat qui commence : aucun avant l'étape 2, ni au tutoriel, ni aux combats de
+## gardien et de boss ; sinon un (SEALED_ROOM), parfois deux (SEALED_TWO).
+func _seal_roll() -> int:
+	if stage_i < 1 or in_hub or state == "tuto" or room == MINI_ROOM or room >= ROOMS or _gentle_room():
+		return 0
+	if seal_figs().is_empty() or randf() >= SEALED_ROOM:
+		return 0
+	return 2 if randf() < SEALED_TWO else 1
+
+
+## Figures qu'un sceau peut porter : celles que le joueur connaît (les six de base, et celles qu'un rouleau
+## apprend : meta.fig_learned) dont l'interface a le glyphe (UiKit.FIGURES) ; ni ensō ni crochet aux deux
+## premières étapes du monde 1 (comme les coffres scellés).
+func seal_figs() -> Array:
+	var out: Array = []
+	var learn: bool = meta != null and meta.has_method("fig_learned")
+	for k in SEALED_FIGS:
+		var key := String(k)
+		if not UiKit.FIGURES.has(key):
+			continue
+		if not (SEALED_BASE.has(key) or (learn and bool(meta.call("fig_learned", key)))):
+			continue
+		if current_world == 1 and stage_i < 2 and (key == "enso" or key == "hook"):
+			continue
+		out.append(key)
+	return out
+
+
+## Sceau brisé par la bonne figure (_check_slashes) : il meurt d'un coup, l'ofuda s'envole (seal_mark.gd) ;
+## points du sceau (score.on_seal), un peu d'or et d'encre.
+func _seal_break(e: Node3D, dir: Vector3) -> void:
+	var p: Vector3 = e.position
+	_stroke_hit = true
+	_chain_t = 0.0
+	sealed_broken += 1
+	e.unseal_kill(dir)
+	vfx.impact(p, dir, true)
+	_add_hitstop(HITSTOP_KILL)
+	_cam_kick(dir, 0.25)
+	_on_enemy_killed(e)
+	vfx.kill_burst(p, dir, true, _ink_tint(e))
+	vfx.ring(Vector3(p.x, 0.06, p.z), Toon.GOLD, 1.7)
+	hud.screen_flash = maxf(hud.screen_flash, 0.3)
+	kills += 1
+	_stroke_kills += 1
+	powers.on_kill(e)
+	if state != "tuto":
+		score.on_seal(chain)
+	pickups.drop(p, "coin", SEALED_GOLD)
+	elan = minf(elan_max(), elan + ELAN_PER_HIT + elan_max() * SEALED_INK)
+	shake = maxf(shake, 0.4)
+	sfx.play("kill", _combo_pitch())
+	sfx.play("strike", 1.7, -6.0)
+	sfx.play("shrine", 1.3, -5.0)
+	feel("kill")
+	hero.slash_pop()
+	_slash_mark(p, dir)
+	if combo >= 3:
+		_combo_label(p, combo)
+	coach.on_event("seal")
+	seal_event()
+
+
+## Coup sur un sceau (ricochet ou sceau brisé) : en capture (`fige=X`), l'image se fige X s plus tard.
+func seal_event() -> void:
+	if _cap_fige < 0.0:
+		return
+	get_tree().create_timer(_cap_fige, true, false, true).timeout.connect(func() -> void: _cap_frozen = true)
+	_cap_fige = -1.0
 
 
 func xp_need() -> int:
@@ -3099,7 +3283,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 	var k := String(e.kind)
 	if state != "tuto":
 		_count_kill(k)  # bestiaire : victoires
-		score.on_kill(int(KIND_XP.get(k, 1)), e.has_meta("elite"), not _fig_mods.is_empty() or float(score.fig_t) > 0.0, chain)
+		score.on_kill(int(KIND_XP.get(k, 1)), e.has_meta("elite"), not _fig_mods.is_empty() or float(score.fig_t) > 0.0 or e.has_meta("unsealed"), chain)
 	_last_kill_pos = e.position
 	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
 	if randf() < (0.8 if k == "brute" else 0.4):
@@ -5375,6 +5559,10 @@ func _check_slashes() -> void:
 		if Vector2(p.x - q.x, p.z - q.z).length() < e.radius + HIT_REACH:
 			e.last_stroke = stroke_id
 			combo += 1
+			if String(e.seal_fig) != "" and String(_shape.get("shape", "")) == String(e.seal_fig):
+				# la figure de son ofuda, tracée à travers lui : le sceau se brise, il tombe d'un coup
+				_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
+				continue
 			var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
 			var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			var piercing: bool = bool(_fig_mods.get("pierce", false))
@@ -5705,6 +5893,9 @@ func _process(_delta: float) -> void:
 		_hitstop = 0.0
 		if _pt != 0:
 			Perf.add(&"main", _pt)
+		return
+	if _cap_frozen:
+		Engine.time_scale = 0.0  # capture d'un scellé (`fige=`) : l'image se fige après le coup
 		return
 	# tutoriel : arrêt sur image le temps de lire une bulle du coach (figé comme la pause ; le coach compte
 	# en temps réel, se lève au toucher ou seul au bout de quelques secondes)

@@ -81,6 +81,8 @@ var _pz_seen := 0
 var _pz_solved := 0
 var _seal_seen := 0  # coffres scellés posés / ouverts sur toute la campagne
 var _seal_open := 0
+var _sealed_set := 0  # yōkai scellés posés / tués à la figure de leur ofuda sur toute la partie du robot
+var _sealed_kill := 0
 
 
 func begin(m: Node) -> void:
@@ -103,6 +105,7 @@ func begin(m: Node) -> void:
 	# hors mode ui : pas de tutoriel en jeu (ni ralenti du premier trait, ni combats adoucis)
 	if mode != "ui":
 		main.meta.tuto_done = true
+		main.meta.coach_seen["seal"] = true  # (ni la leçon du premier scellé, hors tutoriel : pas d'arrêt sur image)
 		main.coach.clear()
 	match mode:
 		"ui":
@@ -135,6 +138,8 @@ func finish() -> void:
 		return
 	_done = true
 	print("BOT alertes : %d, coups reçus : %d" % [alerts.size(), _hits_taken])
+	if main != null and main.get("sealed_set") != null:
+		print("BOT SCELLÉS bilan : scellés tués %d/%d" % [_sealed_kill + int(main.sealed_broken), _sealed_set + int(main.sealed_set)])
 	_perf_summary()
 	for a in alerts:
 		print("BOT ALERTE ", a)
@@ -348,6 +353,13 @@ func _over() -> void:
 	print("BOT COFFRES SCELLÉS monde %d : %d ouverts sur %d posés" % [world, int(main.chests_unsealed), int(main.chests_sealed)])
 	_seal_seen += int(main.chests_sealed)
 	_seal_open += int(main.chests_unsealed)
+	print("BOT SCELLÉS monde %d : scellés tués %d/%d" % [world, int(main.sealed_broken), int(main.sealed_set)])
+	_sealed_set += int(main.sealed_set)
+	_sealed_kill += int(main.sealed_broken)
+	main.sealed_set = 0  # (comptés : le bilan final n'ajoute que la partie en cours)
+	main.sealed_broken = 0
+	if mode == "campaign" and _death_test and _sealed_set >= 3 and _sealed_kill == 0:
+		alert("scellés : aucun tué à la figure sur %d posés pendant la campagne" % _sealed_set)
 	if mode == "campaign" and _death_test and _seal_seen >= 3 and _seal_open == 0:
 		alert("coffres scellés : aucun ouvert sur %d posés pendant la campagne" % _seal_seen)
 	if mode == "campaign" and _death_test and _pz_seen >= 4 and _pz_solved == 0:
@@ -494,7 +506,40 @@ func _play(dt: float) -> void:
 		if kind == "plain" or not figure(kind, target):
 			stroke_line(target)
 		return
+	if fight and _seal_attack():
+		return
 	_stroke(target)
+
+
+## Yōkai scellé en vue : le robot trace la figure de son ofuda à travers lui (BotShapes.through), comme un
+## joueur ; trop loin pour la figure, un trait court vers lui qui s'arrête avant de le toucher. Faux s'il n'y en a
+## pas (ou plus d'essai sur lui : il l'use alors à coups normaux, qui ricochent).
+func _seal_attack() -> bool:
+	var hp: Vector3 = main.hero.position
+	var best: Node3D = null
+	var bd := 1.0e9
+	for e in main.enemies:
+		if not is_instance_valid(e) or e.dead or e.is_harmless() or String(e.seal_fig) == "":
+			continue
+		if not BotShapes.SHAPES.has(String(e.seal_fig)) or int(e.get_meta("bot_seal", 0)) >= 6:
+			continue
+		var d := Vector2(e.position.x - hp.x, e.position.z - hp.z).length()
+		if d < bd:
+			bd = d
+			best = e
+	if best == null:
+		return false
+	var tgt := Vector3(best.position.x, 0, best.position.z)
+	var wps := BotShapes.through(String(best.seal_fig), hp, tgt, float(best.radius) + main.HIT_REACH * 0.6, Callable(main, "_clamp_point"))
+	if wps.is_empty():
+		if bd > 3.5:
+			var dir := (tgt - hp).normalized()
+			_stroke_points(PackedVector3Array([tgt - dir * 2.4]))
+			return true
+		return false
+	best.set_meta("bot_seal", int(best.get_meta("bot_seal", 0)) + 1)
+	_stroke_points(wps)
+	return true
 
 
 ## Ennemi immobile 8 s loin du héros (hors attaque) : coincé quelque part -> alerte.

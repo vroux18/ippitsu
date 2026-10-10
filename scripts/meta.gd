@@ -157,6 +157,7 @@ var power_tier := 0  # paliers de rouleaux débloqués (0..4) : monde N vaincu -
 var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers ouverts (jamais sauvegardé)
 var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passées (anciennes sauvegardes : ancien tutoriel fait)
 const COACH_MARKS := ["stroke", "cut", "ink", "figure", "ult", "run", "figures"]  # bulles du coach (coach.gd)
+const COACH_EXTRA := ["seal"]  # bulles hors tutoriel (coach.EXTRA) : vues une fois, sans compter pour sa fin
 var coach_seen := {}  # id de bulle -> true : déjà montrée
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var opening_done := false  # ouverture (mini-histoire à l'encre) déjà vue au tout premier démarrage (opening.gd)
@@ -196,7 +197,7 @@ func load_data() -> void:
 	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
 	won_top = clampi(int(cf.get_value("meta", "won_top", 0)), 0, WORLD_COUNT)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
-	for id in COACH_MARKS:
+	for id in COACH_MARKS + COACH_EXTRA:
 		if bool(cf.get_value("coach", id, false)):
 			coach_seen[id] = true
 	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
@@ -284,7 +285,7 @@ func save_data() -> void:
 	cf.set_value("meta", "power_tier", power_tier)
 	cf.set_value("meta", "won_top", won_top)
 	cf.set_value("meta", "tuto_done", tuto_done)
-	for id in COACH_MARKS:
+	for id in COACH_MARKS + COACH_EXTRA:
 		cf.set_value("coach", id, coach_seen.has(id))
 	cf.set_value("meta", "intro_done", intro_done)
 	cf.set_value("meta", "opening_done", opening_done)
@@ -380,7 +381,7 @@ func coach_see(id: String) -> void:
 
 ## « Passer » : tout est vu.
 func coach_skip() -> void:
-	for m in COACH_MARKS:
+	for m in COACH_MARKS + COACH_EXTRA:
 		coach_seen[m] = true
 	tuto_done = true
 

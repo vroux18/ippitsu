@@ -43,6 +43,7 @@ const NinjaRig = preload("res://scripts/ninja_rig.gd")
 const InkRig = preload("res://scripts/ink_rig.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
 const Worlds = preload("res://scripts/worlds.gd")
+const SealMark = preload("res://scripts/seal_mark.gd")
 # textures recolorées des squelettes et du rōdeur (préchargées une fois : plus de load() au montage)
 const TEX_RED := preload("res://assets/kaykit/tex/skeleton_red.png")
 const TEX_INK := preload("res://assets/kaykit/tex/skeleton_ink.png")
@@ -281,6 +282,13 @@ var shield_max := 0.0
 var elite := false
 var affixes: Array = []
 var minion := false  # invoqué (pas d'élite)
+# yōkai scellé (main._spawn_list) : ofuda au front où est peinte la figure qui le brise d'un coup (unseal_kill) ;
+# tout le reste ricoche et ne fait que SEAL_RESIST des dégâts (on peut l'user, il n'est jamais immortel)
+var seal_fig := ""
+var _seal: Node3D
+var _seal_spark_t := -9.0
+const SEAL_RESIST := 0.18
+const NO_SEAL := ["kitsunebi", "kitsunebi_s", "tanuki_d", "sumidama", "sumidama_s", "funa", "umibozu", "tsurara", "hinotama"]
 var _shield_frac := 0.0  # bouclier de départ (fraction des PV max), posé à la première image
 var _bubble: MeshInstance3D
 var _bubble_base := Vector3.ONE
@@ -1007,6 +1015,9 @@ func shield_break() -> void:
 
 
 func take_hit(dmg: float, dir: Vector3) -> bool:
+	if seal_fig != "":
+		dmg *= SEAL_RESIST
+		_seal_ricochet(dir)
 	dmg = _armour(dmg, dir)
 	dmg = _absorb(dmg, _figure_hit())
 	hp -= dmg
@@ -1388,6 +1399,9 @@ func elem_flash(c: Color) -> void:
 func hurt_dot(dmg: float) -> bool:
 	if dead or is_harmless():
 		return false
+	if seal_fig != "":
+		dmg *= SEAL_RESIST
+		_seal_ricochet(Vector3.UP)
 	dmg = _absorb(dmg, true)
 	hp -= dmg
 	_flash = maxf(_flash, 0.05)
@@ -1401,6 +1415,11 @@ func hurt_dot(dmg: float) -> bool:
 
 func _die() -> void:
 	dead = true
+	if seal_fig != "":
+		# usé jusqu'à la mort sans sa figure : l'ofuda se décolle seul (sans l'or du sceau brisé)
+		seal_fig = ""
+		if is_instance_valid(_seal):
+			_seal.unseal(main if main is Node3D else self, false)
 	_cancel_attack()
 	_timer = 0.0
 	_thaw()
@@ -1453,6 +1472,53 @@ func _die() -> void:
 		_make_zone(true)
 		_zone.global_position = _target
 		main.float_text(position, "EXPLOSIF", ELITE_C)
+
+
+## Scelle ce yōkai (main._spawn_list) : la figure `fig` (clé UiKit._fsym) est peinte sur son ofuda.
+func set_seal(fig: String) -> void:
+	seal_fig = fig
+	_seal = SealMark.new()
+	_seal.name = "Sceau"
+	add_child(_seal)
+	_seal.build(fig)
+	_seal.lift = _h * 1.0
+	_seal.reach = maxf(0.35, radius * 0.85)
+	_seal.visible = false
+
+
+## Peut-il porter un sceau ? (ni élite, ni invoqué, ni leurre, ni yōkai qui passe son temps sous l'eau)
+func can_be_sealed() -> bool:
+	return not minion and not dummy and not elite and not dead and not (kind in NO_SEAL) and seal_fig == ""
+
+
+## La bonne figure l'a touché (main._check_slashes) : le sceau se brise, l'ofuda s'envole, il meurt d'un coup.
+func unseal_kill(dir: Vector3) -> bool:
+	if seal_fig == "" or dead:
+		return false
+	seal_fig = ""
+	set_meta("unsealed", true)
+	if is_instance_valid(_seal):
+		_seal.unseal(main if main is Node3D else self, true)
+	shield = 0.0
+	return take_hit(maxf(hp, 1.0) * 1000.0, dir)
+
+
+## Coup qui ne brise pas le sceau : le papier tressaute, la figure rougit, quelques étincelles qui rebondissent
+## (limitées : brûlures et foudre frappent à chaque image). Sans texte.
+func _seal_ricochet(dir: Vector3) -> void:
+	if not is_instance_valid(_seal):
+		return
+	_seal.ricochet()
+	if main != null and main.has_method("seal_event"):
+		main.seal_event()
+	if _t - _seal_spark_t < 0.3 or main == null:
+		return
+	_seal_spark_t = _t
+	var back := Vector3(-dir.x, 0.6, -dir.z)
+	if back.length_squared() < 0.01:
+		back = Vector3.UP
+	main.vfx.sparks(_seal.card_pos(), back.normalized(), 7, Toon.GOLD.lightened(0.25), 4.0, 8.0, 70.0)
+	main.sfx.play("empty", 1.7, -6.0)
 
 
 func push(v: Vector3) -> void:
@@ -1508,6 +1574,9 @@ func _process(delta: float) -> void:
 			_base_glow()
 	if _bubble != null or _aura != null:
 		_update_marks()
+	if seal_fig != "" and is_instance_valid(_seal):
+		_seal.lift = _h + maxf(body.position.y, 0.0)
+		_seal.update(delta, body.visible and not is_harmless())  # (caché sous l'eau, dans la fumée, en vol, évanoui)
 
 	if dead:
 		if _blast_t > 0.0:
