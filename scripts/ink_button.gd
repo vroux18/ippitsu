@@ -91,6 +91,15 @@ func _notification(what: int) -> void:
 			_press = 0.0
 
 
+## Zone tactile : le cadre du bouton, agrandi jusqu'à UiKit.TOUCH_MIN (44 u) dans chaque sens s'il est plus petit
+## (étiquettes de 32 u du dojo, RETOUR de l'intro, maison de 36 u) ; le dessin, lui, ne change pas.
+func _has_point(p: Vector2) -> bool:
+	var m: float = UiKit.TOUCH_MIN * get_viewport_rect().size.x / 400.0
+	var gx := maxf(0.0, (m - size.x) / 2.0)
+	var gy := maxf(0.0, (m - size.y) / 2.0)
+	return Rect2(Vector2(-gx, -gy), size + Vector2(gx, gy) * 2.0).has_point(p)
+
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
@@ -102,7 +111,7 @@ func _gui_input(event: InputEvent) -> void:
 		elif _down:
 			_down = false
 			accept_event()
-			if Rect2(Vector2.ZERO, size).has_point(event.position):
+			if _has_point(event.position):
 				pressed.emit()
 
 
