@@ -18,7 +18,6 @@ const COLS := 3
 const PORTRAIT := Vector2i(176, 220)  # portrait d'une fiche (pixels)
 const BIG_VIEW := Vector2i(384, 360)  # vue tournante du détail (pixels)
 const PORTRAIT_GAP := 3  # images entre deux portraits rendus : l'écran reste fluide
-const TITLE_KANJI := "妖"
 # ennemi -> [nom, kanji, légende, comment il attaque et comment le battre, monde par défaut]
 # (le monde réel vient des poids de worlds.gd ; celui-ci ne sert que si l'ennemi n'y figure nulle part)
 const INFO := {
@@ -220,10 +219,8 @@ static func name_of(k: String) -> String:
 	return k.to_upper()
 
 
-static func kanji_of(k: String) -> String:
-	if INFO.has(k):
-		var row: Array = INFO[k]
-		return String(row[1])
+## UI v2 : plus aucun kanji dans l'interface. La colonne reste documentaire dans INFO ; rien ne l'affiche.
+static func kanji_of(_k: String) -> String:
 	return ""
 
 
@@ -884,7 +881,7 @@ func _draw() -> void:
 	# en-tête commun : retour à gauche (InkButton rond), titre souligné de vermillon et sceau 妖 (yōkai)
 	var hy := _top
 	UiKit.screen_title(self, _title, "BESTIAIRE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a,
-		TITLE_KANJI, w - 2.0 * 96.0 * u, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
+		"", w - 2.0 * 96.0 * u, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
 	# fiches découvertes / total, en haut à droite
 	var txt := "%d/%d" % [_found, _entries.size()]
 	var fs := int(UiKit.FS_NUMBER * 0.8 * u)
@@ -942,15 +939,14 @@ func _draw_card(r0: Rect2, i: int, a: float) -> void:
 	_list.draw_style_box(UiKit.box(_sb, Color(_paper, (0.97 if seen else 0.55) * a), int(UiKit.R_M * u), Color(bc, bc.a * a), maxi(1, int(bw * u))), r)
 	var pr := Rect2(r.position + Vector2(5.0, 5.0) * u, Vector2(r.size.x - 10.0 * u, r.size.x - 10.0 * u))
 	UiKit.seigaiha(_list, pr, Color(_ink, UiKit.A_PATTERN * a), 9.0 * u)
-	var kanji := String(info[1])
 	if boss:
-		# gardien et boss : leur sceau, grand
+		# gardien et boss : leur sceau à picto (couronne or, oni vermillon), grand ; inconnu : « ? »
 		var s := pr.size.x * 0.56
 		var sr := Rect2(pr.get_center() - Vector2(s, s) / 2.0, Vector2(s, s))
 		if seen:
-			UiKit.seal(_list, sr, kanji, UiKit.gold() if mini else _accent, Toon.WASHI, a, u, float(i))
+			UiKit.monster_badge(_list, _sb, sr, mini, a, u)
 		else:
-			UiKit.seal(_list, sr, "?", Color(_ink, 0.3), _paper, a, u, float(i))
+			_unknown(_list, pr.get_center(), s, a)
 	else:
 		var tex: Texture2D = _portraits.get(id, null)
 		if tex != null:
@@ -958,17 +954,10 @@ func _draw_card(r0: Rect2, i: int, a: float) -> void:
 			# inconnu : silhouette d'encre
 			_list.draw_texture_rect(tex, fr, false, Color(1, 1, 1, a) if seen else Color(0, 0, 0, 0.72 * a))
 		elif seen:
-			var kfs := int(pr.size.x * 0.42)
-			UiKit.text(_list, UiKit.TITLE_FONT, kanji.substr(0, 1), pr.get_center() + Vector2(0, float(kfs) * 0.36), kfs, Color(_ink, 0.25 * a))
+			# portrait pas encore rendu : picto oni en filigrane (UI v2 : plus de kanji)
+			UiKit.draw_icon(_list, "hud/oni", pr.get_center(), pr.size.x * 0.42, 0.25 * a, _ink)
 		else:
-			var s2 := pr.size.x * 0.42
-			UiKit.seal(_list, Rect2(pr.get_center() - Vector2(s2, s2) / 2.0, Vector2(s2, s2)), "?", Color(_ink, 0.3), _paper, a, u, float(i))
-		if seen and kanji != "":
-			# petit sceau : deux caractères au plus (les noms longs gardent leur début)
-			var kj := kanji.substr(0, 2)
-			var ss := 18.0 * u
-			UiKit.seal(_list, Rect2(pr.position + Vector2(2.0, 2.0) * u, Vector2(ss, ss * (1.0 if kj.length() < 2 else 1.6))), kj,
-				Toon.VERMILION, Toon.WASHI, a, u, float(i))
+			_unknown(_list, pr.get_center(), pr.size.x * 0.42, a)
 	# nom (ou ???), puis victoires ou monde où il rôde
 	var nm: String = UiKit.plain(String(info[0])) if seen else "???"
 	var nfs := _fit_fs(UiKit.TITLE_FONT, nm, int(UiKit.FS_CAPTION * 1.15 * u), r.size.x - 8.0 * u)
@@ -989,6 +978,12 @@ func _draw_card(r0: Rect2, i: int, a: float) -> void:
 	# nouvelle fiche (jamais ouverte) : point vermillon
 	if seen and bool(meta.kind_fresh(_key(i))):
 		_list.draw_circle(Vector2(r.end.x - 9.0 * u, r.position.y + 9.0 * u), 4.0 * u, Color(_accent, a))
+
+
+## Fiche inconnue : un « ? » d'encre pâle (plus de hanko).
+func _unknown(ci: CanvasItem, c: Vector2, s: float, a: float) -> void:
+	var fs := maxi(1, int(s * 0.7))
+	UiKit.text(ci, UiKit.TITLE_FONT, "?", c + Vector2(0, float(fs) * 0.36), fs, Color(_ink, 0.3 * a))
 
 
 func _draw_sheet() -> void:
@@ -1017,10 +1012,9 @@ func _draw_sheet() -> void:
 	_view3d = Rect2(Vector2(px + 16.0 * u, py + 62.0 * u), Vector2(pw - 32.0 * u, vh))
 	var vc := _view3d.get_center()
 	UiKit.enso(_sheet, vc, vh * 0.44, 3.0 * u, Color(_ink, 0.12 * k), k)
-	var kanji := String(info[1])
 	if boss:
 		var s := vh * 0.62
-		UiKit.seal(_sheet, Rect2(vc - Vector2(s, s) / 2.0, Vector2(s, s)), kanji, UiKit.gold() if bool(en["mini"]) else _accent, Toon.WASHI, k, u, 2.0)
+		UiKit.monster_badge(_sheet, _sb, Rect2(vc - Vector2(s, s) / 2.0, Vector2(s, s)), bool(en["mini"]), k, u)
 	else:
 		var ell := PackedVector2Array()
 		for j in 24:
@@ -1035,12 +1029,11 @@ func _draw_sheet() -> void:
 		if tex != null:
 			_sheet.draw_texture_rect(tex, _fit(_view3d, tex.get_size()), false, Color(1, 1, 1, k))
 		else:
-			var kfs := int(vh * 0.45)
-			UiKit.text(_sheet, UiKit.TITLE_FONT, kanji.substr(0, 1), vc + Vector2(0, float(kfs) * 0.36), kfs, Color(_ink, 0.2 * k))
-	# nom et sceau
+			UiKit.draw_icon(_sheet, "hud/oni", vc, vh * 0.45, 0.2 * k, _ink)
+	# nom (UI v2 : sans sceau à kanji)
 	var cx := w / 2.0
 	var ny := _view3d.end.y + 34.0 * u
-	UiKit.screen_title(_sheet, _title, UiKit.plain(String(info[0])), Vector2(cx, ny), u, _ink, k, kanji, pw - 40.0 * u, k)
+	UiKit.screen_title(_sheet, _title, UiKit.plain(String(info[0])), Vector2(cx, ny), u, _ink, k, "", pw - 40.0 * u, k)
 	# légende (folklore)
 	var bfs := int(UiKit.FS_BODY * u)
 	var ly := ny + 32.0 * u
@@ -1078,6 +1071,6 @@ func _draw_sheet() -> void:
 	var lfs := int(UiKit.FS_LABEL * u)
 	var lw := _ui.get_string_size(wl, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
 	var gx := rx - (ss + 6.0 * u + lw) / 2.0
-	UiKit.seal(_sheet, Rect2(Vector2(gx, sy - ss * 0.8), Vector2(ss, ss)), String(wd.get("kanji", "")), wcol, Toon.WASHI, k, u, 4.0)
+	UiKit.world_badge(_sheet, _sb, Rect2(Vector2(gx, sy - ss * 0.8), Vector2(ss, ss)), String(wd.get("kanji", "")), wcol, k)
 	_sheet.draw_string(_ui, Vector2(gx + ss + 6.0 * u, sy - ss * 0.8 + ss / 2.0 + float(lfs) * 0.36), wl, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(_ink, k))
 	UiKit.text(_sheet, _ui, "1RE RENCONTRE", Vector2(rx, sy + 16.0 * u), int(UiKit.FS_CAPTION * u), Color(_ink, UiKit.A_CAPTION * k))
