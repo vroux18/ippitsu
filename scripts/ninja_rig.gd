@@ -652,16 +652,10 @@ func _start(clip: int, speed: float, blend: float, loop: bool) -> void:
 # ------------------------------------------------------------------ animation
 
 func _process(delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(delta)
-		Perf.add(&"ninja_rig", _pt)
-	else:
-		_process_body(delta)
-
-
-func _process_body(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if not _built:
+		if _pt != 0:
+			Perf.add(&"ninja_rig", _pt)
 		return
 	var dt := clampf(delta, 0.0, 0.1)
 	_life = fmod(_life + dt, 1000.0)
@@ -690,6 +684,8 @@ func _process_body(delta: float) -> void:
 			_out[j] = _tgt[j]
 	_apply()
 	_update_tails(dt)
+	if _pt != 0:
+		Perf.add(&"ninja_rig", _pt)
 
 
 func _apply() -> void:

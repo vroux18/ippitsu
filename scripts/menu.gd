@@ -1,5 +1,6 @@
 extends Control
 ## Accueil (sceau, titre, pinceau JOUER, entrées Atelier · Dojo · Garde-robe), résultats en fin de partie, et pause.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -340,7 +341,10 @@ func _make_build_list() -> void:
 
 
 func _process(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if not visible or mode == "hidden":
+		if _pt != 0:
+			Perf.add(&"menu", _pt)
 		return
 	size = get_viewport_rect().size
 	var dt := UiKit.real_delta()
@@ -382,6 +386,8 @@ func _process(_delta: float) -> void:
 	elif mode == "pause":
 		_layout_pause(u)
 	queue_redraw()
+	if _pt != 0:
+		Perf.add(&"menu", _pt)
 
 
 ## Accueil : icônes nues en haut à droite, le pinceau JOUER, puis ATELIER · DOJO · GARDE-ROBE.
@@ -546,7 +552,10 @@ func _layout_pause(u: float) -> void:
 
 
 func _draw() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if size.x < 10.0:
+		if _pt != 0:
+			Perf.add(&"menu_draw", _pt)
 		return
 	if mode == "home":
 		_draw_home()
@@ -554,6 +563,8 @@ func _draw() -> void:
 		_draw_results()
 	elif mode == "pause":
 		_draw_pause()
+	if _pt != 0:
+		Perf.add(&"menu_draw", _pt)
 
 
 ## Dégradé vertical plein écran de y0 (alpha a0) à y1 (alpha a1), couleur c.

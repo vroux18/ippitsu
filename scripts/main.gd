@@ -5421,15 +5421,7 @@ func _update_effects(dt: float, real: float) -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(_delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(_delta)
-		Perf.add(&"main", _pt)
-	else:
-		_process_body(_delta)
-
-
-func _process_body(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var now := Time.get_ticks_usec()
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
@@ -5446,12 +5438,16 @@ func _process_body(_delta: float) -> void:
 	if state == "paused" or (state == "pick" and _pick_context == "level"):
 		Engine.time_scale = 0.0
 		_hitstop = 0.0
+		if _pt != 0:
+			Perf.add(&"main", _pt)
 		return
 	# tutoriel : arrêt sur image le temps de lire une bulle du coach (figé comme la pause ; le coach compte
 	# en temps réel, se lève au toucher ou seul au bout de quelques secondes)
 	if state == "play" and not game_over and coach.frozen():
 		Engine.time_scale = 0.0
 		_hitstop = 0.0
+		if _pt != 0:
+			Perf.add(&"main", _pt)
 		return
 
 	# temps : fin de partie au ralenti, sinon normal
@@ -5830,3 +5826,5 @@ func _process_body(_delta: float) -> void:
 			if _boss_dry_t > 12.0:
 				hud.boss_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 			hud.boss_ratio = clampf(bo.hp / bo.max_hp, 0.0, 1.0)
+	if _pt != 0:
+		Perf.add(&"main", _pt)

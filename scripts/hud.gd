@@ -389,17 +389,11 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_draw_body()
-		Perf.add(&"hud_draw", _pt)
-	else:
-		_draw_body()
-
-
-func _draw_body() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var sz := size
 	if sz.x < 10.0:
+		if _pt != 0:
+			Perf.add(&"hud_draw", _pt)
 		return
 	var u := sz.x / 400.0
 
@@ -428,6 +422,8 @@ func _draw_body() -> void:
 
 	if in_play and not picking:
 		_draw_pad(u)
+	if _pt != 0:
+		Perf.add(&"hud_draw", _pt)
 
 
 ## Couche `part` du HUD (enfant _Layer), dessinée par-dessus le HUD lui-même, dans l'ordre des couches :

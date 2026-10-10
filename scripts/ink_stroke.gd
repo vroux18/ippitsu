@@ -110,15 +110,7 @@ func start_drying() -> void:
 
 
 func _process(delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(delta)
-		Perf.add(&"ink_stroke", _pt)
-	else:
-		_process_body(delta)
-
-
-func _process_body(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if not drying:
 		if not _col.is_equal_approx(_goal):
 			_col = _col.lerp(_goal, minf(1.0, delta * 10.0))
@@ -138,6 +130,8 @@ func _process_body(delta: float) -> void:
 			ring_mat.albedo_color = Color(Toon.VERMILION, 0.55) if danger else Color(Toon.SUMI, 0.18)
 			var rs := 1.0 + (0.15 * sin(Time.get_ticks_msec() * 0.02) if danger else 0.0)
 			_ring.scale = Vector3(rs, 1, rs)
+		if _pt != 0:
+			Perf.add(&"ink_stroke", _pt)
 		return
 	_dry_t += delta
 	if _dry_t > 1.6:
@@ -147,6 +141,8 @@ func _process_body(delta: float) -> void:
 		var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0)
 		var tint := _col.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
 		_mat.albedo_color = Color(_col.r * tint.r, _col.g * tint.g, _col.b * tint.b, fade)
+	if _pt != 0:
+		Perf.add(&"ink_stroke", _pt)
 
 
 func _rebuild() -> void:

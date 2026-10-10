@@ -2734,23 +2734,21 @@ func _ensure_visuals() -> void:
 
 
 func _process(delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(delta)
-		Perf.add(&"powers", _pt)
-	else:
-		_process_body(delta)
-
-
-func _process_body(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if main == null or _root == null:
+		if _pt != 0:
+			Perf.add(&"powers", _pt)
 		return
 	var dt := UiKit.unscaled(delta, 0.05)
 	if dt <= 0.0:
+		if _pt != 0:
+			Perf.add(&"powers", _pt)
 		return
 	_anim += dt
 	var h = main.hero
 	if not is_instance_valid(h):
+		if _pt != 0:
+			Perf.add(&"powers", _pt)
 		return
 	# hors partie (accueil, résultats) : les visuels des pouvoirs se cachent
 	_root.visible = String(main.state) in ["play", "transit", "pick", "dying", "tuto", "paused", "boss_intro"]
@@ -2817,6 +2815,8 @@ func _process_body(delta: float) -> void:
 			"shell":
 				node.scale = Vector3.ONE * (1.0 - 0.6 * k2)
 				node.position.y = -0.8 * k2
+	if _pt != 0:
+		Perf.add(&"powers", _pt)
 
 
 ## Éclair vertical qui tombe du ciel sur `p`.

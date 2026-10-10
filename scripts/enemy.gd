@@ -1482,15 +1482,7 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(delta)
-		Perf.add(&"enemy", _pt)
-	else:
-		_process_body(delta)
-
-
-func _process_body(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	# Rapide / Enragé : tout le rythme (marche, annonces, repos) accéléré
 	delta *= _tempo
 	_t += delta
@@ -1546,6 +1538,8 @@ func _process_body(delta: float) -> void:
 			_shadow.visible = sink < 0.5
 		if _timer > DIE_HOP + DIE_SINK and _blast_t <= 0.0:
 			queue_free()
+		if _pt != 0:
+			Perf.add(&"enemy", _pt)
 		return
 
 	if _spawn > 0.0:
@@ -1555,6 +1549,8 @@ func _process_body(delta: float) -> void:
 		body.rotation.y = atan2(-to.x, -to.z)
 		if _scale_in > 0.0:
 			body.scale = Vector3.ONE * (clampf(1.0 - _spawn / _scale_in, 0.05, 1.0) if _spawn > 0.0 else 1.0)
+		if _pt != 0:
+			Perf.add(&"enemy", _pt)
 		return
 
 	if _squash > 0.0:
@@ -1564,14 +1560,20 @@ func _process_body(delta: float) -> void:
 
 	if kind == "funa":
 		_ghost(delta)
+		if _pt != 0:
+			Perf.add(&"enemy", _pt)
 		return
 
 	if dummy and not spar:
+		if _pt != 0:
+			Perf.add(&"enemy", _pt)
 		return
 
 	if _hit_freeze > 0.0:
 		# touché : figé un instant (ni marche, ni attaque, ni recul), puis le recul part
 		_hit_freeze -= delta
+		if _pt != 0:
+			Perf.add(&"enemy", _pt)
 		return
 
 	if _hit_cd > 0.0:
@@ -1664,6 +1666,8 @@ func _process_body(delta: float) -> void:
 	position += _knock * delta
 	_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 9.0))
 	main.clamp_to_arena(self, radius)
+	if _pt != 0:
+		Perf.add(&"enemy", _pt)
 
 
 ## Bulle du bouclier et aura d'élite : légère pulsation, suivent un corps qui flotte.

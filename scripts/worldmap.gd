@@ -10,6 +10,7 @@ extends Control
 ## Après une victoire qui ouvre un monde (open(..., reveal)), le carrousel part du monde vaincu, glisse
 ## jusqu'au nouveau, brise son cadenas (encre et or, les couleurs reviennent), puis sa carte se lève ;
 ## PARTIR vient ensuite.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -708,7 +709,10 @@ func _gold_ink() -> Color:
 # --- Dessin : fond, titre, cartes, points de page ------------------------------------
 
 func _draw() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if size.x < 10.0:
+		if _pt != 0:
+			Perf.add(&"worldmap_draw", _pt)
 		return
 	var w := size.x
 	var u := _u
@@ -725,6 +729,8 @@ func _draw() -> void:
 
 	var n := _worlds.size()
 	if n == 0:
+		if _pt != 0:
+			Perf.add(&"worldmap_draw", _pt)
 		return
 	# papier des cartes (sous les estampes) : coins arrondis, ombre portée en deux décalages (pas de flou)
 	var cr := _card_rect()
@@ -739,6 +745,8 @@ func _draw() -> void:
 		draw_colored_polygon(pts, Toon.ui_paper)
 	draw_set_transform_matrix(Transform2D.IDENTITY)
 	_draw_dots()
+	if _pt != 0:
+		Perf.add(&"worldmap_draw", _pt)
 
 
 ## Points de page : la page courante s'allonge en trait vermillon ; or pour un monde accompli, encre pour un

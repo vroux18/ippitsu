@@ -278,16 +278,10 @@ func _make_hole(c: Vector3, r: float) -> void:
 
 
 func _process(delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(delta)
-		Perf.add(&"hazards", _pt)
-	else:
-		_process_body(delta)
-
-
-func _process_body(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if _hole_nodes.is_empty():
+		if _pt != 0:
+			Perf.add(&"hazards", _pt)
 		return
 	_anim_t += delta
 	var i := _pops.size() - 1
@@ -316,6 +310,8 @@ func _process_body(delta: float) -> void:
 		nd.position = base + Vector3(sin(_anim_t * 0.6 + ph) * 0.05, 0.0, cos(_anim_t * 0.45 + ph) * 0.025)
 		var k := sz * (0.8 + 0.25 * sin(_anim_t * 1.3 + ph * 1.7))
 		nd.scale = Vector3(k, 1.0, k)
+	if _pt != 0:
+		Perf.add(&"hazards", _pt)
 
 
 # ------------------------------------------------------------------ monde 1 : planches cassées

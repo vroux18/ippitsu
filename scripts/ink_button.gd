@@ -3,6 +3,7 @@ extends Control
 ## coup de pinceau (brush), texte souligné au pinceau (text), icône et légende (icon), icône nue (bare)
 ## ou simple zone tactile (area). Une icône peut accompagner le texte (lead_icon).
 ## Ne se redessine que si quelque chose change (sauf le coup de pinceau, qui respire).
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -131,6 +132,7 @@ func _process(_delta: float) -> void:
 
 
 func _draw() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var k := 1.0 - 0.04 * _press
 	var r := Rect2(size * (1.0 - k) / 2.0, size * k)
 	var rad := int(minf(r.size.y * 0.34, 22.0 * r.size.y / 60.0))
@@ -189,6 +191,8 @@ func _draw() -> void:
 		"label":
 			_draw_label_tag(r)
 	_draw_splash()
+	if _pt != 0:
+		Perf.add(&"button_draw", _pt)
 
 
 # étiquette papier du bouton secondaire (UI v2, Pause : OPTIONS / QUITTER), gabarit 162 × 46 : courbes de Bézier

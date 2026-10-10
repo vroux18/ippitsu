@@ -489,16 +489,10 @@ func _hit(p: Vector2) -> int:
 
 
 func _process(_delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(_delta)
-		Perf.add(&"picker", _pt)
-	else:
-		_process_body(_delta)
-
-
-func _process_body(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if not visible:
+		if _pt != 0:
+			Perf.add(&"picker", _pt)
 		return
 	size = get_viewport_rect().size
 	var real := UiKit.real_delta()
@@ -516,6 +510,8 @@ func _process_body(_delta: float) -> void:
 		visible = false
 		picked.emit(String(_ids[_chosen]))
 	queue_redraw()
+	if _pt != 0:
+		Perf.add(&"picker", _pt)
 
 
 func _p(s: String) -> String:
@@ -543,21 +539,17 @@ func _focus() -> int:
 # ------------------------------------------------------------------ dessin
 
 func _draw() -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_draw_body()
-		Perf.add(&"picker_draw", _pt)
-	else:
-		_draw_body()
-
-
-func _draw_body() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var w := size.x
 	var h := size.y
 	if w < 10.0:
+		if _pt != 0:
+			Perf.add(&"picker_draw", _pt)
 		return
 	if _sty() == STYLE_V2:
 		_draw_v2()
+		if _pt != 0:
+			Perf.add(&"picker_draw", _pt)
 		return
 	var u := minf(w / 400.0, h / 760.0)
 	var fade := UiKit.ease_out(_t / 0.3) if _chosen < 0 else 1.0 - UiKit.ease_out((_t - 0.25) / 0.3)
@@ -743,6 +735,8 @@ func _draw_body() -> void:
 		var rc := _reroll_rect.get_center()
 		UiKit.glyph(self, "reroll", Vector2(_reroll_rect.position.x + 26 * u, rc.y), 9.0 * u, Toon.WASHI, UiKit.NONE, fade)
 		UiKit.text(self, _ui, "RELANCER  %d" % rerolls, Vector2(rc.x + 10 * u, rc.y + fs * 0.36), fs, Color(Toon.WASHI, fade))
+	if _pt != 0:
+		Perf.add(&"picker_draw", _pt)
 
 
 ## Poussière d'or qui monte derrière les cartes (présence d'un légendaire).

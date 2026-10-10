@@ -143,16 +143,10 @@ func clear() -> void:
 
 
 func _process(delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(delta)
-		Perf.add(&"pickups", _pt)
-	else:
-		_process_body(delta)
-
-
-func _process_body(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if main == null or main.hero == null or not is_instance_valid(main.hero):
+		if _pt != 0:
+			Perf.add(&"pickups", _pt)
 		return
 	var hp: Vector3 = main.hero.position + Vector3(0, 0.7, 0)
 	for i in range(_items.size() - 1, -1, -1):
@@ -203,6 +197,8 @@ func _process_body(delta: float) -> void:
 		star.scale = Vector3.ONE * (0.4 + 0.9 * tw * tw) * (1.6 if bool(it.pull) else 1.0)
 	if _items.is_empty():
 		_gather = false
+	if _pt != 0:
+		Perf.add(&"pickups", _pt)
 
 
 ## Gemme ou pièce (nœud, halo, étincelle) : reprise de la réserve si possible, sinon construite.

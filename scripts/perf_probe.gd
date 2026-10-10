@@ -33,7 +33,9 @@ var _keys_win := {}
 var _calls_max := {}  # poste -> appels max dans une image
 var _worst_win := [0.0, ""]
 var _worst_all := [0.0, ""]
-const METRICS := ["img", "proc", "phys", "process", "physics", "nodes", "objects", "draws", "d_vis", "d_shadow", "d_canvas", "prims", "mem"]
+const METRICS := ["img", "proc", "phys", "process", "physics", "nodes", "added", "objects", "draws", "d_vis", "d_shadow", "d_canvas", "prims", "mem"]
+var _added := 0  # nœuds entrés dans l'arbre depuis l'image précédente (créations d'effets, de pièces…)
+var _added_by := {}  # classe ou script -> nœuds entrés (toute la partie)
 var _proc0 := 0  # début des _process de l'image (nœud _Start, priorité la plus basse)
 var _phys_us := 0  # µs de _physics_process cumulés depuis l'image précédente
 var _phys0 := 0
@@ -97,11 +99,20 @@ func census() -> void:
 	var rows := {}  # branche -> [instances, ombres, surfaces]
 	var mats := {}
 	var parts := 0
+	var procs := {}  # script ou classe -> nœuds qui ont un _process (ou un traitement interne) actif
+	var cpu_parts := 0  # particules CPU simulées (émetteurs qui émettent)
 	var stack: Array = [main]
 	while not stack.is_empty():
 		var n: Node = stack.pop_back()
 		for c in n.get_children():
 			stack.append(c)
+		if n.is_processing() or n.is_processing_internal() or n.is_physics_processing():
+			var sc: Script = n.get_script()
+			var pk: String = sc.resource_path.get_file() if sc != null else n.get_class()
+			procs[pk] = int(procs.get(pk, 0)) + 1
+		var cp := n as CPUParticles3D
+		if cp != null and cp.emitting:
+			cpu_parts += cp.amount
 		var gi := n as GeometryInstance3D
 		if gi == null or not gi.is_visible_in_tree():
 			continue
@@ -126,6 +137,13 @@ func census() -> void:
 	for k in keys:
 		var r: Array = rows[k]
 		print("PERF RECENSEMENT %-40s instances %4d  ombres %4d  surfaces %4d" % [k, r[0], r[1], r[2]])
+	var pks := procs.keys()
+	pks.sort_custom(func(a, b): return int(procs[a]) > int(procs[b]))
+	var pl: Array = []
+	for k in pks:
+		pl.append("%s %d" % [k, procs[k]])
+	print("PERF RECENSEMENT traités à chaque image : ", ", ".join(pl))
+	print("PERF RECENSEMENT particules CPU (émetteurs actifs) : %d" % cpu_parts)
 
 
 func _branch(n: Node) -> String:
@@ -160,7 +178,20 @@ func _ready() -> void:
 	for m in METRICS:
 		_win[m] = []
 		_all[m] = []
+	get_tree().node_added.connect(_on_node_added)
 	print("PERF relevé actif : fenêtres de %d images" % PERF_WINDOW)
+
+
+func _on_node_added(n: Node) -> void:
+	_added += 1
+	if _frames > 0:
+		var sc: Script = n.get_script()
+		var k: String = sc.resource_path.get_file() if sc != null else n.get_class()
+		var par := n.get_parent()
+		if par != null:
+			var ps: Script = par.get_script()
+			k += " < " + (ps.resource_path.get_file() if ps != null else par.get_class())
+		_added_by[k] = int(_added_by.get(k, 0)) + 1
 
 
 func _where() -> String:
@@ -189,6 +220,7 @@ func _process(_delta: float) -> void:
 		"process": Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
 		"physics": Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
 		"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+		"added": float(_added),
 		"objects": Performance.get_monitor(Performance.OBJECT_COUNT),
 		"draws": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
 		"d_vis": _rinfo(RenderingServer.VIEWPORT_RENDER_INFO_TYPE_VISIBLE),  # appels de dessin : passe principale
@@ -217,6 +249,7 @@ func _process(_delta: float) -> void:
 	_acc.clear()
 	_calls.clear()
 	_phys_us = 0
+	_added = 0
 	var cost := img  # pire moment : la plus longue image (rendu compris)
 	if cost > float(_worst_win[0]):
 		_worst_win = [cost, _where()]
@@ -247,7 +280,7 @@ static func _stats(a: Array) -> Array:
 
 func _fmt(m: String, a: Array) -> String:
 	var st := _stats(a)
-	if m in ["nodes", "objects", "draws", "d_vis", "d_shadow", "d_canvas", "prims"]:
+	if m in ["nodes", "added", "objects", "draws", "d_vis", "d_shadow", "d_canvas", "prims"]:
 		return "%s %d/%d/%d/%d" % [m, int(st[0]), int(st[3]), int(st[1]), int(st[2])]
 	return "%s %.2f/%.2f/%.2f/%.2f" % [m, st[0], st[3], st[1], st[2]]
 
@@ -295,6 +328,12 @@ func summary() -> void:
 	_summarized = true
 	print("PERF BILAN %d images (moy/méd/p95/max) %s" % [_frames, _line(_all)])
 	print("PERF BILAN pire image %.2f ms : %s" % [float(_worst_all[0]), String(_worst_all[1])])
+	var ak := _added_by.keys()
+	ak.sort_custom(func(a, b): return int(_added_by[a]) > int(_added_by[b]))
+	var al: Array = []
+	for k in ak.slice(0, 16):
+		al.append("%s %d" % [k, _added_by[k]])
+	print("PERF BILAN nœuds créés (nœud < parent) : ", ", ".join(al))
 	var i := 1
 	for r in _top(_keys_all, 99):
 		print("PERF BILAN poste %2d %-14s moy %7.1f µs  méd %7.1f  p95 %7.1f  max %8.1f  appels/image max %d" % [i, r[0], r[1], r[4], r[2], r[3], int(_calls_max.get(StringName(r[0]), _calls_max.get(r[0], 0)))])

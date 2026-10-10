@@ -314,27 +314,25 @@ func _first_enemy() -> Node3D:
 
 
 func _process(_delta: float) -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_process_body(_delta)
-		Perf.add(&"coach", _pt)
-	else:
-		_process_body(_delta)
-
-
-func _process_body(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	size = get_viewport_rect().size
 	if main == null:
+		if _pt != 0:
+			Perf.add(&"coach", _pt)
 		return
 	if not active():
 		if mark != "" or _fig != "":
 			clear()
 		if visible:
 			visible = false
+		if _pt != 0:
+			Perf.add(&"coach", _pt)
 		return
 	visible = true
 	if not _in_play():
 		queue_redraw()
+		if _pt != 0:
+			Perf.add(&"coach", _pt)
 		return
 	var real := UiKit.real_delta()
 	if mark == "":
@@ -375,6 +373,8 @@ func _process_body(_delta: float) -> void:
 	_veil = move_toward(_veil, VEIL if on else 0.0, real * 2.5)
 	_big = move_toward(_big, BIG if on else 1.0, real * 2.5)
 	queue_redraw()
+	if _pt != 0:
+		Perf.add(&"coach", _pt)
 
 
 # ------------------------------------------------------------------ dessin
@@ -387,17 +387,11 @@ func _screen(p: Vector3) -> Vector2:
 
 
 func _draw() -> void:
-	if Perf.on:
-		var _pt := Time.get_ticks_usec()
-		_draw_body()
-		Perf.add(&"coach_draw", _pt)
-	else:
-		_draw_body()
-
-
-func _draw_body() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_lesson_bottom = -1.0
 	if main == null or not active() or not _in_play() or size.x < 10.0:
+		if _pt != 0:
+			Perf.add(&"coach_draw", _pt)
 		return
 	var u := size.x / 400.0
 	var insets := UiKit.safe_insets(size)
@@ -437,6 +431,8 @@ func _draw_body() -> void:
 	if _skip_shown():
 		_draw_skip(u, insets)
 	if mark == "":
+		if _pt != 0:
+			Perf.add(&"coach_draw", _pt)
 		return
 	var txt := String(TEXTS.get(mark, ""))
 	if in_pad:
@@ -483,6 +479,8 @@ func _draw_body() -> void:
 		_banner(txt, sub, icon, u, a)
 	if _fz >= 0.0:
 		_draw_hint(u, insets)
+	if _pt != 0:
+		Perf.add(&"coach_draw", _pt)
 
 
 ## Voile d'encre percé d'un projecteur : ellipse claire (centre c, demi-axes r) autour du geste, le reste
