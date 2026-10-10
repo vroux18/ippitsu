@@ -1794,7 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid <= 3:
+	if wid <= 4:
 		_landscape(wid, ctx, rng)
 	else:
 		_ls_legacy(wid, ctx, rng)
@@ -2261,6 +2261,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 			return ["bamboo", "garland", "fence", "torii", "tanzaku", "bamboo"]
 		3:
 			return ["fence", "pines", "toro", "steles", "jizo", "pines"]
+		4:
+			return ["strata", "chain", "braziers", "spikes", "torii", "strata"]
 		_:
 			return ["piles"]
 
@@ -2272,6 +2274,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 			_ls_near_tanabata(ctx, p, s, k, rng)
 		3:
 			_ls_near_contes(ctx, p, s, k, rng)
+		4:
+			_ls_near_fuji(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2283,6 +2287,8 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 			_ls_mid_tanabata(ctx, kind, a, b, s, rng)
 		3:
 			_ls_mid_contes(ctx, kind, a, b, s, rng)
+		4:
+			_ls_mid_fuji(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2300,6 +2306,11 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 				_ls_snow_cabin(ctx, c, s, rng)
 			else:
 				_ls_snow_grove(ctx, c, s, rng)
+		4:
+			if main:
+				_ls_forge_yard(ctx, c, s, rng)
+			else:
+				_ls_burnt_shrine(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2314,6 +2325,8 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 			_ls_north_tanabata(ctx, frame, rng)
 		3:
 			_ls_north_contes(ctx, frame, rng)
+		4:
+			_ls_north_fuji(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -2855,6 +2868,120 @@ static func _ls_north_contes(ctx: Dictionary, frame: Rect2, rng: RandomNumberGen
 		var q := Vector2(rng.randf_range(-5.0, 5.0), top - rng.randf_range(1.2, 2.4))
 		if _ok(ctx, q, 0.4, 0.0):
 			_toro_into(bn, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0)))
+
+
+# --- monde 4 : lèvres de la faille du Fuji rouge
+
+## Strates de basalte : dalles empilées en gradins qui montent vers l'extérieur, le long de z.
+static func _ls_strata(bs: Dictionary, c: Vector2, ln: float, s: float, rng: RandomNumberGenerator) -> void:
+	var m := _toon(BASALT, true, 0.025)
+	var y := VOID_Y - 0.1
+	var n := 3 if Toon.lite else 4
+	for k in n:
+		var l := ln - 0.3 * k
+		var w := 1.0 + 0.15 * k
+		var h := rng.randf_range(0.18, 0.26)
+		var xk := c.x + s * (0.22 * k)
+		_add(bs, m, _box(Vector3(w, h, l)), _at(Vector3(xk, y + h * 0.5, c.y + rng.randf_range(-0.15, 0.15)), Vector3(0, rng.randf_range(-0.03, 0.03), 0)))
+		y += h
+
+
+## Bande proche : blocs de basalte, fissures d'or, piques.
+static func _ls_near_fuji(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	if k % 5 == 2:
+		_inst(ctx, "crack", _box(Vector3(1.0, 0.02, 0.06)), _glow(LAVA_GOLD, 1.2), _at(Vector3(p.x, VOID_Y + 0.01, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.5, 1.2), 1, 1)))
+		return
+	if k % 8 == 5:
+		_spikes_into(bs, bn, p, 0.4, rng)
+		return
+	var sc := rng.randf_range(0.3, 0.7)
+	_inst(ctx, "chunk", _ball(0.5, 0.55, 6, 3), _toon(BASALT, true, 0.025), _at(Vector3(p.x, VOID_Y - 0.05, p.y), Vector3(rng.randf_range(-0.4, 0.4), rng.randf() * TAU, rng.randf_range(-0.4, 0.4)), Vector3.ONE * sc))
+
+
+## Bande moyenne : strates, garde-fou de chaînes, braseros, piques, torii calcinés.
+static func _ls_mid_fuji(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"strata":
+			_ls_strata(bs, Vector2(x + s * 0.2, zc), ln - 0.4, s, rng)
+		"chain":
+			_chain_rail(ctx, Vector3(x, 0, a.y + 0.2), Vector3(x, 0, b.y - 0.2))
+		"braziers":
+			for k in 2:
+				var q := Vector2(x, a.y + 0.7 + k * (ln - 1.4))
+				_basalt_into(bs, q, 0.4, VOID_Y + 0.3, rng)
+				_brazier_into(bs, bn, _at(Vector3(q.x, VOID_Y + 0.3, q.y), Vector3.ZERO, Vector3.ONE * 0.6))
+			_light(ctx, Vector3(x, VOID_Y + 1.1, zc), Color(1.0, 0.82, 0.5), 0.5, 3.5)
+		"spikes":
+			_spikes_into(bs, bn, Vector2(x + s * 0.2, zc), 0.9, rng)
+		_:
+			var n := 2 if ln < 3.6 else 3
+			for k in n:
+				var q := Vector2(x, a.y + 0.5 + k * ((ln - 1.0) / maxf(float(n - 1), 1.0)))
+				_ls_mini_torii(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.8), Color("#2A2220"), -0.4)
+			_add(bn, _toon(Color("#4A4440"), true, 0.02), _ball(0.5, 0.3, 9, 4), _at(Vector3(x + s * 0.3, VOID_Y, zc), Vector3.ZERO, Vector3(1.0, 0.4, ln * 0.5)))
+
+
+## Forge des oni (rive principale) : socle de basalte, four tatara, enclume et lingots, chaîne tendue,
+## brasero allumé.
+static func _ls_forge_yard(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	_basalt_into(bs, c, 0.9, -0.05, rng)
+	_contact(ctx, c, 1.6)
+	var xf := _at(Vector3(c.x + s * 0.3, -0.05, c.y - 0.2), Vector3(0, face, 0), Vector3.ONE * 0.8)
+	_forge_into(bs, bn, xf)
+	_light(ctx, xf * Vector3(-0.35, 0.5, 0.5), Color(1.0, 0.8, 0.45), 0.6, 3.5)
+	_anvil_into(bs, bn, _at(Vector3(c.x - s * 0.5, -0.05, c.y + 1.0), Vector3(0, face + 0.4, 0), Vector3.ONE * 0.9))
+	_ingots_into(bs, bn, _at(Vector3(c.x + s * 0.5, -0.05, c.y + 1.3), Vector3(0, rng.randf() * TAU, 0)))
+	_brazier_into(bs, bn, _at(Vector3(c.x - s * 0.6, -0.05, c.y - 1.2), Vector3.ZERO, Vector3.ONE * 0.6))
+	if not Toon.lite:
+		_chain_into(bs, c + Vector2(s * 1.6, 0.6), rng)
+
+
+## Rive mineure : sanctuaire calciné, deux torii brûlés, masque d'oni, cendres et katanas plantés.
+static func _ls_burnt_shrine(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var ash := _toon(Color("#4A4440"), true, 0.02)
+	_add(bs, ash, _ball(0.5, 0.3, 10, 4), _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(3.2, 0.7, 2.6)))
+	_contact(ctx, c, 1.4)
+	var top := VOID_Y + 0.12
+	Decor.hokora_into(bs, bn, _at(Vector3(c.x + s * 0.4, top, c.y), Vector3(0, face, 0), Vector3.ONE * 0.85), Color("#2A2220"), Color("#141215"))
+	for k in 2:
+		_ls_mini_torii(bs, _at(Vector3(c.x - s * (0.5 + k * 0.6), top, c.y - 0.1), Vector3(0, face, 0), Vector3.ONE * 0.75), Color("#2A2220"), 0.0)
+	var post := Vector3(c.x + s * 0.2, top, c.y + 1.0)
+	_add(bs, _toon(Color("#2A2220")), _box(Vector3(0.1, 1.3, 0.1)), _at(post + Vector3(0, 0.65, 0)))
+	_oni_mask_into(bs, bn, _at(post + Vector3(0, 1.15, 0), Vector3(0, face, 0), Vector3.ONE * 0.6))
+	for k in (2 if Toon.lite else 4):
+		var q := Vector3(c.x + s * rng.randf_range(-0.2, 1.0), top, c.y - 0.9 - rng.randf_range(0.0, 0.3))
+		Decor.katana_into(bs, _at(q + Vector3(k * 0.25, 0, 0), Vector3(rng.randf_range(-0.25, 0.25), rng.randf() * TAU, rng.randf_range(-0.25, 0.25)), Vector3.ONE * 0.85))
+
+
+## Fond : murailles de strates de part et d'autre, torches de Yoshida, mare d'or.
+static func _ls_north_fuji(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.3), top - 2.4)
+		_ls_strata(bs, c, 3.6, sx, rng)
+		avoid.append(Vector3(c.x, c.y, 2.0))
+		var t := Vector2(sx * 2.8, top - 2.2)
+		_basalt_into(bs, t, 0.45, VOID_Y + 0.3, rng)
+		_yoshida_into(bs, bn, _at(Vector3(t.x, VOID_Y + 0.25, t.y), Vector3.ZERO, Vector3.ONE * 0.5))
+		avoid.append(Vector3(t.x, t.y, 1.2))
+	_light(ctx, Vector3(0, VOID_Y + 2.4, top - 2.2), Color(1.0, 0.82, 0.5), 0.55, 5.0)
+	_add(bn, _glow(HALO, 0.7), _cyl(0.6, 0.6, 0.02, 10), _at(Vector3(rng.randf_range(-1.5, 1.5), VOID_Y + 0.005, top - 3.8), Vector3.ZERO, Vector3(2.0, 1, 1.2)))
 
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
