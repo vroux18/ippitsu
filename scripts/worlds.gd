@@ -1794,6 +1794,9 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	_flush_mm(mm, root)
 
 
+static var gate_spread := 0.0  # portes à deux sceaux : demi-écart des deux torii (arena._set_gate_spots), 0 : un seul
+
+
 ## Garde dégagé l'arrière du torii de sortie (même calcul que arena.gd).
 static func _reserve_gate(ctx: Dictionary) -> void:
 	var rects: Array = ctx["rects"]
@@ -1807,6 +1810,10 @@ static func _reserve_gate(ctx: Dictionary) -> void:
 	var gx := clampf(0.0, high.position.x + 1.2, high.end.x - 1.2)
 	var avoid: Array = ctx["avoid"]
 	avoid.append(Vector3(gx, high.position.y, 2.3))
+	if gate_spread > 0.0:
+		# portes à deux sceaux : l'arrière de chaque torii (et l'entre-deux) reste dégagé
+		for sx: float in [-1.0, 1.0]:
+			avoid.append(Vector3(gx + sx * gate_spread, high.position.y, 2.6))
 
 
 ## Ombre de contact douce dans l'eau au pied d'un prop (instances : un seul draw call par salle).
@@ -2862,12 +2869,15 @@ static func _ls_north_fuji(ctx: Dictionary, frame: Rect2, rng: RandomNumberGener
 		var c := Vector2(sx * (frame.size.x * 0.5 + 1.3), top - 2.4)
 		_ls_strata(bs, c, 3.6, sx, rng)
 		avoid.append(Vector3(c.x, c.y, 2.0))
-		var t := Vector2(sx * 2.8, top - 2.2)
+		# torches : de part et d'autre du torii ; avec deux portes, au-dehors (plus rien derrière les arches)
+		var t := Vector2(sx * (4.75 if gate_spread > 0.0 else 2.8), top - (1.4 if gate_spread > 0.0 else 2.2))
 		_basalt_into(bs, t, 0.45, VOID_Y + 0.3, rng)
 		_yoshida_into(bs, bn, _at(Vector3(t.x, VOID_Y + 0.25, t.y), Vector3.ZERO, Vector3.ONE * 0.5))
 		avoid.append(Vector3(t.x, t.y, 1.2))
 	_light(ctx, Vector3(0, VOID_Y + 2.4, top - 2.2), Color(1.0, 0.82, 0.5), 0.55, 5.0)
-	_add(bn, _glow(HALO, 0.7), _cyl(0.6, 0.6, 0.02, 10), _at(Vector3(rng.randf_range(-1.5, 1.5), VOID_Y + 0.005, top - 3.8), Vector3.ZERO, Vector3(2.0, 1, 1.2)))
+	if gate_spread <= 0.0:
+		# flaque de braise derrière le torii (avec deux portes, elle passait entre les arches comme un arc d'or)
+		_add(bn, _glow(HALO, 0.7), _cyl(0.6, 0.6, 0.02, 10), _at(Vector3(rng.randf_range(-1.5, 1.5), VOID_Y + 0.005, top - 3.8), Vector3.ZERO, Vector3(2.0, 1, 1.2)))
 
 
 # --- monde 5 : rives de la mer d'encre (lavis, papier, Fuji)

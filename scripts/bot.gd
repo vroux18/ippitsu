@@ -419,7 +419,7 @@ func _play(dt: float) -> void:
 		main._waves_left.clear()
 		_room_t = 0.0
 		if main.arena.gate_open:
-			main.hero.position = main.arena.gate_pos
+			main.hero.position = main.arena.gate_goal(main.bot_gate())
 		elif bool(main.arena.stage) and int(main._enc) < 0:
 			# étape : on pose le héros à l'entrée de la zone suivante
 			var g: Vector3 = main.arena.next_goal()
