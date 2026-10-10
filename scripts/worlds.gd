@@ -1794,7 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid <= 5:
+	if wid <= 6:
 		_landscape(wid, ctx, rng)
 	else:
 		_ls_legacy(wid, ctx, rng)
@@ -2265,6 +2265,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 			return ["strata", "chain", "braziers", "spikes", "torii", "strata"]
 		5:
 			return ["hills", "boat", "shoji", "pine", "seal", "hills"]
+		6:
+			return ["cedars", "stairs", "lanterns", "rope", "rocks", "cedars"]
 		_:
 			return ["piles"]
 
@@ -2280,6 +2282,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 			_ls_near_fuji(ctx, p, s, k, rng)
 		5:
 			_ls_near_ink(ctx, p, s, k, rng)
+		6:
+			_ls_near_kurama(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2295,6 +2299,8 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 			_ls_mid_fuji(ctx, kind, a, b, s, rng)
 		5:
 			_ls_mid_ink(ctx, kind, a, b, s, rng)
+		6:
+			_ls_mid_kurama(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2322,6 +2328,11 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 				_ls_paper_house(ctx, c, s, rng)
 			else:
 				_ls_ink_pine(ctx, c, s, rng)
+		6:
+			if main:
+				_ls_kurama_temple(ctx, c, s, rng)
+			else:
+				_ls_cedar_grove(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2340,6 +2351,8 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 			_ls_north_fuji(ctx, frame, rng)
 		5:
 			_ls_north_ink(ctx, frame, rng)
+		6:
+			_ls_north_kurama(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -3099,6 +3112,182 @@ static func _ls_north_ink(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenera
 	var bc := Vector2(side * 2.9, top - 3.0)
 	_barrel_giant_into(bs, bn, _at(Vector3(bc.x, VOID_Y, bc.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3.ONE * 0.65))
 	avoid.append(Vector3(bc.x, bc.y, 1.6))
+
+# --- monde 6 : versant de Kurama au crépuscule (cèdres géants, escaliers, lanternes, petit temple)
+
+const KURAMA_STEP := Color("#7A6E74")  # granit des marches
+const FERN_RUST := Color("#8A6236")  # fougères rousses de l'automne
+const LACQUER_DARK := Color("#2A1F1A")  # poteaux laqués des temples
+
+
+## Volée de marches de granit : `n` marches de `w` de large qui montent depuis `base` (au ras du vide)
+## dans la direction horizontale `dir` ; chaque marche descend jusque sous le vide (bloc plein, lisible
+## de haut). Renvoie le milieu de la dernière marche, à hauteur de son dessus.
+static func _ls_stairs(bs: Dictionary, base: Vector3, dir: Vector3, w: float, n: int, rise: float, run: float, col: Color) -> Vector3:
+	var m := _toon(col, true, 0.02)
+	var yaw := atan2(dir.x, dir.z)
+	var low := VOID_Y - 0.25
+	for k in n:
+		var h := (base.y - low) + rise * float(k + 1)
+		var c := base + dir * (run * (float(k) + 0.5))
+		_add(bs, m, _box(Vector3(w, h, run + 0.02)), Transform3D(Basis(Vector3.UP, yaw), Vector3(c.x, low + h * 0.5, c.z)))
+	var top := base + dir * (run * (float(n) - 0.5))
+	return Vector3(top.x, base.y + rise * float(n), top.z)
+
+
+## Petit hall de temple de montagne (face à +Z local) : quatre poteaux laqués, murs de plâtre au fond et
+## sur les côtés, porte sombre, toit de tuiles en pavillon, deux lanternes de papier braise aux poteaux
+## de façade (jamais le vermillon des annonces : la laque vive reste au fond lointain).
+static func _ls_small_hall_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float) -> void:
+	var lac := _toon(LACQUER_DARK, true, 0.02)
+	var plaster := _toon(SHIKKUI, true, 0.02)
+	var tile := _toon(KAWARA, true, 0.025)
+	var ridge := _toon(KAWARA_DARK, false)
+	var door := _toon(Color("#1E1A1C"), false)
+	for k in 4:
+		var px: float = (w * 0.5 - 0.06) * (1.0 if k % 2 == 0 else -1.0)
+		var pz: float = (d * 0.5 - 0.06) * (1.0 if k < 2 else -1.0)
+		_add(bs, lac, _box(Vector3(0.11, h, 0.11)), xf * _at(Vector3(px, h * 0.5, pz)))
+	_add(bs, lac, _box(Vector3(w + 0.3, 0.08, d + 0.3)), xf * _at(Vector3(0, 0.04, 0)))
+	_add(bs, plaster, _box(Vector3(w - 0.2, h - 0.2, 0.06)), xf * _at(Vector3(0, h * 0.5, -d * 0.5 + 0.04)))
+	for sx: float in [-1.0, 1.0]:
+		_add(bs, plaster, _box(Vector3(0.06, h - 0.2, d - 0.2)), xf * _at(Vector3(sx * (w * 0.5 - 0.04), h * 0.5, 0)))
+	_add(bs, plaster, _box(Vector3(w - 0.2, h - 0.2, 0.06)), xf * _at(Vector3(0, h * 0.5, d * 0.5 - 0.04)))
+	_add(bn, door, _box(Vector3(0.5, h * 0.62, 0.03)), xf * _at(Vector3(0, h * 0.35, d * 0.5 + 0.0)))
+	_add(bn, lac, _box(Vector3(w + 0.1, 0.08, 0.06)), xf * _at(Vector3(0, h - 0.1, d * 0.5 + 0.02)))
+	Decor.roof_into(bs, bn, tile, ridge, xf * _at(Vector3(0, h, 0)), w + 0.9, d + 0.9, h * 0.5, 0.0, 0.42)
+	for sx: float in [-1.0, 1.0]:
+		var q := Vector3(sx * (w * 0.5 - 0.06), h - 0.38, d * 0.5 + 0.16)
+		_add(bn, _toon(Toon.SUMI, false), _box(Vector3(0.02, 0.12, 0.02)), xf * _at(q + Vector3(0, 0.2, 0)))
+		_add(bn, _glow(BRAISE.lightened(0.25), 0.9), _ball(0.1, 0.2, 7, 4), xf * _at(q))
+
+
+## Bande proche : fougères rousses, litière d'aiguilles, pas de granit, rocher à corbeau.
+static func _ls_near_kurama(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var dens: float = ctx["ls_dens"]
+	if k % 7 == 5:
+		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), _toon(KURAMA_ROCK, true, 0.02), _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.2)))
+		return
+	if k % 5 == 3:
+		var mr := rng.randf_range(0.35, 0.6)
+		_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), _toon(NEEDLES, true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.6, mr)))
+		return
+	if k % 11 == 9:
+		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * 0.5), rng.randi() % 100000, KURAMA_ROCK)
+		_crow_into(bs, _at(Vector3(p.x, VOID_Y + 0.16, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+		return
+	var fern := _toon_ds(FERN_RUST)
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.8, 1.4)
+		_inst(ctx, "reed", _tuft_mesh(), fern, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.1, sc)))
+
+
+## Bande moyenne : cèdres géants sur leur îlot, volée de marches qui grimpe le versant, lanternes de pierre,
+## corde sacrée entre deux poteaux, rochers de granit et jeunes cèdres.
+static func _ls_mid_kurama(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"cedars":
+			var top := _moss_mound_into(bs, Vector2(x + s * 0.4, zc), minf(ln * 0.36, 1.4), rng)
+			_cedar_into(bs, _at(Vector3(x + s * 0.5, top - 0.05, zc - ln * 0.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.1)), rng)
+			_cedar_into(bs, _at(Vector3(x + s * 0.2, top - 0.08, zc + ln * 0.22), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.65, 0.8)), rng)
+			if not Toon.lite:
+				_sapling_into(bs, _at(Vector3(x - s * 0.2, top - 0.1, zc), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1))
+		"stairs":
+			var w := minf(ln - 0.8, 2.2)
+			var top := _ls_stairs(bs, Vector3(x - s * 0.3, VOID_Y + 0.05, zc), Vector3(s, 0, 0), w, 6, 0.13, 0.4, KURAMA_STEP)
+			_stone_lantern(ctx, Vector3(x - s * 0.1, VOID_Y + 0.02, zc + w * 0.5 + 0.35), 0.6, false)
+			Decor.paper_lantern_into(bs, ctx["bn"], _at(top + Vector3(0, 0, -w * 0.5 - 0.3), Vector3(0, PI * 0.5 * s, 0)), BRAISE, top.y - 0.3)
+		"lanterns":
+			var top := _moss_mound_into(bs, Vector2(x + s * 0.2, zc), minf(ln * 0.32, 1.2), rng)
+			var n := 2 if ln < 3.8 else 3
+			for k in n:
+				var q := Vector3(x + s * 0.2, top - 0.08, zc + (float(k) - (n - 1) * 0.5) * 1.1)
+				_stone_lantern(ctx, q, 0.7, k == 0)
+				if k == n - 1 and rng.randf() < 0.6:
+					_crow_into(bs, _at(q + Vector3(0, 1.43 * 0.7, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+		"rope":
+			_shime_run(ctx, Vector3(x, 0, a.y + 0.3), Vector3(x, 0, b.y - 0.3))
+			Decor.rock_into(bs, _at(Vector3(x + s * 0.6, VOID_Y, zc), Vector3.ZERO, Vector3.ONE * 0.9), rng.randi() % 100000, KURAMA_ROCK)
+		_:
+			_moss_mound_into(bs, Vector2(x + s * 0.3, zc), minf(ln * 0.3, 1.1), rng)
+			for k in 2:
+				var q := Vector2(x + s * rng.randf_range(0.0, 0.5), a.y + ln * (0.3 + k * 0.4))
+				Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y + 0.1, q.y), Vector3.ZERO, Vector3.ONE * rng.randf_range(0.7, 1.1)), rng.randi() % 100000, KURAMA_ROCK)
+			for k in (1 if Toon.lite else 2):
+				_sapling_into(bs, _at(Vector3(x - s * 0.1 + k * 0.4, VOID_Y + 0.15, zc + (k - 0.5) * 0.9), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.3)))
+
+
+## Petit temple (rive principale) : terrasse de granit, hall de montagne tourné vers l'arène, trois
+## marches qui en descendent, lanternes de pierre au pied, cèdre géant derrière, corbeau.
+static func _ls_kurama_temple(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var tc := c + Vector2(s * 0.6, 0.0)
+	var th := 0.0 - (VOID_Y - 0.3)
+	_add(bs, _toon(KURAMA_ROCK, true, 0.025), _box(Vector3(3.0, th, 2.8)), _at(Vector3(tc.x, VOID_Y - 0.3 + th * 0.5, tc.y)))
+	_contact(ctx, tc, 1.7)
+	_ls_small_hall_into(bs, bn, _at(Vector3(tc.x + s * 0.3, 0.0, tc.y), Vector3(0, face, 0)), 1.7, 1.5, 1.25)
+	_light(ctx, Vector3(tc.x - s * 0.9, 0.9, tc.y), Color(1.0, 0.72, 0.5), 0.6, 3.5)
+	# marches le long de la rive : trois degrés qui montent du sud (face à la caméra) jusqu'à la terrasse
+	var sb := Vector3(tc.x - s * 0.7, VOID_Y + 0.05, tc.y + 1.4 + 1.02)
+	_ls_stairs(bs, sb, Vector3(0, 0, -1), 1.4, 3, 0.17, 0.34, KURAMA_STEP)
+	_contact(ctx, Vector2(sb.x, sb.z - 0.5), 0.9)
+	for sx: float in [-1.0, 1.0]:
+		var q := Vector3(sb.x + sx * 1.0, VOID_Y + 0.02, sb.z + 0.1)
+		Decor.rock_into(bs, _at(q - Vector3(0, 0.02, 0), Vector3.ZERO, Vector3.ONE * 0.55), rng.randi() % 100000, KURAMA_ROCK)
+		_stone_lantern(ctx, q + Vector3(0, 0.16, 0), 0.6, false)
+	# cèdre géant derrière la terrasse, jeune cèdre au coin
+	var mc := tc + Vector2(s * 2.0, rng.randf_range(-0.6, 0.6))
+	var top := _moss_mound_into(bs, mc, 1.1, rng)
+	_cedar_into(bs, _at(Vector3(mc.x, top - 0.05, mc.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
+	if not Toon.lite:
+		_sapling_into(bs, _at(Vector3(tc.x + s * 1.2, 0.0, tc.y + 1.15), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.0))
+	_crow_into(bs, _at(Vector3(sb.x - s * 1.0, VOID_Y + 0.18 + 1.43 * 0.6, sb.z + 0.1), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+
+
+## Rive mineure : bosquet de cèdres géants sur un îlot d'aiguilles, rocher sacré ceint de sa corde.
+static func _ls_cedar_grove(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _moss_mound_into(bs, c, 1.6, rng)
+	_contact(ctx, c, 1.5)
+	var n := 2 if Toon.lite else 3
+	for k in n:
+		var q := Vector3(c.x + s * (0.2 + k * 0.5) - 0.3, top - 0.05 - k * 0.04, c.y + (float(k) - (n - 1) * 0.5) * 1.1)
+		_cedar_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.15)), rng)
+	_sp_sacred_rock(bs, bn, _at(Vector3(c.x - s * 0.9, VOID_Y + 0.08, c.y + 1.4)), 1.1, 0.9, rng)
+	if rng.randf() < 0.6:
+		_crow_into(bs, _at(Vector3(c.x - s * 0.9, VOID_Y + 0.08 + 0.5, c.y + 1.4), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+
+
+## Fond : le grand escalier de Kurama monte derrière le torii, lanternes de pierre à chaque palier,
+## bosquets de cèdres aux deux coins.
+static func _ls_north_kurama(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var gx := clampf(0.0, frame.position.x + 1.2, frame.end.x - 1.2)
+	var base := Vector3(gx, VOID_Y + 0.05, top - 2.4)
+	var n := 6 if Toon.lite else 8
+	var head := _ls_stairs(bs, base, Vector3(0, 0, -1), 2.4, n, 0.14, 0.42, KURAMA_STEP)
+	avoid.append(Vector3(gx, top - 2.4 - 0.42 * n * 0.5, 0.42 * n * 0.5 + 0.6))
+	for sx: float in [-1.0, 1.0]:
+		_stone_lantern(ctx, Vector3(gx + sx * 1.5, VOID_Y + 0.05, top - 2.6), 0.7, sx < 0.0)
+		Decor.paper_lantern_into(bs, bn, _at(head + Vector3(sx * 1.45, 0, -0.1)), BRAISE, head.y - 0.3)
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.5), top - 3.4)
+		var mt := _moss_mound_into(bs, c, 1.4, rng)
+		_cedar_into(bs, _at(Vector3(c.x, mt - 0.05, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
+		_cedar_into(bs, _at(Vector3(c.x - sx * 0.9, mt - 0.1, c.y + 1.1), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng)
+		avoid.append(Vector3(c.x, c.y, 2.0))
+
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
 static func _ls_legacy(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
