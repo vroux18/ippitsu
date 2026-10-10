@@ -441,7 +441,9 @@ func _process(_delta: float) -> void:
 			Perf.add(&"picker", _pt)
 		return
 	size = get_viewport_rect().size
-	var real := minf(UiKit.real_delta(), 1.0 / 30.0)  # borné : une image lente à l'ouverture ne saute pas l'arrivée
+	var real := UiKit.real_delta()
+	if _t < 0.2:
+		real = minf(real, 1.0 / 30.0)  # borné à l'ouverture seulement : une image lente ne saute pas l'arrivée
 	_t += real
 	_sel_t += real
 	_refuse_shake = maxf(0.0, _refuse_shake - real / 0.45)
