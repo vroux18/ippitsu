@@ -23,7 +23,7 @@ const ROOM_TIMEOUT := {"campaign": 150.0, "powers": 180.0, "stress": 260.0}  # s
 const GAME_LIMIT := {"campaign": 12000.0, "powers": 16000.0, "stress": 5200.0, "ui": 1.0e9}  # secondes de jeu
 const WALL_LIMIT := 1440.0  # secondes réelles (le CI coupe à 25 min)
 const STROKE_KINDS := ["plain", "loop", "zigzag", "straight", "return", "enso", "hook"]
-const POWER_GROUP := 6  # pouvoirs suivis par partie (mode powers)
+const POWER_GROUP := 8  # pouvoirs suivis par partie (mode powers) : 71 rouleaux en 9 parties, dans le budget de temps
 const MAX_POWER_RUNS := 14
 const STRESS_POWERS := ["fire_burn", "fire_trail", "fire_hearth", "water_tide", "water_foam", "bolt_arc", "bolt_storm",
 	"wind_blades", "shadow_back", "shadow_veil", "fire_fudo", "shadow_kitsunebi", "bolt_raijin", "water_kanagawa",
