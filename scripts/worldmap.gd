@@ -1,10 +1,12 @@
 extends Control
-## Choix du monde : une estampe par monde, en carrousel. Chaque carte porte un grand paysage peint
-## (ukiyo-e aux coins arrondis, cadre d'encre fin, sceau du monde), puis « MONDE N », le nom, l'ambiance,
-## la progression sur les étapes (gardien, boss couronné), le meilleur score et son rang, et les Vues
-## gagnées. On glisse d'une carte à l'autre (aimantée, parallaxe dans le paysage), les voisines dépassent
-## sur les bords ; PARTIR lance le monde centré. Un monde scellé est un lavis d'encre délavé avec un
-## cadenas et la condition pour l'ouvrir.
+## Choix du monde (UI v2, planche Mondes) : une carte par monde, en carrousel sur un papier seigaiha. Chaque
+## carte porte un grand paysage peint pleine largeur (sceau du monde et « MONDE N » posés dessus), le nom
+## souligné de vermillon, la frise des 8 étapes (gardien = couronne à la 4e, boss = oni à la 8e, étapes
+## atteintes en or), la tuile du meilleur score (chiffres Zen Kaku, sceau du rang, rang suivant et son seuil)
+## et celle des Vues gagnées. On glisse d'une carte à l'autre (aimantée, parallaxe dans le paysage), les
+## voisines dépassent sur les bords sous un voile de leur couleur ; PARTIR (pinceau) lance le monde centré.
+## Un monde scellé est un lavis délavé avec un cadenas et sa condition d'ouverture en pictos (monde
+## précédent -> oni à vaincre). Aucun texte d'aide, aucun kanji, aucun flou.
 ## Après une victoire qui ouvre un monde (open(..., reveal)), le carrousel part du monde vaincu, glisse
 ## jusqu'au nouveau, brise son cadenas (encre et or, les couleurs reviennent), puis sa carte se lève ;
 ## PARTIR vient ensuite.
@@ -38,10 +40,11 @@ const RV_CARD := 1.55  # la carte du monde se lève
 const RV_HOLD := 3.4  # durée de la carte (un toucher l'abrège)
 const WAVE_CLAWS := [Vector2(6, -93), Vector2(16, -93), Vector2(27, -89), Vector2(36, -81), Vector2(43, -70), Vector2(45, -59), Vector2(40, -52)]
 # mise en page des cartes (unités de 400 de large)
-const CARD_GAP := 14.0  # écart entre deux cartes
-const PEEK := 0.12  # part de l'écran où dépasse chaque voisine
-const MARGIN := 10.0  # marge du papier autour de l'estampe
-const TEXT_H := 252.0  # bloc de texte sous l'estampe
+const CARD_GAP := 10.0  # écart entre deux cartes
+const CARD_R := 18.0  # rayon des coins de la carte
+const TEXT_H := 260.0  # bloc sous l'estampe : nom, frise, tuiles (planche : carte 590, estampe 330)
+# vignette « Vues » (planche Mondes : cadre et montagne), gabarit 32
+const VUE_PATH := "M5 7 H27 V25 H5 Z M8 22 L14 14 L18 19 L21 16 L25 22"
 const PRINT_KINDS := ["room", "mini", "win", "curse"]  # Vues d'un monde (meta.PRINTS « w<id>_<kind> »)
 # estampe d'un monde scellé : couleurs ramenées au gris (sat) puis délavées vers le papier (wash)
 const DESAT_CODE := """shader_type canvas_item;
@@ -122,6 +125,7 @@ var _off_near := 0.0  # parallaxe du premier plan
 
 var _fibers: Array = []
 var _title := FontVariation.new()
+var _name := FontVariation.new()
 var _ui := FontVariation.new()
 var _caps := FontVariation.new()
 var _btn := FontVariation.new()
@@ -141,13 +145,15 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	_title.base_font = UiKit.TITLE_FONT
-	_title.spacing_glyph = 1
+	_title.spacing_glyph = UiKit.TITLE_SPACING
+	_name.base_font = UiKit.TITLE_FONT
+	_name.spacing_glyph = 3  # nom du monde (planche : Shippori 26, interlettrage 3)
 	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 1
 	_caps.base_font = UiKit.UI_FONT
 	_caps.spacing_glyph = 3
-	_btn.base_font = UiKit.UI_FONT
-	_btn.spacing_glyph = 4
+	_btn.base_font = UiKit.TITLE_FONT  # PARTIR (planche : Shippori 24, interlettrage 8)
+	_btn.spacing_glyph = 8
 	_box.anti_aliasing = true
 	_shader.code = DESAT_CODE
 
@@ -567,18 +573,17 @@ func _layout() -> void:
 	_cx = w / 2.0
 	_top = _safe.x + 16.0 * u
 	var gap := CARD_GAP * u
-	_cw = minf(w * (1.0 - 2.0 * PEEK) - 2.0 * gap, 300.0 * u)
+	_cw = minf(w * 0.75, 300.0 * u)  # planche : carte de 300 sur 400, les voisines dépassent de 30
 	_pitch = _cw + gap
-	# bas de l'écran : points de page puis PARTIR
+	# bas de l'écran : points de page puis PARTIR (280 × 72)
 	var bh := 72.0 * u
 	var by := h - _safe.y - 20.0 * u - bh
-	_dots_y = by - 14.0 * u
-	var a_top := _top + 60.0 * u
-	var a_bot := _dots_y - 18.0 * u
+	_dots_y = by - 26.0 * u
+	var a_top := _top + 66.0 * u
+	var a_bot := _dots_y - 21.0 * u
 	var avail := a_bot - a_top
-	var m := MARGIN * u
-	_pph = clampf(avail - m - TEXT_H * u, 110.0 * u, _cw * 1.05)
-	_ch = m + _pph + TEXT_H * u
+	_pph = clampf(avail - TEXT_H * u, 200.0 * u, 330.0 * u)  # estampe pleine largeur, écrasée sur un écran court
+	_ch = _pph + TEXT_H * u
 	_ccy = a_top + maxf(0.0, avail - _ch) * 0.5 + _ch * 0.5
 
 	_appear = UiKit.ease_out(clampf((_t - 0.08) / 0.5, 0.0, 1.0))
@@ -616,10 +621,10 @@ func _layout() -> void:
 			pc.material = mat
 		pc.queue_redraw()
 
-	var bw := minf(w * 0.72, 300.0 * u)
+	var bw := minf(w * 0.72, 280.0 * u)
 	_go.size = Vector2(bw, bh)
 	_go.position = Vector2((w - bw) / 2.0, by + 14.0 * u * (1.0 - _appear))
-	_go.font_size = maxi(1, int(25.0 * u))
+	_go.font_size = maxi(1, int(24.0 * u))
 	var go_k := UiKit.ease_out(clampf((_t - 0.35) / 0.6, 0.0, 1.0))
 	_go.reveal = go_k
 	var locked_sel := n > 0 and _locked(_sel())
@@ -656,8 +661,7 @@ func _card_rect() -> Rect2:
 
 ## Estampe en coordonnées locales de la carte.
 func _paint_rect() -> Rect2:
-	var m := MARGIN * _u
-	return Rect2(-_cw / 2.0 + m, -_ch / 2.0 + m, _cw - 2.0 * m, _pph)
+	return Rect2(-_cw / 2.0, -_ch / 2.0, _cw, _pph)
 
 
 ## Couleur de l'estampe : (saturation, lavis vers le papier). Scellée : gris délavé ; révélée : la couleur revient.
@@ -695,13 +699,6 @@ func _make_fibers() -> void:
 		_fibers.append([fx, fy, ang, ln, al, light])
 
 
-## Encre d'accent lisible sur le papier du thème (assombrie sur papier clair, éclaircie sur Nuit).
-func _tone(c: Color) -> Color:
-	if Toon.ui_dark:
-		return c.lightened(0.35)
-	return c.darkened(0.15)
-
-
 func _gold_ink() -> Color:
 	if Toon.ui_dark:
 		return Toon.GOLD.lightened(0.1)
@@ -714,36 +711,38 @@ func _draw() -> void:
 	if size.x < 10.0:
 		return
 	var w := size.x
-	var h := size.y
 	var u := _u
 	var ink: Color = Toon.ui_ink
-	var paper: Color = Toon.ui_paper
+	# papier du thème à motif seigaiha (planche Mondes : écailles indigo à 13 %) ; aucun halo
 	draw_rect(Rect2(Vector2.ZERO, size), Toon.ui_wash)
-	var wash := Color(ink, 0.035)
-	draw_circle(Vector2(w * 0.12, h * 0.9), 170.0 * u, wash)
-	draw_circle(Vector2(w * 0.92, h * 0.08), 120.0 * u, wash)
+	var pat := Color(ink, 0.08) if Toon.ui_dark else Color(Toon.PRUSSIAN, 0.13)
+	UiKit.seigaiha(self, Rect2(Vector2.ZERO, size), pat, 16.0 * u)
 
-	# titre souligné de vermillon, à la hauteur du bouton maison (plus de sceau à kanji)
+	# titre souligné de vermillon, à la hauteur du bouton maison (même gabarit que les autres écrans)
 	var ta := UiKit.ease_out(clampf((_t - 0.05) / 0.4, 0.0, 1.0))
-	# (UI v2, planche Mondes : MONDES en capitales espacées, même gabarit que les autres titres d'écran)
 	var ty := _top + 32.0 * u - 6.0 * u * (1.0 - ta)
 	UiKit.screen_title(self, _title, "MONDES", Vector2(w / 2.0, ty), u, ink, ta, "", w - 2.0 * 96.0 * u, ta)
 
 	var n := _worlds.size()
 	if n == 0:
 		return
-	# papier des cartes (sous les estampes)
+	# papier des cartes (sous les estampes) : coins arrondis, ombre portée en deux décalages (pas de flou)
 	var cr := _card_rect()
+	var rad := CARD_R * u
 	for i in n:
 		if not _on_screen(i):
 			continue
 		draw_set_transform_matrix(_card_xf(i))
-		UiKit.washi_sheet(self, cr, paper, ink, 1.0, u, float(_id(i)))
+		var pts := UiKit.rrect_points(cr, rad)
+		draw_colored_polygon(Transform2D(0.0, Vector2(0, 7.0 * u)) * pts, Color(0, 0, 0, 0.08))
+		draw_colored_polygon(Transform2D(0.0, Vector2(0, 3.5 * u)) * pts, Color(0, 0, 0, 0.12))
+		draw_colored_polygon(pts, Toon.ui_paper)
 	draw_set_transform_matrix(Transform2D.IDENTITY)
 	_draw_dots()
 
 
-## Points de page : la page courante s'allonge en trait ; or pour un monde accompli, cercle pour un monde scellé.
+## Points de page : la page courante s'allonge en trait vermillon ; or pour un monde accompli, encre pour un
+## monde ouvert, filet éteint pour un monde scellé.
 func _draw_dots() -> void:
 	var n := _worlds.size()
 	if n <= 1:
@@ -752,24 +751,23 @@ func _draw_dots() -> void:
 		return
 	var u := _u
 	var ink: Color = Toon.ui_ink
-	var gap := 16.0 * u
+	var gap := 15.0 * u
 	var v := clampf(_view(), 0.0, float(n - 1))
-	var hd := 6.0 * u
+	var hd := 7.0 * u
+	var muted := Color(ink, 0.3)  # scellé : point éteint, mais lisible sur le motif du papier
 	for i in n:
 		var f := clampf(1.0 - absf(float(i) - v), 0.0, 1.0)
 		var c := Vector2(_cx + (float(i) - float(n - 1) / 2.0) * gap, _dots_y)
 		_dot_pos[i] = c
-		var wd := hd + 12.0 * u * f
+		var wd := hd + 15.0 * u * f
 		var r := Rect2(c - Vector2(wd, hd) / 2.0, Vector2(wd, hd))
-		var rad := maxi(1, int(hd / 2.0))
-		if _locked(i):
-			UiKit.box(_box, Color(ink, 0.25 * f), rad, Color(ink, 0.3 + 0.5 * f), maxi(1, int(1.2 * u)))
-		elif _won(i):
-			UiKit.box(_box, Color(Toon.GOLD, 0.75 + 0.25 * f), rad)
-		else:
-			UiKit.box(_box, Color(ink, 0.35 + 0.65 * f), rad)
+		var base := muted
+		if _won(i):
+			base = UIColors.GOLD_DARK
+		elif not _locked(i):
+			base = Color(ink, 0.6)
+		UiKit.box(_box, base.lerp(Toon.VERMILION, f), maxi(1, int(hd / 2.0)))
 		draw_style_box(_box, r)
-	_box.set_border_width_all(0)
 
 
 ## Cadres, sceaux et textes des cartes à l'écran.
@@ -782,8 +780,10 @@ func _draw_front() -> void:
 	_front.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 
-## Une carte : estampe encadrée (coins arrondis, sceau du monde, cadenas ou tampon ACCOMPLI), puis
-## MONDE N et son état, le nom, l'ambiance, et selon le cas la progression ou la condition d'ouverture.
+## Une carte (planche Mondes) : estampe pleine largeur (sceau du monde et « MONDE N » posés dessus, cadenas
+## ou tampon du boss vaincu), nom souligné de vermillon, frise des 8 étapes, puis les tuiles score / rang et
+## Vues, ou la condition d'ouverture en pictos pour un monde scellé. Les voisines reculent sous un voile
+## de leur couleur (gris et cadenas si scellées). Cadre d'encre par-dessus.
 func _draw_card(i: int) -> void:
 	var ci: Control = _front
 	var u := _u
@@ -793,36 +793,21 @@ func _draw_card(i: int) -> void:
 	var cr := _card_rect()
 	var pr := _paint_rect()
 	var ink: Color = Toon.ui_ink
-	var paper: Color = Toon.ui_paper
 	var dd := float(i) - _view()
 	var focus := _smooth(1.0 - absf(dd))
 	var locked := _locked(i)
 	var won := _won(i)
 	var b := _rooms if won else _best_of(i)
-	var fresh := not locked and not won and b == 0
 	var col: Color = d.get("color", Color(0.5, 0.5, 0.5))
-	var kanji := str(d.get("kanji", "道"))
+	var key := str(d.get("kanji", ""))  # clé du monde (jamais affichée) : son picto
 	var wname := UiKit.plain(str(d.get("name", "")))
-	var sub := UiKit.plain(str(d.get("subtitle", "")))
-	var grey := Color(0.6, 0.58, 0.55)
+	var grey := Color("#8C8273")
+	var rad := CARD_R * u
 
-	# coins arrondis de l'estampe, cadre d'encre (double filet d'or si accompli)
-	var rad := 10.0 * u
-	_fillets(ci, pr, rad, paper)
-	var frame := Color(ink, 0.35 if locked else 0.75)
-	var fw := maxi(1, int(1.5 * u))
-	if won:
-		frame = Toon.GOLD
-		fw = maxi(2, int(3.0 * u))
-	UiKit.box(_box, Color(0, 0, 0, 0), int(rad), frame, fw)
-	ci.draw_style_box(_box, pr)
-	_box.set_border_width_all(0)
-	if won:
-		UiKit.box(_box, Color(0, 0, 0, 0), int(rad * 0.6), Color(Toon.GOLD, 0.6), maxi(1, int(1.0 * u)))
-		ci.draw_style_box(_box, pr.grow(-5.0 * u))
-		_box.set_border_width_all(0)
+	# coins hauts de l'estampe (découpée en rectangle) rendus au fond de l'écran
+	_fillets(ci, pr, rad, Toon.ui_wash, true)
 
-	# sceau du monde, en haut à gauche de l'estampe
+	# sceau du monde et « MONDE N », en haut à gauche de l'estampe (le monde révélé reprend sa couleur)
 	var rv_e := -1.0  # secondes depuis le bris du cadenas (monde révélé)
 	if _reveal_id > 0 and _id(i) == _reveal_id and _rv >= RV_BREAK:
 		rv_e = _rv - RV_BREAK
@@ -830,7 +815,10 @@ func _draw_card(i: int) -> void:
 	if rv_e >= 0.0:
 		hcol = grey.lerp(col, _smooth(rv_e / 0.35))
 	var hs := 34.0 * u
-	_world_badge(ci, Rect2(pr.position + Vector2(10.0, 10.0) * u, Vector2(hs, hs)), kanji, hcol, 1.0)
+	_world_badge(ci, Rect2(pr.position + Vector2(16.0, 16.0) * u, Vector2(hs, hs)), key, hcol, 1.0)
+	var cfs := maxi(1, int(11.0 * u))
+	_left(ci, _caps, "MONDE %d" % _id(i), pr.position.x + 58.0 * u, pr.position.y + 33.0 * u + float(cfs) * 0.36, cfs,
+		Color(Toon.SUMI, 0.55 if locked else 0.85))
 
 	# cadenas au centre de l'estampe (le monde révélé : il tremble, puis cède)
 	var lc := pr.get_center() + Vector2(0, -4.0 * u)
@@ -847,133 +835,149 @@ func _draw_card(i: int) -> void:
 	if rv_e >= 0.0 and rv_e < 1.4:
 		_break_fx(ci, lc, 30.0 * u, rv_e)
 
-	# grand tampon ACCOMPLI pressé en biais sur l'estampe
+	# tampon du boss vaincu, pressé en biais en bas à droite de l'estampe
 	if won:
 		var e := _stamp_elapsed(_id(i), focus)
 		if e >= 0.0:
-			_stamp(ci, xf, Vector2(pr.end.x - pr.size.x * 0.3, pr.end.y - 32.0 * u), 30.0 * u, e)
+			_stamp(ci, xf, pr.end - Vector2(34.0, 34.0) * u, 20.0 * u, e)
 
-	# --- texte
-	var x0 := cr.position.x + 18.0 * u
-	var x1 := cr.end.x - 18.0 * u
-	var iw := x1 - x0
+	# --- bloc de texte : nom souligné, frise, tuiles
 	var ty := pr.end.y
-	var y := ty + 27.0 * u
-	var cfs := maxi(1, int(10.0 * u))
-	_left(ci, _caps, "MONDE %d" % _id(i), x0, y, cfs, _gold_ink() if won else Color(ink, 0.55))
-	if fresh:
-		_pill(ci, x1, y - float(cfs) * 0.36, "NOUVEAU", Toon.VERMILION, Color(0, 0, 0, 0), Toon.WASHI)
-	elif locked:
-		_lock_icon(ci, Vector2(x1 - 8.0 * u, y - float(cfs) * 0.36), 7.0 * u)
-	# nom
-	y += 33.0 * u
-	var nfs := _fit_size(_title, wname, maxi(1, int(26.0 * u)), iw)
-	_left(ci, _title, wname, x0, y, nfs, Color(ink, 0.55 if locked else 1.0))
-	# ambiance : deux lignes au plus, la police se resserre au besoin (jamais coupée)
-	var sl := _sub_lines(i, sub, iw)
-	var sfs := int(sl[0])
-	var lines: PackedStringArray = sl[1]
-	var ly := y + 22.0 * u
-	for line in lines:
-		var lt := String(line)
-		_left(ci, _ui, lt, x0, ly, _fit_size(_ui, lt, sfs, iw), Color(ink, 0.45 if locked else 0.62))
-		ly += float(sfs) * 1.35
-	# filet
-	var yd := ty + 116.0 * u
-	ci.draw_line(Vector2(x0, yd), Vector2(x1, yd), Color(ink, 0.12), maxf(1.0, 1.0 * u))
-
+	var x0 := cr.position.x + 20.0 * u
+	var x1 := cr.end.x - 20.0 * u
+	var nfs := _fit_size(_name, wname, maxi(1, int(26.0 * u)), x1 - x0)
+	_centered(ci, _name, wname, Vector2(0.0, ty + 32.0 * u), nfs, Color(ink, 0.55 if locked else 1.0))
+	var sw := Rect2(Vector2(-60.0 * u, ty + 41.0 * u), Vector2(120.0 * u, 7.0 * u))
+	ci.draw_colored_polygon(UiKit.swash_points(sw, 1.0, 2.0), Color(ink, 0.2) if locked else Color(Toon.VERMILION, 0.95))
+	_track(ci, x0, x1, ty + 82.0 * u, 0 if locked else b, won, _mini_done(i) and not locked)
+	var tiles := Rect2(Vector2(x0, ty + 130.0 * u), Vector2(x1 - x0, 64.0 * u))
 	if locked:
-		_draw_locked_info(ci, i, x0, x1, ty)
+		_draw_locked_info(ci, i, tiles)
 	else:
-		_draw_progress(ci, i, x0, x1, ty, b, won, col)
+		_draw_tiles(ci, i, xf, tiles)
 
-	# les voisines reculent dans un léger lavis
+	# les voisines reculent sous un voile de la couleur du monde (gris et cadenas pour un monde scellé)
 	var dim := minf(absf(dd), 1.0)
 	if dim > 0.01:
-		ci.draw_colored_polygon(UiKit.deckle_points(cr, 1.6 * u, 6.0 * u, float(_id(i))), Color(Toon.ui_wash, 0.5 * dim))
+		var veil: Color = Color("#B9B3A6") if locked else col
+		ci.draw_colored_polygon(UiKit.rrect_points(cr, rad), Color(veil, 0.82 * dim))
+		if locked and dim > 0.5:
+			# cadenas sur le bord visible de la voisine (il n'apparaît qu'une fois la carte bien reculée)
+			var lx := cr.position.x + 15.0 * u if dd > 0.0 else cr.end.x - 15.0 * u
+			UiKit.draw_icon(ci, "interface/cadenas", Vector2(lx, 0.0), 22.0 * u, (dim - 0.5) * 2.0, Toon.SUMI)
+	# cadre d'encre
+	var outline := UiKit.rrect_points(cr, rad)
+	outline.append(outline[0])
+	ci.draw_polyline(outline, Color(Toon.SUMI, 0.85 if locked else 1.0), 2.5 * u, true)
 
 
-## Monde ouvert : étapes (gardien, boss couronné) et record, meilleur score et rang, Vues gagnées.
-func _draw_progress(ci: CanvasItem, i: int, x0: float, x1: float, ty: float, b: int, won: bool, col: Color) -> void:
+## Nom d'un rang en minuscules accentuées (« PRUNIER » -> « Prunier »).
+func _rank_word(r: int) -> String:
+	var n := Score.rank_name(r)
+	if n == "":
+		return ""
+	return n.substr(0, 1) + n.substr(1).to_lower()
+
+
+## Monde ouvert, dans `r` : tuile du meilleur score (sceau du rang posé de biais, points en chiffres Zen Kaku,
+## rang suivant et son seuil réels : « Pin à 60 000 »), puis la tuile des Vues (vignette, « 1/3 ») s'il y en a.
+func _draw_tiles(ci: CanvasItem, i: int, xf: Transform2D, r: Rect2) -> void:
 	var u := _u
 	var ink: Color = Toon.ui_ink
-	var lfs := maxi(1, int(9.5 * u))
-	# progression
-	var yp := ty + 141.0 * u
-	_left(ci, _caps, "RECORD", x0, yp, lfs, Color(ink, 0.5))
-	var stc := Color(ink, 0.9)
-	if won:
-		stc = _gold_ink()
-	elif b == 0:
-		stc = Color(ink, 0.45)
-	# « ÉTAPE » en capitales, le compte « 5 / 8 » au pinceau
-	var nw := _right(ci, _title, "%d / %d" % [b, _rooms], x1, yp + 1.5 * u, maxi(1, int(16.0 * u)), stc)
-	_right(ci, _caps, "ÉTAPE", x1 - nw - 6.0 * u, yp, lfs, stc)
-	_track(ci, x0 + 8.0 * u, x1 - 8.0 * u, ty + 164.0 * u, b, won, _mini_done(i), col)
-	# meilleur score et rang (son sceau et son nom : 梅 PRUNIER, 竹 BAMBOU…)
-	var ids := _print_ids(_id(i))
-	var ys := ty + (199.0 if not ids.is_empty() else 210.0) * u
+	var id := _id(i)
+	var ids := _print_ids(id)
+	var tile_bg := Color(ink, 0.1) if Toon.ui_dark else UIColors.WASHI_DARK
+	var muted := Color(ink, 0.6) if Toon.ui_dark else UIColors.TEXT_MUTED
+	var rad := maxi(1, int(12.0 * u))
+	var vw := 92.0 * u if not ids.is_empty() else 0.0
+	var sr := Rect2(r.position, Vector2(r.size.x - (vw + 10.0 * u if vw > 0.0 else 0.0), r.size.y))
+	ci.draw_style_box(UiKit.box(_box, tile_bg, rad), sr)
+	# score, rang et palier suivant (seuils de score.gd, relevés selon le monde)
 	var pts := _score_of(i)
-	var rank := Score.rank_of(pts, _id(i))
-	var lab := "SCORE"
-	var lw := _left(ci, _caps, lab, x0, ys + float(lfs) * 0.36, lfs, Color(ink, 0.5))
-	_score_chip(ci, x1, ys, pts, rank, _id(i), x1 - x0 - lw - 10.0 * u)
-	# Vues du monde : vignettes gagnées, cases vides sinon
-	if ids.is_empty():
+	var rank := Score.rank_of(pts, id)
+	var nxt := Score.next_rank_pts(pts, id)
+	var nf := UiKit.num_font()
+	var fs1 := maxi(1, int(19.0 * u))
+	var fs2 := maxi(1, int(10.0 * u))
+	var s1 := Score.fmt(pts)
+	var s2 := "Rang maximal"
+	if nxt > 0:
+		s2 = "%s à %s" % [_rank_word(mini(rank + 1, 4)), Score.fmt(nxt)]
+	var w1 := nf.get_string_size(s1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1).x
+	var w2 := UiKit.UI_FONT.get_string_size(s2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
+	var ts := 36.0 * u
+	var gw := ts + 10.0 * u + maxf(w1, w2)
+	var gx := sr.get_center().x - gw / 2.0
+	var tc := Vector2(gx + ts / 2.0, sr.get_center().y)
+	# sceau du rang (couleur du rang, picto prunier / bambou / pin / couronne), posé de biais ; vide sans rang
+	ci.draw_set_transform_matrix(xf * Transform2D(-0.087, Vector2.ONE, 0.0, tc))
+	var tr := Rect2(Vector2(-ts, -ts) / 2.0, Vector2(ts, ts))
+	if rank > 0:
+		ci.draw_style_box(UiKit.box(_box, Score.rank_color(rank), maxi(1, int(5.0 * u)), Toon.SUMI, maxi(1, int(1.5 * u))), tr)
+		UiKit.draw_icon(ci, String(RANK_ICON[clampi(rank - 1, 0, RANK_ICON.size() - 1)]), Vector2.ZERO, ts * 0.58, 1.0, Toon.WASHI)
+	else:
+		ci.draw_style_box(UiKit.box(_box, Color(0, 0, 0, 0), maxi(1, int(5.0 * u)), Color(ink, 0.3), maxi(1, int(1.5 * u))), tr)
+	ci.draw_set_transform_matrix(xf)
+	var tx := gx + ts + 10.0 * u
+	ci.draw_string(nf, Vector2(tx, tc.y - 2.0 * u), s1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1, Color(ink, 0.95))
+	ci.draw_string(UiKit.UI_FONT, Vector2(tx, tc.y + 12.0 * u), s2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2, muted)
+	if vw <= 0.0:
 		return
-	var yv := ty + 230.0 * u
+	# Vues du monde : vignette or, « gagnées / total »
+	var vr := Rect2(Vector2(sr.end.x + 10.0 * u, r.position.y), Vector2(vw, r.size.y))
+	ci.draw_style_box(UiKit.box(_box, tile_bg, rad), vr)
 	var owned := 0
 	for q in ids.size():
 		if bool(_wins.get(String(ids[q]), false)):
 			owned += 1
-	_left(ci, _caps, "VUES  %d / %d" % [owned, ids.size()], x0, yv + float(lfs) * 0.36, lfs, Color(ink, 0.5))
-	var tw := 28.0 * u
-	var th := 19.0 * u
-	var g := 5.0 * u
-	var xr := x1 - (tw * float(ids.size()) + g * float(ids.size() - 1))
-	for q in ids.size():
-		var pid := String(ids[q])
-		var r := Rect2(xr + float(q) * (tw + g), yv - th / 2.0, tw, th)
-		if bool(_wins.get(pid, false)):
-			var pd: Dictionary = Meta.PRINTS[pid]
-			UiKit.print_thumb(ci, r, pd, u * 0.6, 1.0)
-		else:
-			ci.draw_rect(r, Color(ink, 0.05))
-			ci.draw_rect(r, Color(ink, 0.22), false, maxf(1.0, 1.0 * u))
+	var c1 := str(owned)
+	var c2 := "/%d" % ids.size()
+	var fa := maxi(1, int(18.0 * u))
+	var fb := maxi(1, int(12.0 * u))
+	var wa := nf.get_string_size(c1, HORIZONTAL_ALIGNMENT_LEFT, -1, fa).x
+	var wb := nf.get_string_size(c2, HORIZONTAL_ALIGNMENT_LEFT, -1, fb).x
+	var cy := vr.get_center().y
+	var x := vr.get_center().x - (28.0 * u + wa + wb) / 2.0
+	UiKit.draw_path(ci, VUE_PATH, 32, Vector2(x + 11.0 * u, cy), 22.0 * u, Toon.SUMI, 2.2, UIColors.GOLD_DARK)
+	x += 28.0 * u
+	ci.draw_string(nf, Vector2(x, cy + float(fa) * 0.36), c1, HORIZONTAL_ALIGNMENT_LEFT, -1, fa, Color(ink, 0.95))
+	ci.draw_string(nf, Vector2(x + wa, cy + float(fa) * 0.36), c2, HORIZONTAL_ALIGNMENT_LEFT, -1, fb, Color(ink, 0.6))
 
 
-## Monde scellé : cadenas, puis la condition en pictos : le monde précédent (sa pastille), une flèche,
-## la couronne de son boss (à vaincre). Aucune phrase.
-func _draw_locked_info(ci: CanvasItem, i: int, x0: float, x1: float, ty: float) -> void:
+## Monde scellé, dans `r` : la condition en pictos, le monde précédent (sa pastille), une flèche, le sceau de son
+## boss (oni vermillon, à vaincre). Aucune phrase. Rougit quand on veut partir vers ce monde.
+func _draw_locked_info(ci: CanvasItem, i: int, r: Rect2) -> void:
 	var u := _u
 	var ink: Color = Toon.ui_ink
-	var cx := (x0 + x1) / 2.0
-	_lock_icon(ci, Vector2(cx, ty + 146.0 * u), 15.0 * u)
+	var tile_bg := Color(ink, 0.1) if Toon.ui_dark else UIColors.WASHI_DARK
+	ci.draw_style_box(UiKit.box(_box, tile_bg, maxi(1, int(12.0 * u))), r)
+	var c := r.get_center()
 	var hot := _deny if i == _sel() else 0.0
-	var y := ty + 192.0 * u
 	var col := Color(ink, 0.85).lerp(Toon.VERMILION, hot)
-	if i > 0:
-		var dp: Dictionary = _worlds[i - 1]
-		var pc: Color = dp.get("color", Color(0.5, 0.5, 0.5))
-		var bs := 30.0 * u
-		_world_badge(ci, Rect2(Vector2(cx - 52.0 * u - bs / 2.0, y - bs / 2.0), Vector2(bs, bs)), str(dp.get("kanji", "道")), pc, 1.0)
-		var wdt := maxf(1.0, 2.0 * u)
-		ci.draw_line(Vector2(cx - 24.0 * u, y), Vector2(cx + 8.0 * u, y), col, wdt, true)
-		ci.draw_polyline(PackedVector2Array([Vector2(cx + 2.0 * u, y - 6.0 * u), Vector2(cx + 8.0 * u, y), Vector2(cx + 2.0 * u, y + 6.0 * u)]), col, wdt, true)
-		ci.draw_circle(Vector2(cx + 44.0 * u, y), 17.0 * u, Color(Toon.VERMILION, 0.9).lerp(Toon.VERMILION, hot))
-		UiKit.draw_icon(ci, "hud/couronne", Vector2(cx + 44.0 * u, y), 22.0 * u, 1.0, Toon.GOLD)
+	var bs := 36.0 * u
+	if i <= 0:
+		UiKit.draw_icon(ci, "interface/cadenas", c, 26.0 * u, 1.0, col)
+		return
+	var dp: Dictionary = _worlds[i - 1]
+	var pc: Color = dp.get("color", Color(0.5, 0.5, 0.5))
+	_world_badge(ci, Rect2(Vector2(c.x - 52.0 * u - bs / 2.0, c.y - bs / 2.0), Vector2(bs, bs)), str(dp.get("kanji", "")), pc, 1.0)
+	var wdt := maxf(1.0, 2.0 * u)
+	ci.draw_line(Vector2(c.x - 24.0 * u, c.y), Vector2(c.x + 8.0 * u, c.y), col, wdt, true)
+	ci.draw_polyline(PackedVector2Array([Vector2(c.x + 2.0 * u, c.y - 6.0 * u), Vector2(c.x + 8.0 * u, c.y), Vector2(c.x + 2.0 * u, c.y + 6.0 * u)]), col, wdt, true)
+	UiKit.monster_badge(ci, _box, Rect2(Vector2(c.x + 44.0 * u - bs / 2.0, c.y - bs / 2.0), Vector2(bs, bs)), false, 1.0, u)
 
 
-## Pastille d'un monde : son picto (UIColors.WORLD_ICON, d'après sa clé) sur un carré arrondi de sa couleur.
+## Pastille d'un monde : son picto (UIColors.WORLD_ICON, d'après sa clé) sur un carré arrondi de sa couleur,
+## liseré papier (planche Mondes : 34, rayon 5, bord 1,5).
 func _world_badge(ci: CanvasItem, r: Rect2, key: String, col: Color, a: float) -> void:
 	var u := _u
-	UiKit.box(_box, Color(col, a), int(r.size.x * 0.22), Color(Toon.WASHI, 0.85 * a), maxi(1, int(1.5 * u)))
+	UiKit.box(_box, Color(col, a), maxi(1, int(r.size.x * 0.15)), Color(Toon.WASHI, 0.9 * a), maxi(1, int(1.5 * u)))
 	ci.draw_style_box(_box, r)
 	_box.set_border_width_all(0)
-	UiKit.draw_icon(ci, String(UIColors.WORLD_ICON.get(key, "hud/vague")), r.get_center(), r.size.x * 0.62, a, Toon.WASHI)
+	UiKit.draw_icon(ci, String(UIColors.WORLD_ICON.get(key, "hud/vague")), r.get_center(), r.size.x * 0.6, a, Toon.WASHI)
 
 
-## Sous-titre coupé en deux lignes au plus (mis en cache par monde et largeur).
+## Sous-titre coupé en deux lignes au plus (mis en cache par monde et largeur) ; carte du monde révélé.
 func _sub_lines(i: int, txt: String, width: float) -> Array:
 	var key := "%d:%d" % [i, int(width)]
 	if _wrap_cache.has(key):
@@ -994,101 +998,73 @@ func _sub_lines(i: int, txt: String, width: float) -> Array:
 	return e
 
 
-## Pastille d'état (ACCOMPLI, NOUVEAU, VERROUILLÉ), alignée à droite sur `right`, centrée sur cy.
-func _pill(ci: CanvasItem, right: float, cy: float, txt: String, bg: Color, border: Color, fg: Color) -> void:
-	var u := _u
-	var fs := maxi(1, int(8.5 * u))
-	var tw := _caps.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var r := Rect2(right - tw - 16.0 * u, cy - 9.0 * u, tw + 16.0 * u, 18.0 * u)
-	UiKit.box(_box, bg, int(9.0 * u), border, maxi(1, int(1.0 * u)) if border.a > 0.0 else 0)
-	ci.draw_style_box(_box, r)
-	_box.set_border_width_all(0)
-	UiKit.text(ci, _caps, txt, Vector2(r.get_center().x, cy + float(fs) * 0.36), fs, fg)
-
-
-func _score_text(pts: int, _rank: int) -> String:
-	return Score.fmt(pts)
-
-
-func _score_chip_w(pts: int, rank: int) -> float:
-	var u := _u
-	if pts <= 0:
-		return 24.0 * u
-	var tw := _ui.get_string_size(_score_text(pts, rank), HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(11.5 * u))).x
-	return tw + 20.0 * u + (24.0 * u if rank > 0 else 0.0)
-
-
-## Pastille du meilleur score : sceau du rang à sa couleur, nom du rang et points ; alignée à droite.
-func _score_chip(ci: CanvasItem, right: float, cy: float, pts: int, rank: int, _wid: int, max_w: float) -> void:
-	var u := _u
-	var ink: Color = Toon.ui_ink
-	if pts <= 0:
-		# pas encore de score : un tiret
-		ci.draw_line(Vector2(right - 20.0 * u, cy), Vector2(right - 4.0 * u, cy), Color(ink, 0.35), maxf(1.0, 2.0 * u), true)
-		return
-	var txt := _score_text(pts, rank)
-	var lead := 24.0 * u if rank > 0 else 0.0
-	var fs := _fit_size(UiKit.num_font(), txt, maxi(1, int(11.5 * u)), max_w - 20.0 * u - lead)
-	var tw := UiKit.num_font().get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var r := Rect2(right - tw - 20.0 * u - lead, cy - 12.0 * u, tw + 20.0 * u + lead, 24.0 * u)
-	var rc: Color = Score.rank_color(rank) if rank > 0 else ink
-	UiKit.box(_box, Color(rc, 0.12), int(12.0 * u), Color(rc, 0.55), maxi(1, int(1.0 * u)))
-	ci.draw_style_box(_box, r)
-	_box.set_border_width_all(0)
-	if rank > 0:
-		# picto du rang sur un rond de sa couleur
-		var hc := Vector2(r.position.x + 13.0 * u, cy)
-		ci.draw_circle(hc, 9.0 * u, rc)
-		UiKit.draw_icon(ci, String(RANK_ICON[clampi(rank - 1, 0, RANK_ICON.size() - 1)]), hc, 12.0 * u, 1.0, Toon.WASHI)
-	_left(ci, UiKit.num_font(), txt, r.position.x + 10.0 * u + lead, cy + float(fs) * 0.36, fs, _tone(rc) if rank > 0 else Color(ink, 0.85))
-
-
-## Chemin des étapes : trait et nœuds, plein jusqu'au record ; gardien et boss plus gros, avec icône.
-func _track(ci: CanvasItem, xa: float, xb: float, y: float, b: int, won: bool, mini_done: bool, col: Color) -> void:
+## Frise des 8 étapes entre xa et xb (centrée sur y) : nœuds de 18, gardien (4e, couronne) et boss (8e, oni,
+## carré) de 30, répartis comme la planche. Étapes atteintes en or sur le trait d'or, les autres en papier
+## cerné d'un filet éteint ; anneau d'or autour du record. Gardien vaincu : or ; boss vaincu : vermillon ;
+## atteint mais pas vaincu : liseré et picto vermillon.
+func _track(ci: CanvasItem, xa: float, xb: float, y: float, b: int, won: bool, mini_done: bool) -> void:
 	var u := _u
 	var ink: Color = Toon.ui_ink
 	var paper: Color = Toon.ui_paper
 	var n := _rooms
-	var fillc: Color = Toon.GOLD if won else col
-	if Toon.ui_dark and not won:
-		fillc = col.lightened(0.3)
-	var pts := PackedVector2Array()
+	var muted := Color(ink, 0.25) if Toon.ui_dark else UIColors.LINE_MUTED
+	var grey := Color("#8C8273")
+	var sizes := PackedFloat32Array()
+	var sum := 0.0
 	for k in n:
-		var t := 0.0 if n <= 1 else float(k) / float(n - 1)
-		pts.append(Vector2(lerpf(xa, xb, t), y))
-	ci.draw_line(Vector2(xa, y), Vector2(xb, y), Color(ink, 0.18), maxf(1.0, 2.0 * u), true)
+		var room := k + 1
+		var big := room == n or (room == MINI_ROOM and room < n)
+		sizes.append(30.0 * u if big else 18.0 * u)
+		sum += sizes[k]
+	var gap := ((xb - xa) - sum) / float(maxi(1, n - 1))
+	var cs := PackedVector2Array()
+	var x := xa
+	for k in n:
+		cs.append(Vector2(x + sizes[k] / 2.0, y))
+		x += sizes[k] + gap
+	# trait : éteint, puis or jusqu'au record
+	ci.draw_line(cs[0], cs[n - 1], muted, 3.0 * u, true)
 	if b > 1:
-		ci.draw_line(pts[0], pts[mini(b, n) - 1], fillc, 3.5 * u, true)
+		ci.draw_line(cs[0], cs[mini(b, n) - 1], UIColors.GOLD, 3.0 * u, true)
 	for k in n:
 		var room := k + 1
 		var is_boss := room == n
 		var is_mini := room == MINI_ROOM and room < n
 		var reached := k < b
-		var q: Vector2 = pts[k]
+		var q: Vector2 = cs[k]
+		var s: float = sizes[k]
 		if is_boss or is_mini:
-			var nr := 8.5 * u
 			var beaten := won if is_boss else mini_done
-			var nb := paper
+			var fill := paper
+			var edge := muted
+			var icol := grey
 			if beaten:
-				nb = fillc
+				fill = Toon.VERMILION if is_boss else UIColors.GOLD_DARK
+				edge = Toon.SUMI
+				icol = Toon.WASHI
 			elif reached:
-				nb = Toon.VERMILION.lerp(paper, 0.55)  # atteint, pas encore vaincu
-			ci.draw_circle(q, nr + 1.5 * u, Color(ink, 0.8))
-			ci.draw_circle(q, nr, nb)
-			var ic: Color = Toon.WASHI if beaten else Color(ink, 0.7)
+				edge = Toon.VERMILION
+				icol = Toon.VERMILION
 			if is_boss:
-				_crown(ci, q + Vector2(0, 0.6 * u), nr * 0.62, ic)
+				ci.draw_style_box(UiKit.box(_box, fill, maxi(1, int(5.0 * u)), edge, maxi(1, int(2.0 * u))), Rect2(q - Vector2(s, s) / 2.0, Vector2(s, s)))
 			else:
-				_horns(ci, q, nr * 0.62, ic)
+				ci.draw_circle(q, s / 2.0, edge)
+				ci.draw_circle(q, s / 2.0 - 2.0 * u, fill)
+			UiKit.draw_icon(ci, "hud/oni" if is_boss else "hud/couronne", q, 18.0 * u, 1.0, icol)
 		elif reached:
-			ci.draw_circle(q, 4.0 * u, fillc)
+			ci.draw_circle(q, s / 2.0, Toon.SUMI)
+			ci.draw_circle(q, s / 2.0 - 2.0 * u, UIColors.GOLD)
 		else:
-			ci.draw_circle(q, 3.6 * u, paper)
-			ci.draw_arc(q, 3.6 * u, 0.0, TAU, 12, Color(ink, 0.35), maxf(1.0, 1.0 * u), true)
+			ci.draw_circle(q, s / 2.0, muted)
+			ci.draw_circle(q, s / 2.0 - 2.0 * u, paper)
+		# record : anneau d'or autour de la dernière étape atteinte (monde pas encore accompli)
+		if not won and b > 0 and k == b - 1:
+			ci.draw_arc(q, s / 2.0 + 2.5 * u, 0.0, TAU, 40, UIColors.GOLD, 3.0 * u, true)
 
 
-## Coins arrondis : quarts de papier posés sur les coins de l'estampe (découpée en rectangle).
-func _fillets(ci: CanvasItem, r: Rect2, rad: float, col: Color) -> void:
+## Coins arrondis : quarts de fond posés sur les coins de l'estampe (découpée en rectangle) ; top_only : les
+## deux coins du haut seulement (le bas de l'estampe se fond dans le papier de la carte).
+func _fillets(ci: CanvasItem, r: Rect2, rad: float, col: Color, top_only := false) -> void:
 	var o := 1.0  # déborde d'un pixel pour ne laisser aucun liseré
 	var corners := [
 		[Vector2(r.position.x - o, r.position.y - o), Vector2(r.position.x + rad, r.position.y + rad), PI],
@@ -1096,8 +1072,10 @@ func _fillets(ci: CanvasItem, r: Rect2, rad: float, col: Color) -> void:
 		[Vector2(r.end.x + o, r.end.y + o), Vector2(r.end.x - rad, r.end.y - rad), 0.0],
 		[Vector2(r.position.x - o, r.end.y + o), Vector2(r.position.x + rad, r.end.y - rad), PI * 0.5],
 	]
-	for cn in corners:
-		var arr: Array = cn
+	for ci_k in corners.size():
+		if top_only and ci_k >= 2:
+			break
+		var arr: Array = corners[ci_k]
 		var p: Vector2 = arr[0]
 		var c: Vector2 = arr[1]
 		var a0: float = arr[2]
@@ -1111,12 +1089,6 @@ func _fillets(ci: CanvasItem, r: Rect2, rad: float, col: Color) -> void:
 func _left(ci: CanvasItem, font: Font, txt: String, x: float, y: float, fs: int, c: Color) -> float:
 	ci.draw_string(font, Vector2(x, y), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
 	return font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-
-
-func _right(ci: CanvasItem, font: Font, txt: String, x: float, y: float, fs: int, c: Color) -> float:
-	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	ci.draw_string(font, Vector2(x - tw, y), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-	return tw
 
 
 # --- Dessin : l'estampe d'un monde (Control découpé, coordonnées locales) ---------------
@@ -1559,20 +1531,7 @@ func _torch(ci: Control, base: Vector2, s: float, k: int) -> void:
 
 # --- Sceaux, cadenas, tampons ------------------------------------------------------------
 
-## Couronne (boss), centrée en c.
-func _crown(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
-	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.8, 0.55) * s, c + Vector2(-0.9, -0.5) * s, c + Vector2(-0.4, 0.0) * s,
-		c + Vector2(0.0, -0.75) * s, c + Vector2(0.4, 0.0) * s, c + Vector2(0.9, -0.5) * s, c + Vector2(0.8, 0.55) * s]), col)
-
-
-## Cornes d'oni (gardien) : deux pointes et un œil.
-func _horns(ci: CanvasItem, c: Vector2, s: float, col: Color) -> void:
-	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.8, 0.25) * s, c + Vector2(-0.65, -0.85) * s, c + Vector2(-0.15, 0.0) * s]), col)
-	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0.15, 0.0) * s, c + Vector2(0.65, -0.85) * s, c + Vector2(0.8, 0.25) * s]), col)
-	ci.draw_circle(c + Vector2(0, 0.5) * s, 0.28 * s, col)
-
-
-## Secondes écoulées depuis que le sceau ACCOMPLI de ce monde a frappé (< 0 : pas encore).
+## Secondes écoulées depuis que le tampon du boss vaincu de ce monde a frappé (< 0 : pas encore).
 ## La première fois de la session, il frappe quand le monde arrive au centre ; ensuite il est déjà posé.
 func _stamp_elapsed(id: int, focus: float) -> float:
 	if _stamp_at.has(id):
@@ -1586,7 +1545,8 @@ func _stamp_elapsed(id: int, focus: float) -> float:
 	return -1.0
 
 
-## Hanko vermillon cerclé d'or « ACCOMPLI » avec une couronne, posé en biais ; e = secondes depuis la frappe.
+## Tampon du boss vaincu : sceau vermillon cerclé d'or, picto oni en papier (aucun mot), posé en biais ;
+## e = secondes depuis la frappe (il s'abat, rebondit, projette des gouttes d'encre).
 ## xf : transformation de la carte (déjà appliquée), qu'on retrouve à la fin.
 func _stamp(ci: CanvasItem, xf: Transform2D, c: Vector2, r: float, e: float) -> void:
 	var u := _u
@@ -1602,33 +1562,21 @@ func _stamp(ci: CanvasItem, xf: Transform2D, c: Vector2, r: float, e: float) -> 
 			var sp := e2 / 0.5
 			for q in 10:
 				var ang := float(q) / 10.0 * TAU + _hash(q + 7) * 0.5
-				var dist := r * (1.0 + 0.5 * sp) * (0.9 + 0.3 * _hash(q * 3 + 1))
-				ci.draw_circle(c + Vector2(cos(ang) * dist * 1.25, sin(ang) * dist * 0.75), (2.5 - 1.5 * sp) * u,
-					Color(Toon.VERMILION, 0.8 * (1.0 - sp)))
+				var dist := r * (1.1 + 0.6 * sp) * (0.9 + 0.3 * _hash(q * 3 + 1))
+				ci.draw_circle(c + Vector2(cos(ang), sin(ang)) * dist, (2.5 - 1.5 * sp) * u, Color(Toon.VERMILION, 0.8 * (1.0 - sp)))
 	ci.draw_set_transform_matrix(xf * Transform2D(-0.3, Vector2(s, s), 0.0, c))
-	var w := r * 2.5
-	var h := r * 0.8
-	var rect := Rect2(-w / 2.0, -h / 2.0, w, h)
-	var rad := maxi(1, int(h * 0.14))
+	var sq := Rect2(Vector2(-r, -r), Vector2(r, r) * 2.0)
+	var rad := maxi(1, int(r * 0.25))
 	UiKit.box(_box, Color(Toon.SUMI, 0.25 * a), rad)
-	ci.draw_style_box(_box, Rect2(rect.position + Vector2(2.0, 3.0) * u, rect.size))
-	UiKit.box(_box, Color(Toon.VERMILION, 0.94 * a), rad, Color(Toon.GOLD, a), maxi(1, int(2.5 * u)))
-	ci.draw_style_box(_box, rect)
+	ci.draw_style_box(_box, Rect2(sq.position + Vector2(2.0, 3.0) * u, sq.size))
+	UiKit.box(_box, Color(Toon.VERMILION, 0.94 * a), rad, Color(UIColors.GOLD, a), maxi(1, int(2.5 * u)))
+	ci.draw_style_box(_box, sq)
 	_box.set_border_width_all(0)
-	ci.draw_rect(rect.grow(-4.5 * u), Color(Toon.WASHI, 0.75 * a), false, maxf(1.0, 1.2 * u))
-	# couronne dans un rond washi
-	var cc := Vector2(-w / 2.0 + h * 0.56, 0.0)
-	var crr := h * 0.3
-	ci.draw_circle(cc, crr, Color(Toon.WASHI, 0.95 * a))
-	_crown(ci, cc + Vector2(0, 0.08 * crr), crr * 0.62, Color(Toon.VERMILION, a))
-	# texte
-	var tx0 := cc.x + crr + 4.0 * u
-	var tx1 := w / 2.0 - 8.0 * u
-	var fs := _fit_size(_title, "ACCOMPLI", maxi(1, int(h * 0.5)), tx1 - tx0)
-	_centered(ci, _title, "ACCOMPLI", Vector2((tx0 + tx1) / 2.0, float(fs) * 0.36), fs, Color(Toon.WASHI, a))
+	ci.draw_rect(sq.grow(-5.0 * u), Color(Toon.WASHI, 0.6 * a), false, maxf(1.0, 1.2 * u))
+	UiKit.draw_icon(ci, "hud/oni", Vector2.ZERO, r * 1.1, a, Toon.WASHI)
 	# grain du tampon
-	for q in 14:
-		var gp := Vector2((_hash(q * 5 + 2) - 0.5) * w * 0.92, (_hash(q * 9 + 4) - 0.5) * h * 0.85)
+	for q in 10:
+		var gp := Vector2((_hash(q * 5 + 2) - 0.5) * r * 1.7, (_hash(q * 9 + 4) - 0.5) * r * 1.7)
 		ci.draw_circle(gp, (0.6 + _hash(q + 30)) * u, Color(Toon.VERMILION.lightened(0.35), 0.55 * a))
 	ci.draw_set_transform_matrix(xf)
 
@@ -1717,7 +1665,12 @@ func _draw_overlay() -> void:
 	var ch := (300.0 if has_p else 214.0) * u
 	var cy := _ccy - ch / 2.0 + 26.0 * u * (1.0 - k_in)
 	var card := Rect2((w - cw) / 2.0, cy, cw, ch)
-	UiKit.washi_sheet(ci, card, paper, ink, k, u, 9.0)
+	# feuille aux coins arrondis cernée d'encre, comme les cartes (ombre en deux décalages, sans flou)
+	var cpts := UiKit.rrect_points(card, CARD_R * u)
+	ci.draw_colored_polygon(Transform2D(0.0, Vector2(0, 6.0 * u)) * cpts, Color(0, 0, 0, 0.12 * k))
+	ci.draw_colored_polygon(cpts, Color(paper, k))
+	cpts.append(cpts[0])
+	ci.draw_polyline(cpts, Color(Toon.SUMI, k), 2.5 * u, true)
 	var band := Rect2(card.position + Vector2(cw * 0.2, 12.0 * u), Vector2(cw * 0.6, 7.0 * u))
 	if k_in > 0.05:
 		ci.draw_colored_polygon(UiKit.swash_points(band, k_in, 2.0), Color(col, 0.9 * k))
