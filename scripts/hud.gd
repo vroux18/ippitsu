@@ -82,6 +82,13 @@ const POP_MAX := 2  # sceaux visibles en même temps
 const POP_CD := 1200  # ms : un même pouvoir ne ressort pas avant
 var _pops: Array = []  # [clé, pictogramme, couleur, position monde, âge, majeur]
 var _pop_cd := {}  # clé -> instant (ms) où le pouvoir peut ressortir
+# cadenas des yōkai scellés (UiKit.seal_lock) : posés par main à chaque image au-dessus de leur barre de vie
+var seal_locks: Array = []  # [position écran de l'ancre (enemy.seal_anchor), figure, ricochet 1 -> 0]
+var _locks_gone: Array = []  # sceaux tombés : [figure, position monde de l'ancre, âge (temps de jeu), brisé à la figure]
+const LOCK_RISE := 21.0  # le corps du cadenas, en u au-dessus de l'ancre (au-dessus de la barre de vie)
+const LOCK_S := 1.05  # pixels du gabarit du cadenas par u (corps 22 × 18 : à peu près le cachet de pouvoir)
+const LOCK_OPEN := 0.28  # l'anse se soulève et pivote
+const LOCK_FADE := 0.4  # puis le cadenas s'efface (ou seul, mort à l'usure)
 var shape_name := ""
 var _shape_t := 9.0
 var _real_dt := 0.0
@@ -330,7 +337,7 @@ func banner(big: String, small := "", col := Toon.SUMI, length := 2.0) -> void:
 		_banner_icon = "path"
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	size = get_viewport_rect().size
 	var real := UiKit.real_delta()
@@ -358,6 +365,12 @@ func _process(_delta: float) -> void:
 		if float(pp[4]) >= POP_LIFE or not in_play:
 			_pops.remove_at(i)
 	_real_dt = real
+	# cadenas tombés : en temps de jeu (figés avec lui : arrêt sur image, capture `fige=`)
+	for i in range(_locks_gone.size() - 1, -1, -1):
+		var lg: Array = _locks_gone[i]
+		lg[2] = float(lg[2]) + delta
+		if float(lg[2]) >= (LOCK_OPEN + LOCK_FADE if bool(lg[3]) else LOCK_FADE) or not in_play:
+			_locks_gone.remove_at(i)
 	if _banner_t >= 0.0:
 		_banner_t += real
 		if _banner_t > _banner_len:
@@ -496,6 +509,7 @@ func _draw_over(sz: Vector2, u: float) -> void:
 		if boss_name != "":
 			_draw_boss(sz, u)
 		_ci.draw_set_transform(Vector2.ZERO)
+		_draw_seal_locks(sz, u)
 		_draw_power_pops(sz, u)
 		if gate_hint and not dojo:
 			_draw_gate_hint(sz, u)
@@ -620,7 +634,8 @@ func _refresh_layers() -> void:
 		_layer_anim(L_GAIN)
 	else:
 		_layer_check(L_GAIN, [vis, size, in_play, picking, dojo])
-	if (in_play and (boss_name != "" or not _pops.is_empty() or (gate_hint and not dojo))) \
+	if (in_play and (boss_name != "" or not _pops.is_empty() or (gate_hint and not dojo) or not seal_locks.is_empty() \
+			or not _locks_gone.is_empty())) \
 		or screen_flash > 0.0 or hurt_flash > 0.0 or (_toast_t >= 0.0 and in_play) or cine > 0.001 \
 		or (_card_t >= 0.0 and _card.size() == 4) or (_banner_t >= 0.0 and not picking) or dying > 0.0 or show_fps \
 		or wipe > 0.001 or wash > 0.001:
@@ -1277,6 +1292,46 @@ func _draw_power_pops(sz: Vector2, u: float) -> void:
 		_ci.draw_circle(c, r + 2.0 * u, Color(Toon.SUMI, 0.9 * a))
 		_ci.draw_circle(c, r, Color(col, a))
 		UiKit.glyph(_ci, String(pp[1]), c, r * 0.66, paper, col, a)
+
+
+## Sceau d'un yōkai tombé (enemy._seal_gone) : son cadenas s'ouvre en place (`gold` : brisé par la bonne figure,
+## l'anse se soulève et pivote, éclat d'or, puis il s'efface) ou s'efface simplement (mort à l'usure).
+func seal_unlock(fig: String, wpos: Vector3, gold: bool) -> void:
+	_locks_gone.append([fig, wpos, 0.0, gold])
+
+
+## Position écran du corps d'un cadenas dont l'ancre est en `p` : remonté au-dessus de la barre de vie, gardé à
+## l'écran sous la zone du haut (comme les sceaux de pouvoir).
+func _lock_at(p: Vector2, sz: Vector2, u: float) -> Vector2:
+	var c := p - Vector2(0, LOCK_RISE * u)
+	c.x = clampf(c.x, 18.0 * u, sz.x - 18.0 * u)
+	c.y = clampf(c.y, top_off + (_below_k() + 18.0 + 24.0) * u, sz.y - 40.0 * u)
+	return c
+
+
+## Cadenas des yōkai scellés, puis ceux qui s'ouvrent ou s'effacent (sous les sceaux de pouvoir).
+func _draw_seal_locks(sz: Vector2, u: float) -> void:
+	for lk in seal_locks:
+		UiKit.seal_lock(_ci, _lock_at(lk[0], sz, u), LOCK_S * u, String(lk[1]), 1.0, float(lk[2]), 0.0, 0.0, _t)
+	if _locks_gone.is_empty():
+		return
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	for lg in _locks_gone:
+		var wp: Vector3 = lg[1]
+		if cam.is_position_behind(wp):
+			continue
+		var age: float = lg[2]
+		var c := _lock_at(cam.unproject_position(wp), sz, u)
+		if bool(lg[3]):
+			var ok := clampf(age / LOCK_OPEN, 0.0, 1.0)
+			var fk := clampf((age - LOCK_OPEN) / LOCK_FADE, 0.0, 1.0)
+			var fl := clampf(1.0 - (age - 0.12) / 0.3, 0.0, 1.0) if age >= 0.12 else 0.0  # éclat bref quand l'anse pivote
+			UiKit.seal_lock(_ci, c - Vector2(0, 6.0 * u * fk), LOCK_S * u * (1.0 - 0.35 * fk), String(lg[0]), 1.0 - fk * fk, 0.0, ok, fl, _t)
+		else:
+			var k := clampf(age / LOCK_FADE, 0.0, 1.0)
+			UiKit.seal_lock(_ci, c, LOCK_S * u * (1.0 - 0.25 * k), String(lg[0]), 1.0 - k)
 
 
 ## Prime de points annoncée sous le score (« SANS DÉGÂT  +500 ») ; la même prime répétée de près se cumule.

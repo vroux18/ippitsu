@@ -139,8 +139,8 @@ const SEAL_CHANCE := 0.5  # part des coffres de recoin scellés
 const SEAL_NEAR := 3.0  # le trait passe à moins de 3 m du coffre
 const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l'expérience du niveau suivant)
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
-# yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un ofuda au front porte
-# une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
+# yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un cadenas au-dessus de
+# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
 # (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
 const SEALED_FIGS := ["loop", "zigzag", "return", "hook", "straight", "enso", "wave", "point", "triangle"]
 const SEALED_BASE := ["loop", "zigzag", "return", "hook", "straight", "enso"]  # connues d'emblée
@@ -722,6 +722,8 @@ func _ready() -> void:
 		meta.tuto_done = true
 		if not "coach=seal" in wsearch:
 			meta.coach_seen["seal"] = true  # (pas de leçon qui fige l'image, sauf demandée)
+		else:
+			meta.coach_seen.erase("seal")  # leçon demandée : elle vient d'elle-même quand le scellé paraît
 		var kq := wsearch.find("kind=")
 		var sfig := wsearch.substr(scq + 7).get_slice("&", 0)
 		_capture_sealed(sfig, wsearch.substr(kq + 5).get_slice("&", 0) if kq >= 0 else "", "loin=1" in wsearch)
@@ -780,7 +782,7 @@ func _ready() -> void:
 		_start_first_run()
 	# `?tuto&coach=figures` (captures) : cette bulle du coach dès que le jeu tourne (figures, ult…)
 	var cf := wsearch.find("coach=")
-	if cf >= 0:
+	if cf >= 0 and not (scq >= 0 and "coach=seal" in wsearch):  # (forcée d'emblée, elle figerait le jeu avant le scellé)
 		coach.force(wsearch.substr(cf + 6).get_slice("&", 0))
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
 	if "intro" in wsearch:
@@ -1141,16 +1143,6 @@ func _warmup() -> void:
 	el.process_mode = Node.PROCESS_MODE_DISABLED
 	el.promote(["blinde"], false)
 	el.give_shield(1.0)
-	# un scellé : papier de l'ofuda, figure, hanko (pivot orienté caméra sans billboard de matière : il rétrécit
-	# avec la miniature) ; éclats d'or du sceau brisé
-	var se := Enemy.new()
-	se.setup("oni", hero, self)
-	se.position = Vector3(0.6, 0, 0.6)
-	w.add_child(se)
-	se.process_mode = Node.PROCESS_MODE_DISABLED
-	se.set_seal("loop")
-	se._seal.visible = true
-	PuzzleArt._motes(w, Vector3(0.6, 1.0, 0.6), Toon.GOLD, 1, 0.5, 1.0, 0.2)
 	var b := Node3D.new()
 	w.add_child(b)
 	Toon.part(b, Toon.sphere(0.3), Toon.mat_shared(Toon.VERMILION, true, 0.05), Vector3.ZERO)
@@ -3429,7 +3421,7 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 
 
 ## Capture : un yōkai scellé (figure `fig`, sorte `k` ou la première du monde) devant le héros, deux autres à
-## ses côtés ; tous figés (mannequins), pour juger la lisibilité de l'ofuda à la distance de jeu.
+## ses côtés ; tous figés (mannequins), pour juger la lisibilité du cadenas à la distance de jeu.
 func _capture_sealed(fig: String, k: String, far: bool) -> void:
 	var kinds: Array = Worlds.world(current_world).get("enemies", {"oni": 1}).keys()
 	var kk := k if k != "" else String(kinds[0])
@@ -3509,7 +3501,7 @@ func seal_figs() -> Array:
 	return out
 
 
-## Sceau brisé par la bonne figure (_check_slashes) : il meurt d'un coup, l'ofuda s'envole (seal_mark.gd) ;
+## Sceau brisé par la bonne figure (_check_slashes) : il meurt d'un coup, le cadenas s'ouvre (hud.seal_unlock) ;
 ## points du sceau (score.on_seal), un peu d'or et d'encre.
 func _seal_break(e: Node3D, dir: Vector3) -> void:
 	var p: Vector3 = e.position
@@ -6263,7 +6255,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 	combo += 1
 	var fig := String(_shape.get("shape", ""))
 	if String(e.seal_fig) != "" and fig != "" and (fig == String(e.seal_fig) or charm == "sceaux"):
-		# la figure de son ofuda, tracée à travers lui : le sceau se brise, il tombe d'un coup
+		# la figure de son cadenas, tracée à travers lui : le sceau se brise, il tombe d'un coup
 		# (omamori des sceaux : n'importe quelle figure)
 		if fig != String(e.seal_fig):
 			charm_fx()
@@ -6934,7 +6926,11 @@ func _process(_delta: float) -> void:
 	hud.score = int(score.points) if state != "tuto" else -1
 	hud.score_mult = Score.mult(chain, score.chain_early) if state != "tuto" else 1.0
 	var bars: Array = []
+	var locks: Array = []
 	for e in enemies:
+		if is_instance_valid(e) and e.seal_shown() and not cam.is_position_behind(e.seal_anchor()):
+			# yōkai scellé : son cadenas (figure qui le brise, ricochet), au-dessus de sa barre de vie
+			locks.append([cam.unproject_position(e.seal_anchor()), e.seal_fig, e.seal_rico])
 		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):
 			var mh: float = e.get_meta("max_hp")
 			var sr: float = e.shield_ratio()
@@ -6944,6 +6940,7 @@ func _process(_delta: float) -> void:
 				var top: float = e.bar_top()
 				bars.append([cam.unproject_position(e.position + Vector3(0, top, 0)), e.hp / mh, sr, el])
 	hud.enemy_bars = bars
+	hud.seal_locks = locks
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp
 	if _explore:
