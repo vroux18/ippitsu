@@ -1311,12 +1311,12 @@ func _step_victory() -> bool:
 		"monde %d, %d rouleaux (attendu 2 et %d)" % [int(menu.unlock_world), menu.unlock_powers.size(), n_new])
 	_check(int(main.meta.unlocked) == 2 and int(main.meta.power_tier) == 1, "victoire : monde 2 et palier 1 enregistrés", "unlocked %d, palier %d" % [int(main.meta.unlocked), int(main.meta.power_tier)])
 	await _until(func(): return float(menu._t) >= 0.7, "résultats prêts")
-	_check(String(menu.next_label) == "DÉCOUVRIR LE MONDE SUIVANT" and menu._next.is_visible_in_tree() and menu._replay.is_visible_in_tree()
+	_check(String(menu.next_label) == "MONDE SUIVANT" and menu._next.is_visible_in_tree() and menu._replay.is_visible_in_tree()
 		and menu._over_atelier.is_visible_in_tree() and menu._home.is_visible_in_tree() and String(menu._replay.style) == "text" and String(menu._next.style) == "brush",
-		"résultats de victoire : DÉCOUVRIR LE MONDE SUIVANT, puis REJOUER / ATELIER / ACCUEIL", "bouton « %s », REJOUER %s" % [String(menu.next_label), String(menu._replay.style)])
+		"résultats de victoire : MONDE SUIVANT, puis REJOUER / ATELIER / ACCUEIL", "bouton « %s », REJOUER %s" % [String(menu.next_label), String(menu._replay.style)])
 	# vers la carte : centrée sur le monde vaincu, elle se déroule jusqu'au monde 2 et brise son sceau
 	var wm = main.worldmap
-	await _press(menu._next, "DÉCOUVRIR LE MONDE SUIVANT")
+	await _press(menu._next, "MONDE SUIVANT")
 	if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "DÉCOUVRIR LE MONDE SUIVANT -> carte des mondes"):
 		return false
 	_check(int(wm._reveal_id) == 2 and int(wm._sel()) == 0 and bool(wm._locked(1)) and not wm._go.is_visible_in_tree(),
