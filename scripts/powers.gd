@@ -11,6 +11,7 @@ extends Node
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")  # couleurs d'élément des sceaux flottants (main.float_icon)
 const Data = preload("res://scripts/power_data.gd")
 
 const LEG_ROOM := 6  # premier légendaire possible à partir de cette salle...
@@ -975,7 +976,7 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		var left := float(e.hp) - out
 		if left > 0.0 and left <= mx * th / 100.0:
 			out = float(e.hp) + 0.01
-			main.shape_text(e.position, "斬")
+			main.float_icon(e.position, "hud/slash", Toon.VERMILION)
 			_tag("shadow_execute", e.position)
 	# brûlure
 	var burn := val("fire_burn")
@@ -1174,7 +1175,7 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 	if lvl("ink_ippitsu") > 0 and _stroke_hits >= 4:
 		_ippitsu_next = true
 		main.vfx.ink_wave(pos, 1.6, true)
-		main.shape_text(pos, "筆")
+		main.float_icon(pos, "hud/pinceau", Toon.SUMI)
 		_tag("ink_ippitsu", pos)
 	_ippitsu_now = false
 
@@ -1592,7 +1593,7 @@ func _fig_hook(info: Dictionary, hp: Vector3) -> void:
 		var first = near[0]
 		var p0: Vector3 = first.position
 		main.hero.stab(p0 - hp)
-		main.shape_text(p0, "背")
+		main.float_icon(p0, "declencheurs/dans_le_dos", UIColors.element("shadow"))
 		var mult := val("fig_hook_back")
 		for o in near:
 			if not _alive(o):
@@ -1648,7 +1649,7 @@ func on_hurt(n := 1) -> bool:
 		h.invuln = maxf(float(h.invuln), 1.0)
 		var p: Vector3 = h.position
 		_shell(p)
-		main.shape_text(p, "逃")
+		main.float_icon(p, "elements/ombre", UIColors.element("shadow"))
 		main.shake = maxf(float(main.shake), 0.31)
 		main.sfx.play("whoosh", 0.7)
 		var d := val2("shadow_utsusemi")
@@ -1663,7 +1664,7 @@ func on_hurt(n := 1) -> bool:
 		h.hp = mini(3, int(h.max_hp))
 		h.invuln = 2.5
 		var p2: Vector3 = h.position
-		main.shape_text(p2, "鳳")
+		main.float_icon(p2, "elements/feu", UIColors.element("fire"))
 		# renaissance : grande couronne de flammes et braises
 		main.vfx.fire_burst(p2, 2.4, true)
 		main.vfx.ring(Vector3(p2.x, 0.1, p2.z), Vfx.FIRE_HOT, 1.5)
@@ -2527,7 +2528,7 @@ func _add_wave(points: PackedVector3Array) -> void:
 	main.vfx.dress_wave(node)
 	var dmg := (3.0 + (1.0 if lvl("water_push") > 0 else 0.0)) * _wave_mult()
 	_sweeps.append(_sweep(points, "wave", node, 22.0, 0.0, 1.3, dmg))
-	main.shape_text(points[0], "波")
+	main.float_icon(points[0], "hud/vague", UIColors.element("water"))
 	_tag("water_kanagawa", points[0])
 	main.sfx.play("whoosh", 0.5)
 	main.sfx.play("splash", 0.7, -2.0)

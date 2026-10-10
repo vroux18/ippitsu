@@ -1,40 +1,37 @@
 extends Control
-## Intro : six planches animées qui présentent le jeu (premier JOUER, ou bouton « ? » de l'accueil).
-## Glisser à gauche / à droite, ou toucher, pour tourner les planches.
+## Intro : six planches animées qui présentent le jeu (premier JOUER, ou bouton « ? » de l'accueil), sur la
+## planche Tuto du handoff UI v2 : fond sumi, feuille washi, titre court en capitales et UNE phrase,
+## illustration animée (le Ronin de papier), points de pagination ; PASSER discret en haut à droite (rond
+## fantôme, picto « sauter »), SUIVANT en pinceau principal, JOUER en pinceau héros sur la dernière.
+## Plus aucun kanji ni texte d'interaction (UI v2) : glisser à gauche / à droite, ou toucher, pour tourner.
 ## main appelle open(replay) ; l'intro émet finished(action) : "done" (fin ou PASSER au premier lancement),
 ## "tuto" (lancer le tutoriel, depuis le « ? ») ou "back" (retour à l'accueil).
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
 
 signal finished(action: String)
 
+# titre court en capitales, une phrase (jamais plus)
 const PAGES := [
-	{"kanji": "一", "title": "Trace un trait",
-		"text": "Glisse ton doigt : le ronin suit ton trait et tranche tout ce qu'il touche."},
-	{"kanji": "墨", "title": "L'encre",
-		"text": "Chaque trait use de l'encre. Elle revient quand tu ne traces pas."},
-	{"kanji": "円", "title": "Les figures",
-		"text": "Dessine une forme (boucle, zigzag, cercle…) : ton coup devient plus fort. Trouve son rouleau pour débloquer sa technique."},
-	{"kanji": "風", "title": "Esquive en traçant",
-		"text": "Un ennemi va frapper ? Trace un trait : la ruée te rend intouchable au départ, le coup tombe dans le vide."},
-	{"kanji": "道", "title": "Progresse",
-		"text": "Tue des yokai pour monter de niveau et choisis un pouvoir sur un rouleau."},
-	{"kanji": "鬼", "title": "8 étapes, un gardien",
-		"text": "Chaque monde compte 8 étapes. Un mini-boss à la 4e, le gardien t'attend à la 8e. Bonne route !"},
+	{"title": "Trace un trait", "text": "Le ronin suit ton doigt et tranche."},
+	{"title": "L'encre", "text": "Tracer en use ; elle revient au repos."},
+	{"title": "Les figures", "text": "Une forme dans le trait frappe plus fort."},
+	{"title": "Esquive en traçant", "text": "Un trait te sort de la zone rouge."},
+	{"title": "Progresse", "text": "Monte de niveau, choisis un rouleau."},
+	{"title": "8 étapes, un gardien", "text": "Le gardien t'attend au bout du monde."},
 ]
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert l'intro (ou tourné la planche) ne compte pas
 const TRANS := 0.35  # durée du fondu entre deux planches
-const GLUE := [":", ";", "!", "?", "%", "=", "…"]  # jamais en début de ligne
 const JADE := Color("#3FD1B2")
-# figures, dans l'ordre de la planche 3 (couleurs d'encre : ink_stroke.gd FIG_INK)
+const SAND := Color("#E8CC97")  # fond de l'illustration (planche Tuto)
+# figures, dans l'ordre de la planche 3 (couleurs d'encre : UIColors.FIGURES_INK)
 const FIGS := ["loop", "zigzag", "straight", "return", "enso", "hook"]
-const FIG_KANJI := {"loop": "渦", "zigzag": "雷", "straight": "一", "return": "返", "enso": "円", "hook": "鉤"}
-# technique débloquée par le rouleau de chaque figure (powers.gd FIG_NAMES, en clair)
-const FIG_TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR EN CHAÎNE", "straight": "COUPE IAÏ", "return": "GARDE",
-	"enso": "FRAPPE AU SOL", "hook": "ESTOC"}
+const FIG_NAME := {"loop": "Boucle", "zigzag": "Zigzag", "straight": "Trait droit", "return": "Aller-retour",
+	"enso": "Enso", "hook": "Crochet"}
 # le Ronin de papier (même allure que le héros 3D, ninja_rig.gd RONIN_PAL) : chapeau de paille, chevelure
 # d'encre, kimono washi, hakama bleu de Prusse aux vagues claires, obi d'encre, écharpe vermillon
 const STRAW := Color("#CDAB6B")
@@ -46,8 +43,8 @@ const HEM := Color("#2A2733")
 const ONI := Color("#C2453A")  # peau du petit oni
 const GAUGE_INK := Color("#7B7B83")  # encre par défaut de la jauge du HUD (sumi éclaircie, hud.gd)
 const RARITY_COLS := [Color("#8A8478"), Color("#3D78B8"), Color("#8752B5"), Color("#E2A93B")]
-const RARITY_NAMES := ["COMMUN", "RARE", "ÉPIQUE", "LÉGENDAIRE"]
-const CARD_KANJI := ["火", "水", "雷", "風"]
+# scène de la carte de rouleau de la planche 5 : école (picto d'élément) et couleur, par rareté
+const CARD_SCHOOLS := ["fire", "water", "bolt", "wind"]
 const CARD_COLS := [Color("#D7372B"), Color("#1F3A5F"), Color("#C49A45"), Color("#5F8F86")]
 const LEG_BODY := Color("#1C1A21")
 
@@ -67,7 +64,9 @@ var _tuto: Control
 var _back: Control
 var _ui := FontVariation.new()
 var _btn := FontVariation.new()
+var _ttl := FontVariation.new()  # titre de planche : Shippori espacé
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
+var _fig_i := 0  # planche 3 : figure en cours (sa tuile s'allume)
 # contexte de dessin de la planche en cours
 var _a := 1.0
 var _u := 1.0
@@ -83,14 +82,16 @@ func _ready() -> void:
 	_ui.spacing_glyph = 1
 	_btn.base_font = UiKit.UI_FONT
 	_btn.spacing_glyph = 2
-	_next = _button("SUIVANT", "primary")
+	_ttl.base_font = UiKit.TITLE_FONT
+	# les boutons sont des zones tactiles ; l'intro les dessine elle-même (pinceau washi sur le fond sumi :
+	# le pinceau de l'InkButton encre en sumi, invisible ici)
+	_next = _button("SUIVANT", "area")
 	_next.pressed.connect(_on_next)
-	_skip = _button("PASSER", "ghost")
+	_skip = _button("", "area")  # dessiné par _draw_skip (rond fantôme, picto « sauter »)
 	_skip.pressed.connect(func(): _finish("back" if replay else "done"))
-	_tuto = _button("LANCER LE TUTORIEL", "primary")
-	_tuto.lead_icon = "play"
+	_tuto = _button("TUTORIEL", "area")
 	_tuto.pressed.connect(func(): _finish("tuto"))
-	_back = _button("RETOUR", "ghost")
+	_back = _button("RETOUR", "area")
 	_back.pressed.connect(func(): _finish("back"))
 
 
@@ -187,46 +188,55 @@ func _unit() -> float:
 	return minf(size.x / 400.0, size.y / 800.0)
 
 
-func _card() -> Rect2:
+## Feuille washi (planche Tuto : 24 u de marge, 580 u de haut), centrée verticalement sur un écran plus haut.
+func _sheet() -> Rect2:
 	var u := _unit()
-	var cw := minf(size.x - 28.0 * u, 372.0 * u)
-	var ch := 686.0 * u
-	var top := 66.0 * u + maxf(0.0, (size.y - 84.0 * u - ch) / 2.0)
+	var cw := minf(size.x - 48.0 * u, 352.0 * u)
+	var ch := 580.0 * u
+	var top := 96.0 * u + maxf(0.0, (size.y - 800.0 * u) / 2.0)
 	return Rect2(Vector2((size.x - cw) / 2.0, top), Vector2(cw, ch))
 
 
-func _panel_rect(card: Rect2) -> Rect2:
+## Cadre de l'illustration (sable), sous le titre et sa phrase ; h en u (236 avec la grille des figures, 330 sinon).
+func _panel_rect(sheet: Rect2, h: float) -> Rect2:
 	var u := _unit()
-	return Rect2(card.position + Vector2(16, 44) * u, Vector2(card.size.x - 32.0 * u, 290.0 * u))
+	return Rect2(sheet.position + Vector2(20, 96) * u, Vector2(sheet.size.x - 40.0 * u, h * u))
+
+
+## Hauteur (u) du cadre d'une planche : la planche des figures garde la place de ses six tuiles.
+func _panel_h(i: int) -> float:
+	return 236.0 if i == 2 else 330.0
 
 
 func _layout() -> void:
 	var u := _unit()
-	var card := _card()
+	var sheet := _sheet()
 	var a := UiKit.ease_out(_t / 0.3)
 	var last := page == PAGES.size() - 1
 	var two := last and replay
+	_ttl.spacing_glyph = maxi(1, int(5.0 * u))
+	# PASSER : rond fantôme de 44 en haut à droite (planche Tuto), zone tactile un peu plus large
 	_skip.visible = not last
-	_skip.size = Vector2(100, 36) * u
-	_skip.position = Vector2(card.end.x - 100.0 * u, 22.0 * u)
-	_skip.font_size = int(13 * u)
+	_skip.size = Vector2(56, 56) * u
+	_skip.position = Vector2(size.x - 8.0 * u - 56.0 * u, sheet.position.y - 66.0 * u)
 	_skip.modulate.a = a
+	# SUIVANT en pinceau principal ; JOUER en pinceau héros sur la dernière planche
 	_next.visible = not two
-	_next.text = "C'EST PARTI" if last else "SUIVANT"
-	_next.lead_icon = "play" if last else ""
-	var bw := card.size.x * 0.7
-	_next.size = Vector2(bw, 58.0 * u)
-	_next.position = Vector2(card.get_center().x - bw / 2.0, card.end.y - 80.0 * u)
-	_next.font_size = int(20 * u)
+	_next.text = "JOUER" if last else "SUIVANT"
+	var bw := (200.0 if last else 150.0) * u
+	var bh := (64.0 if last else 52.0) * u
+	_next.size = Vector2(bw, bh)
+	_next.position = Vector2(size.x / 2.0 - bw / 2.0, sheet.end.y + 78.0 * u - bh / 2.0)
+	_next.font_size = int((22 if last else 16) * u)
 	_next.modulate.a = a
 	_tuto.visible = two
-	_tuto.size = Vector2(card.size.x - 56.0 * u, 54.0 * u)
-	_tuto.position = Vector2(card.position.x + 28.0 * u, card.end.y - 136.0 * u)
-	_tuto.font_size = int(17 * u)
+	_tuto.size = Vector2(200.0, 52.0) * u
+	_tuto.position = Vector2(size.x / 2.0 - 100.0 * u, sheet.end.y + 26.0 * u)
+	_tuto.font_size = int(16 * u)
 	_back.visible = two
-	_back.size = Vector2(card.size.x * 0.5, 44.0 * u)
-	_back.position = Vector2(card.get_center().x - card.size.x * 0.25, card.end.y - 70.0 * u)
-	_back.font_size = int(15 * u)
+	_back.size = Vector2(120.0, 32.0) * u
+	_back.position = Vector2(size.x / 2.0 - 60.0 * u, sheet.end.y + 82.0 * u)
+	_back.font_size = int(13 * u)
 
 
 # ------------------------------------------------------------------ dessin
@@ -236,56 +246,91 @@ func _draw() -> void:
 		return
 	var u := _unit()
 	var a := UiKit.ease_out(_t / 0.3)
-	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.86 * a))
-	var card := _card()
-	card.position.y += 18.0 * u * (1.0 - a)
-	draw_string(_ui, Vector2(card.position.x + 4.0 * u, 46.0 * u), "COMMENT JOUER", HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), Color(Toon.WASHI, 0.7 * a))
-	# carte de papier et cadre de l'illustration
-	UiKit.box(_sb, Color(Toon.PAPER, a), int(18 * u))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(UIColors.SUMI, a))
+	var sheet := _sheet()
+	sheet.position.y += 18.0 * u * (1.0 - a)
+	# feuille washi, en-tête sumi (motif discret) souligné d'un trait vermillon
+	UiKit.box(_sb, Color(UIColors.WASHI, a), int(18 * u))
 	_sb.shadow_color = Color(0, 0, 0, 0.5 * a)
 	_sb.shadow_size = int(20 * u)
-	draw_style_box(_sb, card)
-	var panel := _panel_rect(card)
-	# cadre de l'illustration (absent du lexique : il s'efface pendant la transition)
+	draw_style_box(_sb, sheet)
 	var k := UiKit.ease_out(_pt / TRANS)
-	var fr := _framed(page)
+	var ph := _panel_h(page)
 	if _prev >= 0 and k < 1.0:
-		fr = lerpf(_framed(_prev), fr, k)
-	if fr > 0.01:
-		draw_style_box(UiKit.box(_sb, Color(Toon.WASHI, a * fr), int(12 * u), Color(Toon.SUMI, 0.8 * a * fr), int(maxf(1.0, 2.0 * u))), panel)
-	_a = a * fr
+		ph = lerpf(_panel_h(_prev), ph, k)
+	var panel := _panel_rect(sheet, ph)
+	draw_style_box(UiKit.box(_sb, Color(SAND, a), int(14 * u)), panel)
+	_a = a
 	_u = u
 	_r = panel
 	_ellipse(_at(0.5, 0.88), panel.size.x * 0.44, panel.size.y * 0.09, _c(Toon.SUMI, 0.05))  # lavis au sol
-	draw_string(_ui, card.position + Vector2(20, 30) * u, "%d / %d" % [page + 1, PAGES.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u), Color(Toon.VERMILION, a))
 	# planches : fondu enchaîné, le texte glisse dans le sens de la lecture
 	if _prev >= 0 and k < 1.0:
-		_draw_page(_prev, card, panel, u, a * (1.0 - k), -_dir * 36.0 * u * k, _prev_t0 + _pt)
-		_draw_page(page, card, panel, u, a * k, _dir * 36.0 * u * (1.0 - k), _pt)
+		_draw_page(_prev, sheet, panel, u, a * (1.0 - k), -_dir * 36.0 * u * k, _prev_t0 + _pt)
+		_draw_page(page, sheet, panel, u, a * k, _dir * 36.0 * u * (1.0 - k), _pt)
 	else:
-		_draw_page(page, card, panel, u, a, 0.0, _pt)
-	# points de progression
+		_draw_page(page, sheet, panel, u, a, 0.0, _pt)
+	# points de pagination (washi sur le sumi : passés à 50 %, à venir à 20 %, la planche en cours en vermillon)
 	var n := PAGES.size()
-	var dy := card.position.y + 504.0 * u
-	var x0 := card.get_center().x - (n - 1) * 8.0 * u
+	var dy := sheet.end.y + 26.0 * u
+	var x0 := size.x / 2.0 - (float(n - 1) * 15.0 + 15.0) * u / 2.0
+	var x := x0
 	for i in n:
-		var c := Vector2(x0 + i * 16.0 * u, dy)
 		if i == page:
-			draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, a), int(4 * u)), Rect2(c - Vector2(9, 3.5) * u, Vector2(18, 7) * u))
+			draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, a), int(4 * u)), Rect2(Vector2(x, dy - 3.5 * u), Vector2(22, 7) * u))
+			x += 30.0 * u
 		else:
-			draw_circle(c, 3.5 * u, Color(Toon.SUMI, (0.55 if i < page else 0.2) * a))
-	if page == 0:
-		var ha := a * (0.35 + 0.15 * sin(_t * 3.0))
-		UiKit.text(self, _ui, "GLISSE OU TOUCHE POUR CONTINUER", Vector2(card.get_center().x, dy + 26.0 * u), int(9 * u), Color(Toon.SUMI, ha))
+			draw_circle(Vector2(x + 3.5 * u, dy), 3.5 * u, Color(UIColors.WASHI, (0.5 if i < page else 0.2) * a))
+			x += 15.0 * u
+	if _skip.visible:
+		_draw_skip(_skip.position + _skip.size / 2.0, u, a)
+	# SUIVANT / JOUER en pinceau washi (principal, héros sur la dernière) ; depuis le « ? » : TUTORIEL et RETOUR
+	if _next.visible:
+		_draw_brush_btn(_next, u, a)
+	if _tuto.visible:
+		_draw_brush_btn(_tuto, u, a)
+	if _back.visible:
+		_draw_text_btn(_back, u, a)
 
 
-## 1.0 pour une planche illustrée, 0.0 pour le lexique (sans cadre).
-func _framed(i: int) -> float:
-	var pg: Dictionary = PAGES[i]
-	return 0.0 if pg.has("terms") else 1.0
+## Pinceau washi (même trait que le bouton pinceau de l'accueil, encre inversée sur le fond sumi) : ombre,
+## trait qui se charge à l'appui, libellé sumi en capitales espacées.
+func _draw_brush_btn(b: Control, u: float, a: float) -> void:
+	var press := clampf(float(b.get("_press")), 0.0, 1.0)
+	var r := Rect2(b.position, b.size)
+	var body := r.grow_individual(0.0, -r.size.y * 0.06 * press, 0.0, -r.size.y * 0.06 * press)
+	var pts := UiKit.swash_points(body, 1.0, 1.0)
+	draw_colored_polygon(Transform2D(0.0, Vector2.ONE, 0.0, Vector2(0, 5.0 * u * (1.0 - press))) * pts, Color(0, 0, 0, 0.35 * a))
+	draw_colored_polygon(pts, Color(UIColors.WASHI.lerp(Toon.VERMILION, 0.1 * press), a))
+	var fs := int(b.get("font_size"))
+	var txt := String(b.get("text"))
+	UiKit.text(self, _btn, txt, r.get_center() + Vector2(2.0 * u, float(fs) * 0.36), fs, Color(UIColors.SUMI, a))
 
 
-func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: float, t: float) -> void:
+## RETOUR : capitales washi soulignées d'un trait fin (vermillon à l'appui), sans cadre.
+func _draw_text_btn(b: Control, u: float, a: float) -> void:
+	var press := clampf(float(b.get("_press")), 0.0, 1.0)
+	var r := Rect2(b.position, b.size)
+	var fs := int(b.get("font_size"))
+	var txt := String(b.get("text"))
+	var c := r.get_center()
+	var tw := UiKit.text(self, _btn, txt, c + Vector2(1.0 * u, float(fs) * 0.3), fs, Color(UIColors.WASHI, (0.85 + 0.15 * press) * a))
+	var uc := Color(Toon.VERMILION, a) if press > 0.05 else Color(UIColors.WASHI, 0.45 * a)
+	UiKit.brush_line(self, Vector2(c.x - tw / 2.0, c.y + float(fs) * 0.75), Vector2(c.x + tw / 2.0, c.y + float(fs) * 0.75), maxf(2.0, float(fs) * 0.17), uc)
+
+
+## PASSER (planche Tuto) : rond fantôme de 44, liseré washi à 55 %, picto « sauter » (deux chevrons, barre).
+func _draw_skip(c: Vector2, u: float, a: float) -> void:
+	draw_arc(c, 22.0 * u, 0, TAU, 40, Color(UIColors.WASHI, 0.55 * a), maxf(1.0, 1.5 * u), true)
+	var col := Color(UIColors.WASHI, a)
+	var w := maxf(1.0, 1.8 * u)
+	for i in 2:
+		var x := c.x - 7.5 * u + 6.0 * u * float(i)
+		draw_polyline(PackedVector2Array([Vector2(x, c.y - 5.5 * u), Vector2(x + 5.0 * u, c.y), Vector2(x, c.y + 5.5 * u)]), col, w, true)
+	draw_line(Vector2(c.x + 7.0 * u, c.y - 5.5 * u), Vector2(c.x + 7.0 * u, c.y + 5.5 * u), col, w, true)
+
+
+func _draw_page(i: int, sheet: Rect2, panel: Rect2, u: float, alpha: float, dx: float, t: float) -> void:
 	if alpha <= 0.01:
 		return
 	_a = alpha
@@ -299,6 +344,7 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 			_page_encre(t)
 		2:
 			_page_figures(t)
+			_fig_grid(sheet, panel, u, alpha)
 		3:
 			_page_esquive(t)
 		4:
@@ -306,32 +352,39 @@ func _draw_page(i: int, card: Rect2, panel: Rect2, u: float, alpha: float, dx: f
 		_:
 			_page_gardien(t)
 	var pg: Dictionary = PAGES[i]
-	# sceau de la planche
-	var seal := Rect2(Vector2(card.end.x - 48.0 * u, card.position.y + 10.0 * u), Vector2(30, 30) * u)
-	draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, alpha), int(6 * u)), seal)
-	UiKit.text(self, UiKit.TITLE_FONT, String(pg.kanji), seal.get_center() + Vector2(0, 8.0 * u), int(21 * u), Color(Toon.WASHI, alpha))
-	# titre et texte
-	var cx := card.get_center().x + dx
-	var ty := panel.end.y + 44.0 * u
-	var title := UiKit.plain(String(pg.title))
-	var tfs := int(27 * u)
-	while tfs > 12 and UiKit.TITLE_FONT.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x > card.size.x - 40.0 * u:
+	# titre court en capitales (Shippori 24, lettres espacées), la phrase dessous (13, encre atténuée)
+	var cx := sheet.get_center().x + dx
+	var title := UiKit.plain(String(pg.title)).to_upper()
+	var tfs := int(24 * u)
+	while tfs > 12 and _ttl.get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x > sheet.size.x - 32.0 * u:
 		tfs -= 1
-	UiKit.text(self, UiKit.TITLE_FONT, title, Vector2(cx, ty), tfs, Color(Toon.SUMI, alpha))
-	draw_line(Vector2(cx - 22.0 * u, ty + 12.0 * u), Vector2(cx + 22.0 * u, ty + 12.0 * u), Color(Toon.VERMILION, alpha), 2.0 * u)
-	var fs := int(14 * u)
+	var ty := sheet.position.y + 26.0 * u + float(tfs) * 0.92
+	UiKit.text(self, _ttl, title, Vector2(cx + 2.5 * u, ty), tfs, Color(UIColors.SUMI, alpha))
 	var body := UiKit.plain(String(pg.text))
-	var lines := _wrap(UiKit.UI_FONT, body, fs, card.size.x - 48.0 * u)
-	while lines.size() > 4 and fs > 10:
-		fs -= 1  # jamais plus de 4 lignes : le texte rapetisse plutôt que d'être coupé
-		lines = _wrap(UiKit.UI_FONT, body, fs, card.size.x - 48.0 * u)
-	for j in mini(lines.size(), 4):
-		UiKit.text(self, UiKit.UI_FONT, lines[j], Vector2(cx, ty + 40.0 * u + j * 21.0 * u), fs, Color(Toon.SUMI, 0.8 * alpha))
+	var fs := int(13 * u)
+	while fs > 9 and UiKit.UI_FONT.get_string_size(body, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > sheet.size.x - 40.0 * u:
+		fs -= 1
+	UiKit.text(self, UiKit.UI_FONT, body, Vector2(cx, ty + 24.0 * u), fs, Color(UIColors.TEXT_MUTED, alpha))
 
 
-## Coupe un texte en lignes qui tiennent dans `width` (mots entiers ; la ponctuation reste collée au mot).
-func _wrap(font: Font, txt: String, fs: int, width: float) -> PackedStringArray:
-	return UiKit.wrap(font, txt, fs, width, GLUE)
+## Planche 3 : les six figures en tuiles (3 × 2) sous l'illustration, picto à l'encre de la figure et nom ;
+## la tuile de la figure en cours prend un bord épais à sa couleur.
+func _fig_grid(sheet: Rect2, panel: Rect2, u: float, alpha: float) -> void:
+	var gap := 10.0 * u
+	var cw := (panel.size.x - 2.0 * gap) / 3.0
+	var ch := minf(100.0 * u, (sheet.end.y - panel.end.y - 20.0 * u - 16.0 * u - gap) / 2.0)
+	var y0 := panel.end.y + 20.0 * u
+	for j in FIGS.size():
+		var kind := String(FIGS[j])
+		var col: Color = UIColors.FIGURES_INK.get(kind, Toon.SUMI)
+		var r := Rect2(Vector2(panel.position.x + float(j % 3) * (cw + gap), y0 + float(j / 3) * (ch + gap)), Vector2(cw, ch))
+		var on := j == _fig_i
+		UiKit.box(_sb, Color(UIColors.WASHI_LIGHT, alpha), int(12 * u), Color(col if on else UIColors.LINE_MUTED, alpha), int(maxf(1.0, (3.0 if on else 1.5) * u)))
+		_sb.shadow_size = 0
+		draw_style_box(_sb, r)
+		var c := r.get_center()
+		UiKit.figure_icon(self, kind, c + Vector2(0, -10.0 * u), 44.0 * u, alpha, col)
+		UiKit.text(self, UiKit.TITLE_FONT, String(FIG_NAME[kind]), c + Vector2(0, 30.0 * u), int(11 * u), Color(UIColors.SUMI, alpha))
 
 
 # ------------------------------------------------------------------ planches
@@ -420,21 +473,19 @@ func _page_encre(t0: float) -> void:
 		var tipp := Vector2(gr.position.x - 14.0 * u, ay + sgn * (6.0 + 3.0 * sin(t * 10.0)) * u)
 		var acol: Color = Toon.VERMILION if going else JADE.darkened(0.3)
 		draw_colored_polygon(PackedVector2Array([tipp, tipp + Vector2(-5.0, -sgn * 7.0) * u, tipp + Vector2(5.0, -sgn * 7.0) * u]), _c(acol, fade))
-	var cap := "TU TRACES : L'ENCRE BAISSE"
-	if rest:
-		cap = "TU ATTENDS : ELLE REVIENT"
-	UiKit.text(self, _ui, UiKit.plain(cap), _at(0.4, 0.95), int(11 * u), _c(Toon.SUMI, 0.75 * fade))
 
 
 ## 3. Les six figures tour à tour : le doigt trace, l'encre prend la couleur de la figure, le ronin la suit,
-## puis part la technique que débloque son rouleau. La figure (kanji et tracé) est montrée en grand, en fond.
+## puis part la technique que débloque son rouleau. Le tracé à suivre est montré en fond ; une puce sumi en bas
+## à droite nomme la figure reconnue (planche Tuto), et sa tuile s'allume sous l'illustration (_fig_grid).
 func _page_figures(t0: float) -> void:
 	var u := _u
 	var cyc := 2.6
 	var fi := int(t0 / cyc) % FIGS.size()
 	var t := fmod(t0, cyc)
 	var kind := String(FIGS[fi])
-	var fc: Color = InkStroke.FIG_INK[kind]
+	_fig_i = fi
+	var fc: Color = UIColors.FIGURES_INK[kind]
 	var dark := fc.darkened(0.2)  # plus lisible sur le papier
 	var fade := _k(t, 0.0, 0.2) * (1.0 - _k(t, cyc - 0.3, 0.3))
 	var box := Rect2(_at(0.3, 0.25), _r.size * Vector2(0.4, 0.48))
@@ -443,8 +494,7 @@ func _page_figures(t0: float) -> void:
 	for i in raw.size():
 		pts.append(box.position + raw[i] * box.size)
 	var center := box.get_center()
-	# en fond : le kanji de la figure et le tracé à suivre (départ marqué d'un point)
-	UiKit.text(self, UiKit.TITLE_FONT, String(FIG_KANJI[kind]), center + Vector2(0, 44) * u, int(128 * u), _c(fc, 0.1 * fade))
+	# en fond : le tracé à suivre (départ marqué d'un point)
 	draw_polyline(pts, _c(fc, 0.22 * fade), 3.0 * u, true)
 	draw_circle(pts[0], 4.0 * u, _c(fc, 0.35 * fade))
 	# le tracé : l'encre se teinte dès que la figure est reconnue
@@ -479,26 +529,20 @@ func _page_figures(t0: float) -> void:
 	_ronin(rp, s, face, pose, fade, lift)
 	if t < 1.15:
 		_finger(_pt_at(pts, drawn), 0.9 * u, _k(t, 0.05, 0.12) * (1.0 - _k(t, 0.95, 0.15)) * fade)
-	# le nom de la figure, en grand ; dessous, ce qu'elle apporte
+	# la puce de la figure reconnue, en bas à droite : pilule sumi bordée de sa couleur, picto et nom
 	if t >= rec:
 		var nk := UiKit.ease_out(_k(t, rec, 0.25))
-		UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain(String(UiKit.FIG_WORD[kind])), _at(0.5, 0.14), int(26.0 * u * (1.0 + 0.25 * (1.0 - nk))), _c(dark, nk * fade))
-		var sub := "COUP PLUS FORT"
-		if t >= fx_t:
-			sub = "AVEC SON ROULEAU : " + String(FIG_TECH[kind])
-		UiKit.text(self, _ui, UiKit.plain(sub), _at(0.5, 0.215), int(10 * u), _c(Toon.SUMI, 0.75 * nk * fade))
-	# la rangée des six figures : celle du moment s'allume
-	for j in FIGS.size():
-		var c := _at(0.115 + 0.154 * j, 0.885)
-		var sh := String(FIGS[j])
-		var rr := 13.0 * u
-		var al := 0.4
-		if j == fi:
-			al = 1.0
-			rr *= 1.12
-			var ic: Color = InkStroke.FIG_INK[sh]
-			draw_arc(c, rr + 4.0 * u, 0, TAU, 28, _c(ic, fade), 2.5 * u, true)
-		_symbol(sh, c, rr, al)
+		var nm := String(FIG_NAME[kind])
+		var nfs := int(13 * u)
+		var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+		var ph := 32.0 * u
+		var pw := nw + 46.0 * u
+		var pr := Rect2(Vector2(_r.end.x - 12.0 * u - pw, _r.end.y - 12.0 * u - ph + (1.0 - nk) * 6.0 * u), Vector2(pw, ph))
+		UiKit.box(_sb, _c(Toon.SUMI, nk * fade), int(ph / 2.0), _c(fc, nk * fade), int(maxf(1.0, 2.0 * u)))
+		_sb.shadow_size = 0
+		draw_style_box(_sb, pr)
+		UiKit.figure_icon(self, kind, Vector2(pr.position.x + 20.0 * u, pr.get_center().y), 20.0 * u, nk * fade * _a, fc)
+		UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(pr.position.x + 34.0 * u + nw / 2.0, pr.get_center().y + float(nfs) * 0.36), nfs, _c(Toon.WASHI, nk * fade))
 
 
 ## 4. Un oni lève sa massue, une zone rouge annonce le coup ; le doigt trace un trait depuis le ronin, qui file
@@ -554,8 +598,6 @@ func _page_esquive(t0: float) -> void:
 	# le doigt trace le trait depuis le ronin
 	if t < dash_t + 0.2:
 		_finger(_pt_at(path, drawn), u, _k(t, draw_t - 0.15, 0.15) * (1.0 - _k(t, dash_t, 0.2)) * fade)
-	if t >= dash_t and t < dash_t + 0.7:
-		UiKit.text(self, _ui, UiKit.plain("TRACE !"), c0 + Vector2(40, -50) * u, int(11 * u), _c(Toon.VERMILION, (1.0 - _k(t, dash_t + 0.5, 0.2)) * fade))
 
 
 ## 5. Le ronin tranche trois oni ; leur XP file vers la barre, il monte de niveau,
@@ -576,7 +618,13 @@ func _page_progres(t0: float) -> void:
 	var xp := 0.2 + 0.8 * _k(t, 0.75, 0.8)
 	if up:
 		xp = 0.04
-	draw_string(UiKit.UI_FONT, Vector2(_at(0.04, 0.0).x, bar.end.y - 0.5 * u), "NIV %d" % (2 if up else 1), HORIZONTAL_ALIGNMENT_LEFT, -1, int(12 * u), _c(Toon.SUMI, fade))
+	# le niveau : hexagone sumi et son chiffre seul, comme le HUD
+	var hx := Vector2(_at(0.1, 0.0).x, bar.get_center().y)
+	var hex := PackedVector2Array()
+	for hi in 6:
+		hex.append(hx + Vector2.from_angle(PI / 6.0 + TAU * float(hi) / 6.0) * 12.0 * u)
+	draw_colored_polygon(hex, _c(Toon.SUMI, fade))
+	UiKit.text(self, UiKit.num_font(), str(2 if up else 1), hx + Vector2(0, 4.5 * u), int(12 * u), _c(Toon.WASHI, fade))
 	draw_style_box(UiKit.box(_sb, _c(Toon.SUMI, 0.55 * fade), int(5 * u)), bar)
 	draw_style_box(UiKit.box(_sb, _c(JADE, fade), int(4 * u)), Rect2(bar.position + Vector2(2, 2) * u, Vector2(maxf(8.0 * u, (bar.size.x - 4.0 * u) * xp), bar.size.y - 4.0 * u)))
 	if up and t < lv_t + 0.6:
@@ -654,7 +702,8 @@ func _page_gardien(t0: float) -> void:
 	var walk := _k(t, 0.2, 2.8)
 	var rage := _k(t, 3.0, 0.3) * fade
 	_boss(_at(0.83, 0.97), 0.95 * u, rage)
-	UiKit.text(self, _ui, "GARDIEN", _at(0.83, 0.97) + Vector2(0, -136) * u, int(9 * u), _c(Toon.VERMILION, 0.6 + 0.4 * rage))
+	# la couronne du gardien, au-dessus de lui (plus de mot : picto v2)
+	UiKit.draw_icon(self, "hud/couronne", _at(0.83, 0.97) + Vector2(0, -140) * u, 22.0 * u, _a * (0.7 + 0.3 * rage), Toon.VERMILION)
 	# le chemin, encré jusqu'au ronin
 	draw_polyline(nodes, _c(Toon.SUMI, 0.22), 2.0 * u, true)
 	if walk > 0.0:
@@ -667,8 +716,6 @@ func _page_gardien(t0: float) -> void:
 		var sp := mid + Vector2(16, -16) * u
 		draw_line(mid, sp, _c(Toon.SUMI, 0.35), 1.5 * u, true)
 		_shrine(sp, u, walk * 7.0 >= float(si) + 0.5)
-		if si == 1:
-			UiKit.text(self, _ui, "SANCTUAIRE", sp + Vector2(10, -20) * u, int(9 * u), _c(Toon.SUMI, 0.6))
 	for i in 8:
 		var c: Vector2 = nodes[i]
 		var reached := walk * 7.0 >= float(i) - 0.01
@@ -678,8 +725,8 @@ func _page_gardien(t0: float) -> void:
 			draw_colored_polygon(PackedVector2Array([c + Vector2(6, -4) * u, c + Vector2(3, -6) * u, c + Vector2(8, -12) * u]), _c(Toon.SUMI))
 			draw_circle(c, 7.0 * u, _c(Toon.VERMILION, 1.0 if reached else 0.5))
 			draw_arc(c, 7.0 * u, 0, TAU, 20, _c(Toon.SUMI), 1.5 * u, true)
-			var lw := _ui.get_string_size("MINI-BOSS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u)).x
-			draw_string(_ui, c + Vector2(-12.0 * u - lw, 22.0 * u), "MINI-BOSS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(9 * u), _c(Toon.SUMI, 0.6))
+			# le mini-boss : picto oni à côté de son arène (plus de mot : picto v2)
+			UiKit.draw_icon(self, "hud/oni", c + Vector2(-22.0, 2.0) * u, 16.0 * u, _a * 0.75, Toon.SUMI)
 		elif i == 7:
 			draw_circle(c, 8.0 * u, _c(Toon.SUMI, 1.0 if reached else 0.45))
 			draw_arc(c, 8.0 * u, 0, TAU, 20, _c(Toon.VERMILION), 2.0 * u, true)
@@ -1159,49 +1206,14 @@ func _scroll_card(c: Vector2, s: float, rar: int, kin: float, kout: float, unrol
 	draw_style_box(UiKit.box(_sb, _c(LEG_BODY if leg else Toon.PAPER, al), int(6 * s), _c(rc, al), int(maxf(1.0, 3.0 * s))), r)
 	var band := Rect2(r.position + Vector2(8, 8) * s, Vector2(72, 46) * s)
 	draw_style_box(UiKit.box(_sb, _c(CARD_COLS[rar], al), int(5 * s)), band)
-	UiKit.text(self, UiKit.TITLE_FONT, String(CARD_KANJI[rar]), band.get_center() + Vector2(0, 11) * s, int(30 * s), _c(Toon.WASHI, al))
+	UiKit.element_icon(self, String(CARD_SCHOOLS[rar]), band.get_center(), 30.0 * s, al * _a, Toon.WASHI)
 	var ink: Color = Toon.WASHI if leg else Toon.SUMI
 	for j in 2:
 		var ly := (16.0 + 10.0 * j) * s
 		draw_line(Vector2(-30.0 * s, ly), Vector2((30.0 - 16.0 * j) * s, ly), _c(ink, 0.3 * al), 3.0 * s, true)
-	UiKit.text(self, _ui, String(RARITY_NAMES[rar]), Vector2(0, 47.0 * s), int(9 * s), _c(rc, al))
+	# rareté = bordure seule (UI v2), sans mot ; un filet discret en bas
+	draw_line(Vector2(-24.0 * s, 46.0 * s), Vector2(24.0 * s, 46.0 * s), _c(rc, 0.5 * al), 2.0 * s, true)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-
-## Symbole d'une figure au pinceau dans un sceau rond (comme la rangée du HUD).
-func _symbol(shape: String, c: Vector2, r: float, a: float) -> void:
-	draw_circle(c, r + 2.5 * r / 30.0, _c(Toon.SUMI, 0.85 * a))
-	draw_circle(c, r, _c(Toon.PAPER, 0.95 * a))
-	var ink := _c(Toon.SUMI, a)
-	var w := 4.0 * r / 30.0
-	var s := r * 0.62
-	match shape:
-		"loop":
-			var pts := PackedVector2Array()
-			for i in 40:
-				var t := float(i) / 39.0
-				pts.append(c + Vector2.from_angle(t * TAU * 1.75) * s * (0.15 + 0.85 * t))
-			draw_polyline(pts, ink, w, true)
-		"zigzag":
-			draw_polyline(PackedVector2Array([c + Vector2(-0.6, -0.9) * s, c + Vector2(0.25, -0.15) * s, c + Vector2(-0.25, 0.1) * s, c + Vector2(0.6, 0.9) * s]), _c(Toon.GOLD.darkened(0.2), a), w * 1.2, true)
-		"straight":
-			draw_line(c + Vector2(-0.95, 0.55) * s, c + Vector2(0.95, -0.55) * s, ink, w * 1.3, true)
-			draw_line(c + Vector2(-0.6, 0.55) * s, c + Vector2(0.95, -0.35) * s, _c(Toon.VERMILION, a * 0.8), w * 0.5, true)
-		"return":
-			# demi-tour
-			draw_arc(c + Vector2(0, -0.1) * s, s * 0.55, PI, TAU, 16, ink, w, true)
-			draw_line(c + Vector2(-0.55, -0.1) * s, c + Vector2(-0.55, 0.8) * s, ink, w, true)
-			draw_line(c + Vector2(0.55, -0.1) * s, c + Vector2(0.55, 0.6) * s, ink, w, true)
-			draw_colored_polygon(PackedVector2Array([c + Vector2(0.3, 0.55) * s, c + Vector2(0.8, 0.55) * s, c + Vector2(0.55, 0.95) * s]), ink)
-		"hook":
-			# hameçon
-			draw_line(c + Vector2(0.35, -0.9) * s, c + Vector2(0.35, 0.3) * s, ink, w, true)
-			draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
-			draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
-		_:
-			# ensō : cercle ouvert, plus épais au départ
-			draw_arc(c, s * 0.85, -PI * 0.35, PI * 1.5, 32, ink, w * 1.5, true)
-			draw_circle(c + Vector2.from_angle(-PI * 0.35) * s * 0.85, w * 0.9, ink)
 
 
 # ------------------------------------------------------------------ outils
