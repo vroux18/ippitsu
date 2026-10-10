@@ -56,6 +56,8 @@ var new_record := false
 var victory := false
 var muted := false
 var sumi := 0  # encre (monnaie permanente), affichée sur l'accueil
+const HOME_SETTLED := 1.4  # accueil : toutes ses arrivées (sceau 0,4 s, titre 0,6, trait 0,8, sélecteur 1,1) sont finies
+var _home_sig: Array = []  # entrées du dernier dessin de l'accueil posé
 var gain_sumi := 0  # encre gagnée à la dernière partie
 var gain_seals := 0
 # résultats de la partie (écran de fin)
@@ -385,7 +387,16 @@ func _process(_delta: float) -> void:
 		_layout_over(w, h, u, has_next)
 	elif mode == "pause":
 		_layout_pause(u)
-	queue_redraw()
+	# accueil : une fois l'encre posée (1,4 s : sceau, titre, trait, sélecteur), l'image ne bouge plus tant que
+	# ses entrées restent les mêmes (taille, thème, monde choisi, encre) : plus de redessin à chaque image
+	if mode == "home" and _t > HOME_SETTLED:
+		var sig := [size, _safe, th_paper, th_wash, th_ink, sel_world, sel_name, sel_kanji, sel_color, sel_locked, sumi]
+		if sig != _home_sig:
+			_home_sig = sig
+			queue_redraw()
+	else:
+		_home_sig = []
+		queue_redraw()
 	if _pt != 0:
 		Perf.add(&"menu", _pt)
 
