@@ -2051,6 +2051,9 @@ const POWER_GLYPH := {
 static var _num_font: FontVariation = null
 static var _tex := {}  # textures SVG en cache : clé|taille|couleurs -> ImageTexture (null : échec)
 static var _hex_re: RegEx = null
+static var _icon_fast := {}  # draw_icon : clé du picto -> {taille | couleur : texture}
+static var _icon_fast_n := 0
+const _NO_ICONS := {}
 
 
 ## Police des chiffres (UI v2) : Zen Kaku Gothic New. Seule la graisse Bold est embarquée : la Black 900 est
@@ -2152,12 +2155,27 @@ static func draw_icon(ci: CanvasItem, key: String, c: Vector2, sz: float, a := 1
 		return false
 	if sz < 1.0 or a <= 0.005:
 		return true
-	var rc := {}
-	if col.a > 0.0:
-		rc = {"*": UIColors.hex(col)}
-	var t := icon(key, sz, rc)
+	# accès direct (pictos redessinés à chaque image par le HUD) : clé entière taille paire | couleur RVB 8 bits,
+	# la même texture que svg_tex (même taille arrondie, même couleur #RRGGBB) sans dictionnaire ni texte à refaire
+	var p := clampi(int(ceil(sz / 2.0)) * 2, 4, 1024)
+	var ck := (p << 25) | ((col.clamp().to_rgba32() >> 8) if col.a > 0.0 else 0x1000000)
+	var per: Dictionary = _icon_fast.get(key, _NO_ICONS)
+	var t: Texture2D = per.get(ck)
 	if t == null:
-		return false
+		var rc := {}
+		if col.a > 0.0:
+			rc = {"*": UIColors.hex(col)}
+		t = icon(key, sz, rc)
+		if t == null:
+			return false
+		if _icon_fast_n > 400:
+			_icon_fast.clear()
+			_icon_fast_n = 0
+		if per == _NO_ICONS:
+			per = {}
+			_icon_fast[key] = per
+		per[ck] = t
+		_icon_fast_n += 1
 	_blit(ci, t, c, sz, a * (col.a if col.a > 0.0 else 1.0))
 	return true
 
