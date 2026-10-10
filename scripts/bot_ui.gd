@@ -35,6 +35,8 @@ func run() -> void:
 		await _recover()
 	if not await _step_wardrobe():
 		await _recover()
+	if not await _step_departure():
+		await _recover()
 	if not await _step_dojo():
 		await _recover()
 	for w in range(1, Worlds.WORLDS.size() + 1):
@@ -164,7 +166,7 @@ func _recover() -> void:
 	bot.guard_all = true
 	main.meta.intro_done = true
 	main.meta.tuto_done = true
-	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker, main.wardrobe]:
+	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker, main.wardrobe, main.departure]:
 		c.visible = false
 	main._wardrobe_on = false
 	main.tuto.abort_dojo()
@@ -884,6 +886,8 @@ func _home_pick(w: int) -> bool:
 		main.meta.test_unlock_all = true
 		main._home_select(w)
 	await _press(mn._play, "JOUER")
+	if not await _depart("accueil : JOUER (monde %d)" % w):
+		return false
 	if not await _until(func(): return String(main.state) == "intro" and int(main.current_world) == w, "accueil : JOUER -> entrée du monde %d" % w):
 		return false
 	_ok("monde %d choisi sur l'accueil (JOUER)" % w)
@@ -924,10 +928,116 @@ func _map_pick(w: int) -> bool:
 	if not await _until(func(): return int(wm._sel()) == w - 1, "carte centrée sur le monde %d" % w):
 		return false
 	await _press(wm._go, "PARTIR")
+	if not await _depart("carte : PARTIR (monde %d)" % w):
+		return false
 	if not await _until(func(): return String(main.state) == "intro" and int(main.current_world) == w, "PARTIR -> entrée du monde %d" % w):
 		return false
 	_ok("monde %d choisi (PARTIR)" % w)
 	return true
+
+
+## Écran AVANT LE DÉPART ouvert (JOUER, PARTIR de la carte) : un seul toucher sur PARTIR repart avec le dernier choix.
+func _depart(what: String) -> bool:
+	var dp = main.departure
+	if not await _until(func(): return bool(dp.visible), "%s -> écran AVANT LE DÉPART" % what):
+		return false
+	if not await _until(func(): return float(dp._t) >= 0.3 and dp._hits.size() > 0, "%s : écran de départ prêt" % what, 5.0):
+		return false
+	if not _check(bool(dp.can_go()), "%s : départ prêt (dernier choix)" % what, "PARTIR refusé (%s)" % String(dp.go_label())):
+		return false
+	_tap(dp, (dp.go_rect as Rect2).get_center())
+	await _frame()
+	return _check(not bool(dp.visible), "%s : PARTIR (un toucher)" % what, "l'écran reste ouvert")
+
+
+## Rectangle d'une cible de l'écran de départ (« prev », « asp:1 », « charm:garde », « go »…).
+func _dep_rect(key: String) -> Rect2:
+	for hr in main.departure._hits:
+		if String(hr[1]) == key:
+			return hr[0]
+	return Rect2()
+
+
+func _dep_tap(key: String) -> void:
+	var r := _dep_rect(key)
+	if r.size.x <= 0.0:
+		_fail("départ : cible « %s » introuvable" % key)
+		return
+	_tap(main.departure, r.get_center())
+	await _frames(2)
+
+
+## Écran AVANT LE DÉPART : progression de démonstration (mondes 1 et 2 vaincus, omamori de la garde), JOUER
+## l'ouvre sur le dernier choix ; flèches -> Hake ; aspect non gagné, pinceau verrouillé et charme verrouillé
+## refusent PARTIR ; Hake · Large + Garde part, et la partie porte bien ce pinceau et ce charme.
+func _step_departure() -> bool:
+	var mt = main.meta
+	var dp = main.departure
+	var keep := [int(mt.won_top), mt.charms_won.duplicate(), String(mt.brush_sel), mt.aspect_sel.duplicate(), String(mt.charm_sel), mt.aspects_won.duplicate()]
+	mt.test_won = 2  # seuls les mondes 1 et 2 comptent comme vaincus (la sauvegarde peut en avoir plus)
+	mt.charms_won = {"garde": true}
+	mt.aspects_won = {}
+	mt.brush_sel = "fude"
+	mt.charm_sel = ""
+	var ok := await _departure_body(dp)
+	mt.test_won = -1
+	mt.won_top = int(keep[0])
+	mt.charms_won = keep[1]
+	mt.brush_sel = String(keep[2])
+	mt.aspect_sel = keep[3]
+	mt.charm_sel = String(keep[4])
+	mt.aspects_won = keep[5]
+	mt.save_data()
+	if ok:
+		await _recover()
+	return ok
+
+
+func _departure_body(dp) -> bool:
+	if not await _until(func(): return String(main.state) == "menu" and String(main.menu.mode) == "home", "accueil avant l'écran de départ"):
+		return false
+	main._home_select(1)
+	await _frames(2)
+	await _press(main.menu._play, "JOUER")
+	if not await _until(func(): return bool(dp.visible), "JOUER -> écran AVANT LE DÉPART"):
+		return false
+	await _until(func(): return float(dp._t) >= 0.4 and dp._hits.size() > 0, "écran de départ prêt", 5.0)
+	_check(String(dp.brush_id()) == "fude" and int(dp.ak) == 0 and bool(dp.can_go()) and String(main.state) == "menu",
+		"départ : ouvert sur le dernier choix (Fude · Maître), PARTIR prêt", "pinceau %s/%d, %s" % [String(dp.brush_id()), int(dp.ak), String(dp.go_label())])
+	var small := ""
+	for hr in dp._hits:
+		var r: Rect2 = hr[0]
+		if r.size.x < 44.0 or r.size.y < 44.0:
+			small += " %s %s" % [String(hr[1]), str(r.size)]
+	_check(small == "", "départ : zones tactiles ≥ 44 px", "trop petites :%s" % small)
+	await _dep_tap("next")
+	_check(String(dp.brush_id()) == "hake" and bool(dp.can_go()), "départ : ▶ -> Hake (boss du monde 1 vaincu), partir permis", "pinceau %s, %s" % [String(dp.brush_id()), String(dp.go_label())])
+	await _dep_tap("asp:1")
+	_check(not bool(dp.can_go()) and String(dp.go_label()) == "ASPECT À GAGNER", "départ : aspect Mur non gagné grisé", String(dp.go_label()))
+	await _dep_tap("go")
+	_check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un aspect à gagner", "état %s" % String(main.state))
+	await _dep_tap("asp:0")
+	await _dep_tap("next")
+	await _dep_tap("next")
+	_check(String(dp.brush_id()) == "warefude" and String(dp.go_label()) == "PINCEAU VERROUILLÉ", "départ : Warefude verrouillé (boss du monde 4)", "%s, %s" % [String(dp.brush_id()), String(dp.go_label())])
+	await _dep_tap("go")
+	_check(bool(dp.visible), "départ : PARTIR refusé sur un pinceau verrouillé", "écran fermé")
+	await _dep_tap("prev")
+	await _dep_tap("prev")
+	await _dep_tap("charm:portes")
+	_check(String(dp.cid) == "portes" and String(dp.go_label()) == "CHARME VERROUILLÉ", "départ : omamori des portes verrouillé (Maître · monde 3)", "%s, %s" % [String(dp.cid), String(dp.go_label())])
+	await _dep_tap("go")
+	if not _check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un charme verrouillé", "écran fermé, état %s" % String(main.state)):
+		return false
+	await _dep_tap("charm:garde")
+	_check(String(dp.cid) == "garde" and bool(dp.can_go()) and String(dp.brush_id()) == "hake", "départ : Hake · Large + omamori de la garde", "%s/%s, %s" % [String(dp.brush_id()), String(dp.cid), String(dp.go_label())])
+	await _dep_tap("go")
+	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "départ : PARTIR -> monde 1"):
+		return false
+	var h = main.hero
+	return _check(String(main.brush) == "hake" and String(main.charm) == "garde" and String(main.meta.brush_sel) == "hake"
+		and h._charm != null and is_instance_valid(h._charm),
+		"départ : la partie porte Hake et l'omamori (à la ceinture), choix gardé", "pinceau %s, charme %s" % [String(main.brush), String(main.charm)])
 
 
 func _transit_to_room1(w: int) -> bool:
@@ -1313,7 +1423,10 @@ func _step_victory() -> bool:
 	_check(bool(main.menu.victory), "résultats de victoire", "menu.victory faux")
 	var menu = main.menu
 	var n_new: int = main.meta.powers_of_tier(1).size()
-	_check(int(menu.unlock_world) == 2 and menu.unlock_powers.size() == n_new and n_new > 0 and int(menu._unlock_rows()) == 2,
+	# (plus les pinceaux, aspects et omamori gagnés : rangée DÉBLOQUÉ, tuiles en plus)
+	var gear: Array = menu.unlock_gear
+	print("BOT UI résultats : équipement gagné %s" % str(gear))
+	_check(int(menu.unlock_world) == 2 and menu.unlock_powers.size() == n_new and n_new > 0 and int(menu._unlock_rows()) == 2 + gear.size(),
 		"résultats : DÉBLOQUÉ (monde 2, %d rouleaux « %s »)" % [menu.unlock_powers.size(), String(menu.unlock_family)],
 		"monde %d, %d rouleaux (attendu 2 et %d)" % [int(menu.unlock_world), menu.unlock_powers.size(), n_new])
 	_check(int(main.meta.unlocked) == 2 and int(main.meta.power_tier) == 1, "victoire : monde 2 et palier 1 enregistrés", "unlocked %d, palier %d" % [int(main.meta.unlocked), int(main.meta.power_tier)])

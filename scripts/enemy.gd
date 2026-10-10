@@ -296,6 +296,7 @@ var _bubble_base := Vector3.ONE
 var _aura: MeshInstance3D
 var _aura_r := 1.0
 var _tempo := 1.0  # Rapide / Enragé : tout son rythme accéléré
+var _ink_slow := 0.0  # Fude · Pluie : englué dans une goutte d'encre (s) : tout son rythme ralenti
 var _enraged := false
 var _called := false
 var _blast_t := 0.0
@@ -1536,6 +1537,12 @@ func hold(t: float) -> void:
 		_hit_freeze = maxf(_hit_freeze, t)
 
 
+## Fude · Pluie (main._update_rain) : ralenti `t` s (relancé tant qu'il marche dans l'encre).
+func ink_slow(t: float) -> void:
+	if not dead:
+		_ink_slow = maxf(_ink_slow, t)
+
+
 func push(v: Vector3) -> void:
 	# un mort n'est plus projeté (fin sobre) ; costauds et tourelle ne bougent pas
 	if kind != "brute" and kind != "funa" and kind != "kanabo" and kind != "tsurara" and not dead and _state != "charge" and not _air:
@@ -1566,6 +1573,9 @@ func _process(delta: float) -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	# Rapide / Enragé : tout le rythme (marche, annonces, repos) accéléré
 	delta *= _tempo
+	if _ink_slow > 0.0:
+		_ink_slow -= delta
+		delta *= 0.45
 	_t += delta
 	if _shield_frac > 0.0:
 		# bouclier de départ : posé une fois les PV du monde appliqués

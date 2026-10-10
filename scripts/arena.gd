@@ -466,7 +466,7 @@ func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 				_gaps.append(Rect2(gr.position.x, gr.position.y + dz, gr.size.x, gr.size.y))
 		prev = local
 	# portes à deux sceaux : parvis élargi au nord de la plateforme du haut (sinon un seul torii)
-	var two := gate_kinds.size() == 2 and _add_parvis(per_chunk[chunks - 1])
+	var two := gate_kinds.size() >= 2 and _add_parvis(per_chunk[chunks - 1], gate_kinds.size())
 	floor_rects = rects.duplicate()
 	mirrored = false
 	var top := -HALF.y - float(chunks - 1) * CHUNK_L
@@ -1377,7 +1377,7 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int, shri
 	start = ends[0]
 	gate_pos = ends[1]
 	# arène pleine (gardien) : deux portes si demandées et la place y est (torii centré)
-	_set_gate_spots(gate_kinds.size() == 2 and absf(gate_pos.x) < 0.05 and walkable_rects(gate_pos, PARVIS_W * 0.5))
+	_set_gate_spots(gate_kinds.size() >= 2 and absf(gate_pos.x) < 0.05 and walkable_rects(gate_pos, _parvis_half(gate_kinds.size())))
 	# le décor reste hors du cadre de l'arène (rien dans les canaux entre plateformes) :
 	# on lui passe la plateforme du torii et un cadre qui couvre toute l'arène
 	var high: Rect2 = ends[3]
@@ -2896,8 +2896,8 @@ func _build_gate(_w: Dictionary) -> void:
 	_room_root.add_child(_gate)
 	_gate.position = gate_pos
 	_seal = null
-	if gate_spots.size() == 2:
-		# deux portes à sceaux : elles s'animent seules (SealGate), le torii unique n'est pas construit
+	if gate_spots.size() >= 2:
+		# deux portes à sceaux (trois : omamori des portes) : elles s'animent seules (SealGate), le torii unique n'est pas construit
 		var sg: Node3D = SealGate.new()
 		sg.set("world_id", world_id)
 		sg.set("kinds", gate_kinds.duplicate())
@@ -3111,9 +3111,9 @@ func _animate_gate(delta: float) -> void:
 func gate_reached(p: Vector3) -> bool:
 	if not gate_open:
 		return false
-	if gate_spots.size() == 2:
+	if gate_spots.size() >= 2:
 		# deux portes : celle qu'on franchit devient LA sortie (rituel du torii, gate_pos) ; gate_pick la retient
-		for i in 2:
+		for i in gate_spots.size():
 			var g: Vector3 = gate_spots[i]
 			if Vector2(p.x - g.x, p.z - g.z).length() < 1.3:
 				gate_pick = i
@@ -3125,8 +3125,8 @@ func gate_reached(p: Vector3) -> bool:
 
 ## Porte visée (robot, flèche) : la porte `i` s'il y en a deux, sinon le torii de sortie.
 func gate_goal(i := 0) -> Vector3:
-	if gate_spots.size() == 2:
-		return gate_spots[clampi(i, 0, 1)]
+	if gate_spots.size() >= 2:
+		return gate_spots[clampi(i, 0, gate_spots.size() - 1)]
 	return gate_pos
 
 
@@ -3149,7 +3149,12 @@ func _near_gates(p: Vector3, r: float) -> bool:
 ## Parvis des deux portes : un rectangle de PARVIS_W centré (la caméra ne suit qu'en z : les deux torii
 ## restent à l'écran) contre le bord nord de la plateforme du haut, s'il s'y raccorde franchement. Ajouté à
 ## `rects` et aux plateformes du dernier tronçon (`mine`). Faux : pas de place, un seul torii.
-func _add_parvis(mine: Array) -> bool:
+## Demi-largeur du parvis pour `n` portes (trois : toute la largeur de l'arène).
+func _parvis_half(n: int) -> float:
+	return HALF.x if n >= 3 else PARVIS_W * 0.5
+
+
+func _add_parvis(mine: Array, n := 2) -> bool:
 	if rects.is_empty():
 		return false
 	var high: Rect2 = rects[0]
@@ -3159,8 +3164,8 @@ func _add_parvis(mine: Array) -> bool:
 			high = rr
 	# plateforme du haut décalée sur un côté : le parvis s'y allonge (jusqu'au bord de l'arène) pour garder
 	# un passage franc ; sans cela l'étape retombait sur un seul torii
-	var px0 := -PARVIS_W * 0.5
-	var px1 := PARVIS_W * 0.5
+	var px0 := -_parvis_half(n)
+	var px1 := _parvis_half(n)
 	if high.position.x > px1 - JOIN_MIN:
 		px1 = minf(HALF.x, high.position.x + JOIN_MIN)
 	if high.end.x < px0 + JOIN_MIN:
@@ -3193,11 +3198,13 @@ func walkable_rects(p: Vector3, hw: float) -> bool:
 func _set_gate_spots(two: bool) -> void:
 	gate_pick = -1
 	if two:
-		gate_spots = [gate_pos + Vector3(-SealGate.GATE_DX, 0, 0), gate_pos + Vector3(SealGate.GATE_DX, 0, 0)]
+		gate_spots = []
+		for x in SealGate.offsets(gate_kinds.size()):
+			gate_spots.append(gate_pos + Vector3(float(x), 0, 0))
 	else:
 		gate_spots = [gate_pos]
 		gate_kinds = []
-	Worlds.gate_spread = SealGate.GATE_DX if two else 0.0
+	Worlds.gate_spread = SealGate.spread(gate_kinds.size()) if two else 0.0
 
 
 func _process(delta: float) -> void:

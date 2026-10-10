@@ -87,6 +87,8 @@ var unlock_world_kanji := ""
 var unlock_world_color := Toon.PRUSSIAN
 var unlock_powers: Array = []  # ids des pouvoirs du nouveau palier
 var unlock_family := ""  # nom de la famille de rouleaux (power_data.UNLOCK_NAMES)
+var unlock_gear: Array = []  # pinceaux, aspects et omamori gagnés : [{"kind": "brush"|"aspect"|"charm", "id", "k"}]
+const Gear = preload("res://scripts/gear_data.gd")
 var _build_list: Array = []  # [id du pouvoir, couleur d'école, niveau, couleur de rareté, rang, niveau max, ordre d'école]
 var _over_atelier: Control
 
@@ -764,6 +766,8 @@ func _results_layout(u: float) -> Dictionary:
 			rows.append("unlock")
 	else:
 		rows = ["killer", "stats", "figures", "loot", "advice"]
+		if not unlock_gear.is_empty():
+			rows.insert(4, "unlock")  # un omamori peut se gagner sur une défaite (meilleur score d'un monde vaincu)
 	var content := HEAD_H
 	for r in rows:
 		content += float(ROW_HEIGHTS[r])
@@ -778,8 +782,8 @@ func _results_layout(u: float) -> Dictionary:
 ## Les estampes gagnées sont dans les gains.
 func _unlock_rows() -> int:
 	if not victory:
-		return 0
-	var n := 0
+		return unlock_gear.size()
+	var n := unlock_gear.size()
 	if unlock_world > 0:
 		n += 1
 	if not unlock_powers.is_empty():
@@ -1087,9 +1091,11 @@ func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -
 func _draw_unlocks(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "hud/ouvert", u, a)
-	var tw := 64.0 * u
 	var th := rh - 10.0 * u
-	var step := tw + 10.0 * u
+	var ntiles := _unlock_rows()
+	# tuiles : 64 u, resserrées quand il y en a beaucoup (monde, rouleaux, pinceau, aspect, omamori)
+	var tw := minf(64.0 * u, (x1 - x) / float(maxi(ntiles, 1)) - 6.0 * u)
+	var step := tw + 6.0 * u
 	var i := 0
 	var nf := UiKit.num_font()
 	var t0 := 1.5
@@ -1116,6 +1122,31 @@ func _draw_unlocks(x0: float, x1: float, y: float, rh: float, u: float, a: float
 			draw_circle(ic, ir + 1.5 * u, Color(UIColors.WASHI_LIGHT, a * qk))
 			UiKit.power_icon(self, String(unlock_powers[q]), ic, ir, a * qk)
 		UiKit.text(self, nf, "+%d" % unlock_powers.size(), Vector2(r.get_center().x, r.end.y - 7.0 * u), int(11 * u), Color(GOLD_INK, a * qk))
+		x += step
+		i += 1
+	# pinceau ouvert, aspect gagné (boss vaincu avec ce pinceau), omamori (rang Maître)
+	for gd in unlock_gear:
+		var g: Dictionary = gd
+		var gk := UiKit.ease_out(clampf((_t - t0 - 0.25 * float(i)) / 0.35, 0.0, 1.0))
+		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - gk), cy - th / 2.0), Vector2(tw, th))
+		var gid := String(g.get("id", ""))
+		var kind := String(g.get("kind", ""))
+		var gcol: Color = Gear.charm(gid).get("col", Toon.SUMI) if kind == "charm" else Gear.brush(gid)["col"]
+		draw_style_box(UiKit.box(_sb, Color(gcol, 0.1 * a * gk), int(8 * u), Color(gcol, 0.9 * a * gk), int(maxf(1.0, 1.5 * u))), r)
+		var word := ""
+		if kind == "charm":
+			Gear.draw_charm(self, gid, Vector2(r.get_center().x, r.position.y + th * 0.4), th * 0.011, a * gk)
+			word = String(Gear.charm(gid).get("short", ""))
+		else:
+			var pr := Rect2(r.position + Vector2(3.0 * u, 2.0 * u), Vector2(r.size.x - 6.0 * u, th * 0.62))
+			Gear.draw_brush(self, gid, int(g.get("k", 0)), pr, a * gk, 1.0, false)
+			word = String(Gear.brush(gid)["word"]) if kind == "brush" else Gear.aspect_name(gid, int(g.get("k", 0)))
+		var wfs := int(8.5 * u)
+		while wfs > 6 and _ui.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x > tw - 4.0 * u:
+			wfs -= 1
+		UiKit.text(self, _ui, word, Vector2(r.get_center().x, r.end.y - 7.0 * u), wfs, Color(th_ink, 0.85 * a * gk))
+		x += step
+		i += 1
 
 
 ## Conseil de fuite (défaite), tout en pictos : bouclier d'alerte, la zone rouge, puis le doigt qui trace un trait

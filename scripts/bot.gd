@@ -29,8 +29,12 @@ const STRESS_POWERS := ["fire_burn", "fire_trail", "fire_hearth", "water_tide", 
 	"wind_blades", "shadow_back", "shadow_veil", "fire_fudo", "shadow_kitsunebi", "bolt_raijin", "water_kanagawa",
 	"shadow_bunshin", "ink_enso"]
 
+const Gear = preload("res://scripts/gear_data.gd")
 var main: Node
 var mode := "campaign"
+var gear_brush := ""  # `--pinceau=` (gear_data.ORDER)
+var gear_aspect := 0  # `--aspect=` (0..2)
+var gear_charm := ""  # `--charme=` (gear_data.CHARM_ORDER)
 var seed_arg := ""
 var world := 1
 var alerts: Array = []
@@ -94,10 +98,30 @@ func begin(m: Node) -> void:
 			mode = s.substr(7)
 		elif s.begins_with("--seed="):
 			seed_arg = s.substr(7)
+		elif s.begins_with("--pinceau="):
+			gear_brush = s.substr(10)
+		elif s.begins_with("--aspect="):
+			gear_aspect = clampi(int(s.substr(9)), 0, 2)
+		elif s.begins_with("--charme="):
+			gear_charm = s.substr(9)
 	if not mode in MODES:
 		alert("mode inconnu « %s » : campagne" % mode)
 		mode = "campaign"
 	print("BOT mode %s, graine %s" % [mode, seed_arg if seed_arg != "" else "aléatoire"])
+	# `--pinceau=hake --aspect=1 --charme=garde` : la partie part avec cet équipement (même verrouillé : gear_force)
+	if mode != "ui":
+		if gear_brush != "" and not Gear.BRUSHES.has(gear_brush):
+			alert("pinceau inconnu « %s » : fude" % gear_brush)
+			gear_brush = "fude"
+		if gear_charm != "" and not Gear.CHARMS.has(gear_charm):
+			alert("omamori inconnu « %s » : aucun" % gear_charm)
+			gear_charm = ""
+		var mt = main.meta
+		mt.brush_sel = gear_brush if gear_brush != "" else "fude"
+		mt.aspect_sel[mt.brush_sel] = gear_aspect
+		mt.charm_sel = gear_charm
+		mt.gear_force = true
+		print("BOT ÉQUIPEMENT pinceau %s, charme %s" % [Gear.label(String(mt.brush_sel), gear_aspect), gear_charm if gear_charm != "" else "aucun"])
 	# progression : le robot joue avec tous les mondes et tous les paliers de rouleaux ouverts (main._ready)
 	if not bool(main.meta.test_unlock_all):
 		main.meta.test_unlock_all = true
@@ -174,7 +198,7 @@ func _new_run() -> void:
 		_runs += 1
 		_group = _next_group()
 		print("BOT POUVOIRS partie %d (monde %d) : %s" % [_runs, world, str(_group)])
-	print("BOT monde %d : départ au sanctuaire" % world)
+	print("BOT monde %d : départ au sanctuaire (pinceau %s, charme %s)" % [world, Gear.label(String(main.brush), int(main.aspect)), String(main.charm) if String(main.charm) != "" else "aucun"])
 
 
 ## Appelé par main à chaque image, avec un pas de temps fixe.

@@ -87,6 +87,14 @@ var _tail_lift := PackedVector3Array()
 var _squash := 0.0
 # anneau au sol (lisibilité)
 var _ring: Node3D
+# omamori porté (gear_data.gd) : pendu à l'obi, côté droit, il se balance et brille quand son effet agit
+var _charm: Node3D = null  # pivot (attache sur l'obi)
+var _charm_mat: StandardMaterial3D
+var _charm_col := Color.WHITE
+var _charm_glow := 0.0
+var _charm_swing := 0.0
+var _charm_vel := 0.0
+var _charm_prev := Vector3.ZERO
 var ring_off := false  # accueil, carte des mondes (barque) : anneau au sol caché (posé par main)
 
 
@@ -472,8 +480,66 @@ func _process(delta: float) -> void:
 	_life = fmod(_life + delta, 1000.0)
 	_update_pose(delta)
 	_update_tails(delta)
+	_update_charm(delta)
 	if _pt != 0:
 		Perf.add(&"hero", _pt)
+
+
+## Omamori à la ceinture (main._start, selon le charme de la partie ; "" : aucun). Petit sachet à la couleur du
+## charme, plaque de papier et cordon vermillon ; maillages ordinaires (ni top_level ni billboard).
+func set_charm(id: String, col: Color) -> void:
+	if _charm != null and is_instance_valid(_charm):
+		_charm.queue_free()
+	_charm = null
+	if id == "" or ch == null:
+		return
+	_charm_col = col
+	var pivot := Node3D.new()
+	pivot.name = "Omamori"
+	pivot.position = Vector3(0.17, 0.1, -0.11)
+	ch.attach("hips", pivot)
+	_charm = pivot
+	var cord := Toon.mat(Toon.VERMILION, false)
+	var loop := Toon.part(pivot, Toon.cyl(0.012, 0.012, 0.09, 5), cord, Vector3(0, -0.04, 0))
+	loop.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_charm_mat = Toon.mat(col, true, 0.012)
+	_charm_mat.emission_enabled = true
+	_charm_mat.emission = col.lightened(0.4)
+	_charm_mat.emission_energy_multiplier = 0.0
+	var bag := Toon.part(pivot, Toon.box(Vector3(0.1, 0.15, 0.035)), _charm_mat, Vector3(0, -0.16, 0))
+	bag.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var top := Toon.part(pivot, Toon.cyl(0.05, 0.05, 0.035, 10), _charm_mat, Vector3(0, -0.085, 0))
+	top.rotation.x = PI / 2.0
+	top.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var plate := Toon.part(pivot, Toon.box(Vector3(0.056, 0.09, 0.006)), Toon.mat(Color("#F5EEDD"), false), Vector3(0, -0.165, -0.02))
+	plate.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mark := Toon.part(pivot, Toon.box(Vector3(0.012, 0.06, 0.004)), Toon.mat(col.darkened(0.2), false), Vector3(0, -0.165, -0.024))
+	mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_charm_prev = global_position if is_inside_tree() else position
+
+
+## L'effet du charme vient d'agir : il brille un instant.
+func charm_flash() -> void:
+	_charm_glow = 1.0
+
+
+func _update_charm(delta: float) -> void:
+	if _charm == null or not is_instance_valid(_charm):
+		return
+	# balancier amorti, poussé par la course (vitesse du héros) et la ruée
+	var p := position
+	var v := (p - _charm_prev) / maxf(delta, 0.0001)
+	_charm_prev = p
+	var push := clampf(v.length() * 0.012, 0.0, 0.5) * (1.0 if dashing else 0.6)
+	_charm_vel += (-_charm_swing * 60.0 - _charm_vel * 4.0) * delta
+	_charm_vel += push * sin(_life * 13.0) * 10.0 * delta
+	_charm_swing = clampf(_charm_swing + _charm_vel * delta, -0.7, 0.7)
+	_charm.rotation.x = _charm_swing + (0.35 if dashing else 0.0)
+	_charm.rotation.z = 0.25 * sin(_life * 2.1) * (0.3 + push)
+	_charm_glow = maxf(0.0, _charm_glow - delta * 1.6)
+	if _charm_mat != null:
+		_charm_mat.emission_energy_multiplier = 2.5 * _charm_glow
+		_charm.scale = Vector3.ONE * (1.0 + 0.35 * _charm_glow)
 
 
 ## Apparence choisie à l'Atelier (meta.apply_run_start) : couleur de l'écharpe (cape), sillage de lame.
