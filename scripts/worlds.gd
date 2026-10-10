@@ -1794,7 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid == 1:
+	if wid <= 2:
 		_landscape(wid, ctx, rng)
 	else:
 		_ls_legacy(wid, ctx, rng)
@@ -2257,6 +2257,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 	match wid:
 		1:
 			return ["piles", "boat", "pier", "nets", "piles", "lantern"]
+		2:
+			return ["bamboo", "garland", "fence", "torii", "tanzaku", "bamboo"]
 		_:
 			return ["piles"]
 
@@ -2264,6 +2266,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 ## Petit élément bas de la bande proche en `p` (`s` : côté, 0 au sud ; `k` : rang le long du bord).
 static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			_ls_near_tanabata(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2271,6 +2275,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 ## Tronçon de la bande moyenne de `a` à `b` (même x), `s` : côté.
 static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			_ls_mid_tanabata(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2278,6 +2284,11 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 ## Groupe lointain centré en `c` : le riche (`main`) ou le mineur.
 static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: bool, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			if main:
+				_ls_tanabata_shrine(ctx, c, s, rng)
+			else:
+				_ls_tanabata_bridge(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2288,6 +2299,8 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 ## Fond de l'étape (au nord du cadre, derrière le torii de sortie).
 static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			_ls_north_tanabata(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -2398,16 +2411,17 @@ static func _ls_mid_wave(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, 
 				_rope(bn, rope, tops[k], tops[k + 1], 0.16, 0.018)
 
 
-## Maison de pêcheur sur pilotis (la porte regarde +Z local) : pieux jusqu'à `low_y`, plancher débordant,
-## murs de planches d'hinoki pâle, bandeau sombre, porte, fenêtre de papier, toit de chaume à quatre pans,
-## lanterne de papier accrochée près de la porte si `lit`.
-static func _stilt_house_into(b: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float, low_y: float, lit: bool) -> void:
+## Maison sur pilotis (la porte regarde +Z local) : pieux jusqu'à `low_y`, plancher débordant, murs
+## (`wall_c`, hinoki pâle du port par défaut), bandeau sombre, porte, fenêtre de papier, toit à quatre pans
+## (`roof_c`, chaume par défaut), lanterne de papier accrochée près de la porte si `lit`. Sert aussi de
+## cabane de montagne (rondins, toit de neige) et de maison de papier (murs washi, toit d'encre).
+static func _stilt_house_into(b: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float, low_y: float, lit: bool, wall_c := HINOKI, roof_c := THATCH, ridge_c := Color("#3A3028")) -> void:
 	var pile := _toon(Decor.PILE, true, 0.02)
-	var wall := _toon(HINOKI, true, 0.025)
-	var band := _toon(Color("#5A4A3A"), false)
+	var wall := _toon(wall_c, true, 0.025)
+	var band := _toon(wall_c.darkened(0.45), false)
 	var deck := _toon(Decor.PLANK, true, 0.02)
-	var thatch := _toon(THATCH, true, 0.025)
-	var ridge := _toon(Color("#3A3028"), false)
+	var thatch := _toon(roof_c, true, 0.025)
+	var ridge := _toon(ridge_c, false)
 	var door := _toon(Color("#2A221C"), false)
 	var paper := _toon(Toon.WASHI, false)
 	var ink := _toon(Toon.SUMI, false)
@@ -2540,6 +2554,182 @@ static func _ls_north_wave(ctx: Dictionary, frame: Rect2, rng: RandomNumberGener
 	Decor.net_rack_into(bs, bn, _at(Vector3(hc.x, 0.0, hc.y + 1.1), Vector3(0, face + PI * 0.5, 0)), -0.1)
 	_contact(ctx, hc, 1.8)
 	avoid.append(Vector3(hc.x, hc.y, 2.4))
+
+
+# --- monde 2 : nuit de Tanabata, berges de l'étang entre les bambous
+
+const NIGHT_STONE := Color("#6E746A")  # pierre des pas et des rochers sous la lune (jamais la pierre claire du jour)
+const NIGHT_STONE_DARK := Color("#4E5650")
+
+## Bosquet de bambous instanciés sur un îlot de mousse (tiges à nœuds, panaches de feuilles) : rayon `mr`,
+## `n` tiges. Les tiges qui tomberaient dans l'arène sont sautées.
+static func _ls_bamboo_clump(ctx: Dictionary, c: Vector2, mr: float, n: int, rng: RandomNumberGenerator) -> void:
+	var stem_a := _toon(Decor.BAMBOO, true, 0.018)
+	var stem_b := _toon(Color("#6F8F4C"), true, 0.018)
+	var node_m := _toon(Decor.BAMBOO_NODE, false)
+	var leaf := _toon_ds(Decor.BAMBOO_LEAF)
+	var moss := _toon(MOSS_K, true, 0.02)
+	var stem_mesh := _cyl(0.05, 0.06, 1.0, 6)
+	var node_mesh := _cyl(0.068, 0.068, 0.035, 6)
+	var spray := _spray_mesh()
+	_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), moss, _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.8, mr)))
+	for k in n:
+		var a := rng.randf() * TAU
+		var d := sqrt(rng.randf()) * mr * 0.7
+		var base := Vector3(c.x + cos(a) * d, VOID_Y + 0.1, c.y + sin(a) * d)
+		if not _ok(ctx, Vector2(base.x, base.z), 0.45, 0.0):
+			continue
+		var h := rng.randf_range(3.2, 6.0)
+		var bas := Basis.from_euler(Vector3(rng.randf_range(-0.06, 0.06), 0, rng.randf_range(-0.06, 0.06)))
+		var sxf := Transform3D(bas * Basis.from_scale(Vector3(1, h, 1)), base + bas * Vector3(0, h * 0.5, 0))
+		var first := rng.randf() < 0.6
+		_inst(ctx, "stem_a" if first else "stem_b", stem_mesh, stem_a if first else stem_b, sxf)
+		var seg := rng.randf_range(0.5, 0.65)
+		var t := seg
+		while t < h - 0.2:
+			_inst(ctx, "node", node_mesh, node_m, Transform3D(bas, base + bas * Vector3(0, t, 0)))
+			t += seg
+		var ss := rng.randf_range(0.9, 1.4)
+		_inst(ctx, "spray", spray, leaf, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * ss), base + bas * Vector3(0, h, 0)))
+		if h > 4.2:
+			_inst(ctx, "spray", spray, leaf, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * ss * 0.7), base + bas * Vector3(0, h * 0.72, 0)))
+
+
+## Guirlande de lanternes de papier entre deux poteaux (de a à b), lueur or pâle, jamais de vermillon.
+static func _ls_garland(ctx: Dictionary, a: Vector3, b: Vector3, col: Color, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var post := _toon(Color("#3B2E25"), true, 0.02)
+	var rope := _toon(Decor.ROPE_DARK, false)
+	var cap := _toon(Toon.SUMI, false)
+	var glow := _glow(col, 1.0)
+	var h := 1.7
+	var hh := h - (VOID_Y - 0.3)
+	for q: Vector3 in [a, b]:
+		_add(bs, post, _cyl(0.05, 0.06, hh, 6), _at(Vector3(q.x, VOID_Y - 0.3 + hh * 0.5, q.z)))
+	var ta := Vector3(a.x, h, a.z)
+	var tb := Vector3(b.x, h, b.z)
+	_rope(bn, rope, ta, tb, 0.22, 0.012)
+	var n := clampi(int(ta.distance_to(tb) / 0.7), 2, 5)
+	for k in n:
+		var t := (float(k) + 0.5) / n
+		var q := ta.lerp(tb, t) + Vector3(0, -0.22 * 4.0 * t * (1.0 - t) - 0.16, 0)
+		_add(bn, glow, _ball(0.09, 0.2, 7, 4), _at(q, Vector3(0, rng.randf() * TAU, 0)))
+		_add(bn, cap, _cyl(0.05, 0.05, 0.02, 6), _at(q + Vector3(0, 0.11, 0)))
+		_add(bn, cap, _cyl(0.05, 0.05, 0.02, 6), _at(q + Vector3(0, -0.11, 0)))
+	_light(ctx, ta.lerp(tb, 0.5) + Vector3(0, -0.3, 0), col, 0.5, 3.0)
+
+
+## Pont de pierre arqué le long de la berge (de `a` à `b`), lanternes de pierre à ses pieds.
+static func _ls_stone_bridge(ctx: Dictionary, c: Vector2, ln: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var xf := _at(Vector3(c.x, VOID_Y + 0.25, c.y), Vector3(0, PI * 0.5, 0))
+	Decor.arched_bridge_into(bs, xf, ln, 0.9, NIGHT_STONE_DARK, NIGHT_STONE, -0.6)
+	for sz: float in [-1.0, 1.0]:
+		var e := Vector2(c.x, c.y + sz * (ln * 0.5 + 0.55))
+		Decor.rock_into(bs, _at(Vector3(e.x, VOID_Y, e.y), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000, NIGHT_STONE_DARK)
+		_stone_lantern(ctx, Vector3(e.x, VOID_Y + 0.26, e.y), 0.5, sz < 0.0)
+	_contact(ctx, c, ln * 0.5)
+
+
+## Bande proche : roseaux sombres, pas japonais, touffes de mousse.
+static func _ls_near_tanabata(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var dens: float = ctx["ls_dens"]
+	if k % 5 == 3:
+		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), _toon(NIGHT_STONE, true, 0.02), _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.2)))
+		return
+	if k % 7 == 6:
+		var mr := rng.randf_range(0.35, 0.55)
+		_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), _toon(MOSS_K, true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.7, mr)))
+		return
+	var reed := _toon_ds(Color("#4F6E3E"))
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.9, 1.5)
+		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * rng.randf_range(1.2, 1.8), sc)))
+
+
+## Bande moyenne : bosquet de bambous, guirlande de lanternes, clôture de bambou, allée de petits torii
+## (laque braise : le vermillon reste au fond), bambous à tanzaku sur des rochers.
+static func _ls_mid_tanabata(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"bamboo":
+			_ls_bamboo_clump(ctx, Vector2(x + s * 0.3, zc), minf(ln * 0.36, 1.3), 6 if Toon.lite else rng.randi_range(9, 13), rng)
+		"garland":
+			_ls_garland(ctx, Vector3(x, 0, a.y + 0.3), Vector3(x, 0, b.y - 0.3), Color("#F1E3A6"), rng)
+			_ls_bamboo_clump(ctx, Vector2(x + s * 1.2, zc), 0.8, 3 if Toon.lite else 5, rng)
+		"fence":
+			Decor.fence_into(bs, bn, Vector3(x, 0, a.y + 0.2), Vector3(x, 0, b.y - 0.2), 0.62, VOID_Y - 0.3, false)
+			Decor.rock_into(bs, _at(Vector3(x + s * 0.5, VOID_Y, zc), Vector3.ZERO, Vector3.ONE * 0.7), rng.randi() % 100000, NIGHT_STONE_DARK)
+			_ls_bamboo_clump(ctx, Vector2(x + s * 1.1, zc + rng.randf_range(-0.8, 0.8)), 0.8, 3 if Toon.lite else 5, rng)
+		"torii":
+			var n := clampi(int(ln / 0.75), 3, 5)
+			for k in n:
+				var q := Vector2(x, a.y + 0.4 + k * 0.75)
+				_ls_mini_torii(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.85), Color("#6E2420"), -0.35)
+		_:
+			for k in 2:
+				var q := Vector2(x + s * rng.randf_range(-0.2, 0.2), a.y + ln * (0.3 + k * 0.4))
+				Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000, NIGHT_STONE_DARK)
+				_tanzaku_into(bn, _at(Vector3(q.x, VOID_Y + 0.26, q.y), Vector3.ZERO, Vector3.ONE * 0.85), rng)
+			_ls_bamboo_clump(ctx, Vector2(x + s * 1.1, zc), 0.8, 3 if Toon.lite else 5, rng)
+
+
+## Hameau des vœux (rive principale) : sanctuaire aux renards, bambous à tanzaku, bosquet derrière,
+## lanterne de pierre et pas japonais devant.
+static func _ls_tanabata_shrine(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	_fox_shrine(ctx, c, rng)
+	_contact(ctx, c, 1.2)
+	_ls_bamboo_clump(ctx, c + Vector2(s * 1.5, -0.4), 1.3, 6 if Toon.lite else 11, rng)
+	var q := c + Vector2(-s * 0.3, 1.5)
+	Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.9), rng.randi() % 100000, NIGHT_STONE_DARK)
+	_tanzaku_into(bn, _at(Vector3(q.x, VOID_Y + 0.3, q.y), Vector3.ZERO, Vector3.ONE * 1.1), rng)
+	var l := c + Vector2(-s * 0.2, -1.6)
+	Decor.rock_into(bs, _at(Vector3(l.x, VOID_Y, l.y), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000, NIGHT_STONE_DARK)
+	_stone_lantern(ctx, Vector3(l.x, VOID_Y + 0.26, l.y), 0.6, true)
+	var stone := _toon(NIGHT_STONE, true, 0.02)
+	for k in 3:
+		var st := c + Vector2(-s * (0.9 + k * 0.1), -0.6 + k * 0.55)
+		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), stone, _at(Vector3(st.x, VOID_Y + 0.03, st.y), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Rive mineure : pont de pierre arqué et bosquet de bambous derrière ; parfois une allée de torii.
+static func _ls_tanabata_bridge(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	_ls_stone_bridge(ctx, c + Vector2(-s * 0.3, 0.0), 2.8, rng)
+	_ls_bamboo_clump(ctx, c + Vector2(s * 1.2, rng.randf_range(-0.6, 0.6)), 1.1, 5 if Toon.lite else 9, rng)
+
+
+## Fond : bosquets aux deux coins, guirlandes de lanternes de part et d'autre du torii.
+static func _ls_north_tanabata(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.2), top - 3.0)
+		_ls_bamboo_clump(ctx, c, 1.4, 6 if Toon.lite else 11, rng)
+		avoid.append(Vector3(c.x, c.y, 1.8))
+		_ls_garland(ctx, Vector3(sx * 2.5, 0, top - 2.0), Vector3(sx * 5.2, 0, top - 2.2), Color("#F1E3A6"), rng)
+
+
+## Petit torii de bois peint (couleur `col`, laque sombre ou braise, jamais le vermillon des annonces) :
+## deux piliers jusqu'à `low_y`, nuki et kasagi ; face à +Z local.
+static func _ls_mini_torii(b: Dictionary, xf: Transform3D, col: Color, low_y: float) -> void:
+	var m := _toon(col, true, 0.02)
+	var ink := _toon(Toon.SUMI, false)
+	var hh := 1.5 - low_y
+	for sx: float in [-1.0, 1.0]:
+		_add(b, m, _cyl(0.06, 0.07, hh, 6), xf * _at(Vector3(sx * 0.55, low_y + hh * 0.5, 0)))
+		_add(b, ink, _cyl(0.085, 0.085, 0.08, 6), xf * _at(Vector3(sx * 0.55, low_y + 0.04, 0)))
+	_add(b, m, _box(Vector3(1.3, 0.08, 0.07)), xf * _at(Vector3(0, 1.24, 0)))
+	_add(b, m, _box(Vector3(1.5, 0.1, 0.12)), xf * _at(Vector3(0, 1.5, 0)))
+	_add(b, ink, _box(Vector3(1.6, 0.06, 0.16)), xf * _at(Vector3(0, 1.58, 0)))
+
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
 static func _ls_legacy(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
