@@ -34,7 +34,7 @@ const STYLE_V2 := 3  # carte de rouleau v2 (style par défaut)
 const V2_W := 116.0  # carte v2 (× u, avant mise à l'échelle des cartes)
 const V2_H := 250.0
 const V2_GAP := 8.0
-const V2_TAG := 32.0  # bandeau de famille accroché sous la carte (× u, dépassement sous le bord)
+const V2_TAG := 22.0  # bandeau de famille (nom seul) accroché sous la carte (× u, dépassement sous le bord)
 const V2_LIFT := 14.0  # carte touchée : soulevée de 14 u
 # CHOISIR au pinceau (gabarit 210 × 64) : contour (courbes de Bézier et segments) et trait vermillon dessous
 const V2_BTN_W := 210.0
@@ -80,6 +80,9 @@ const CORD := Color("#C9A25A")  # cordon d'accroche (kakehimo)
 const GOLD_CAP := Color("#C8963A")  # coiffes des baguettes, crochet de laiton
 const OFUDA_BODY := Color("#17151B")  # laque noire (sumi) de l'ofuda
 const OFUDA_INDIGO := Color("#5B7BE0")  # lueur indigo de l'ofuda rare
+const CARD_IN := 0.34  # cartes v2 : durée de l'arrivée (s)
+const CARD_IN_H := 18.0  # cartes v2 : montée depuis ce décalage (× u)
+const CARD_IN_GAP := 0.07  # cartes v2 : décalage d'une carte à la suivante (s)
 const DEAL_DUR := 0.3  # ofuda, estampe : la carte monte à sa place (s)
 const DEAL_H := 34.0  # depuis cette distance sous sa place (× u)
 const DEAL_DEG := 3.0  # petite inclinaison qui se redresse
@@ -438,7 +441,7 @@ func _process(_delta: float) -> void:
 			Perf.add(&"picker", _pt)
 		return
 	size = get_viewport_rect().size
-	var real := UiKit.real_delta()
+	var real := minf(UiKit.real_delta(), 1.0 / 30.0)  # borné : une image lente à l'ouverture ne saute pas l'arrivée
 	_t += real
 	_sel_t += real
 	_refuse_shake = maxf(0.0, _refuse_shake - real / 0.45)
@@ -2452,13 +2455,13 @@ func _draw_v2() -> void:
 		var base: Rect2 = _rects[i]
 		var c := base.get_center()
 		var lf: float = float(_lift[i]) if i < _lift.size() else 0.0
-		var lt := _t - _unroll_start(i)
+		var lt := _t - (UNROLL_AT + CARD_IN_GAP * float(maxi(i, 0)))
 		var a := fade
 		var sc := 1.0
 		var dy := 0.0
 		var rot := 0.0
 		_ct = 99.0
-		_sheen = lt - UNROLL_DUR + 0.1
+		_sheen = lt - CARD_IN + 0.05
 		if _chosen >= 0:
 			_sheen = -1.0
 			if i == _chosen:
@@ -2477,11 +2480,12 @@ func _draw_v2() -> void:
 				a = (1.0 - UiKit.ease_out((_t - 0.1) / 0.2)) * lerpf(0.75, 1.0, lf)
 				dy = -lift * lf
 		else:
-			# donne : la carte monte face cachée jusqu'à sa place en se redressant, puis se retourne
-			var sw := 1.0 if i % 2 == 0 else -1.0
-			a *= UiKit.ease_out(lt / 0.14)
-			dy = (1.0 - _settle(lt / DEAL_DUR, 1.2)) * DEAL_H * u
-			rot = deg_to_rad(DEAL_DEG) * sw * (1.0 - UiKit.ease_out(lt / DEAL_DUR))
+			# arrivée : courte montée en fondu, courbe douce (cubique), sans rotation ni rebond
+			var ek := clampf(lt / CARD_IN, 0.0, 1.0)
+			var ez := 1.0 - pow(1.0 - ek, 3.0)
+			a *= ez
+			dy = (1.0 - ez) * CARD_IN_H * u
+			sc = lerpf(0.96, 1.0, ez)
 			# carte touchée : soulevée, ombre plus longue ; les autres s'estompent un peu
 			dy -= lift * lf
 			if _sel >= 0:
@@ -2800,33 +2804,23 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	_v2_family(r, school, s, a, ta)
 
 
-## Bandeau de famille accroché sous la carte, à la couleur de l'école : « FEU » en capitales espacées, puis son
-## rôle (« brûlure qui se propage »), sur deux lignes pour rester lisible sur 116 u. Il chevauche le bord bas
-## (comme une étiquette nouée au rouleau) et suit la carte (dessiné sous _xf).
+## Bandeau de famille accroché sous la carte, à la couleur de l'école : son nom seul (« FEU ») en capitales
+## espacées. Il chevauche le bord bas (comme une étiquette nouée au rouleau) et suit la carte (dessiné sous _xf).
 func _v2_family(r: Rect2, school: String, s: float, a: float, ta: float) -> void:
 	var sd: Dictionary = Data.SCHOOLS.get(school, {})
 	if sd.is_empty():
 		return
 	var nm := String(sd.get("name", ""))
-	var role := _p(String(sd.get("role", "")))
-	var maxw := r.size.x - 4.0 * s
 	var nfs := maxi(1, int(12.0 * s))
-	var rfs := maxi(1, int(10.5 * s))
-	while rfs > maxi(1, int(8.0 * s)) and UiKit.UI_FONT.get_string_size(role, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x > maxw - 8.0 * s:
-		rfs -= 1
-	var sp := 2.0 * s
+	var sp := 2.2 * s
 	var wn := _spaced(UiKit.UI_FONT, nm, Vector2.ZERO, nfs, sp, Color.WHITE, false)
-	var wr := UiKit.UI_FONT.get_string_size(role, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
-	var bw := minf(maxw, maxf(wn, wr) + 14.0 * s)
+	var bw := minf(r.size.x - 4.0 * s, wn + 22.0 * s)
 	var band := Rect2(Vector2(r.get_center().x - bw / 2.0, r.end.y - 4.0 * s), Vector2(bw, (V2_TAG + 2.0) * s))
 	var el := UIColors.element(school)
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.3 * a), int(5.0 * s)), Rect2(band.position + Vector2(0, 2.0 * s), band.size))
 	draw_style_box(UiKit.box(_sb, Color(el, a), int(5.0 * s), Color(UIColors.SUMI, a), maxi(1, int(1.5 * s))), band)
-	var cx := band.get_center().x
-	var y1 := band.position.y + 5.0 * s + float(nfs) * 0.78
-	_spaced(UiKit.UI_FONT, nm, Vector2(cx - wn / 2.0, y1), nfs, sp, Color(UIColors.WASHI_LIGHT, ta))
-	var y2 := band.end.y - 4.5 * s
-	draw_string(UiKit.UI_FONT, Vector2(cx - wr / 2.0, y2), role, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(UIColors.WASHI_LIGHT, 0.95 * ta))
+	var y1 := band.get_center().y + float(nfs) * 0.36
+	_spaced(UiKit.UI_FONT, nm, Vector2(band.get_center().x - wn / 2.0, y1), nfs, sp, Color(UIColors.WASHI_LIGHT, ta))
 
 
 ## Ligne d'effet (variante C) : pictogramme 12 à la couleur d'élément, LIBELLÉ (8,5, encre pâle), points de conduite,
