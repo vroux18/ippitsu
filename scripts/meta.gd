@@ -999,3 +999,8 @@ func record_score(world_id: int, pts: int, chain: int) -> bool:
 	world_chain[world_id] = maxi(world_chain_of(world_id), chain)
 	save_data()
 	return rec
+
+
+## Figure de l'arbre apprise (vague, pointe, triangle) ? Stub : remplacé par l'arbre de compétences.
+func fig_learned(kind: String) -> bool:
+	return true

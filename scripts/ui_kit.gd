@@ -12,8 +12,10 @@ const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --p
 # UI v2 : plus de kanji dans l'interface (seul le logo 一筆 de l'accueil reste) : les sceaux à côté des titres
 # d'écran et de section ne se dessinent plus (screen_title, section)
 const KANJI_SEALS := false
-# les six figures, dans l'ordre d'affichage
-const FIGURES := ["straight", "return", "zigzag", "loop", "enso", "hook"]
+# les figures, dans l'ordre d'affichage : les six premières, puis celles de l'arbre (FIGURES_TREE, apprises dans la
+# branche Voie : meta.fig_learned)
+const FIGURES := ["straight", "return", "zigzag", "loop", "enso", "hook", "wave", "point", "triangle"]
+const FIGURES_TREE := ["wave", "point", "triangle"]
 
 # ================================================================== système de design
 # Mesures en unités u (largeur de l'écran / 400) : on multiplie par u au dessin. Accueil, pause,
@@ -175,6 +177,8 @@ static func figure(ci: CanvasItem, shape: String, c: Vector2, r: float, a: float
 			ci.draw_line(c + Vector2(0.35, -0.9) * s, c + Vector2(0.35, 0.3) * s, ink, w, true)
 			ci.draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
 			ci.draw_line(c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.35, -0.05) * s, ink, w, true)  # un trait, sans pointe
+		"wave", "point", "triangle":
+			ci.draw_polyline(Transform2D(0.0, Vector2(s, s), 0.0, c) * fig_pts(shape), ink, w * 1.1, true)
 
 
 ## Geste d'une figure, en coordonnées 0..1 du cadre (tracé de bas en haut, comme au doigt).
@@ -211,6 +215,16 @@ static func gesture_points(kind: String) -> PackedVector2Array:
 				p.append(Vector2(0.35 + 0.15 * i / 12.0, 0.9 - 0.75 * i / 12.0))
 			for i in range(1, 9):
 				p.append(Vector2(0.5 + 0.3 * i / 8.0, 0.15 + 0.4 * i / 8.0))
+		"wave", "point", "triangle":
+			# même dessin que le glyphe (fig_pts), redécoupé à pas réguliers pour que le geste avance d'un pas égal
+			var src := fig_pts(kind)
+			for i in range(1, src.size()):
+				var a: Vector2 = src[i - 1]
+				var b: Vector2 = src[i]
+				var m := maxi(1, int(ceil(a.distance_to(b) / 0.12)))
+				for j in m:
+					p.append(Vector2(0.5, 0.5) + a.lerp(b, float(j) / float(m)) * 0.46)
+			p.append(Vector2(0.5, 0.5) + src[src.size() - 1] * 0.46)
 		_:
 			for i in 41:
 				var ang := PI / 2.0 + TAU * 0.92 * i / 40.0
@@ -297,7 +311,8 @@ static func power_school(id: String) -> String:
 
 ## Couleur d'un pouvoir : celle de son élément ; les rouleaux de figure prennent l'élément de leur technique
 ## (boucle = vent, zigzag = foudre, retour = eau, crochet = ombre, trait droit et ensō = encre).
-const FIG_COLOR_SCHOOL := {"loop": "wind", "zigzag": "bolt", "return": "water", "hook": "shadow", "straight": "ink", "enso": "ink"}
+const FIG_COLOR_SCHOOL := {"loop": "wind", "zigzag": "bolt", "return": "water", "hook": "shadow", "straight": "ink", "enso": "ink",
+	"wave": "water", "point": "shadow", "triangle": "ink"}
 
 
 static func power_color(id: String) -> Color:
@@ -549,6 +564,37 @@ static func _fsym(ci: CanvasItem, shape: String, c: Vector2, s: float, col: Colo
 			_ln(ci, o, q, Vector2(0.35, -0.9), Vector2(0.35, 0.3), col, w)
 			_arc(ci, o, q, Vector2(0.0, 0.3), 0.35, 0.0, PI, col, w)
 			_ln(ci, o, q, Vector2(-0.35, 0.3), Vector2(-0.35, -0.05), col, w)  # un trait, sans pointe
+		"wave", "point", "triangle":
+			_pl(ci, o, q, fig_pts(shape), col, w * 1.1)
+
+
+## Tracé unité (environ -0,9..0,9, y vers le bas, départ en premier) des figures de l'arbre, au trait simple sans
+## pointe de flèche : vague (un S, deux arcs opposés, de bas à gauche vers haut à droite), pointe (un V, départ en
+## haut à gauche, pointe en bas), triangle (départ au sommet du haut, refermé). Partagé par les glyphes et le geste.
+static func fig_pts(shape: String) -> PackedVector2Array:
+	var key := "fig_" + shape
+	if _shapes.has(key):
+		return _shapes[key]
+	var p := PackedVector2Array()
+	match shape:
+		"wave":
+			# deux courbes de Bézier (maquette : M-26 14 C-26 -14 -2 -14 0 0 C2 14 26 14 26 -14, / 30)
+			var cs := [[Vector2(-0.87, 0.47), Vector2(-0.87, -0.47), Vector2(-0.07, -0.47), Vector2.ZERO],
+				[Vector2.ZERO, Vector2(0.07, 0.47), Vector2(0.87, 0.47), Vector2(0.87, -0.47)]]
+			for bz in cs:
+				for i in 13:
+					if i == 0 and not p.is_empty():
+						continue
+					var t := float(i) / 12.0
+					var u := 1.0 - t
+					p.append(bz[0] * u * u * u + bz[1] * 3.0 * u * u * t + bz[2] * 3.0 * u * t * t + bz[3] * t * t * t)
+		"point":
+			p = PackedVector2Array([Vector2(-0.6, -0.85), Vector2(0.0, 0.8), Vector2(0.6, -0.85)])
+		_:
+			p = PackedVector2Array([Vector2(0.0, -0.85), Vector2(0.85, 0.62), Vector2(-0.85, 0.62), Vector2(0.0, -0.85), Vector2(0.4, -0.16)])
+			# (le dernier bout repasse sur le premier côté : le sommet du départ reste net, sans encoche)
+	_shapes[key] = p
+	return p
 
 
 static func _sword(ci: CanvasItem, c: Vector2, s: float, col: Color, w: float) -> void:
@@ -886,6 +932,23 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 		"fig_hook_double":
 			_fsym(ci, "hook", c, s, k, w, Vector2(-0.35, 0.05), 0.72)
 			_fsym(ci, "hook", c, s, k, w, Vector2(0.35, 0.05), 0.72)
+		"fig_wave":
+			_fsym(ci, "wave", c, s, k, w)
+		"fig_wave_stun":
+			_fsym(ci, "wave", c, s, k, w, Vector2(-0.22, 0.12), 0.72)
+			_shp(ci, "star4", c, s, k, Vector2(0.58, -0.55), 0.36)
+		"fig_point":
+			_fsym(ci, "point", c, s, k, w)
+		"fig_point_more":
+			_fsym(ci, "point", c, s, k, w, Vector2(-0.38, 0.0), 0.72)
+			for i in 3:
+				var yy := -0.45 + 0.45 * float(i)
+				_ln(ci, c, s, Vector2(0.25, yy), Vector2(0.85, yy * 1.4), k, w * 0.8)
+		"fig_triangle":
+			_fsym(ci, "triangle", c, s, k, w)
+		"fig_triangle_long":
+			_fsym(ci, "triangle", c, s, k, w, Vector2(0.0, 0.05), 0.6)
+			_fsym(ci, "triangle", c, s, Color(k, k.a * 0.6), w * 0.7)
 		# ------------------------------------------------ sanctuaire, bandeaux, Atelier
 		"oni":
 			_dot(ci, c, s, Vector2(0, 0.2), 0.62, k)
@@ -1745,7 +1808,7 @@ static func mon(ci: CanvasItem, c: Vector2, r: float, kind: String, col: Color, 
 
 # nom en clair de chaque figure tracée
 const FIG_WORD := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOUR", "straight": "TRAIT DROIT",
-	"enso": "ENSO", "hook": "CROCHET"}
+	"enso": "ENSO", "hook": "CROCHET", "wave": "VAGUE", "point": "POINTE", "triangle": "TRIANGLE"}
 # déclencheur (champ « trig ») en un ou deux mots, quand la phrase complète ne tient pas
 const TRIG_WORD := {"hit": "À CHAQUE COUP", "stroke": "À CHAQUE TRAIT", "arrive": "À L'ARRIVÉE", "kill": "EN TUANT",
 	"always": "PERMANENT", "dodge": "ESQUIVE", "hurt": "SI TOUCHÉ", "multi": "MULTI-TOUCHE", "target": "CIBLE",
@@ -1959,7 +2022,8 @@ const TRIG_ICON := {"arrive": "declencheurs/a_larrivee", "back": "declencheurs/d
 	"hurt": "declencheurs/quand_touche", "figure": "declencheurs/sur_figure"}
 # figure tracée -> pictogramme v2 (icons/figures, à l'encre de la figure)
 const FIG_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "straight": "figures/trait_droit",
-	"return": "figures/aller_retour", "enso": "figures/enso", "hook": "figures/crochet"}
+	"return": "figures/aller_retour", "enso": "figures/enso", "hook": "figures/crochet",
+	"wave": "figures/vague", "point": "figures/pointe", "triangle": "figures/triangle"}
 # glyphe d'un pouvoir dans son médaillon (gabarit 60, disque de rayon 28) : [tracé SVG, remplissage à la couleur
 # d'élément ?]. Pouvoirs dessinés par la maquette (Rouleaux, MesPouvoirs) ; les autres gardent glyph(icon_of(id)).
 const POWER_GLYPH := {
@@ -2052,6 +2116,13 @@ const POWER_GLYPH := {
 	"fig_hook": ["M36 14.7 V35.1 A5.9 5.9 0 0 1 24.1 35.1 L22.4 28.3 M17.2 32.5 L22.4 28.3 L26.6 33.7", false],
 	"fig_hook_back": ["M29 18.6 V33.8 A4.4 4.4 0 0 1 20.1 33.8 L18.8 28.7 M15 31.9 L18.8 28.7 L22 32.8 M43.6 33.6 A5.4 5.4 0 1 0 43.6 42.7 A4.1 4.1 0 1 1 43.6 33.6 Z", false],
 	"fig_hook_double": ["M25.4 18.8 V33.8 A4.4 4.4 0 0 1 16.6 33.8 L15.4 28.8 M11.6 31.9 L15.4 28.8 L18.5 32.8 M44.4 18.8 V33.8 A4.4 4.4 0 0 1 35.6 33.8 L34.4 28.8 M30.6 31.9 L34.4 28.8 L37.5 32.8", false],
+	# figures de l'arbre : S, V, triangle au trait simple (maquette Figures), sans pointe de flèche
+	"fig_wave": ["M16.5 37 C16.5 23 28.5 23 29.5 30 C30.5 37 42.5 37 42.5 23", false],
+	"fig_wave_stun": ["M11.5 39 C11.5 28.5 20.5 28.5 21.3 33.5 C22.1 38.5 31 38.5 31 28 M40 21 L46 15 M41.5 28.5 L49.5 28.5 M40 36 L46 42", false],
+	"fig_point": ["M21 16.5 L30 42 L39 16.5", false],
+	"fig_point_more": ["M13.5 17.5 L21.5 40 L29.5 17.5 M35 23 L47 16 M35 30.5 L49 30.5 M35 38 L47 45", false],
+	"fig_triangle": ["M30 16 L43.5 40 L16.5 40 Z", false],
+	"fig_triangle_long": ["M30 22.5 L38.5 37.5 L21.5 37.5 Z M30 11 L48 44 L12 44 Z", false],
 }
 
 static var _num_font: FontVariation = null

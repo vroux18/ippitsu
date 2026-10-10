@@ -2318,7 +2318,7 @@ const GOLD_DEEP := Color("#7A4E10")
 const HANKO := Color("#9E3028")  # rouge-brun du tampon du peintre
 const ASH_DARK := Color(0.22, 0.2, 0.22)
 const ASH_PALE := Color(0.46, 0.44, 0.45)
-const SEAL_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "return": "figures/aller_retour",
+const SEAL_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "return": "figures/aller_retour", "wave": "figures/vague", "point": "figures/pointe", "triangle": "figures/triangle",
 	"straight": "figures/trait_droit", "enso": "figures/enso", "hook": "figures/crochet"}
 
 var _static_fx := {}  # aura de charge en cours (Statique) : une seule à la fois
@@ -3804,3 +3804,234 @@ func _process(delta: float) -> void:
 		_dbg_step(dt)
 	if _pt != 0:
 		Perf.add(&"vfx", _pt)
+
+
+# ------------------------------------------------------------------ figures de l'arbre : ressac, kunai, kekkai
+# Même langage que les autres techniques : pinceau à trois couches (contour sumi, corps à l'encre de la figure,
+# cœur clair), trois temps (apparition, tenue, séchage), rien d'alloué par image.
+
+## Chemin régulier de `n` points le long de `pts` (plan XZ), adouci d'un passage (le tremblement du pouce).
+static func smooth_path(pts: PackedVector3Array, n: int) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	if pts.size() < 2:
+		return pts.duplicate()
+	var total := 0.0
+	for i in range(1, pts.size()):
+		total += pts[i].distance_to(pts[i - 1])
+	var i := 1
+	var acc := 0.0
+	for k in n:
+		var target := total * float(k) / float(n - 1)
+		while i < pts.size() - 1 and acc + pts[i].distance_to(pts[i - 1]) < target:
+			acc += pts[i].distance_to(pts[i - 1])
+			i += 1
+		var sl := pts[i].distance_to(pts[i - 1])
+		var t := clampf((target - acc) / maxf(sl, 0.0001), 0.0, 1.0)
+		var p := pts[i - 1].lerp(pts[i], t)
+		out.append(Vector3(p.x, 0.0, p.z))
+	var sm := out.duplicate()
+	for k in range(1, n - 1):
+		sm[k] = (out[k - 1] + out[k] * 2.0 + out[k + 1]) * 0.25
+	return sm
+
+
+## Normale « bombée » en chaque point du chemin (du côté extérieur de la courbe, opposé à son centre) ; là où le
+## chemin est presque droit (le point d'inflexion du S), la normale du voisin le plus courbé.
+static func path_out(path: PackedVector3Array) -> PackedVector3Array:
+	var n := path.size()
+	var out := PackedVector3Array()
+	out.resize(n)
+	var ok := PackedByteArray()
+	ok.resize(n)
+	ok.fill(0)
+	for i in n:
+		var a := path[maxi(0, i - 2)]
+		var c := path[mini(n - 1, i + 2)]
+		var v := path[i] - (a + c) * 0.5
+		v.y = 0.0
+		var tg := c - a
+		tg.y = 0.0
+		if v.length() > 0.02 * maxf(tg.length(), 0.01) and tg.length_squared() > 0.0001:
+			# perpendiculaire au chemin, du côté bombé
+			var nn := Vector3(-tg.z, 0.0, tg.x).normalized()
+			out[i] = nn if nn.dot(v) > 0.0 else -nn
+			ok[i] = 1
+	for i in n:
+		if ok[i] == 1:
+			continue
+		var best := -1
+		for d in range(1, n):
+			if i - d >= 0 and ok[i - d] == 1:
+				best = i - d
+				break
+			if i + d < n and ok[i + d] == 1:
+				best = i + d
+				break
+		out[i] = out[best] if best >= 0 else Vector3.RIGHT
+	return out
+
+
+## Ressac (vague) : une lame d'encre à l'encre de la figure (vert) se dresse le long du S, bombée vers l'extérieur,
+## et des crêtes de pinceau déferlent l'une après l'autre du départ à l'arrivée, poussées vers l'extérieur.
+func ressac(path: PackedVector3Array, nrm: PackedVector3Array, col: Color) -> void:
+	var n := path.size()
+	if n < 3:
+		return
+	_play("splash", 0.85, -4.0)
+	if main:
+		main.splash(path[n / 2], col, 8)
+	if not _rich(4.0):
+		for i in range(0, n, 6):
+			ring(Vector3(path[i].x, 0.09, path[i].z), col, 0.7)
+		return
+	# la lame : ruban le long du S, épais du côté bombé, effilé aux deux bouts
+	var c := PackedVector3Array()
+	var io := PackedFloat32Array()
+	var ii := PackedFloat32Array()
+	var bo := PackedFloat32Array()
+	var bi := PackedFloat32Array()
+	var co := PackedFloat32Array()
+	var ci := PackedFloat32Array()
+	for i in n:
+		var u := float(i) / float(n - 1)
+		c.append(path[i])
+		var p := pow(maxf(sin(PI * u), 0.0), 0.6) * (0.85 + 0.15 * sin(u * 23.0))
+		var hw := 0.5 * p
+		var ol := 0.05 * minf(1.0, p * 3.0)
+		io.append(hw + ol)
+		ii.append(-0.12 * p - ol)
+		bo.append(hw * 0.85)
+		bi.append(-0.1 * p)
+		co.append(hw * 0.35)
+		ci.append(hw * 0.05)
+	var mesh := _brush_mesh(c, nrm, [[io, ii], [bo, bi], [co, ci]], 10.0)
+	var node := Node3D.new()
+	add_child(node)
+	node.position = Vector3(0, 0.07, 0)
+	var lay := _layers(node, mesh, [_bramp(Color(INK, 0.9), -3), _bramp(col, -2), _sramp("ressac_core", Color(WATER_FOAM, 0.85), -1)])
+	_anim(node, 0.85, Vector3.ONE, Vector3.ONE, {"ns": true, "f": 0.3, "lay": lay})
+	# les crêtes : croissants à l'encre de la figure qui déferlent vers l'extérieur, du départ à l'arrivée
+	var step := maxi(2, n / 7)
+	for i in range(1, n - 1, step):
+		var d: Vector3 = nrm[i]
+		var cr := Node3D.new()
+		add_child(cr)
+		cr.position = path[i] + Vector3(0, 0.5, 0) + d * 0.3
+		cr.rotation.y = atan2(-d.x, -d.z)
+		var cl := _layers(cr, _cres_mesh(), [_bramp(Color(INK, 0.9), 4), _bramp(col, 5), _sramp("ressac_crest", Color(WATER_FOAM, 0.9), 6, true)])
+		var delay := 0.25 * float(i) / float(n)
+		_anim(cr, 0.5, Vector3.ONE * 0.45, Vector3.ONE * 1.05, {"g": 0.3, "f": 0.45, "lay": cl, "vel": d * 1.8, "pu": 0.2, "t": -delay})
+		if main and i % (step * 2) == 1:
+			main.splash(path[i] + d * 0.6, Color(WATER_FOAM, 1.0), 3)
+	_spatter(path[n / 2], 1.2, col, 1.0)
+	_shake(0.2)
+
+
+## Kunai : lame claire cernée d'encre qui file de `a` à `b` (après `delay` s), traînée de pinceau à l'encre de la
+## figure (orange) derrière elle, éclat d'encre à l'arrivée.
+func kunai(a: Vector3, b: Vector3, col: Color, delay := 0.0) -> void:
+	var d := b - a
+	d.y = 0.0
+	var l := d.length()
+	if l < 0.1:
+		return
+	var dn := d / l
+	var pa := Vector3(a.x, 0.75, a.z)
+	if not _rich(1.5):
+		_streak_line(pa, dn, l, 0.7, Color(INK, 0.9), col, Color(1, 1, 1, 0.8), 0.3, delay)
+		return
+	var life := clampf(l / 30.0, 0.18, 0.4)
+	var node := Node3D.new()
+	add_child(node)
+	node.position = pa
+	node.rotation.y = atan2(-dn.x, -dn.z)
+	var blade := _mi(node, _blade_mesh(), null)
+	blade.position.z = -0.35
+	blade.scale = Vector3(1.8, 1.0, 1.1)
+	var ring_mi := _mi(node, _unit_box(), _mat("kunai_ring", Color(INK, 0.95), 6))
+	ring_mi.scale = Vector3(0.12, 0.12, 0.3)
+	ring_mi.position.z = 0.15
+	_anim(node, life, Vector3.ONE, Vector3.ONE, {"ns": true, "vel": d / life, "t": -delay})
+	_streak_line(pa + dn * 0.2, dn, l, 1.5, Color(INK, 0.85), col, Color(1, 0.95, 0.85, 0.85), life + 0.25, delay)
+	_flare(Vector3(b.x, 0.75, b.z), col.lightened(0.4), 0.5, 0.14, delay + life)
+
+
+## Kekkai (triangle) : sceau triangulaire posé au sol sur les sommets `tri` (centre `c`) : bord au pinceau à
+## l'encre de la figure (ardoise), voile pâle dedans, triangle intérieur inversé qui tourne lentement, ofuda aux
+## sommets. Le nœud appartient à l'appelant (powers) : kekkai_close le referme et le libère.
+func kekkai(tri: PackedVector3Array, c: Vector3, col: Color) -> Node3D:
+	var node := Node3D.new()
+	add_child(node)
+	node.position = Vector3(c.x, 0.06, c.z)
+	var rel := PackedVector3Array()
+	for p in tri:
+		rel.append(Vector3(p.x - c.x, 0.0, p.z - c.z))
+	# voile
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for p in rel:
+		st.add_vertex(p)
+	var fill := _mi(node, st.commit(), _mat("kekkai_fill", Color(col, 0.22), -4))
+	fill.position.y = -0.01
+	# bord : trois traits de pinceau (un par côté, prolongés un peu au-delà des sommets : coins nets)
+	_layers(node, _tri_mesh(rel, 0.13), [_bramp(Color(INK, 0.9), -3), _bramp(col, -2), _sramp("kekkai_core", Color(Toon.WASHI, 0.9), -1)])
+	_anim(node, 0.3, Vector3.ONE * 1.25, Vector3.ONE, {"g": 1.0, "keep": true})
+	# triangle intérieur inversé (sceau), qui tourne lentement
+	var inner := Node3D.new()
+	node.add_child(inner)
+	var inv := PackedVector3Array()
+	for p in rel:
+		inv.append(-p * 0.45)
+	_layers(inner, _tri_mesh(inv, 0.05), [_bramp(Color(INK, 0.7), -3), _bramp(Color(col, 0.8), -2)])
+	_anim(inner, 9999.0, Vector3.ONE, Vector3.ONE, {"ns": true, "spin": 0.5, "keep": true})
+	# ofuda aux sommets : papier washi barré d'encre
+	for p in rel:
+		var o := _mi(node, _unit_box(), _mat("kekkai_ofuda", Toon.WASHI, 0))
+		o.position = p + Vector3(0, 0.25, 0)
+		o.scale = Vector3(0.22, 0.5, 0.05)
+		o.rotation.y = atan2(p.x, p.z)
+		var bar := _mi(o, _unit_box(), _mat("kekkai_bar", Color(col.darkened(0.3), 1.0), 1))
+		bar.scale = Vector3(0.5, 0.6, 1.2)
+	_flare(c + Vector3(0, 0.6, 0), col.lightened(0.5), 0.8, 0.18)
+	_ink_pop(c + Vector3(0, 0.5, 0), 0.6)
+	_play("ink", 0.8, -4.0)
+	return node
+
+
+## Kekkai se referme : le sceau se resserre d'un coup sur son centre (libéré ensuite), onde d'encre, éclat.
+func kekkai_close(node: Variant, c: Vector3, col: Color) -> void:
+	if node != null and is_instance_valid(node):
+		var nd := node as Node3D
+		_anim(nd, 0.22, nd.scale, Vector3.ONE * 0.05, {"g": 1.0})
+	var g := Vector3(c.x, 0.08, c.z)
+	if _rich(3.0):
+		_shock(g, 2.2, Color(INK, 0.9), col, Color(Toon.WASHI, 0.9), false, 0.5, 0.12)
+		_flare(c + Vector3(0, 0.7, 0), col.lightened(0.5), 1.0, 0.18, 0.12)
+		_ink_pop(c + Vector3(0, 0.6, 0), 0.8)
+		_spatter(g, 1.6, INK, 1.0)
+	else:
+		ring(g, col, 1.6)
+	_flash(0.06)
+
+
+## Contour d'un triangle (sommets `rel`, plan XZ) en trois traits de pinceau à trois couches, demi-largeur hw.
+func _tri_mesh(rel: PackedVector3Array, hw: float) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	var cen := (rel[0] + rel[1] + rel[2]) / 3.0
+	var lays := [[hw + 0.03, -hw - 0.03], [hw * 0.78, -hw * 0.78], [hw * 0.22, -hw * 0.22]]
+	for li in lays.size():
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for k in 3:
+			var a: Vector3 = rel[k]
+			var b: Vector3 = rel[(k + 1) % 3]
+			var dd := (b - a).normalized()
+			var nn := Vector3(-dd.z, 0, dd.x)
+			if nn.dot((a + b) * 0.5 - cen) < 0.0:
+				nn = -nn
+			var ext := hw * 1.2
+			var pts := PackedVector3Array([a - dd * ext, b + dd * ext])
+			var pr: Array = lays[li]
+			_strip(st, pts, PackedVector3Array([nn, nn]), PackedFloat32Array([pr[0], pr[0]]), PackedFloat32Array([pr[1], pr[1]]), 0.004 * float(li), 4.0)
+		st.commit(mesh)
+	return mesh

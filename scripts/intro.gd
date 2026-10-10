@@ -28,10 +28,11 @@ const INPUT_DELAY := 0.3  # le toucher qui a ouvert l'intro (ou tourné la planc
 const TRANS := 0.35  # durée du fondu entre deux planches
 const JADE := Color("#3FD1B2")
 const SAND := Color("#E8CC97")  # fond de l'illustration (planche Tuto)
-# figures, dans l'ordre de la planche 3 (couleurs d'encre : UIColors.FIGURES_INK)
+# figures, dans l'ordre de la planche 3 (couleurs d'encre : UIColors.FIGURES_INK) ; la planche ne montre que les
+# six du départ : vague, pointe et triangle s'apprennent plus tard, dans l'arbre (leurs noms sont dans FIG_NAME)
 const FIGS := ["loop", "zigzag", "straight", "return", "enso", "hook"]
 const FIG_NAME := {"loop": "Boucle", "zigzag": "Zigzag", "straight": "Trait droit", "return": "Aller-retour",
-	"enso": "Enso", "hook": "Crochet"}
+	"enso": "Enso", "hook": "Crochet", "wave": "Vague", "point": "Pointe", "triangle": "Triangle"}
 # le Ronin de papier (même allure que le héros 3D, ninja_rig.gd RONIN_PAL) : chapeau de paille, chevelure
 # d'encre, kimono washi, hakama bleu de Prusse aux vagues claires, obi d'encre, écharpe vermillon
 const STRAW := Color("#CDAB6B")

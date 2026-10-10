@@ -997,15 +997,20 @@ func _draw_build(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 		tx += float(tags[i][1]) + 5.0 * u
 
 
-## Les six figures, chacune avec son compte (celles tracées en couleur pleine, les autres pâles).
+## Les figures, chacune avec son compte (celles tracées en couleur pleine, les autres pâles).
 func _draw_figures(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "elements/figure", u, a)
 	var nf := UiKit.num_font()
-	var step := (x1 - x) / float(UiKit.FIGURES.size())
+	# les six du départ, puis celles de l'arbre seulement si elles ont été tracées dans la partie (la ligne tient)
+	var figs: Array = []
+	for f in UiKit.FIGURES:
+		if not String(f) in UiKit.FIGURES_TREE or int(stat_shapes.get(String(f), 0)) > 0:
+			figs.append(String(f))
+	var step := (x1 - x) / float(figs.size())
 	var fs := int(12 * u)
-	for i in UiKit.FIGURES.size():
-		var sh := String(UiKit.FIGURES[i])
+	for i in figs.size():
+		var sh := String(figs[i])
 		var n := int(stat_shapes.get(sh, 0))
 		var k := UiKit.ease_out(clampf((_t - 0.8 - 0.05 * float(i)) / 0.3, 0.0, 1.0))
 		if k <= 0.0:

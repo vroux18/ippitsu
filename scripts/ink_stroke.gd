@@ -23,7 +23,8 @@ var _ring: MeshInstance3D
 var danger := false
 # figure reconnue pendant le tracé : l'encre se teinte légèrement de la couleur de la figure
 const FIG_INK := {"loop": Color("#3E9C8C"), "zigzag": Color("#D9A93A"), "return": Color("#3D7EC4"),
-	"hook": Color("#8A5BB0"), "straight": Color("#C8463A"), "enso": Color("#C2668F")}
+	"hook": Color("#8A5BB0"), "straight": Color("#C8463A"), "enso": Color("#C2668F"),
+	"wave": Color("#4F8A3C"), "point": Color("#D9772E"), "triangle": Color("#5E6E8C")}
 var figure := ""
 var probe_len := 0.0  # longueur au dernier test de figure (main)
 var raw := PackedVector3Array()  # geste du doigt au sol, sans le rognage des bords (lecture des figures)

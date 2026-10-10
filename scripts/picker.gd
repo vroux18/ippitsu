@@ -67,7 +67,8 @@ const KNOB_R := 4.2  # demi-hauteur des coiffes du rouleau (× u)
 const CORD_H := 11.0  # hauteur du crochet du cordon au-dessus de la baguette (× u)
 const NO_CUT := 1.0e9  # pas de bord de papier : tout le contenu se voit
 # technique de chaque figure (étiquette des cartes de figure)
-const FIG_TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "return": "GARDE", "enso": "ENSŌ", "hook": "ESTOC"}
+const FIG_TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "return": "GARDE", "enso": "ENSŌ", "hook": "ESTOC",
+	"wave": "RESSAC", "point": "KUNAI", "triangle": "KEKKAI"}
 const POP_AT := 0.08  # légendaire retourné : le médaillon « pope » (s après la mi-retournement)
 const POP_DUR := 0.26
 const TXT_AT := 0.14  # puis le texte se fond

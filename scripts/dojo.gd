@@ -34,10 +34,12 @@ const HEAD_H := 50.0        # rangée du titre et des boutons (× u)
 const TASK_H := 26.0        # rangée du défi en cours, ou de la figure ciblée (× u)
 const PAGE_HEAD := 50.0     # titre fixe du carnet, au-dessus de la partie qui défile (× u)
 # technique que débloque le rouleau de chaque figure (power_data : fig_loop, fig_zigzag…)
-const TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "return": "GARDE", "enso": "ONDE DE CHOC", "hook": "ESTOC"}
+const TECH := {"loop": "TOUPIE", "zigzag": "ÉCLAIR", "straight": "IAÏ", "return": "GARDE", "enso": "ONDE DE CHOC", "hook": "ESTOC",
+	"wave": "RESSAC", "point": "KUNAI", "triangle": "KEKKAI"}
 # picto de la technique de chaque figure (SVG techniques/*) ; le geste animé de la tuile montre comment la tracer
 const TECH_ICON := {"loop": "techniques/toupie", "zigzag": "techniques/eclair", "straight": "techniques/iai",
-	"return": "techniques/garde", "enso": "techniques/onde_de_choc", "hook": "techniques/estoc"}
+	"return": "techniques/garde", "enso": "techniques/onde_de_choc", "hook": "techniques/estoc",
+	"wave": "techniques/ressac", "point": "techniques/kunai", "triangle": "techniques/kekkai"}
 const CHALLENGES := [
 	{"id": "loop_zz", "text": "Boucle puis zigzag d'affilée"},
 	{"id": "enso3", "text": "3 ensō de suite"},
@@ -286,7 +288,8 @@ func on_dash_end(_pos: Vector3, kills: int, shape: String) -> void:
 			_complete("enso3")
 		var all := true
 		for f in UiKit.FIGURES:
-			if int(counts.get(String(f), 0)) <= 0:
+			# le défi parle des six figures du départ (celles de l'arbre n'y entrent pas)
+			if not String(f) in UiKit.FIGURES_TREE and int(counts.get(String(f), 0)) <= 0:
 				all = false
 		if all:
 			_complete("all6")
@@ -726,7 +729,8 @@ func _draw_ghost(card: Rect2, u: float) -> void:
 
 # ------------------------------------------------------------------ dessin : page du carnet
 
-## Carnet (planche Carnet v2) : les six figures en tuiles sur deux colonnes (geste animé en grand, nom, picto de
+## Carnet (planche Carnet v2) : les figures en tuiles sur deux colonnes (celles de l'arbre pas encore apprises :
+## pâles) (geste animé en grand, nom, picto de
 ## la technique et compte ; la cible cernée de vermillon), puis l'entraînement et les défis.
 ## Le contenu défile sous le titre fixe ; la page est découpée à son cadre. Aucun texte d'explication :
 ## le geste qui se trace montre comment faire.
@@ -765,12 +769,14 @@ func _draw_page() -> void:
 		var rr := Rect2(Vector2(x0 + float(i % 2) * (tw + gap), y + float(int(i / 2.0)) * (th + gap)), Vector2(tw, th))
 		hits.append([Rect2(Vector2(rr.position.x, rr.position.y - top), rr.size), kind])
 		var n := int(counts.get(kind, 0))
+		# figure de l'arbre pas encore apprise : tuile pâle (elle ne se lit pas encore)
+		var learned: bool = not kind in UiKit.FIGURES_TREE or (main != null and main.meta != null and bool(main.meta.fig_learned(kind)))
 		if rr.end.y > 0.0 and rr.position.y < h:
 			ci.draw_style_box(UiKit.box(_psb, Color(ink, 0.05), int(12 * u), Color(col, 0.95 if is_t else 0.35), maxi(1, int((2.2 if is_t else 1.2) * u))), rr)
 			# le geste, en grand (trait sumi, départ vermillon)
 			var gs := tw - 36.0 * u
 			var gr := Rect2(Vector2(rr.get_center().x - gs / 2.0, rr.position.y + 10.0 * u), Vector2(gs, gs * 0.82))
-			UiKit.draw_gesture(ci, _psb, kind, gr, u, 1.0, _t + float(i) * 0.37, ink, true, true)
+			UiKit.draw_gesture(ci, _psb, kind, gr, u, 1.0 if learned else 0.35, _t + float(i) * 0.37, ink, true, true)
 			# nom à gauche, picto de la technique et compte à droite
 			var ty := rr.end.y - 12.0 * u
 			var nfs := int(13 * u)
@@ -787,7 +793,7 @@ func _draw_page() -> void:
 			var fcol: Color = InkStroke.FIG_INK.get(kind, Toon.GOLD)
 			ci.draw_circle(tc, 10.0 * u, Color(fcol, 1.0 if on else 0.25))
 			UiKit.draw_icon(ci, String(TECH_ICON.get(kind, "elements/figure")), tc, 13.0 * u, 1.0 if on else 0.5, Toon.WASHI)
-	y += 3.0 * (th + gap)
+	y += ceilf(float(UiKit.FIGURES.size()) / 2.0) * (th + gap)
 	_row_hits = hits
 	# entraînement : figures, zones fuies, ultimes (chiffres et un mot)
 	y += 4.0 * u
