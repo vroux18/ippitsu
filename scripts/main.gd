@@ -548,6 +548,10 @@ func _ready() -> void:
 		var fails: Array = StrokeShapes.self_test()
 		if not fails.is_empty():
 			print("SCRIPT ERROR: formes de trait : ", fails)
+	# `-- --figtest` : corpus de gestes (tools/fig_corpus.gd) -> matrice de confusion, puis sortie
+	if "--figtest" in OS.get_cmdline_user_args():
+		_figtest()
+		return
 	autoplay = autoplay or "autoplay" in wsearch
 	if autoplay or "room=" in wsearch:
 		_start(false)  # tests : directement dans les salles, sans le sanctuaire
@@ -4522,6 +4526,25 @@ func _touch_move(sp: Vector2) -> void:
 ## devient un zigzag ou un crochet. Le geste brut du doigt (raw) fait foi quand il lit une forme fermée
 ## (boucle, ensō, aller-retour) là où le trait posé n'en voit pas, ou en voit une plus pauvre.
 const FIG_CLOSED := ["loop", "enso", "return"]
+
+
+## `-- --figtest` : échelle du geste (mètres au sol par centimètre d'écran, caméra de jeu) puis le corpus de
+## gestes réalistes de tools/fig_corpus.gd (matrice de confusion, ratés), et le jeu se ferme.
+func _figtest() -> void:
+	_set_state("play")
+	_fit_camera()
+	var vs := get_viewport().get_visible_rect().size
+	var cm := vs.x / 7.0  # un téléphone fait ~7 cm de large : pixels par centimètre d'écran
+	print("FIGTEST vue %s ; coins de l'arène à l'écran : %s %s %s %s" % [str(vs), str(cam.unproject_position(Vector3(-HALF.x, 0, -HALF.y))),
+		str(cam.unproject_position(Vector3(HALF.x, 0, -HALF.y))), str(cam.unproject_position(Vector3(-HALF.x, 0, HALF.y))), str(cam.unproject_position(Vector3(HALF.x, 0, HALF.y)))])
+	for ky: float in [0.3, 0.5, 0.7, 0.85]:
+		var a := _ground(Vector2(vs.x * 0.5, vs.y * ky))
+		var bx := _ground(Vector2(vs.x * 0.5 + cm, vs.y * ky))
+		var by := _ground(Vector2(vs.x * 0.5, vs.y * ky - cm))
+		print("FIGTEST échelle y=%.2f : 1 cm d'écran = %.2f m (horizontal), %.2f m (vertical)" % [ky, a.distance_to(bx), a.distance_to(by)])
+	var FigCorpus = load("res://tools/fig_corpus.gd")
+	FigCorpus.run(true)
+	get_tree().quit()
 
 
 func _detect_fig(s: Node) -> Dictionary:
