@@ -1,9 +1,11 @@
 extends Control
 ## Atelier : l'atelier du peintre. En-tête fin (retour, titre), jetons (encre, Vues), commande segmentée à deux onglets :
-## - Arbre : l'Arbre du pinceau (meta.TREE, maquette validée) sur une feuille de papier : un tronc, quatre branches
-##   (LAME, ENCRE, PAPIER, VOIE) de six nœuds et un sommet légendaire cerné d'or. Toucher un nœud le décrit dans
-##   le panneau sombre du bas (branche, nom, effet, état) ; APPRENDRE l'achète en encre si celui du dessous est appris.
-##   Hors de l'arbre, en bas à gauche de la feuille : la Bourse (pièce, cinq rangs en encre, AMÉLIORER) ;
+## - Arbre : l'Arbre du pinceau (meta.TREE, maquette validée) peint à l'encre sur le washi : tronc au pinceau, quatre
+##   branches courbes (LAME, ENCRE, PAPIER, VOIE) de six nœuds et un sommet légendaire (scripts/tree_art.gd), au lavis
+##   tant qu'elles ne sont pas apprises ; nœuds en sceaux hanko, kamon (scripts/kamon.gd). Toucher un nœud le décrit
+##   dans le panneau sombre du bas (branche, nom, effet, état) ; APPRENDRE l'achète en encre si celui du dessous est
+##   appris : la branche s'encre jusqu'à lui, le sceau se pose, une fleur s'ouvre. Hors de l'arbre, au pied à gauche :
+##   la Bourse (petite pièce, cinq rangs en encre, AMÉLIORER) ;
 ## - Estampes : la collection des Vues (filtre par apparence) ; toucher ouvre la fiche de l'estampe, toucher encore
 ##   porte l'apparence : un sceau vermillon s'imprime.
 
@@ -12,6 +14,8 @@ const Meta = preload("res://scripts/meta.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
 const Data = preload("res://scripts/power_data.gd")
+const TreeArt = preload("res://scripts/tree_art.gd")
+const Kamon = preload("res://scripts/kamon.gd")
 
 const BG := Color("#201814")  # bois sombre
 const GOLD_HI := Color("#E2A93B")
@@ -33,24 +37,26 @@ const TAB_GLYPHS := ["at_drop", "at_print"]
 const CHIP_GLYPHS := ["at_drop", "at_print"]
 const CHIP_COLORS := [Color("#2F5D8A"), Color("#C49A45")]
 const CHIP_LABELS := ["ENCRE", "VUES"]
-# arbre : abscisse de chaque branche (fraction de la feuille, maquette 52/148/242/338 sur 390), panneau du bas (× u),
-# zone tactile d'un nœud (× u, ≥ 44)
-const BRANCH_X := {"lame": 52.0 / 390.0, "encre": 148.0 / 390.0, "papier": 242.0 / 390.0, "voie": 338.0 / 390.0}
-const DETAIL_H := 168.0
+# arbre : haut du washi sous les onglets, panneau du bas (× u, sans la marge du bas) ; couleurs de la maquette
+const WASHI_Y := 156.0
+const DETAIL_H := 160.0
 const PURSE := "purse"  # clé de la Bourse (hors de l'arbre) parmi les nœuds touchables
-const NODE_HIT := 52.0
-# glyphes des nœuds (tracés de la maquette, gabarit 60 × 60 centré en 30,30) : [tracé, épaisseur, rempli]
-# Vague (S), Pointe (V) et Triangle : dessins simples, en attendant les pictos des nouvelles figures dans UiKit
-const GLYPH_PATHS := {
-	"lame": ["M21 39 L39 21 M19 34 L26 41", 3.6, false],
-	"encre": ["M30 19 C35 27 38 30 38 34 A8 8 0 0 1 22 34 C22 30 25 27 30 19 Z", 1.0, true],
-	"papier": ["M30 19 L39 23 L39 31 C39 37 34 40 30 42 C26 40 21 37 21 31 L21 23 Z", 3.0, false],
-	"voie": ["M28 30 a2 2 0 1 1 4 0 a5 5 0 1 1 -9 -1.5 a9 9 0 1 1 16 5", 3.0, false],
-	"vague": ["M19 34 C19 24 29 24 30 30 C31 36 41 36 41 26", 3.4, false],
-	"pointe": ["M21 20 L30 40 L39 20", 3.4, false],
-	"triangle": ["M30 19 L41 38 L19 38 Z", 3.4, false],
-	"racine": ["M20 38 C26 28 32 22 40 20", 4.0, false],
-}
+const GROW_INK := 0.55  # achat : l'encre monte jusqu'au nœud (s), puis le sceau se pose et la fleur s'ouvre
+const TREE_WASHI := Color("#EFE6D2")
+const TREE_PAPER := Color("#F7F0DF")
+const TREE_SUMI := Color("#1B1A1E")
+const TREE_FIBER := Color("#B9AA8C")
+const TREE_GROUND := Color("#E4D9C2")
+const TREE_SUN := Color("#D7372B")
+const TREE_ENSO := Color("#BDB19A")
+const TREE_LAVIS := Color("#B3A78F")
+const TREE_STAMP := Color("#C8322A")
+const TREE_OK := Color("#8FD6A8")
+const TREE_MISS := Color("#FF8A7A")
+const SEAL_GOLD := Color("#C49A45")
+const SEAL_LINE := Color("#F5EEDD")
+const PLUM := Color("#E06A7A")
+const PLUM_GOLD := Color("#E2A93B")
 const FILTERS := ["TOUT", "ÉCHARPES", "SILLAGES", "ENCRES"]
 const FILTER_KINDS := ["", "cape", "trail", "ink"]
 const KIND_LABELS := {"cape": "ÉCHARPE", "trail": "SILLAGE", "ink": "ENCRE"}
@@ -69,10 +75,18 @@ var _seg := 0.0  # position animée du segment actif
 var _filter := 0  # filtre des estampes (0 = tout)
 var _sel := ""  # estampe choisie (« print:w1_room ») : sa fiche est ouverte, le toucher suivant porte l'apparence
 var _tree_sel := ""  # nœud de l'arbre décrit dans le panneau du bas (« root » : le tronc)
-var _tree_rect := Rect2()  # feuille de l'arbre
 var _detail_rect := Rect2()  # panneau du bas
-var _tree_step := 60.0  # écart entre deux étages (px)
+var _washi_y := 0.0  # haut du washi (bord déchiré)
+var _tm_o := Vector2.ZERO  # repère de la maquette -> écran : origine et échelle (TreeArt)
+var _tm_s := Vector2.ONE
+var _kn := 1.0  # taille des nœuds (unités de la maquette -> pixels)
 var _node_pos := {}  # id de nœud -> centre (écran)
+var _node_rot := {}  # id de nœud -> inclinaison du sceau
+var _grow_id := ""  # achat en cours d'animation : nœud, branche, encre de / jusqu'à (paramètre t), temps
+var _grow_b := ""
+var _grow_from := 0.0
+var _grow_to := 0.0
+var _grow_t := 9.0
 var _pressed := ""  # cible sous le doigt
 var _holding := false
 var _dragging := false
@@ -109,6 +123,10 @@ var _bot := 0.0  # marge de sécurité du bas (barre de geste), en pixels
 var _title := FontVariation.new()
 var _ui := FontVariation.new()
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
+var _lab := FontVariation.new()  # arbre : noms des branches (Mincho espacé)
+var _cap := FontVariation.new()  # arbre : petites capitales du panneau
+var _stampf := FontVariation.new()  # arbre : bouton en tampon
+var _state := FontVariation.new()  # arbre : état du nœud
 
 
 func _ready() -> void:
@@ -119,6 +137,10 @@ func _ready() -> void:
 	_title.spacing_glyph = UiKit.TITLE_SPACING
 	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = UiKit.CAPS_SPACING
+	_lab.base_font = UiKit.TITLE_FONT
+	_cap.base_font = UiKit.UI_FONT
+	_stampf.base_font = UiKit.TITLE_FONT
+	_state.base_font = UiKit.UI_FONT
 	# les listes (sceaux, estampes) se dessinent dans un enfant qui découpe ce qui dépasse
 	_list = Control.new()
 	_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -147,6 +169,9 @@ func open() -> void:
 	_shake = 0.0
 	_msg_t = 0.0
 	_spent_t = 0.0
+	_grow_id = ""
+	_grow_b = ""
+	_grow_t = 9.0
 	_scroll = 0.0
 	_vel = 0.0
 	_content_h = 0.0
@@ -386,6 +411,7 @@ func _process(_delta: float) -> void:
 	_shake = maxf(0.0, _shake - real * 2.5)
 	_msg_t = maxf(0.0, _msg_t - real)
 	_spent_t = maxf(0.0, _spent_t - real)
+	_grow_t += real
 	_seg = lerpf(_seg, float(_tab), 1.0 - exp(-16.0 * real))
 	if meta != null:
 		# le compteur défile vers sa nouvelle valeur
@@ -426,6 +452,10 @@ func _layout() -> void:
 	_bot = ins.y
 	_u = minf(w / 400.0, (h - _top - _bot) / 780.0)
 	var u := _u
+	_spacing(_lab, 3.0 * u)
+	_spacing(_cap, 3.0 * u)
+	_spacing(_stampf, 3.0 * u)
+	_spacing(_state, 1.0 * u)
 	var top := _top + (LIST_TOP_PRINTS if _tab == 1 else LIST_TOP) * u
 	var reserve := 16.0 * u
 	_view = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(10.0, h - _bot - reserve - top)))
@@ -447,6 +477,13 @@ func _layout() -> void:
 		_sheet_panel = Rect2()
 		_sheet_btn = Rect2()
 		_sheet_x = Rect2()
+
+
+## Espacement des lettres (maquette : letter-spacing en px), mis à jour seulement s'il change.
+func _spacing(f: FontVariation, px: float) -> void:
+	var v := int(round(px))
+	if f.spacing_glyph != v:
+		f.spacing_glyph = v
 
 
 func _to_screen(r: Rect2) -> Rect2:
@@ -730,9 +767,15 @@ func _learn() -> void:
 	if meta == null or not Meta.TREE.has(id) or meta.learned(id):
 		return
 	var c: int = meta.node_cost(id)
+	var b := String(Meta.TREE[id]["b"])
+	var from := _branch_last(b, false)
 	if meta.learn(id):
-		_stamp_key = "node:" + id
-		_stamp = 1.0
+		# la branche s'encre jusqu'au nœud (l'achat précédent, s'il s'anime encore, se termine d'un coup)
+		_grow_id = id
+		_grow_b = b
+		_grow_from = from
+		_grow_to = TreeArt.node_t(b, int(Meta.TREE[id]["t"]))
+		_grow_t = 0.0
 		_bump = 1.0
 		_bump_i = 0
 		_spent = "-%d" % c
@@ -741,73 +784,107 @@ func _learn() -> void:
 		_refuse("learn")
 
 
-## Géométrie de l'arbre (feuille de papier, panneau du bas, centre de chaque nœud), adaptée à la hauteur.
+## Géométrie de l'arbre : la maquette (repère TreeArt) est posée sur le washi, entre le bandeau du haut (en-tête,
+## jetons, onglets) et le panneau du bas ; pleine largeur, hauteur ajustée à l'écran. Les nœuds gardent leur taille
+## (facteur _kn, uniforme) : seules leurs positions suivent la courbe des branches.
 func _tree_layout(w: float, h: float, u: float) -> void:
-	var top := _top + LIST_TOP * u
-	var ph := DETAIL_H * u
-	_detail_rect = Rect2(Vector2(10 * u, h - _bot - 10 * u - ph), Vector2(w - 20 * u, ph))
-	_tree_rect = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(80.0 * u, _detail_rect.position.y - 10 * u - top)))
-	var root_y := _tree_rect.end.y - 31.0 * u
-	var t1 := root_y - 50.0 * u
-	var t7 := _tree_rect.position.y + 37.0 * u
-	_tree_step = minf(66.0 * u, maxf(10.0, (t1 - t7) / 6.0))
+	_washi_y = _top + WASHI_Y * u
+	var ph := DETAIL_H * u + _bot
+	_detail_rect = Rect2(Vector2(0, h - ph), Vector2(w, ph))
+	var panel_y := _detail_rect.position.y + 8.0 * u  # milieu du bord déchiré
+	_tm_s = Vector2(w / TreeArt.WIDTH, maxf(0.2, (panel_y - _washi_y) / (TreeArt.BOTTOM - TreeArt.TOP)))
+	_tm_o = Vector2(0.0, _washi_y - TreeArt.TOP * _tm_s.y)
+	_kn = minf(u, (_tm_s.x + _tm_s.y) * 0.5)
 	_node_pos.clear()
-	_node_pos[Meta.TREE_ROOT] = Vector2(_tree_rect.get_center().x, root_y)
-	# Bourse : coin bas gauche, sous la branche LAME (la courbe du tronc passe au-dessus)
-	_node_pos[PURSE] = Vector2(_tree_rect.position.x + _tree_rect.size.x * float(BRANCH_X["lame"]), root_y + 4.0 * u)
+	_node_rot.clear()
+	_node_pos[Meta.TREE_ROOT] = _m(TreeArt.ROOT)
+	_node_rot[Meta.TREE_ROOT] = deg_to_rad((TreeArt.rnd(TreeArt.ROOT.x + TreeArt.ROOT.y) - 0.5) * 12.0)
+	_node_pos[PURSE] = _m(TreeArt.PURSE)
 	for id in Meta.TREE_ORDER:
 		var n: Dictionary = Meta.TREE[id]
-		var bx: float = _tree_rect.position.x + _tree_rect.size.x * float(BRANCH_X[String(n["b"])])
-		_node_pos[String(id)] = Vector2(bx, t1 - float(int(n["t"]) - 1) * _tree_step)
+		var p := TreeArt.node_pos(String(n["b"]), int(n["t"]))
+		_node_pos[String(id)] = _m(p)
+		_node_rot[String(id)] = deg_to_rad((TreeArt.rnd(p.x + p.y) - 0.5) * 12.0)  # sceau légèrement de travers
+
+
+## Repère de la maquette (groupe des branches) -> écran.
+func _m(p: Vector2) -> Vector2:
+	return _tm_o + p * _tm_s
 
 
 func _branch_col(id: String) -> Color:
 	if id == PURSE:
 		return UIColors.GOLD
 	if not Meta.TREE.has(id):
-		return UIColors.SUMI
+		return TREE_SUMI
 	var n: Dictionary = Meta.TREE[id]
 	var b: Dictionary = Meta.BRANCHES[String(n["b"])]
 	return b["col"]
 
 
-## Feuille de l'arbre (papier washi, comme la maquette) puis panneau de détail sombre en bas.
+## Nœud appris (pendant l'achat, le nœud acheté attend que l'encre l'atteigne).
+func _owned(id: String) -> bool:
+	if id == _grow_id and _grow_t < GROW_INK:
+		return false
+	return bool(meta.learned(id))
+
+
+## Paramètre t du dernier nœud appris de la branche b (0 : aucun) ; pendant l'achat, l'encre monte jusqu'au nœud.
+func _branch_last(b: String, animated := true) -> float:
+	var last := 0.0
+	for id in Meta.TREE_ORDER:
+		var n: Dictionary = Meta.TREE[id]
+		if String(n["b"]) == b and bool(meta.learned(String(id))):
+			last = maxf(last, TreeArt.node_t(b, int(n["t"])))
+	if animated and b == _grow_b and _grow_t < GROW_INK:
+		return lerpf(_grow_from, _grow_to, UiKit.ease_out(_grow_t / GROW_INK))
+	return last
+
+
+## Arbre peint à l'encre (maquette validée) : washi et ses fibres, soleil pâle, sol ; tronc au pinceau, branches au
+## lavis repassées à l'encre pleine jusqu'au dernier nœud appris, brindilles, fleurs de prunier, noms des branches ;
+## nœuds (sceaux, ronds disponibles, ensō à venir) ; la Bourse ; panneau sombre du bas.
 func _draw_tree(w: float, h: float, u: float) -> void:
 	if meta == null:
 		return
 	_tree_layout(w, h, u)
 	var a := UiKit.ease_out(_tab_t / 0.3)
-	var tr := _tree_rect
-	_panel(self, tr, Color(UIColors.WASHI, a), UiKit.R_L * u, Color(UIColors.SUMI, 0.5 * a), 1.5 * u, 0.4 * a, u)
-	UiKit.fibres(self, tr.grow(-8.0 * u), UIColors.SUMI, a, u, 4.2, 10)
-	# légende en bas à droite, sous les liens
-	var cap := _p("ARBRE DU PINCEAU")
-	var cfs := int(UiKit.FS_MICRO * u)
-	var cw := _ui.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
-	var cx := tr.end.x - 14 * u - cw
-	draw_string(_ui, Vector2(cx, tr.end.y - 11 * u), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(UIColors.TEXT_MUTED, 0.8 * a))
-	draw_rect(Rect2(Vector2(tr.end.x - 14 * u - minf(cw, 60.0 * u), tr.end.y - 8 * u), Vector2(minf(cw, 60.0 * u), 2.0 * u)), Color(UIColors.VERMILION, a))
-	# liens : du tronc au premier nœud (courbe), puis d'étage en étage ; couleur de la branche une fois appris
-	var root: Vector2 = _node_pos[Meta.TREE_ROOT]
+	# washi au bord haut déchiré (le bois et l'en-tête font le bandeau sombre du haut)
+	var wp := PackedVector2Array()
+	for q in TreeArt.torn(true):
+		wp.append(Vector2(q.x * w, _washi_y + (q.y - 100.0) * u))
+	wp.append(Vector2(w, h))
+	wp.append(Vector2(0, h))
+	draw_colored_polygon(wp, Color(TREE_WASHI, a))
+	var sw := (_tm_s.x + _tm_s.y) * 0.5
+	for f in TreeArt.fibers():
+		draw_line(_m(f[0]), _m(f[1]), Color(TREE_FIBER, float(f[3]) * a), float(f[2]) * sw, true)
+	draw_circle(_m(TreeArt.SUN), TreeArt.SUN_R * sw, Color(TREE_SUN, 0.13 * a))
+	# encre : maillages précalculés, dans le repère de la maquette
+	draw_set_transform(_tm_o, 0.0, _tm_s)
+	draw_colored_polygon(TreeArt.ground(), Color(TREE_GROUND, a))
+	draw_mesh(TreeArt.trunk(), null, Transform2D.IDENTITY, Color(TREE_SUMI, 0.9 * a))
+	var lasts := {}
+	for b in Meta.BRANCH_ORDER:
+		lasts[b] = _branch_last(String(b))
+		draw_mesh(TreeArt.faint(String(b)), null, Transform2D.IDENTITY, Color(TREE_SUMI, 0.16 * a))
+		var im: ArrayMesh = TreeArt.ink(String(b), float(lasts[b]))
+		if im != null:
+			draw_mesh(im, null, Transform2D.IDENTITY, Color(TREE_SUMI, 0.9 * a))
+	for tw in TreeArt.twigs():
+		var on: bool = float(tw[1]) <= float(lasts[String(tw[0])])
+		draw_mesh(tw[2], null, Transform2D.IDENTITY, Color(TREE_SUMI, (0.85 if on else 0.18) * a))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+	# fleurs de prunier autour des sceaux (or autour des sommets) ; celle du nœud acheté s'ouvre
 	for id in Meta.TREE_ORDER:
-		var n: Dictionary = Meta.TREE[id]
-		var p: Vector2 = _node_pos[String(id)]
-		var on: bool = meta.learned(String(id))
-		var col: Color = _branch_col(String(id)) if on else UIColors.LINE_MUTED
-		var lw := (5.0 if on else 3.0) * u
-		if int(n["t"]) == 1:
-			var pts := PackedVector2Array()
-			var c1 := root + Vector2(0, -30.0 * u)
-			var c2 := p + Vector2(0, 40.0 * u)
-			for i in 17:
-				var t := float(i) / 16.0
-				var q := 1.0 - t
-				pts.append(root * q * q * q + c1 * 3.0 * q * q * t + c2 * 3.0 * q * t * t + p * t * t * t)
-			draw_polyline(pts, Color(col, a), lw, true)
-		else:
-			var below: Vector2 = _node_pos[String(meta.node_prereq(String(id)))]
-			draw_line(below, p, Color(col, a), lw, true)
-	# nœuds (le tronc d'abord)
+		if _owned(String(id)):
+			_blossoms(String(id), a)
+	# noms des branches, au pied de chacune
+	var lfs := maxi(1, int(10.0 * _kn))
+	for b in Meta.BRANCH_ORDER:
+		var bd: Dictionary = Meta.BRANCHES[b]
+		var lp := _m(TreeArt.BR[b]["lab"])
+		UiKit.text(self, _lab, String(bd["name"]), lp, lfs, Color(bd["col"], a))
 	_tree_node(Meta.TREE_ROOT, u, a)
 	for id in Meta.TREE_ORDER:
 		_tree_node(String(id), u, a)
@@ -815,19 +892,41 @@ func _draw_tree(w: float, h: float, u: float) -> void:
 	_draw_detail(w, u)
 
 
-## Bourse (hors de l'arbre) : pièce d'or plus petite qu'un nœud, son rang dessous (« 2/5 ») ; pleine au rang max.
+## Deux fleurs de prunier (cinq pétales, cœur d'or) près du sceau d'un nœud appris.
+func _blossoms(id: String, a: float) -> void:
+	var n: Dictionary = Meta.TREE[id]
+	var tier := int(n["t"])
+	var cap := tier == 7
+	var c: Vector2 = _node_pos[id]
+	var k := _kn
+	if id == _grow_id:
+		var f := clampf((_grow_t - GROW_INK + 0.1) / 0.45, 0.0, 1.0)
+		k *= UiKit.ease_out(f) * (1.0 + 0.25 * sin(f * PI))
+		if k <= 0.0:
+			return
+	var col: Color = (PLUM_GOLD if cap else PLUM).lerp(TREE_WASHI, 0.1)
+	for j in 2:
+		var ang := TreeArt.rnd(float(tier * 13 + j * 5 + String(n["b"]).length())) * TAU
+		var rr := (30.0 if cap else 25.0) + float(j) * 4.0
+		var bc := c + Vector2.from_angle(ang) * rr * _kn
+		for q in 5:
+			draw_circle(bc + Vector2.from_angle(ang + float(q) * 1.2566) * 3.2 * k, 2.6 * k, Color(col, a))
+		draw_circle(bc, 1.6 * k, Color(PLUM_GOLD, a))
+
+
+## Bourse (hors de l'arbre) : petite pièce d'or au pied de l'arbre, son rang à côté (« 2/5 ») ; pleine au rang max.
 func _purse_node(u: float, a: float) -> void:
 	var c: Vector2 = _node_pos[PURSE]
 	var key := "node:" + PURSE
-	var k := 40.0 / 60.0 * u
+	var k := 0.62 * _kn
 	if _pressed == key:
 		k *= 0.94
 	var maxed: bool = meta.purse_cost() < 0
 	var r: int = meta.purse_rank
 	if _tree_sel == PURSE:
-		draw_circle(c, 29.0 * k, Color(UIColors.GOLD, 0.25 * a))
-	draw_circle(c, 22.0 * k, Color(UIColors.GOLD if r > 0 else UIColors.WASHI_LIGHT, a))
-	draw_arc(c, 22.0 * k, 0.0, TAU, 40, Color(UIColors.SUMI if maxed else UIColors.GOLD_DARK, a), 2.5 * k, true)
+		_sel_blot(c, 20.0 * _kn, UIColors.GOLD, a)
+	draw_circle(c, 22.0 * k, Color(UIColors.GOLD if r > 0 else TREE_PAPER, a))
+	draw_arc(c, 22.0 * k, 0.0, TAU, 40, Color(TREE_SUMI if maxed else UIColors.GOLD_DARK, a), 2.5 * k, true)
 	UiKit.koban(self, c, 11.0 * k, a)
 	var t := "%d/%d" % [r, Meta.PURSE_COSTS.size()]
 	var fs := int(UiKit.FS_MICRO * u)
@@ -840,65 +939,92 @@ func _purse_node(u: float, a: float) -> void:
 	_hits.append([Rect2(Vector2(c.x - UiKit.TOUCH_MIN * u / 2.0, c.y - UiKit.TOUCH_MIN * u / 2.0), Vector2(hw, UiKit.TOUCH_MIN * u)), key])
 
 
-## Un nœud (maquette : disque 22 dans un gabarit 60 ; sommet en 60, nœud en 50) : appris = plein à la couleur de la
-## branche, disponible = anneau de couleur sur papier clair, verrouillé = gris et cadenas ; sommet cerné d'or.
+## Sélection : tache d'encre douce derrière le nœud, cerne en tirets.
+func _sel_blot(c: Vector2, r: float, col: Color, a: float) -> void:
+	for i in 4:
+		draw_circle(c, r * (1.12 - 0.08 * float(i)), Color(col, 0.05 * a))
+	var r2 := r * 25.0 / 27.0
+	var circ := TAU * r2
+	var dash := 70.0 / 82.0 * circ / 2.0
+	var gap := circ / 2.0 - dash
+	for d in 2:
+		var a0 := -PI * 0.5 + float(d) * (dash + gap) / r2 + _t * 0.15
+		draw_arc(c, r2, a0, a0 + dash / r2, 24, Color(col, 0.8 * a), 1.5 * _kn, true)
+
+
+## Un nœud (maquette : rond r18, sommet r22, sceau 36 / 46, kamon en papier) : appris = sceau hanko de travers à la
+## couleur de la branche (sommet : or, tronc : encre) ; disponible = rond de papier cerné de la couleur de la branche
+## et halo qui respire ; à venir = ensō à peine tracé, kamon au lavis.
 func _tree_node(id: String, u: float, a: float) -> void:
 	var c: Vector2 = _node_pos[id]
 	var is_root := id == Meta.TREE_ROOT
 	var cap := false
-	var glyph := "racine"
 	if not is_root:
 		var n: Dictionary = Meta.TREE[id]
 		cap = int(n["t"]) == 7
-		glyph = String(n["glyph"])
-	var owned: bool = meta.learned(id)
-	var av: bool = (not is_root) and bool(meta.node_open(id))
+	var owned: bool = _owned(id)
+	var av: bool = (not is_root) and (bool(meta.node_open(id)) or (id == _grow_id and not owned))
 	var col := _branch_col(id)
-	var k := (60.0 if cap else 50.0) / 60.0 * u  # unités de la maquette -> pixels
+	var kn := _kn
 	var key := "node:" + id
-	var cc := c
 	if _pressed == key:
-		k *= 0.94
+		kn *= 0.94
+	var r := 22.0 if cap else 18.0
 	if _tree_sel == id:
-		draw_circle(cc, 29.0 * k, Color(col, 0.22 * a))
-	if cap:
-		draw_arc(cc, 27.0 * k, 0.0, TAU, 48, Color(UIColors.GOLD_DARK, a), 2.5 * k, true)
-	var fill: Color = col if owned else (UIColors.WASHI_LIGHT if av else UIColors.WASHI_DARK)
-	var ring: Color = UIColors.SUMI if owned else (UIColors.GOLD_DARK if cap else (col if av else UIColors.LINE_MUTED))
-	var ring_w := 2.0 if owned else (3.5 if av else 2.0)
-	draw_circle(cc, 22.0 * k, Color(fill, a))
-	draw_arc(cc, 22.0 * k, 0.0, TAU, 48, Color(ring, a), ring_w * k, true)
-	var ink: Color = UIColors.WASHI_LIGHT if owned else (col if av else UIColors.DISABLED)
-	if is_root:
-		ink = UIColors.WASHI_LIGHT
-	var gd: Array = GLYPH_PATHS[glyph]
-	var gfill: Color = ink if bool(gd[2]) else UiKit.NONE
-	UiKit.draw_path(self, String(gd[0]), 60, cc, 60.0 * k, ink, float(gd[1]), gfill, a)
-	if not owned and not av and not is_root:
-		# cadenas : corps et anse
-		draw_arc(cc + Vector2(15.0, 9.5) * k, 3.6 * k, PI, TAU, 10, Color(UIColors.DISABLED, a), 1.8 * k, true)
-		_panel(self, Rect2(cc + Vector2(9.0, 9.0) * k, Vector2(12.0, 10.0) * k), Color(UIColors.DISABLED, a), 2.0 * k)
-	if _stamp_key == key and _stamp > 0.0:
-		var st := _stamp
-		draw_circle(cc, 22.0 * k, Color(1, 1, 1, 0.5 * st * st * a))
-		draw_arc(cc, 22.0 * k + (1.0 - st) * 40.0 * u, 0.0, TAU, 40, Color(GOLD_HI, st * a), 1.0 + 3.0 * u * st, true)
-	# zone tactile : 52 u de large, au moins 44 u de haut (l'étage peut être plus serré sur un petit écran)
-	var hh := clampf(_tree_step, UiKit.TOUCH_MIN * u, NODE_HIT * u)
-	_hits.append([Rect2(c - Vector2(NODE_HIT * u, hh) / 2.0, Vector2(NODE_HIT * u, hh)), key])
+		_sel_blot(c, 27.0 * _kn, col, a)
+	if av and not owned:
+		var ph := fmod(_t, 2.2) / 2.2
+		var tri := 1.0 - absf(1.0 - 2.0 * ph)
+		draw_arc(c, (r - 1.0 + 6.0 * tri) * kn, 0.0, TAU, 40, Color(col, 0.55 * (1.0 - tri) * a), 2.0 * kn, true)
+	var ink: Color
+	if owned:
+		# sceau : se pose (un peu plus grand, puis à sa taille) quand l'encre l'atteint
+		var pop := 0.0
+		if id == _grow_id:
+			pop = clampf(1.0 - (_grow_t - GROW_INK) / 0.35, 0.0, 1.0)
+		var kk := kn * (1.0 + 0.45 * pop * pop)
+		var sw := 46.0 if cap else 36.0
+		var seal: Color = TREE_SUMI if is_root else (SEAL_GOLD if cap else col)
+		draw_set_transform(c, float(_node_rot[id]), Vector2(kk, kk))
+		_panel(self, Rect2(Vector2(-sw, -sw) / 2.0, Vector2(sw, sw)), Color(seal, a), 6.0)
+		_panel(self, Rect2(Vector2(-sw + 6.0, -sw + 6.0) / 2.0, Vector2(sw - 6.0, sw - 6.0)), UiKit.NONE, 4.0, Color(SEAL_LINE, 0.55 * a), 1.0)
+		draw_set_transform_matrix(Transform2D.IDENTITY)
+		if pop > 0.0:
+			draw_arc(c, sw * 0.6 * kn + (1.0 - pop) * 34.0 * kn, 0.0, TAU, 40, Color(GOLD_HI, pop * a), 1.0 + 3.0 * kn * pop, true)
+		ink = TREE_PAPER
+	else:
+		draw_circle(c, r * kn, Color(TREE_PAPER, a))
+		if av:
+			draw_arc(c, r * kn, 0.0, TAU, 48, Color(col, a), 3.2 * kn, true)
+			ink = col
+		else:
+			draw_mesh(TreeArt.enso(r), null, Transform2D(0.0, Vector2(kn, kn), 0.0, c), Color(TREE_ENSO, a))
+			ink = TREE_LAVIS
+		if cap:
+			draw_arc(c, (r + 5.0) * kn, 0.0, TAU, 48, Color(SEAL_GOLD, (0.9 if av else 0.45) * a), 1.2 * kn, true)
+	Kamon.draw(self, id, c, (1.32 if cap else 1.08) * kn, Color(ink, a))
+	# zone tactile : au moins 44 u, un peu plus que le sceau
+	var hs := maxf(UiKit.TOUCH_MIN * u, (r * 2.0 + 8.0) * _kn)
+	_hits.append([Rect2(c - Vector2(hs, hs) / 2.0, Vector2(hs, hs)), key])
 
 
-## Panneau du bas (maquette) : pastille et nom de la branche, nom du nœud, effet, état et bouton APPRENDRE.
-## « Rouleau de départ » appris : son état laisse place au choix du rouleau (flèches).
+## Panneau sombre du bas au bord déchiré (maquette) : trait et nom de la branche (« LAME · NŒUD 2 »), nom du nœud,
+## effet, état et bouton APPRENDRE en tampon. « Rouleau de départ » appris : l'état laisse place au choix du rouleau.
 func _draw_detail(w: float, u: float) -> void:
 	var a := UiKit.ease_out(_tab_t / 0.3)
 	var r := _detail_rect
-	_panel(self, r, Color(UIColors.SUMI, a), UiKit.R_L * u, Color(UIColors.WASHI, 0.14 * a), 1.5 * u, 0.4 * a, u)
+	var pp := PackedVector2Array()
+	for q in TreeArt.torn(false):
+		pp.append(Vector2(q.x * w, r.position.y + q.y * u))
+	pp.append(Vector2(w, r.end.y))
+	pp.append(Vector2(0, r.end.y))
+	draw_colored_polygon(pp, Color(TREE_SUMI, a))
 	var id := _tree_sel
 	var is_root := not Meta.TREE.has(id)
 	var col := _branch_col(id)
 	var bname := "TRONC"
 	var nm := "Le premier trait"
-	var fx := "Le point de départ de toutes les branches."
+	var fx := "Le pied de l'arbre. Toutes les branches en partent."
 	var cost := 0
 	var owned := true
 	var av := false
@@ -907,7 +1033,7 @@ func _draw_detail(w: float, u: float) -> void:
 		is_root = false
 		var pr: int = meta.purse_rank
 		var pmax := Meta.PURSE_COSTS.size()
-		bname = "HORS DE L'ARBRE · %d/%d" % [pr, pmax]
+		bname = "HORS DE L'ARBRE · RANG %d/%d" % [pr, pmax]
 		nm = "Bourse"
 		cost = meta.purse_cost()
 		owned = cost < 0
@@ -919,73 +1045,76 @@ func _draw_detail(w: float, u: float) -> void:
 	elif not is_root:
 		var n: Dictionary = Meta.TREE[id]
 		var b: Dictionary = Meta.BRANCHES[String(n["b"])]
-		bname = String(b["name"]) + (" · SOMMET" if int(n["t"]) == 7 else " · %d" % int(n["t"]))
+		bname = String(b["name"]) + (" · SOMMET" if int(n["t"]) == 7 else " · NŒUD %d" % int(n["t"]))
 		nm = String(n["name"])
 		fx = String(n["text"])
 		cost = int(n["cost"])
 		owned = meta.learned(id)
 		av = meta.node_open(id)
 	var can: bool = bool(meta.can_buy_purse()) if id == PURSE else ((not is_root) and bool(meta.can_learn(id)))
-	var x := r.position.x + 18 * u
-	var xr := r.end.x - 18 * u
-	# branche
-	draw_circle(Vector2(x + 5 * u, r.position.y + 18 * u), 5.0 * u, Color(col if not is_root else UIColors.WASHI, a))
-	draw_string(_ui, Vector2(x + 16 * u, r.position.y + 18 * u + UiKit.FS_MICRO * u * 0.36), _p(bname), HORIZONTAL_ALIGNMENT_LEFT, -1,
-		int(UiKit.FS_MICRO * u), Color(UIColors.WASHI, 0.7 * a))
+	var x := 20.0 * u
+	var xr := w - 20.0 * u
+	var y0 := r.position.y
+	# branche : trait de couleur et nom
+	draw_rect(Rect2(Vector2(x, y0 + 25.0 * u), Vector2(18.0, 3.0) * u), Color(col if not is_root else TREE_WASHI, a))
+	var cfs := int(UiKit.FS_CAPTION * u)
+	draw_string(_cap, Vector2(x + 26.0 * u, y0 + 26.5 * u + cfs * 0.36), _p(bname), HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(TREE_WASHI, 0.65 * a))
 	# nom
-	var nfs := _fit(UiKit.TITLE_FONT, nm, int(19 * u), xr - x, int(13 * u))
-	draw_string(UiKit.TITLE_FONT, Vector2(x, r.position.y + 45 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(UIColors.WASHI, a))
-	# effet (deux lignes au plus)
-	var efs := int(12.5 * u)
+	var nfs := _fit(UiKit.TITLE_FONT, nm, int(20.0 * u), xr - x, int(14.0 * u))
+	draw_string(UiKit.TITLE_FONT, Vector2(x, y0 + 57.0 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(TREE_WASHI, a))
+	# effet (deux lignes ; trois en plus petit au besoin)
+	var efs := int(13.0 * u)
 	var lines := UiKit.wrap(UiKit.UI_FONT, fx, efs, xr - x, [":", "%", "»", "!", "?"])
 	if lines.size() > 2:
-		efs = int(11 * u)
+		efs = int(11.5 * u)
 		lines = UiKit.wrap(UiKit.UI_FONT, fx, efs, xr - x, [":", "%", "»", "!", "?"])
+	var lh := float(efs) * 1.3
 	for i in mini(lines.size(), 3):
-		draw_string(UiKit.UI_FONT, Vector2(x, r.position.y + 68 * u + float(i) * (efs + 4.0 * u)), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, efs,
-			Color(UIColors.WASHI, 0.85 * a))
-	# bouton APPRENDRE (à droite, 44 u de haut)
+		draw_string(UiKit.UI_FONT, Vector2(x, y0 + 79.0 * u + float(i) * lh), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(TREE_WASHI, 0.82 * a))
+	# bouton en tampon, légèrement de travers (44 u de haut)
 	var bh := UiKit.TOUCH_MIN * u
-	var label := "APPRIS" if owned else "APPRENDRE · %d" % cost
+	var label := "APPRIS" if owned else "APPRENDRE"
 	if id == PURSE:
-		label = "MAX" if owned else "AMÉLIORER · %d" % cost
-	var bfs := int(12.5 * u)
-	var bw := maxf(118.0 * u, UiKit.TITLE_FONT.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x + 34.0 * u)
-	var br := Rect2(Vector2(xr - bw, r.end.y - 12 * u - bh), Vector2(bw, bh))
+		label = "MAX" if owned else "AMÉLIORER"
+	var bfs := int(14.0 * u)
+	var bw := _stampf.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x + 36.0 * u
+	var br := Rect2(Vector2(xr - bw, r.end.y - _bot - 12.0 * u - bh), Vector2(bw, bh))
 	if _shake_key == "learn" and _shake > 0.0:
 		br.position.x += sin(_t * 60.0) * 4.0 * u * _shake
-	if _pressed == "learn":
-		br = Rect2(br.get_center() - br.size * 0.48, br.size * 0.96)
+	var bk := 0.96 if _pressed == "learn" else 1.0
+	draw_set_transform(br.get_center(), deg_to_rad(-1.5), Vector2(bk, bk))
+	var lr := Rect2(-br.size / 2.0, br.size)
 	if can:
-		draw_colored_polygon(_brush_pill(Rect2(br.position + Vector2(0, 2.5 * u), br.size), 1.0), Color(UIColors.VERMILION_DARK.darkened(0.3), a))
-		draw_colored_polygon(_brush_pill(br, 7.0), Color(UIColors.VERMILION, a))
-		UiKit.text(self, UiKit.TITLE_FONT, label, Vector2(br.get_center().x, br.get_center().y + bfs * 0.36), bfs, Color(UIColors.WASHI_LIGHT, a))
+		_panel(self, Rect2(lr.position + Vector2(2.0, 3.0) * u, lr.size), Color(0, 0, 0, 0.35 * a), 8.0 * u)
+		_panel(self, lr, Color(TREE_STAMP, a), 8.0 * u)
 	else:
-		_panel(self, br, Color(0, 0, 0, 0), bh / 2.0, Color(UIColors.WASHI, 0.25 * a), 1.5 * u)
-		UiKit.text(self, UiKit.TITLE_FONT, label, Vector2(br.get_center().x, br.get_center().y + bfs * 0.36), bfs, Color(UIColors.WASHI, 0.4 * a))
+		_panel(self, lr, Color(TREE_WASHI, 0.08 * a), 8.0 * u)
+	var tw := _stampf.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+	draw_string(_stampf, Vector2(-tw / 2.0, bfs * 0.36), label, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(TREE_PAPER, a) if can else Color(TREE_WASHI, 0.4 * a))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
 	if not is_root and not owned:
 		_hits.append([br, "learn"])
 	# état (ou choix du rouleau de départ)
-	var sx1 := br.position.x - 10 * u
+	var sx1 := br.position.x - 10.0 * u
 	if id == "v3" and owned:
 		_start_chooser(Rect2(Vector2(x, br.position.y), Vector2(sx1 - x, bh)), u, a)
 		return
 	var st := "RANG MAX" if id == PURSE else "APPRIS"
-	var sc: Color = UIColors.JADE_UP_ON_DARK
+	var sc: Color = TREE_OK
 	if not is_root and not owned:
 		if av:
-			st = ("DISPONIBLE · %d ENCRE" % cost) if can else ("IL MANQUE %d ENCRE" % (cost - int(meta.sumi)))
-			sc = UIColors.GOLD if can else UIColors.MALUS_ON_DARK
+			st = ("%d ENCRE" % cost) if can else ("IL MANQUE %d ENCRE" % (cost - int(meta.sumi)))
+			sc = PLUM_GOLD if can else TREE_MISS
 		else:
-			st = "VERROUILLÉ : APPRENDS LE NŒUD DU DESSOUS"
-			sc = UIColors.MALUS_ON_DARK
+			st = "APPRENDS LE NŒUD DU DESSOUS"
+			sc = TREE_MISS
 	st = _p(st)
-	var sfs := int(10.5 * u)
-	var sl := UiKit.wrap(_ui, st, sfs, sx1 - x, [":"])
+	var sfs := int(11.0 * u)
+	var sl := UiKit.wrap(_state, st, sfs, sx1 - x, [":"])
 	var cy := br.get_center().y
-	var y0 := cy - float(sl.size() - 1) * (sfs + 2.0 * u) / 2.0
+	var y1 := cy - float(sl.size() - 1) * (sfs + 2.0 * u) / 2.0
 	for i in sl.size():
-		draw_string(_ui, Vector2(x, y0 + float(i) * (sfs + 2.0 * u) + sfs * 0.36), sl[i], HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(sc, a))
+		draw_string(_state, Vector2(x, y1 + float(i) * (sfs + 2.0 * u) + sfs * 0.36), sl[i], HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(sc, a))
 
 
 ## Choix du rouleau de départ (nœud « Rouleau de départ » appris) : flèches rondes de part et d'autre du rouleau.

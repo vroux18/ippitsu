@@ -757,8 +757,8 @@ func _ready() -> void:
 	if "atelier" in wsearch:
 		# `?atelier&tab=1` (captures) : l'onglet N ouvert (0 arbre, 1 estampes) ; `&fresh` : encre et arbre remis
 		# à zéro (prix visibles) ; `&arbre` : arbre de démonstration (640 encre, quelques nœuds appris, `&voie` : la
-		# branche VOIE entière) ;
-		# `&noeud=v2` : ce nœud choisi (panneau du bas)
+		# branche VOIE entière, `&plein` : l'arbre entier) ;
+		# `&noeud=v2` : ce nœud choisi (panneau du bas) ; `&apprendre` : puis APPRENDRE (animation de l'achat)
 		if "fresh" in wsearch:
 			meta.sumi = 60
 			meta.tree = {}
@@ -771,6 +771,10 @@ func _ready() -> void:
 				# `&arbre&voie` : toute la branche VOIE apprise (choix du rouleau de départ, sommet)
 				for nid in ["v2", "v3", "v4", "v5", "v6", "vc"]:
 					meta.tree[nid] = true
+			if "plein" in wsearch:
+				# `&arbre&plein` : l'arbre entier appris
+				for nid in Meta.TREE_ORDER:
+					meta.tree[nid] = true
 		var tb := wsearch.find("tab=")
 		if tb >= 0:
 			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 1))
@@ -778,6 +782,8 @@ func _ready() -> void:
 		var nq := wsearch.find("noeud=")
 		if nq >= 0:
 			refuge.call("select_node", wsearch.substr(nq + 6).get_slice("&", 0))
+			if "apprendre" in wsearch:
+				refuge.call("_learn")
 	if "dojo" in wsearch:
 		_start_dojo()
 	if "tuto" in wsearch:

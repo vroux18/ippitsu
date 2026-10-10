@@ -22,9 +22,9 @@ const TREE_VERSION := 1  # sauvegarde : 0 = ancienne Pierre à encre et sceaux (
 const SEAL_SUMI := 40  # les sceaux n'existent plus : chaque sceau (dépensé, gardé, ou gagné en partie) vaut 40 encre
 const BRANCH_ORDER := ["lame", "encre", "papier", "voie"]
 const BRANCHES := {
-	"lame": {"name": "LAME", "col": Color("#D7372B"), "text": "Attaque : dégâts, critiques, chaîne."},
+	"lame": {"name": "LAME", "col": Color("#C8322A"), "text": "Attaque : dégâts, critiques, chaîne."},
 	"encre": {"name": "ENCRE", "col": Color("#1F3A5F"), "text": "Le trait : longueur, recharge, réserve, second souffle."},
-	"papier": {"name": "PAPIER", "col": Color("#C49A45"), "text": "Survie : cœurs, garde au départ, kintsugi, dernier souffle."},
+	"papier": {"name": "PAPIER", "col": Color("#B8862F"), "text": "Survie : cœurs, garde au départ, kintsugi, dernier souffle."},
 	"voie": {"name": "VOIE", "col": Color("#A8436B"), "text": "Rouleaux et figures : relances, rouleau de départ, figures."},
 }
 ## Nœuds : branche « b », étage « t » (1..6, 7 = sommet), nom, effet, coût en encre, glyphe ; « power » : légendaire
