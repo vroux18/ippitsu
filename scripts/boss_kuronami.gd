@@ -13,13 +13,27 @@ extends Node3D
 ## Interface identique à boss.gd. Les positions de ruée sont enregistrées, puis analysées dans
 ## end_stroke (fin réelle de la ruée, traits enchaînés compris) ; check_dash ne renvoie vrai
 ## que pour un trait qui traverse l'œil (phase 3 ou vague sonnée).
+## Apparence (direction « Masque d'encre », famille du monde 5) : la vague d'encre elle-même, d'après
+## Hokusai — colonnes de sumi aux crêtes d'écume de washi qui se recourbent en griffes, traits de washi
+## peints sur l'encre, bande d'indigo nuit à écailles de papier au pied de la vague (l'étoffe du monde),
+## liserés d'or ; un GRAND MASQUE DE NŌ de papier cerné d'or émerge au milieu de la vague (sourcils
+## froncés, yeux d'or, gueule vermillon à dents de washi, sceau du peintre au front), coiffé d'une crête
+## d'encre. Les doigts (phase 1) sont des griffes d'encre à crête de washi et phalanges d'or ; les vagues
+## des couloirs (phase 2) portent chacune un petit masque ; l'œil (phase 3) est un masque d'encre couché,
+## l'iris vermillon. Maillages fusionnés (Mesher) : un par pièce qui bouge, deux matériaux pour tout.
 
 const Toon = preload("res://scripts/toon.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
-const INK := Color("#0E1A2E")  # vague noire / mer d'encre
-const FOAM := Color("#E9EEF0")  # écume
-const FOAM_SHADE := Color("#C9D6DC")
+const INK := Color("#0E1A2E")  # mer d'encre (nappe, éclaboussures)
+const INK5 := Color("#17151C")  # sumi pur du monde 5 (corps de la vague)
+const FOAM := Color("#E9EEF0")  # écume (éclaboussures, textes)
+const PAPER_L := Color("#EAE2CF")  # washi des crêtes et du masque
+const PAPER := Color("#CFC6B2")  # écailles de papier
+const NIGHT := Color("#1B2A44")  # indigo nuit (étoffe)
+const SEAL := Color("#9E3028")  # sceau du peintre
+const VOID := Color("#07060A")  # creux des yeux
 
 const FINGER_LEN := 11.0  # longueur d'un doigt déployé (dont ~10 m dans l'arène)
 const FINGER_W := 1.2
@@ -68,11 +82,10 @@ var _fingers: Array = []  # Dictionary par doigt
 var _waves: Array = []  # vagues des couloirs (phase 2)
 var _drops: Array = []  # attaques de l'œil (phase 3)
 
-var _m_ink: StandardMaterial3D
-var _m_foam: StandardMaterial3D
-var _m_shade: StandardMaterial3D
+var _mat: StandardMaterial3D  # toon à couleurs de sommets (toutes les pièces ; flash par émission)
 var _wave: Node3D  # la grande vague du fond
 var _crests: Array = []
+var _mask: Node3D  # le grand masque de nō au milieu de la vague
 var _eye: Node3D
 var _eye_ball: Node3D
 var _eye_iris: Node3D
@@ -108,9 +121,7 @@ func _ready() -> void:
 	hp *= max_hp_mult
 	max_hp = hp
 	_unit = max_hp / 150.0
-	_m_ink = Toon.mat_shared(INK)
-	_m_foam = Toon.mat_shared(FOAM)
-	_m_shade = Toon.mat_shared(FOAM_SHADE)
+	_mat = _ink_mat()
 	_build_wave()
 	_build_fingers()
 	_build_eye()
@@ -132,20 +143,108 @@ func _build_wave() -> void:
 	# mer d'encre entre la vague et l'arène
 	var sea := Toon.part(_wave, Toon.box(Vector3(19.0, 0.004, 3.4)), Toon.flat(Color(INK, 0.9)), Vector3(0, 0.02, 1.2))
 	sea.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	# colonnes de la vague, lèvre qui s'enroule vers l'arène, griffes d'écume
+	var lite := Toon.lite
+	# colonnes de la vague (une pièce fusionnée chacune : elles ondulent) : sumi, traits de washi peints,
+	# lèvre qui s'enroule vers l'arène, crête d'écume de washi qui se recourbe en griffes, pied cerclé d'or
 	for i in 12:
 		var x := -8.25 + i * 1.5
 		var h := 3.0 + 1.1 * absf(sin(i * 1.7)) + (1.3 if i == 4 or i == 8 else 0.0)
 		var col := Node3D.new()
 		_wave.add_child(col)
 		col.position = Vector3(x, 0, randf_range(-0.3, 0.3))
-		Toon.part(col, Toon.cyl(0.75, 1.05, h, 6), _m_ink, Vector3(0, h * 0.5 - 0.4, 0))
-		Toon.part(col, Toon.sphere(0.8), _m_ink, Vector3(0, h - 0.3, 0.55), Vector3(0.95, 0.6, 1.3))
-		Toon.part(col, Toon.sphere(0.45), _m_foam, Vector3(0, h - 0.05, 1.15), Vector3(1.1, 0.5, 1.0))
-		for c in 3:
-			var claw := Toon.part(col, Toon.cyl(0.0, 0.14, 0.6, 5), _m_foam, Vector3(-0.4 + c * 0.4, h - 0.25, 1.45))
-			claw.rotation.x = 2.2
+		var m := Yokai.Mesher.new(1.0)
+		m.cyl(Vector3(0, h * 0.5 - 0.4, 0), Vector3(1.05, h, 1.05), INK5, Vector3.ZERO, 0.72, 6)
+		m.ball(Vector3(0, h - 0.3, 0.55), Vector3(0.76, 0.5, 1.05), INK5, Vector3(0.3, 0, 0), 8)
+		m.cyl(Vector3(0, 0.25, 0), Vector3(1.1, 0.12, 1.1), Toon.GOLD, Vector3.ZERO, 1.0, 6)
+		if not lite:
+			# traits de washi sur l'encre : deux coups de pinceau verticaux, un peu penchés
+			for k in 2:
+				var kx := -0.3 + 0.6 * float(k)
+				m.box(Vector3(kx, h * 0.5 - 0.2, 0.92 - 0.08 * float(k)), Vector3(0.08, h * 0.5, 0.04), PAPER_L, Vector3(-0.12, 0, (0.12 if k == 0 else -0.08)))
+		# crête d'écume : coussin de washi, puis les griffes qui se recourbent vers l'arène (Hokusai)
+		m.ball(Vector3(0, h - 0.05, 1.15), Vector3(0.5, 0.26, 0.5), PAPER_L, Vector3.ZERO, 8)
+		var claws := 2 if lite else 3
+		for c in claws:
+			var cx := (float(c) - float(claws - 1) * 0.5) * 0.42
+			var tip := m.spike(Vector3(cx, h - 0.1, 1.3), 0.15, 0.62, PAPER_L, Vector3(2.2, 0, 0), 0.25, 5)
+			m.spike(tip, 0.07, 0.3, PAPER_L, Vector3(2.9, 0, 0), 0.0, 4)
+		_ink_part(col, m, Yokai.Mesher.new(1.0), _mat)
 		_crests.append(col)
+	# l'étoffe du monde au pied de la vague : bande d'indigo nuit cerclée d'or, écailles de papier (seigaiha)
+	var band := Yokai.Mesher.new(1.0)
+	band.box(Vector3(0, 0.35, 1.05), Vector3(18.6, 0.5, 0.5), NIGHT)
+	for y in [0.12, 0.58]:
+		band.box(Vector3(0, float(y), 1.08), Vector3(18.6, 0.06, 0.52), Toon.GOLD)
+	var n := 14 if lite else 24
+	for k in n:
+		var bx := -8.8 + 17.6 * (float(k) + 0.5) / float(n)
+		band.ball(Vector3(bx, 0.36, 1.3), Vector3(0.3, 0.17, 0.06), PAPER, Vector3.ZERO, 6)
+	_ink_part(_wave, band, Yokai.Mesher.new(1.0), _mat)
+	_build_mask()
+
+
+## Le grand masque de nō au milieu de la vague (relevé vers la caméra) : plaque de washi cernée d'or, cou
+## d'encre, sourcils froncés, yeux creux à l'iris d'or, gueule vermillon à dents de washi, sceau au front,
+## crête d'encre qui part du sommet comme une vague.
+func _build_mask() -> void:
+	_mask = Node3D.new()
+	_wave.add_child(_mask)
+	_mask.position = Vector3(0, 4.1, 0.9)
+	_mask.rotation.x = 0.42
+	_mask.scale = Vector3.ONE * 1.3
+	var a := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	a.ball(Vector3(0, -0.6, -0.5), Vector3(1.0, 1.2, 0.9), INK5, Vector3.ZERO, 8)  # cou d'encre
+	a.ball(Vector3(0, 0, -0.12), Vector3(1.46, 1.74, 0.32), Toon.GOLD, Vector3.ZERO, 10)
+	a.ball(Vector3(0, 0, 0), Vector3(1.32, 1.6, 0.34), PAPER_L, Vector3.ZERO, 10)
+	var fz := 0.32
+	for sx in [-1.0, 1.0]:
+		var s := float(sx)
+		a.ball(Vector3(s * 0.5, 0.3, fz), Vector3(0.3, 0.22, 0.08), VOID, Vector3.ZERO, 8)
+		f.ball(Vector3(s * 0.5, 0.3, fz + 0.04), Vector3(0.19, 0.15, 0.04), Yokai.EYE_GOLD, Vector3.ZERO, 8)
+		f.ball(Vector3(s * 0.5, 0.29, fz + 0.07), Vector3(0.08, 0.09, 0.03), Toon.SUMI, Vector3.ZERO, 6)
+		a.box(Vector3(s * 0.52, 0.66, fz), Vector3(0.7, 0.11, 0.06), Toon.SUMI, Vector3(0, 0, s * 0.42))
+		if not Toon.lite:
+			a.box(Vector3(s * 0.62, -0.05, fz), Vector3(0.06, 0.5, 0.04), Toon.SUMI)  # larmes d'encre
+	# gueule ouverte : vermillon, dents de washi
+	a.ball(Vector3(0, -0.72, fz), Vector3(0.62, 0.4, 0.14), Toon.VERMILION, Vector3.ZERO, 8)
+	if not Toon.lite:
+		for k in 5:
+			var tx := -0.4 + 0.2 * float(k)
+			a.spike(Vector3(tx, -0.42, fz + 0.06), 0.06, 0.2, PAPER_L, Vector3(PI, 0, 0), 0.0, 4)
+			a.spike(Vector3(tx + 0.1, -1.02, fz + 0.06), 0.05, 0.16, PAPER_L, Vector3.ZERO, 0.0, 4)
+	a.box(Vector3(0, 1.1, fz), Vector3(0.26, 0.26, 0.04), SEAL)
+	# crête d'encre : mèches qui se dressent au sommet, penchées vers l'arène
+	var locks := 4 if Toon.lite else 7
+	for k in locks:
+		var u := float(k) / float(locks - 1) - 0.5
+		var tip := a.spike(Vector3(u * 2.2, 1.3, -0.3), 0.22 - 0.1 * absf(u), 1.1 - 0.4 * absf(u), INK5, Vector3(0.5, 0, -u * 0.9), 0.25, 5)
+		a.spike(tip, 0.09, 0.4, PAPER_L, Vector3(1.4, 0, -u * 0.9), 0.0, 4)
+	_ink_part(_mask, a, f, _mat)
+
+
+## Matériau toon à couleurs de sommets, contour d'encre, émission pour le flash des coups.
+static func _ink_mat() -> StandardMaterial3D:
+	var m := Toon.mat(Color.WHITE, true, 0.035)
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.rim = 0.35
+	m.rim_tint = 0.5
+	m.emission_enabled = true
+	m.emission = Color.WHITE
+	m.emission_energy_multiplier = 0.0
+	return m
+
+
+## Pièce d'encre à deux surfaces (toon, puis aplat lumineux des yeux) posée sur `parent`.
+static func _ink_part(parent: Node3D, a: Yokai.Mesher, f: Yokai.Mesher, mat: Material) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = Yokai.two(a, f)
+	mi.set_surface_override_material(0, mat)
+	if mi.mesh.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	parent.add_child(mi)
+	return mi
 
 
 func _build_fingers() -> void:
@@ -156,20 +255,22 @@ func _build_fingers() -> void:
 		add_child(root)
 		var bx: float = FINGER_X[i]
 		root.position = Vector3(bx, 0, FINGER_BASE_Z)
-		# doigt couché le long de -Z local : âme d'encre, crête d'écume, phalanges claires
+		# doigt couché le long de -Z local (une pièce fusionnée) : âme d'encre, crête d'écume de washi,
+		# phalanges cerclées d'or, griffe de washi recourbée au bout
+		var m := Yokai.Mesher.new(1.0)
 		for s in n:
 			var u := float(s) / float(n - 1)
 			var r := lerpf(0.5, 0.2, u)
 			var y := 0.3 + 0.35 * sin(PI * (s + 0.5) / float(n))
 			var zc := -(s + 0.5) * seg_l
-			var bone := Toon.part(root, Toon.cyl(r * 0.85, r, seg_l * 1.08, 6), _m_ink, Vector3(0, y, zc))
-			bone.rotation.x = -PI * 0.5
-			Toon.part(root, Toon.sphere(r * 0.9), _m_foam, Vector3(0, y + r * 0.55, zc), Vector3(1.0, 0.45, 1.5))
+			m.cyl(Vector3(0, y, zc), Vector3(r, seg_l * 1.08, r), INK5, Vector3(-PI * 0.5, 0, 0), 0.85, 6)
+			if s % 2 == 0 or not Toon.lite:
+				m.ball(Vector3(0, y + r * 0.55, zc), Vector3(r * 0.9, r * 0.4, r * 1.35), PAPER_L, Vector3.ZERO, 6)
 			if s > 0:
-				Toon.part(root, Toon.sphere(r * 1.05), _m_shade, Vector3(0, y, -s * seg_l), Vector3(1.0, 0.8, 0.6))
-		# griffe recourbée au bout
-		var tip := Toon.part(root, Toon.cyl(0.0, 0.26, 1.0, 6), _m_foam, Vector3(0, 0.45, -FINGER_LEN - 0.2))
-		tip.rotation.x = -2.3
+				m.cyl(Vector3(0, y, -s * seg_l), Vector3(r * 1.1, 0.14, r * 1.1), Toon.GOLD, Vector3(-PI * 0.5, 0, 0), 1.0, 6)
+		var cb := Basis.from_euler(Vector3(-2.3, 0, 0))
+		m.spike(Vector3(0, 0.45, -FINGER_LEN - 0.2) - cb * Vector3(0, 0.5, 0), 0.26, 1.0, PAPER_L, Vector3(-2.3, 0, 0), 0.0, 6)
+		_ink_part(root, m, Yokai.Mesher.new(1.0), _mat)
 		root.rotation = Vector3(FINGER_IDLE_PITCH, PI, 0)
 		root.scale = Vector3.ONE * 0.22
 		_fingers.append({
@@ -190,25 +291,36 @@ func _build_eye() -> void:
 	ring.rings = 24
 	ring.ring_segments = 6
 	Toon.part(_eye, ring, Toon.mat_shared(Toon.VERMILION), Vector3(0, 0.12, 0), Vector3(1, 0.6, 1))
+	# l'œil : un masque d'encre couché face au ciel (plaque de sumi cerclée d'or, paupières de washi),
+	# l'iris vermillon au milieu (il suit le héros, il cligne)
 	_eye_ball = Node3D.new()
 	_eye.add_child(_eye_ball)
-	Toon.part(_eye_ball, Toon.sphere(0.72), Toon.mat_shared(Toon.SUMI), Vector3(0, 0.25, 0), Vector3(1.0, 0.55, 1.0))
+	var eb := Yokai.Mesher.new(1.0)
+	eb.ball(Vector3(0, 0.22, 0), Vector3(0.8, 0.3, 0.8), Toon.GOLD, Vector3.ZERO, 10)
+	eb.ball(Vector3(0, 0.25, 0), Vector3(0.72, 0.4, 0.72), INK5, Vector3.ZERO, 10)
+	for sz in [-1.0, 1.0]:
+		eb.ball(Vector3(0, 0.5, float(sz) * 0.42), Vector3(0.62, 0.08, 0.16), PAPER_L, Vector3.ZERO, 8)
+	_ink_part(_eye_ball, eb, Yokai.Mesher.new(1.0), _mat)
 	_eye_iris = Node3D.new()
 	_eye_ball.add_child(_eye_iris)
-	Toon.part(_eye_iris, Toon.sphere(0.3), Toon.mat_shared(Toon.VERMILION, false), Vector3(0, 0.58, 0), Vector3(1.0, 0.35, 1.0))
-	Toon.part(_eye_iris, Toon.sphere(0.11), Toon.flat(FOAM), Vector3(0.1, 0.68, -0.1))
-	# petites crêtes qui tournent en spirale autour de l'œil
+	var ir := Yokai.Mesher.new(1.0)
+	var irf := Yokai.Mesher.new(1.0)
+	ir.ball(Vector3(0, 0.58, 0), Vector3(0.3, 0.1, 0.3), Toon.VERMILION, Vector3.ZERO, 8)
+	irf.ball(Vector3(0.1, 0.68, -0.1), Vector3(0.11, 0.05, 0.11), FOAM, Vector3.ZERO, 6)
+	_ink_part(_eye_iris, ir, irf, _mat)
+	# petites crêtes d'encre à écume de washi qui tournent en spirale autour de l'œil (une seule pièce)
 	_orbit = Node3D.new()
 	_eye.add_child(_orbit)
+	var oc := Yokai.Mesher.new(1.0)
 	for i in 6:
-		var a := TAU * i / 6.0
-		var cr := Node3D.new()
-		_orbit.add_child(cr)
-		cr.position = Vector3(cos(a) * 1.55, 0, sin(a) * 1.55)
-		cr.rotation.y = -a
-		Toon.part(cr, Toon.cyl(0.0, 0.32, 0.9, 5), _m_ink, Vector3(0, 0.4, 0))
-		var f := Toon.part(cr, Toon.cyl(0.0, 0.12, 0.45, 5), _m_foam, Vector3(0, 0.75, 0.18))
-		f.rotation.x = 1.9
+		var ang := TAU * i / 6.0
+		var rot := Vector3(0, -ang, 0)
+		var b := Basis.from_euler(rot)
+		var c := Vector3(cos(ang) * 1.55, 0, sin(ang) * 1.55)
+		oc.spike(c, 0.32, 0.9, INK5, rot, 0.0, 5)
+		var fb := Basis.from_euler(Vector3(1.9, 0, 0))
+		oc.spike(c + b * (Vector3(0, 0.75, 0.18) - fb * Vector3(0, 0.225, 0)), 0.12, 0.45, PAPER_L, Vector3(1.9, -ang, 0), 0.0, 5)
+	_ink_part(_orbit, oc, Yokai.Mesher.new(1.0), _mat)
 	# pointillés d'encre : le rayon minimal de l'ensō
 	for i in 28:
 		var a := TAU * i / 28.0
@@ -221,14 +333,32 @@ func _make_lane_wave(x: float) -> Node3D:
 	add_child(n)
 	n.position = Vector3(x, -1.4, -HALF.y - 0.6)
 	var w := LANE_W - 0.2
-	Toon.part(n, Toon.box(Vector3(w, 1.0, 0.9)), _m_ink, Vector3(0, 0.5, -0.2))
-	var curl := Toon.part(n, Toon.cyl(0.55, 0.55, w, 7), _m_ink, Vector3(0, 1.15, 0.15))
-	curl.rotation.z = PI * 0.5
-	var lip := Toon.part(n, Toon.cyl(0.3, 0.3, w + 0.1, 7), _m_foam, Vector3(0, 1.45, 0.55))
-	lip.rotation.z = PI * 0.5
-	for c in 5:
-		var claw := Toon.part(n, Toon.cyl(0.0, 0.15, 0.6, 5), _m_foam, Vector3(-w * 0.4 + c * w * 0.2, 1.3, 0.85))
-		claw.rotation.x = 2.0
+	# vague d'un couloir (une pièce) : bloc d'encre, rouleau, lèvre de washi et griffes d'écume, liseré d'or,
+	# petit masque de nō de papier sur le front de la vague (gueule vermillon)
+	var m := Yokai.Mesher.new(1.0)
+	var f := Yokai.Mesher.new(1.0)
+	m.box(Vector3(0, 0.5, -0.2), Vector3(w, 1.0, 0.9), INK5)
+	m.cyl(Vector3(0, 1.15, 0.15), Vector3(0.55, w, 0.55), INK5, Vector3(0, 0, PI * 0.5), 1.0, 7)
+	m.cyl(Vector3(0, 1.45, 0.55), Vector3(0.3, w + 0.1, 0.3), PAPER_L, Vector3(0, 0, PI * 0.5), 1.0, 7)
+	m.box(Vector3(0, 0.12, 0.26), Vector3(w, 0.06, 0.06), Toon.GOLD)
+	var claws := 3 if Toon.lite else 5
+	var cb := Basis.from_euler(Vector3(2.0, 0, 0))
+	for c in claws:
+		var cx := -w * 0.4 + float(c) * w * 0.8 / float(claws - 1)
+		m.spike(Vector3(cx, 1.3, 0.85) - cb * Vector3(0, 0.3, 0), 0.15, 0.6, PAPER_L, Vector3(2.0, 0, 0), 0.0, 5)
+	# le petit masque, penché vers l'arène
+	var mz := 0.28
+	var mr := Vector3(-0.5, 0, 0)
+	m.ball(Vector3(0, 0.62, mz), Vector3(0.44, 0.5, 0.1), Toon.GOLD, mr, 8)
+	m.ball(Vector3(0, 0.62, mz + 0.05), Vector3(0.38, 0.44, 0.1), PAPER_L, mr, 8)
+	var mb := Basis.from_euler(mr)
+	var mc := Vector3(0, 0.62, mz + 0.05)
+	for sx in [-1.0, 1.0]:
+		var s := float(sx)
+		f.ball(mc + mb * Vector3(s * 0.15, 0.08, 0.1), Vector3(0.07, 0.05, 0.02), Yokai.EYE_GOLD, mr, 6)
+		m.box(mc + mb * Vector3(s * 0.15, 0.2, 0.1), Vector3(0.2, 0.04, 0.02), Toon.SUMI, mr + Vector3(0, 0, s * 0.4))
+	m.ball(mc + mb * Vector3(0, -0.2, 0.1), Vector3(0.18, 0.1, 0.03), Toon.VERMILION, mr, 6)
+	_ink_part(n, m, f, _mat)
 	var sh := Toon.part(n, Toon.box(Vector3(w, 0.004, 1.6)), Toon.flat(Color(INK, 0.25)), Vector3(0, 0.02, 0.2))
 	sh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return n
@@ -769,6 +899,10 @@ func _animate_decor(delta: float) -> void:
 		var col: Node3D = _crests[i]
 		col.position.y = sin(_t * 1.3 + i * 0.8) * 0.15
 		col.rotation.x = sin(_t * 0.9 + i) * 0.04 + (0.12 if _flash > 0.0 else 0.0)
+	# le grand masque respire avec la vague ; flash des coups par émission
+	_mask.position.y = 4.1 + sin(_t * 1.1) * 0.12
+	_mask.rotation = Vector3(0.42 + sin(_t * 0.7) * 0.05 + (0.1 if _flash > 0.0 else 0.0), sin(_t * 0.5) * 0.06, 0)
+	_mat.emission_energy_multiplier = move_toward(_mat.emission_energy_multiplier, 0.7 if _flash > 0.0 else 0.0, delta * 8.0)
 
 
 func _start_phase(p: int) -> void:

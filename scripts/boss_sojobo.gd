@@ -1,5 +1,5 @@
 extends "res://scripts/boss_mini_base.gd"
-## Boss du monde 6 (Kurama) — Sōjōbō, le roi des tengu (34 PV × monde, ~3.4 m).
+## Boss du monde 6 (Kurama) — Sōjōbō, le roi des tengu (34 PV × monde, ~3.6 m).
 ##  Bouclier : le vent de son grand éventail (12). Un coup ne fait qu'effleurer.
 ##  Mécanique de trait en deux temps :
 ##   1. il lève une TORNADE de plumes qui dérive vers le héros : un trait qui la traverse la tranche,
@@ -9,13 +9,22 @@ extends "res://scripts/boss_mini_base.gd"
 ##  Attaques : rafale de l'éventail (cône 8 m, 1.1 s), plumes en éventail (lueur 0.8 s),
 ##  pluie de feuilles (4 disques r0.9 autour du héros, 1.2 s) ; la tornade blesse au contact.
 ##  Le bouclier revenu, deux karasu-tengu descendent du ciel.
+## Apparence (direction « Masque d'encre », règles en tête de yokai_ink_w1.gd) : le yamabushi du monde 6
+## (yokai_ink_w6.gd) en ROI de 3,6 m, sur le rig des yōkai d'encre (ink_rig.gd) — corps d'encre large, mante
+## et obi de cèdre à grandes écailles d'écume du ravin, liserés d'or, yuigesa à pompons d'or, miroir d'or ;
+## MASQUE ROUGE DE TENGU CERNÉ D'OR au TRÈS LONG NEZ bagué d'or, sourcils et moustache de washi, yeux d'or,
+## crinière et barbe blanches, tokin noir à flamme d'or, couronne de perles d'or ; deux AILES D'ENCRE à bord
+## d'or dans le dos (elles battent) ; en main droite levée, l'ÉVENTAIL DE PLUMES GÉANT (hauchiwa) à cœur d'or.
+## Seule l'apparence a changé : PV, vent, tornade, boucle, zones, rythme, interface et robot sont ceux d'avant.
 
-const WARRIOR = preload("res://assets/kaykit/Skeleton_Warrior.glb")
+const Yokai = preload("res://scripts/yokai_parts.gd")
+const W6 = preload("res://scripts/yokai_ink_w6.gd")  # palette du monde 6 (cèdre, écume du ravin, braise, crinière)
 const Loop = preload("res://scripts/boss_loop.gd")
-const FEATHER := Color("#1E1C22")
-const HAIR := Color("#EFE6D2")
-const FACE := Color("#B8352A")
+const FEATHER := Color("#1E1C22")  # plumes (éclaboussures, tornade)
 const WIND := Color("#DDE6DA")
+const NOSE := Color("#8E2A1E")  # le long nez : braise sombre
+const QUILL := Color("#4A4650")  # plumes de l'éventail
+const HEIGHT := 3.6  # le yamabushi commun fait 1,8 m
 const HINT_R := 2.6
 const SHIELD := 12.0
 const GALE_OPEN := 6.0
@@ -26,8 +35,7 @@ const GUST_HALF := 0.5
 const GUST_LEN := 8.0
 const LEAF_R := 0.9
 
-var _wings: Array = []
-var _fan: Node3D
+var _fan: Node3D  # l'éventail géant (en main droite du rig)
 var _hint: Node3D
 var _pts: Array = []
 var _tornado := {}  # {node, pos, life, cd}
@@ -56,56 +64,207 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ construction
 
+## Marionnette du roi : le rig des yōkai d'encre (ink_rig.gd) habillé des pièces bâties ici (le genre « sojobo »
+## n'existe dans aucun yokai_ink_wN.gd : _dress est remplacé, le reste du rig sert tel quel). Éventail levé en main
+## droite (règle du tireur), ailes sur deux pivots du corps que `flap` fait battre. Les noms d'animations KayKit
+## du combat deviennent ses clips ; à genoux (Blocking), le bras de l'éventail retombe.
+class Rig extends "res://scripts/ink_rig.gd":
+	static var _cache := {}  # léger -> pièces
+	var flap := 0.0  # battement des ailes (rad)
+	var fan: MeshInstance3D  # l'éventail (unités du monde, dans la main droite)
+	var _wings: Array[Node3D] = []
+
+	func setup(k: String, height := H_REF) -> void:
+		super.setup(k, height)
+		_rest_r = Vector3(2.0, 0, 0.35)
+		_rest_l = Vector3(0.5, 0, -0.35)
+		_eval(0.0)
+		for j in SLOTS:
+			_out[j] = _tgt[j]
+		_apply()
+
+	## Le masque regarde un peu plus la caméra (le long nez doit se lire du dessus) ; les ailes battent.
+	func _apply() -> void:
+		super._apply()
+		_head.rotation.x += 0.15
+		for i in _wings.size():
+			var sx := -1.0 if i == 0 else 1.0
+			_wings[i].rotation.z = sx * (0.3 + flap)
+
+	## Garde (à genoux) : le bras de l'éventail retombe, le corps se plie davantage.
+	func _eval(u: float) -> void:
+		super._eval(u)
+		if _clip == C_BLOCK:
+			_tgt[S_ARM_R] = Vector3(0.3, 0, 0.6)
+			_tgt[S_BODY] += Vector3(-0.2, 0, 0)
+
+	func _dress() -> void:
+		var key := 1 if Toon.lite else 0
+		if not _cache.has(key):
+			_cache[key] = _build_parts(Toon.lite)
+		var d: Dictionary = _cache[key]
+		_parts.clear()
+		_part_id = PackedStringArray()
+		_part_on(_body, "body", d)
+		_part_on(_head, "head", d)
+		_part_on(_arms[0], "arm", d)
+		_part_on(_arms[1], "arm", d)
+		fan = _part_on(_hands[1], "weapon_r", d)
+		if fan != null:
+			fan.position = Vector3(0, 0.02, 0)
+		# ailes : un pivot par côté derrière les épaules
+		for n in _wings:
+			n.queue_free()
+		_wings.clear()
+		for s in [-1.0, 1.0]:
+			var pv := Node3D.new()
+			pv.position = Vector3(float(s) * 0.4, 1.06, 0.2)
+			_body.add_child(pv)
+			_wings.append(pv)
+			_part_on(pv, "wing_l" if s < 0.0 else "wing_r", d)
+		for n in _drips:
+			n.queue_free()
+		_drips.clear()
+		_drip_spread = float(d.get("spread", 0.0))
+		var pts: PackedVector3Array = d.get("drips", PackedVector3Array())
+		for p in pts:
+			var piv := Node3D.new()
+			piv.position = p
+			_body.add_child(piv)
+			_drips.append(piv)
+			_part_on(piv, "drip", d)
+
+	## Pièces (unités du modèle, H_REF = 1,75 m, face vers -Z), deux surfaces : toon à contour, aplat lumineux.
+	static func _build_parts(lite: bool) -> Dictionary:
+		var d := {}
+		var w := 1.15
+		var b := Yokai.Mesher.new(1.0)
+		Yokai.ink_body(b, w, Yokai.INK, W6.CLOTH, W6.WAVE, W6.LINE, lite, true)
+		# mante de cèdre sur les épaules : collet cerclé d'or, grandes écailles d'écume du ravin (le motif du monde)
+		b.cyl(Vector3(0, 1.0, 0), Vector3(0.5 * w, 0.16, 0.47 * w), W6.CLOTH, Vector3.ZERO, 0.8, 12)
+		b.cyl(Vector3(0, 0.92, 0), Vector3(0.52 * w, 0.03, 0.49 * w), Toon.GOLD, Vector3.ZERO, 1.0, 12)
+		b.cyl(Vector3(0, 1.075, 0), Vector3(0.41 * w, 0.03, 0.39 * w), Toon.GOLD, Vector3.ZERO, 1.0, 12)
+		var sc := 6 if lite else 10
+		for i in sc:
+			var ang := TAU * (float(i) + 0.5) / float(sc)
+			if cos(ang) < -0.3 and sin(ang) > -0.3 and sin(ang) < 0.3:
+				continue  # la nuque reste nue (ailes)
+			b.ball(Vector3(sin(ang) * 0.49 * w, 0.97, cos(ang) * 0.46 * w), Vector3(0.11, 0.07, 0.02), W6.WAVE, Vector3(0, ang, 0), 6)
+		# pan de kimono dans le dos : étoffe de cèdre liserée d'or, deux grandes écailles
+		b.box(Vector3(0, 0.72, 0.42 * w), Vector3(0.62, 0.72, 0.05), W6.CLOTH, Vector3(0.12, 0, 0))
+		b.box(Vector3(0, 0.36, 0.46 * w), Vector3(0.64, 0.04, 0.06), Toon.GOLD, Vector3(0.12, 0, 0))
+		if not lite:
+			for s in [-1.0, 1.0]:
+				b.ball(Vector3(float(s) * 0.15, 0.62, 0.45 * w), Vector3(0.14, 0.09, 0.02), W6.WAVE, Vector3(0.12, 0, 0), 6)
+		# yuigesa : deux cordons croisés sur la poitrine, pompons d'or ; miroir d'or au milieu
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			b.box(Vector3(x * 0.11, 0.86, -0.43 * w), Vector3(0.045, 0.46, 0.02), W6.TOKIN, Vector3(0.12, 0, x * 0.42))
+			b.ball(Vector3(x * 0.24, 0.98, -0.41 * w), Vector3(0.075, 0.075, 0.05), Toon.GOLD, Vector3.ZERO, 6)
+			b.ball(Vector3(x * 0.14, 0.72, -0.44 * w), Vector3(0.065, 0.065, 0.045), Toon.GOLD, Vector3.ZERO, 6)
+		b.cyl(Vector3(0, 0.86, -0.455 * w), Vector3(0.1, 0.02, 0.1), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 10)
+		d["body"] = b.mesh()
+		var a := Yokai.Mesher.new(1.0)
+		var f := Yokai.Mesher.new(1.0)
+		# masque rouge de tengu cerné d'or, large ; sourcils de washi épais et froncés, yeux d'or
+		Yokai.mask_plate(a, W6.TENGU_RED, 1.3, 1.25, true)
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			a.box(Vector3(x * 0.15, 0.19, Yokai.FACE_Z), Vector3(0.24, 0.065, 0.025), W6.MANE, Vector3(0, 0, x * 0.35))
+		Yokai.mask_eyes(f, Yokai.EYE_GOLD, 0.065, 1.3)
+		# le très long nez : fuseau de braise sombre bagué d'or, un peu baissé, bout rond
+		var nrot := Vector3(-PI / 2.0 - 0.55, 0, 0)
+		var nose := a.spike(Vector3(0, 0.02, Yokai.FACE_Z + 0.02), 0.1, 0.95, NOSE, nrot, 0.35, 7)
+		a.ball(nose, Vector3(0.045, 0.045, 0.045), NOSE, Vector3.ZERO, 6)
+		a.cyl(Vector3(0, 0.02, Yokai.FACE_Z + 0.02) + Basis.from_euler(nrot) * Vector3(0, 0.3, 0), Vector3(0.085, 0.035, 0.085), Toon.GOLD, nrot, 0.95, 8)
+		# bouche serrée, moustache de washi tombante, barbe blanche en pointe
+		a.box(Vector3(0, -0.2, Yokai.FACE_Z), Vector3(0.18, 0.035, 0.02), Toon.SUMI)
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			a.stick(Vector3(x * 0.09, -0.15, Yokai.FACE_Z), Vector3(0.045, 0.26, 0.02), W6.MANE, Vector3(0, 0, x * 2.6))
+		a.spike(Vector3(0, -0.3, Yokai.FACE_Z + 0.03), 0.13, 0.5, W6.MANE, Vector3(PI + 0.25, 0, 0), 0.0, 5, 0.5)
+		# crinière blanche : calotte derrière le masque, longues mèches sur les côtés et dans le dos
+		a.ball(Vector3(0, 0.24, Yokai.MASK_Z + 0.2), Vector3(0.46, 0.2, 0.36), W6.MANE, Vector3.ZERO, 8)
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			a.stick(Vector3(x * 0.37, 0.16, -0.2), Vector3(0.12, 0.72, 0.08), W6.MANE, Vector3(PI, 0, -x * 0.12))
+		var locks := 1 if lite else 3
+		for i in locks:
+			var k := float(i) - float(locks - 1) * 0.5
+			a.stick(Vector3(k * 0.16, 0.22, 0.2), Vector3(0.14, 0.62, 0.07), W6.MANE, Vector3(PI - 0.35, 0, -k * 0.3))
+		# tokin : boîte noire à pans sur le front, cordon d'or, flamme d'or ; couronne de perles d'or autour
+		a.cyl(Vector3(0, 0.44, Yokai.MASK_Z + 0.08), Vector3(0.135, 0.18, 0.11), W6.TOKIN, Vector3(0.25, 0, 0), 0.7, 6)
+		a.cyl(Vector3(0, 0.36, Yokai.MASK_Z + 0.08), Vector3(0.15, 0.03, 0.125), Toon.GOLD, Vector3(0.25, 0, 0), 1.0, 8)
+		a.spike(Vector3(0, 0.53, Yokai.MASK_Z + 0.1), 0.045, 0.22, Toon.GOLD, Vector3(0.1, 0, 0), 0.0, 4, 0.5)
+		var pearls := 8 if lite else 12
+		for i in pearls:
+			var ang := TAU * (float(i) + 0.5) / float(pearls)
+			if cos(ang) < -0.5:
+				continue  # pas devant le masque
+			a.ball(Vector3(sin(ang) * 0.42, 0.4 + 0.04 * cos(ang), cos(ang) * 0.34 + 0.02), Vector3(0.045, 0.045, 0.045), Toon.GOLD, Vector3.ZERO, 6)
+		d["head"] = Yokai.two(a, f)
+		# bras d'encre à bracelet d'or
+		var ar := Yokai.Mesher.new(1.0)
+		ar.cyl(Vector3(0, -0.2, 0), Vector3(0.095, 0.4, 0.095), Yokai.INK, Vector3(PI, 0, 0), 0.7, 7)
+		ar.cyl(Vector3(0, -0.31, 0), Vector3(0.09, 0.04, 0.09), Toon.GOLD, Vector3.ZERO, 1.0, 8)
+		ar.ball(Vector3(0, -0.43, 0), Vector3(0.11, 0.095, 0.11), Yokai.INK)
+		d["arm"] = ar.mesh()
+		# ailes d'encre (pivot derrière l'épaule, l'aile part vers l'extérieur et un peu en arrière) : os, membrane
+		# de plumes, couvertures, bord d'attaque d'or, rémiges en éventail à pointes d'or
+		for s in [-1.0, 1.0]:
+			var sx := float(s)
+			var wg := Yokai.Mesher.new(1.0)
+			wg.cyl(Vector3(sx * 0.45, 0.04, 0.02), Vector3(0.07, 0.9, 0.08), Yokai.INK, Vector3(0, 0, -sx * PI / 2.0), 0.7, 7)
+			wg.box(Vector3(sx * 0.5, -0.1, 0.16), Vector3(0.95, 0.05, 0.42), W6.FEATHER, Vector3(0.15, 0, 0))
+			wg.box(Vector3(sx * 0.32, -0.03, 0.1), Vector3(0.56, 0.06, 0.28), Yokai.INK, Vector3(0.15, 0, 0))
+			wg.box(Vector3(sx * 0.5, -0.07, -0.06), Vector3(0.95, 0.035, 0.035), Toon.GOLD, Vector3(0.15, 0, 0))
+			var pens := 4 if lite else 6
+			for i in pens:
+				var k := float(i) / float(pens - 1)  # 0 (près du corps) .. 1 (bout de l'aile)
+				var base := Vector3(sx * (0.55 + 0.42 * k), -0.12, 0.3)
+				var dir := Vector3(sx * (0.25 + 0.75 * k), -0.1, 0.95 - 0.55 * k)
+				var ln := 0.62 - 0.2 * k
+				var tip := wg.ray(base, dir, 0.06, ln, W6.FEATHER, 0.25, 4)
+				if not lite:
+					wg.ball(tip, Vector3(0.035, 0.035, 0.035), Toon.GOLD, Vector3.ZERO, 6)
+			d["wing_l" if sx < 0.0 else "wing_r"] = wg.mesh()
+		Yokai.ink_drip(d, Yokai.INK)
+		d["weapon_r"] = _fan_mesh(lite)
+		return d
+
+	## Hauchiwa géant (unités du monde, +Y vers le bout) : manche de bois, cœur d'or, plumes qui rayonnent dans le
+	## plan perpendiculaire au bras (bras levé, l'éventail fait face à la caméra), pointes de washi, rayons d'or.
+	static func _fan_mesh(lite: bool) -> ArrayMesh:
+		var m := Yokai.Mesher.new(1.0)
+		m.cyl(Vector3(0, 0.26, 0), Vector3(0.035, 0.6, 0.035), Color("#3B2E25"), Vector3.ZERO, 1.0, 6)
+		m.cyl(Vector3(0, 0.1, 0), Vector3(0.045, 0.05, 0.045), Toon.GOLD, Vector3.ZERO, 1.0, 6)
+		var c := Vector3(0, 0.58, 0)
+		var n := 6 if lite else 9
+		for i in n:
+			var ang := deg_to_rad(-120.0 + 240.0 * float(i) / float(n - 1))
+			var dir := Vector3(sin(ang), 0, -cos(ang))
+			m.ray(c, dir, 0.13, 0.78, QUILL, 0.45, 4)
+			m.ray(c + Vector3(0, 0.008, 0) + dir * 0.52, dir, 0.075, 0.3, W6.MANE, 0.2, 4)
+			if not lite:
+				m.ray(c + Vector3(0, 0.012, 0) + dir * 0.1, dir, 0.02, 0.5, Toon.GOLD, 0.6, 4)
+		m.ball(c, Vector3(0.11, 0.05, 0.11), Toon.GOLD, Vector3.ZERO, 8)
+		return m.mesh()
+
+
 func _build() -> void:
 	Toon.disc(self, 1.4, Color(0, 0, 0, 0.18))
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
+	body.rotation.y = PI  # il entre face au héros (le corps regarde vers -Z ; _face le tourne ensuite)
+	ch = Rig.new()
 	body.add_child(ch)
-	var red: Texture2D = load("res://assets/kaykit/tex/skeleton_red.png")
-	var gold: Texture2D = load("res://assets/kaykit/tex/skeleton_gold.png")
-	ch.setup(WARRIOR, 3.4, [["Cloak", red], ["", gold]], ["Skeleton_Warrior_Helmet"], Toon.GOLD)
+	ch.setup("sojobo", HEIGHT)
 	ch.idle = "Idle_Combat"
 	ch.play("Idle_Combat")
-	# visage rouge au très long nez, crinière et barbe blanches, tokin noir
-	var face := Toon.mat_shared(FACE)
-	var nose := Toon.part(body, Toon.cyl(0.04, 0.12, 0.9, 7), face, Vector3(0, 2.95, -0.7))
-	nose.rotation.x = -PI / 2.0 + 0.15
-	var hair := Toon.mat_shared(HAIR)
-	Toon.part(body, Toon.box(Vector3(0.9, 0.9, 0.3)), hair, Vector3(0, 2.75, 0.35))
-	var beard := Toon.part(body, Toon.cyl(0.32, 0.05, 0.8, 6), hair, Vector3(0, 2.45, -0.3))
-	beard.rotation.x = 0.2
-	for sx: float in [-1.0, 1.0]:
-		var brow := Toon.part(body, Toon.cyl(0.02, 0.08, 0.45, 5), hair, Vector3(sx * 0.2, 3.2, -0.38))
-		brow.rotation.z = -sx * 1.1
-	Toon.part(body, Toon.box(Vector3(0.3, 0.24, 0.3)), Toon.mat_shared(Color("#1E1C20")), Vector3(0, 3.45, -0.1))
-	# pompons d'ascète sur la poitrine
-	for k in 3:
-		Toon.part(body, Toon.sphere(0.11), Toon.mat_shared(HAIR), Vector3((float(k) - 1.0) * 0.22, 2.05, -0.5))
-	# grandes ailes noires
-	for sx: float in [-1.0, 1.0]:
-		var pv := Node3D.new()
-		body.add_child(pv)
-		pv.position = Vector3(sx * 0.4, 2.5, 0.4)
-		var wing := Toon.part(pv, Toon.box(Vector3(2.2, 0.1, 0.9)), Toon.mat_shared(FEATHER), Vector3(sx * 1.1, 0, 0.15))
-		wing.rotation.y = sx * 0.3
-		for k in 5:
-			var f := Toon.part(pv, Toon.box(Vector3(0.22, 0.08, 0.8)), Toon.mat_shared(Color("#2E2A34")), Vector3(sx * (0.5 + 0.4 * float(k)), -0.06, 0.7))
-			f.rotation.y = sx * 0.12 * float(k)
-		_wings.append(pv)
-	# grand éventail de plumes (hauchiwa) tenu devant lui
-	_fan = Node3D.new()
-	body.add_child(_fan)
-	_fan.position = Vector3(1.1, 1.9, -0.6)
-	Toon.part(_fan, Toon.cyl(0.04, 0.05, 0.8, 6), Toon.mat_shared(Color("#3B2E25")), Vector3(0, -0.4, 0))
-	for k in 9:
-		var a := deg_to_rad(-60.0 + 15.0 * float(k))
-		var fe := Toon.part(_fan, Toon.box(Vector3(0.16, 0.85, 0.04)), Toon.mat_shared(FEATHER), Vector3(sin(a) * 0.45, cos(a) * 0.45, 0))
-		fe.rotation.z = -a
-		Toon.part(_fan, Toon.sphere(0.07), Toon.mat_shared(HAIR, false), Vector3(sin(a) * 0.9, cos(a) * 0.9, 0))
+	_fan = ch.fan
 	_hint = Loop.hint_ring(self, HINT_R, Toon.GOLD)
 	_hint.visible = false
-	_make_stars(body, 3.9)
+	_make_stars(body, 4.1)
 	body.scale = Vector3.ONE * 0.01
 
 
@@ -398,12 +557,12 @@ func _cut_tornado() -> void:
 	main.sfx.play("strike", 1.3, -4.0)
 
 
+## Ailes qui battent (grand à l'apparition), éventail qui oscille, cercle-guide quand sa garde est tombée.
 func _animate() -> void:
 	var flap := 0.5 if _state == "spawn" else 0.12
-	for i in _wings.size():
-		var pv: Node3D = _wings[i]
-		var sx := -1.0 if i % 2 == 0 else 1.0
-		pv.rotation.z = sx * (0.3 + sin(_t * 2.2) * flap)
+	ch.flap = sin(_t * 2.2) * flap
+	if _state == "open" or _state == "dying":
+		ch.flap = -0.5 + sin(_t * 1.2) * 0.04
 	_fan.rotation.z = sin(_t * 1.6) * 0.25
 	_hint.visible = _state == "fight" and _gale_t > 0.0
 	_hint.rotation.y = _t * 0.5
