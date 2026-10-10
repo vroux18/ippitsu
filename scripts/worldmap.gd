@@ -725,13 +725,9 @@ func _draw() -> void:
 
 	# titre souligné de vermillon, à la hauteur du bouton maison (plus de sceau à kanji)
 	var ta := UiKit.ease_out(clampf((_t - 0.05) / 0.4, 0.0, 1.0))
-	var tfs := maxi(1, int(28.0 * u))
-	var title_txt := "Les Mondes"
-	var tw := _title.get_string_size(title_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	var x0 := (w - tw) / 2.0
+	# (UI v2, planche Mondes : MONDES en capitales espacées, même gabarit que les autres titres d'écran)
 	var ty := _top + 32.0 * u - 6.0 * u * (1.0 - ta)
-	draw_string(_title, Vector2(x0, ty), title_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(ink, ta))
-	draw_colored_polygon(UiKit.swash_points(Rect2(Vector2(x0 + tw * 0.2, ty + 5.0 * u), Vector2(tw * 0.6, 6.0 * u)), ta, 5.0), Color(Toon.VERMILION, 0.95 * ta))
+	UiKit.screen_title(self, _title, "MONDES", Vector2(w / 2.0, ty), u, ink, ta, "", w - 2.0 * 96.0 * u, ta)
 
 	var n := _worlds.size()
 	if n == 0:
