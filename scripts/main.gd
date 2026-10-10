@@ -490,6 +490,8 @@ var _garde_stage := -1  # omamori de la garde : étape où le coup a déjà ét�
 var _portes_used := false  # omamori des portes : la troisième porte a paru dans ce monde
 var _refuse_free_used := false  # omamori du pacte : refus gratuit pris dans ce monde
 var _fig_double_room := -1  # omamori de la figure : combat dont la première figure a déjà doublé
+var _fig_again_t := 0.0  # … délai avant la seconde technique (temps de jeu)
+var _fig_again_info: Dictionary = {}
 
 var _ink_lock := 0.0  # Encre maudite : secondes restantes sans recharge d'encre (après un coup reçu)
 var _boss_scripts := {}  # chemin -> GDScript chargé (gardé : pas recompilé à chaque boss)
@@ -2846,6 +2848,8 @@ func _start(hub := true, tutorial := false) -> void:
 	_portes_used = false
 	_refuse_free_used = false
 	_fig_double_room = -1
+	_fig_again_t = 0.0
+	_fig_again_info = {}
 	_last_breath_used = false
 	_net_ready = false
 	_bleed.clear()
@@ -5242,7 +5246,8 @@ func _apply_shape() -> void:
 	if charm == "figure" and _fig_double_room != room and not _explore and state == "play" and room > 0:
 		# omamori de la figure : la première figure du combat déclenche sa technique une seconde fois
 		_fig_double_room = room
-		get_tree().create_timer(0.35, false).timeout.connect(_fig_again.bind(String(sh.shape), sh))
+		_fig_again_t = 0.35
+		_fig_again_info = sh
 	if _fig_shot != "" and String(sh.shape) == _force_fig:
 		_fig_snap()
 	hud.shape_pop(String(sh.shape), label)
@@ -5252,7 +5257,7 @@ func _apply_shape() -> void:
 
 
 func _fig_again(shape: String, info: Dictionary) -> void:
-	if state != "play" or game_over or not is_instance_valid(hero):
+	if shape == "" or state != "play" or game_over or not is_instance_valid(hero):
 		return
 	powers.figure_end(shape, info)
 	float_text(hero.position + Vector3(0, 0.4, 0), "×2", Gear.CHARMS["figure"]["col"])
@@ -5972,6 +5977,12 @@ func _rain_drop(pts: PackedVector3Array) -> void:
 
 func _update_rain(dt: float) -> void:
 	_wall_t = maxf(0.0, _wall_t - dt)
+	if _fig_again_t > 0.0:
+		# omamori de la figure : la technique repart un instant après la première
+		_fig_again_t -= dt
+		if _fig_again_t <= 0.0:
+			_fig_again(String(_fig_again_info.get("shape", "")), _fig_again_info)
+			_fig_again_info = {}
 	for i in range(_rain.size() - 1, -1, -1):
 		var r: Array = _rain[i]
 		r[2] = float(r[2]) - dt
