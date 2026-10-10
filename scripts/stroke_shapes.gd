@@ -339,9 +339,8 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 	var q: PackedVector3Array = f["q"]
 	var n := q.size()
 	var w: int = f["w"]
-	var W := float(w) * float(f["step"])
 	var t_all := absf(turning_deg(q))
-	# [sous-trait, tour, amorce avant, amorce après, tour pour la couverture, premier indice, dernier indice]
+	# [sous-trait, tour, premier indice, dernier indice dans q]
 	var srcs: Array = []
 	var run: Array = f["run"]
 	if float(run[0]) >= 150.0:
@@ -349,7 +348,7 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		var i1 := mini(n - 1, int(run[2]))
 		# la corde des caps rogne les deux bouts de l'arc : le tour est aussi mesuré, segment à segment, un peu plus large
 		var t_full := absf(turning_deg(q.slice(maxi(0, i0 - w), mini(n, i1 + w + 1))))
-		srcs.append([q.slice(i0, i1 + 1), maxf(float(run[0]), t_full), maxf(0.0, length(q.slice(0, i0 + 1)) - W), maxf(0.0, length(q.slice(i1)) - W), float(run[0]), i0, i1])
+		srcs.append([q.slice(i0, i1 + 1), maxf(float(run[0]), t_full), i0, i1])
 	# boucle entre deux croisements : le trait se recoupe (une boucle serrée, un ensō « fermé » en dépassant)
 	var x := _first_cross(q)
 	if not x.is_empty():
@@ -358,12 +357,11 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		var sub := PackedVector3Array([x[2]])
 		sub.append_array(q.slice(i + 1, j + 1))
 		sub.append(x[2])
-		var t_sub := absf(turning_deg(sub))
-		srcs.append([sub, t_sub, length(q.slice(0, i + 1)), length(q.slice(j + 1)), t_sub, i + 1, j])
+		srcs.append([sub, absf(turning_deg(sub)), i + 1, j])
 	# le trait entier : seulement si le grand virage s'est fragmenté (une hésitation dans l'ensō) ; sinon il ne
 	# ferait que réunir une petite boucle et ses amorces dans un faux grand cercle
 	if float(run[0]) < 0.85 * t_all:
-		srcs.append([q, t_all, 0.0, 0.0, t_all, 0, n - 1])
+		srcs.append([q, t_all, 0, n - 1])
 	# coins francs (corde du zigzag) : une boucle n'en a pas
 	var wz := maxi(1, int(round(clampf(float(f["L"]) * ZZ_WIN_K, ZZ_WIN_MIN, ZZ_WIN_MAX) / float(f["step"]))))
 	var ct := _corner_turn(q, wz)
@@ -375,7 +373,7 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		if sub.size() < 4:
 			continue
 		var peak := 0.0
-		for k in range(int(s[5]), int(s[6]) + 1):
+		for k in range(int(s[2]), int(s[3]) + 1):
 			peak = maxf(peak, absf(ct[k]))
 		var fit := _circle_fit(sub)
 		if float(fit[1]) < EPS:
@@ -396,7 +394,7 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		var turn: float = s[1]
 		if s[0].size() != sub.size():
 			turn = maxf(turn, absf(turning_deg(sub)) + rad_to_deg(float(f["step"]) / r))
-		if int(s[5]) == 0 or int(s[6]) >= n - 1:
+		if int(s[2]) == 0 or int(s[3]) >= n - 1:
 			var p: PackedVector3Array = f["p"]
 			turn += rad_to_deg((p[1].distance_to(p[0]) + p[p.size() - 1].distance_to(p[p.size() - 2])) / (2.0 * r)) * 0.5
 		# amorces avant et après le cercle, lues par la géométrie : une amorce tangente de longueur t finit à
