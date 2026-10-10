@@ -4611,8 +4611,10 @@ func _unrect_inv(p: Vector3, sc: Vector2, k: float) -> Vector3:
 	var u := cam.unproject_position(p) - sc
 	return Vector3(u.x * k, 0.0, u.y * k)
 
-## `-- --figtest` : échelle du geste (mètres au sol par centimètre d'écran, caméra de jeu) puis le corpus de
-## gestes réalistes de tools/fig_corpus.gd (matrice de confusion, ratés), et le jeu se ferme.
+
+## `-- --figtest` : échelle du geste (mètres au sol par centimètre d'écran, caméra de jeu), le corpus de gestes
+## réalistes de tools/fig_corpus.gd (matrice de confusion, ratés), puis le même corpus dessiné sur l'écran et posé
+## au sol par la caméra : lecture redressée (_detect_screen, celle du jeu) contre lecture au sol brute. Le jeu se ferme.
 func _figtest() -> void:
 	_set_state("play")
 	_fit_camera()
@@ -4627,6 +4629,43 @@ func _figtest() -> void:
 		print("FIGTEST échelle y=%.2f : 1 cm d'écran = %.2f m (horizontal), %.2f m (vertical)" % [ky, a.distance_to(bx), a.distance_to(by)])
 	var FigCorpus = load("res://tools/fig_corpus.gd")
 	FigCorpus.run(true)
+	# gestes du corpus posés à l'écran (geste du doigt seul, à sa taille au sol pour la profondeur choisie, entre
+	# 30 et 90 % de la hauteur de la vue), puis au sol par la caméra comme en jeu
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var n := 0
+	var ok_scr := 0
+	var ok_gnd := 0
+	var fails: Array = []
+	for s: Dictionary in FigCorpus.build(rng):
+		var pts: PackedVector3Array = s["pts"]
+		var lead := int(s.get("lead", -1))
+		if lead >= 0:
+			pts = pts.slice(lead)
+		var g := Vector3.ZERO
+		for p in pts:
+			g += p
+		g /= float(pts.size())
+		var anchor := Vector2(vs.x * rng.randf_range(0.3, 0.7), vs.y * rng.randf_range(0.3, 0.9))
+		var mpc := _ground(anchor).distance_to(_ground(anchor + Vector2(cm, 0)))  # mètres par centimètre, ici
+		var px_per_m := cm / maxf(mpc, 0.01)
+		var raw := PackedVector3Array()
+		for p in pts:
+			var u := anchor + Vector2(p.x - g.x, p.z - g.z) * px_per_m
+			raw.append(_ground(u))
+		var want := String(s["want"])
+		var got_scr := String(_detect_screen(raw).get("shape", ""))
+		var got_gnd := String(StrokeShapes.detect(raw).get("shape", ""))
+		n += 1
+		if got_scr == want:
+			ok_scr += 1
+		else:
+			fails.append("%s à y=%.2f : attendu '%s', redressé '%s' (au sol '%s')" % [String(s["name"]), anchor.y / vs.y, want, got_scr, got_gnd])
+		if got_gnd == want:
+			ok_gnd += 1
+	print("FIGTEST écran : %d gestes posés au sol par la caméra : %d justes redressés (%.1f %%), %d justes lus au sol tels quels (%.1f %%)" % [n, ok_scr, 100.0 * float(ok_scr) / float(maxi(n, 1)), ok_gnd, 100.0 * float(ok_gnd) / float(maxi(n, 1))])
+	for f in fails:
+		print("FIGTEST   écran raté : ", f)
 	get_tree().quit()
 
 
