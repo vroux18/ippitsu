@@ -160,7 +160,7 @@ const BOSS_Y := 78.0  # haut du makimono (en u, sous la marge : 90 avec la marge
 const BOSS_K := 148.0  # bas de la zone du gardien (barre + libellés)
 const CLUSTER_Y := 434.0  # haut des grappes latérales (en u depuis le haut de l'écran)
 const CLUSTER_H := 248.0  # leur hauteur (jusqu'à 682)
-const LIFE_SEG_TOP := 34.0  # segments de vie : de y 34 à 178 du gabarit
+const LIFE_SEG_TOP := 29.0  # segments de vie : de y 34 à 178 du gabarit
 const LIFE_SEG_BOT := 178.0
 const LOST_HOLD := 1.4  # la traînée washi d'un segment perdu reste ce temps, puis se vide en 0,2 s
 const LOST_FADE := 0.2
@@ -635,8 +635,9 @@ func _draw_life(u: float) -> void:
 	var rim: Color = Color(Toon.VERMILION, 1.0) if low else Color(UIColors.WASHI, 0.6)
 	_outline(_sheath, rim.lerp(Color(1, 1, 1, 1), hf), 1.5 + hf)
 	# segments, du bas vers le haut
+	# segments collés (écart fixe de 3 u) : le dernier touche le haut du fourreau, plus de bande sombre sous le cœur
 	var step := (LIFE_SEG_BOT - LIFE_SEG_TOP) / float(n)
-	var sh := step * 0.75
+	var sh := step - 3.0
 	for i in n:
 		var yb := LIFE_SEG_BOT - step * float(i)
 		var lost_t := -1.0
@@ -968,8 +969,9 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 ## Au plus une fois par POP_CD et par pouvoir, POP_MAX à l'écran ; un sceau mineur (déclencheur fréquent, à la touche)
 ## ne chasse pas un sceau affiché, un majeur remplace le plus ancien.
 func power_pop(key: String, icon: String, col: Color, wpos: Vector3, major := true) -> void:
-	if not in_play or not major:
-		return  # les déclencheurs fréquents (à chaque touche) ne font plus clignoter de sceau
+	# (désactivé à la demande de Victor : le sceau qui surgit à chaque déclenchement de pouvoir gênait la lecture
+	# du combat ; les effets eux-mêmes, flash d'élément et vfx, suffisent)
+	return
 	var now := Time.get_ticks_msec()
 	if int(_pop_cd.get(key, 0)) > now:
 		return
