@@ -13,6 +13,8 @@ const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const Score = preload("res://scripts/score.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
+const RANK_ICON := ["hud/prunier", "hud/bambou", "hud/pin", "hud/couronne"]  # pictos des rangs (score.gd)
 const Meta = preload("res://scripts/meta.gd")
 
 # teintes du paysage par monde (indice = id - 1) : ciel, plan lointain, premier plan
@@ -621,11 +623,7 @@ func _layout() -> void:
 	var go_k := UiKit.ease_out(clampf((_t - 0.35) / 0.6, 0.0, 1.0))
 	_go.reveal = go_k
 	var locked_sel := n > 0 and _locked(_sel())
-	if n > 0 and not locked_sel:
-		var dsel: Dictionary = _worlds[_sel()]
-		_go.kanji = str(dsel.get("kanji", ""))
-	else:
-		_go.kanji = ""
+	_go.kanji = ""  # plus de sceau à kanji sur le pinceau
 	var ga := 1.0
 	if _reveal_id > 0:
 		ga = UiKit.ease_out(clampf((_rv - _rv_out - 0.2) / 0.35, 0.0, 1.0))
@@ -725,16 +723,15 @@ func _draw() -> void:
 	draw_circle(Vector2(w * 0.12, h * 0.9), 170.0 * u, wash)
 	draw_circle(Vector2(w * 0.92, h * 0.08), 120.0 * u, wash)
 
-	# titre et petit sceau 道, à la hauteur du bouton maison
+	# titre souligné de vermillon, à la hauteur du bouton maison (plus de sceau à kanji)
 	var ta := UiKit.ease_out(clampf((_t - 0.05) / 0.4, 0.0, 1.0))
 	var tfs := maxi(1, int(28.0 * u))
 	var title_txt := "Les Mondes"
 	var tw := _title.get_string_size(title_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	var hs := 24.0 * u
-	var x0 := (w - tw - 10.0 * u - hs) / 2.0
+	var x0 := (w - tw) / 2.0
 	var ty := _top + 32.0 * u - 6.0 * u * (1.0 - ta)
 	draw_string(_title, Vector2(x0, ty), title_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs, Color(ink, ta))
-	UiKit.hanko(self, Rect2(Vector2(x0 + tw + 10.0 * u, ty - 22.0 * u), Vector2(hs, hs)), "道", Toon.VERMILION, Toon.WASHI, ta, u * 0.8, 1.0)
+	draw_colored_polygon(UiKit.swash_points(Rect2(Vector2(x0 + tw * 0.2, ty + 5.0 * u), Vector2(tw * 0.6, 6.0 * u)), ta, 5.0), Color(Toon.VERMILION, 0.95 * ta))
 
 	var n := _worlds.size()
 	if n == 0:
@@ -837,7 +834,7 @@ func _draw_card(i: int) -> void:
 	if rv_e >= 0.0:
 		hcol = grey.lerp(col, _smooth(rv_e / 0.35))
 	var hs := 34.0 * u
-	UiKit.hanko(ci, Rect2(pr.position + Vector2(10.0, 10.0) * u, Vector2(hs, hs)), kanji, hcol, Toon.WASHI, 1.0, u, float(_id(i)))
+	_world_badge(ci, Rect2(pr.position + Vector2(10.0, 10.0) * u, Vector2(hs, hs)), kanji, hcol, 1.0)
 
 	# cadenas au centre de l'estampe (le monde révélé : il tremble, puis cède)
 	var lc := pr.get_center() + Vector2(0, -4.0 * u)
@@ -871,7 +868,7 @@ func _draw_card(i: int) -> void:
 	if fresh:
 		_pill(ci, x1, y - float(cfs) * 0.36, "NOUVEAU", Toon.VERMILION, Color(0, 0, 0, 0), Toon.WASHI)
 	elif locked:
-		_pill(ci, x1, y - float(cfs) * 0.36, "VERROUILLÉ", Color(ink, 0.07), Color(ink, 0.25), Color(ink, 0.6))
+		_lock_icon(ci, Vector2(x1 - 8.0 * u, y - float(cfs) * 0.36), 7.0 * u)
 	# nom
 	y += 33.0 * u
 	var nfs := _fit_size(_title, wname, maxi(1, int(26.0 * u)), iw)
@@ -922,10 +919,7 @@ func _draw_progress(ci: CanvasItem, i: int, x0: float, x1: float, ty: float, b: 
 	var ys := ty + (199.0 if not ids.is_empty() else 210.0) * u
 	var pts := _score_of(i)
 	var rank := Score.rank_of(pts, _id(i))
-	var lab := "MEILLEUR SCORE"
-	var chip_w := _score_chip_w(pts, rank)
-	if _caps.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x + chip_w + 10.0 * u > x1 - x0:
-		lab = "SCORE"
+	var lab := "SCORE"
 	var lw := _left(ci, _caps, lab, x0, ys + float(lfs) * 0.36, lfs, Color(ink, 0.5))
 	_score_chip(ci, x1, ys, pts, rank, _id(i), x1 - x0 - lw - 10.0 * u)
 	# Vues du monde : vignettes gagnées, cases vides sinon
@@ -952,31 +946,35 @@ func _draw_progress(ci: CanvasItem, i: int, x0: float, x1: float, ty: float, b: 
 			ci.draw_rect(r, Color(ink, 0.22), false, maxf(1.0, 1.0 * u))
 
 
-## Monde scellé : cadenas et condition d'ouverture (« Termine <monde précédent> pour débloquer »).
+## Monde scellé : cadenas, puis la condition en pictos : le monde précédent (sa pastille), une flèche,
+## la couronne de son boss (à vaincre). Aucune phrase.
 func _draw_locked_info(ci: CanvasItem, i: int, x0: float, x1: float, ty: float) -> void:
 	var u := _u
 	var ink: Color = Toon.ui_ink
 	var cx := (x0 + x1) / 2.0
-	var prev := ""
-	if i > 0:
-		var dp: Dictionary = _worlds[i - 1]
-		prev = UiKit.plain(str(dp.get("name", "")))
 	_lock_icon(ci, Vector2(cx, ty + 146.0 * u), 15.0 * u)
 	var hot := _deny if i == _sel() else 0.0
-	var msg := "Termine %s pour débloquer" % prev if prev != "" else "Monde scellé"
-	var fs := maxi(1, int(14.0 * u))
-	var lines := UiKit.wrap(_ui, msg, fs, x1 - x0, [])
-	while lines.size() > 2 and fs > maxi(1, int(10.0 * u)):
-		fs -= 1
-		lines = UiKit.wrap(_ui, msg, fs, x1 - x0, [])
-	var y := ty + 184.0 * u
-	var mc := Color(ink, 0.85).lerp(Toon.VERMILION, hot)
-	for line in lines:
-		var lt := String(line)
-		_centered(ci, _ui, lt, Vector2(cx, y), _fit_size(_ui, lt, fs, x1 - x0), mc)
-		y += float(fs) * 1.35
+	var y := ty + 192.0 * u
+	var col := Color(ink, 0.85).lerp(Toon.VERMILION, hot)
 	if i > 0:
-		_centered_fit(ci, _caps, "VAINCS LE BOSS FINAL DU MONDE %d" % _id(i - 1), Vector2(cx, y + 6.0 * u), maxi(1, int(9.0 * u)), x1 - x0, Color(ink, 0.45))
+		var dp: Dictionary = _worlds[i - 1]
+		var pc: Color = dp.get("color", Color(0.5, 0.5, 0.5))
+		var bs := 30.0 * u
+		_world_badge(ci, Rect2(Vector2(cx - 52.0 * u - bs / 2.0, y - bs / 2.0), Vector2(bs, bs)), str(dp.get("kanji", "道")), pc, 1.0)
+		var wdt := maxf(1.0, 2.0 * u)
+		ci.draw_line(Vector2(cx - 24.0 * u, y), Vector2(cx + 8.0 * u, y), col, wdt, true)
+		ci.draw_polyline(PackedVector2Array([Vector2(cx + 2.0 * u, y - 6.0 * u), Vector2(cx + 8.0 * u, y), Vector2(cx + 2.0 * u, y + 6.0 * u)]), col, wdt, true)
+		ci.draw_circle(Vector2(cx + 44.0 * u, y), 17.0 * u, Color(Toon.VERMILION, 0.9).lerp(Toon.VERMILION, hot))
+		UiKit.draw_icon(ci, "hud/couronne", Vector2(cx + 44.0 * u, y), 22.0 * u, 1.0, Toon.GOLD)
+
+
+## Pastille d'un monde : son picto (UIColors.WORLD_ICON, d'après sa clé) sur un carré arrondi de sa couleur.
+func _world_badge(ci: CanvasItem, r: Rect2, key: String, col: Color, a: float) -> void:
+	var u := _u
+	UiKit.box(_box, Color(col, a), int(r.size.x * 0.22), Color(Toon.WASHI, 0.85 * a), maxi(1, int(1.5 * u)))
+	ci.draw_style_box(_box, r)
+	_box.set_border_width_all(0)
+	UiKit.draw_icon(ci, String(UIColors.WORLD_ICON.get(key, "hud/vague")), r.get_center(), r.size.x * 0.62, a, Toon.WASHI)
 
 
 ## Sous-titre coupé en deux lignes au plus (mis en cache par monde et largeur).
@@ -1012,41 +1010,41 @@ func _pill(ci: CanvasItem, right: float, cy: float, txt: String, bg: Color, bord
 	UiKit.text(ci, _caps, txt, Vector2(r.get_center().x, cy + float(fs) * 0.36), fs, fg)
 
 
-func _score_text(pts: int, rank: int) -> String:
-	if rank > 0:
-		return Score.rank_name(rank) + "  ·  " + Score.fmt(pts)
+func _score_text(pts: int, _rank: int) -> String:
 	return Score.fmt(pts)
 
 
 func _score_chip_w(pts: int, rank: int) -> float:
 	var u := _u
 	if pts <= 0:
-		return _ui.get_string_size("Pas encore de score", HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(11.0 * u))).x
+		return 24.0 * u
 	var tw := _ui.get_string_size(_score_text(pts, rank), HORIZONTAL_ALIGNMENT_LEFT, -1, maxi(1, int(11.5 * u))).x
 	return tw + 20.0 * u + (24.0 * u if rank > 0 else 0.0)
 
 
 ## Pastille du meilleur score : sceau du rang à sa couleur, nom du rang et points ; alignée à droite.
-func _score_chip(ci: CanvasItem, right: float, cy: float, pts: int, rank: int, wid: int, max_w: float) -> void:
+func _score_chip(ci: CanvasItem, right: float, cy: float, pts: int, rank: int, _wid: int, max_w: float) -> void:
 	var u := _u
 	var ink: Color = Toon.ui_ink
 	if pts <= 0:
-		var mfs := _fit_size(_ui, "Pas encore de score", maxi(1, int(11.0 * u)), max_w)
-		_right(ci, _ui, "Pas encore de score", right, cy + float(mfs) * 0.36, mfs, Color(ink, 0.4))
+		# pas encore de score : un tiret
+		ci.draw_line(Vector2(right - 20.0 * u, cy), Vector2(right - 4.0 * u, cy), Color(ink, 0.35), maxf(1.0, 2.0 * u), true)
 		return
 	var txt := _score_text(pts, rank)
 	var lead := 24.0 * u if rank > 0 else 0.0
-	var fs := _fit_size(_ui, txt, maxi(1, int(11.5 * u)), max_w - 20.0 * u - lead)
-	var tw := _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var fs := _fit_size(UiKit.num_font(), txt, maxi(1, int(11.5 * u)), max_w - 20.0 * u - lead)
+	var tw := UiKit.num_font().get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var r := Rect2(right - tw - 20.0 * u - lead, cy - 12.0 * u, tw + 20.0 * u + lead, 24.0 * u)
 	var rc: Color = Score.rank_color(rank) if rank > 0 else ink
 	UiKit.box(_box, Color(rc, 0.12), int(12.0 * u), Color(rc, 0.55), maxi(1, int(1.0 * u)))
 	ci.draw_style_box(_box, r)
 	_box.set_border_width_all(0)
 	if rank > 0:
-		var hs := 18.0 * u
-		UiKit.hanko(ci, Rect2(Vector2(r.position.x + 4.0 * u, cy - hs / 2.0), Vector2(hs, hs)), Score.rank_glyph(rank), rc, Toon.WASHI, 1.0, u * 0.7, float(wid))
-	_left(ci, _ui, txt, r.position.x + 10.0 * u + lead, cy + float(fs) * 0.36, fs, _tone(rc) if rank > 0 else Color(ink, 0.85))
+		# picto du rang sur un rond de sa couleur
+		var hc := Vector2(r.position.x + 13.0 * u, cy)
+		ci.draw_circle(hc, 9.0 * u, rc)
+		UiKit.draw_icon(ci, String(RANK_ICON[clampi(rank - 1, 0, RANK_ICON.size() - 1)]), hc, 12.0 * u, 1.0, Toon.WASHI)
+	_left(ci, UiKit.num_font(), txt, r.position.x + 10.0 * u + lead, cy + float(fs) * 0.36, fs, _tone(rc) if rank > 0 else Color(ink, 0.85))
 
 
 ## Chemin des étapes : trait et nœuds, plein jusqu'au record ; gardien et boss plus gros, avec icône.
@@ -1737,7 +1735,7 @@ func _draw_overlay() -> void:
 		var hs := 54.0 * u
 		var sc := 1.0 + 0.4 * (1.0 - sk)
 		ci.draw_set_transform(Vector2(cx, top + 82.0 * u), -0.04, Vector2(sc, sc))
-		UiKit.hanko(ci, Rect2(Vector2(-hs, -hs) / 2.0, Vector2(hs, hs)), str(d.get("kanji", "道")), col, Toon.WASHI, k * sk, u, 7.0)
+		_world_badge(ci, Rect2(Vector2(-hs, -hs) / 2.0, Vector2(hs, hs)), str(d.get("kanji", "道")), col, k * sk)
 		ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# nom et ambiance
 	_centered_fit(ci, _title, UiKit.plain(str(d.get("name", ""))), Vector2(cx, top + 148.0 * u), maxi(1, int(26.0 * u)), inner, Color(ink, k))
@@ -1751,7 +1749,7 @@ func _draw_overlay() -> void:
 		ly += float(sfs) * 1.35
 	if has_p:
 		ci.draw_line(Vector2(card.position.x + 30.0 * u, top + 204.0 * u), Vector2(card.end.x - 30.0 * u, top + 204.0 * u), Color(ink, 0.15 * k), maxf(1.0, 1.0 * u))
-		_centered(ci, _caps, "NOUVEAUX ROULEAUX", Vector2(cx, top + 224.0 * u), maxi(1, int(9.5 * u)), Color(_gold_ink(), k))
+		UiKit.draw_icon(ci, "hud/rouleau", Vector2(cx, top + 220.0 * u), 18.0 * u, k, _gold_ink())
 		var n := _reveal_powers.size()
 		var shown := mini(n, 6)
 		var ir := 13.0 * u
@@ -1762,11 +1760,16 @@ func _draw_overlay() -> void:
 				continue
 			var ic := Vector2(cx + (float(q) - float(shown - 1) / 2.0) * gap, top + 251.0 * u)
 			UiKit.power_icon(ci, String(_reveal_powers[q]), ic, ir * (0.6 + 0.4 * qk), k * qk)
-		var more := ("+%d ROULEAU" % n) if n == 1 else ("+%d ROULEAUX" % n)
-		_centered_fit(ci, _caps, more + "  ·  DANS LES TIRAGES", Vector2(cx, top + 284.0 * u), maxi(1, int(9.5 * u)), inner, Color(ink, 0.6 * k))
-	# invitation à continuer
-	var pulse := 0.55 + 0.45 * sin(_t * 3.0)
-	_centered(ci, _caps, "TOUCHE POUR CONTINUER", Vector2(cx, card.end.y + 30.0 * u), maxi(1, int(10.0 * u)), Color(Toon.WASHI, 0.75 * k * pulse))
+		_centered(ci, UiKit.num_font(), "+%d" % n, Vector2(cx, top + 284.0 * u), maxi(1, int(12.0 * u)), Color(_gold_ink(), k))
+	# invitation à continuer : un doigt qui pulse (onde, puis le doigt qui s'enfonce), sans un mot
+	var hc := Vector2(cx, card.end.y + 34.0 * u)
+	var ht := fmod(_t, 1.2)
+	if ht < 0.7:
+		ci.draw_arc(hc, (12.0 + 30.0 * ht) * u, 0, TAU, 28, Color(Toon.WASHI, (0.7 - ht) * k), 2.0 * u, true)
+	var press := 1.0 if ht < 0.15 else 0.0
+	ci.draw_circle(hc, 14.0 * u, Color(Toon.ui_paper, 0.9 * k))
+	ci.draw_arc(hc, 14.0 * u, 0, TAU, 28, Color(Toon.ui_ink, 0.5 * k), maxf(1.0, 1.2 * u), true)
+	ci.draw_circle(hc, (7.0 + 1.5 * (1.0 - press)) * u, Color(Toon.VERMILION, 0.85 * k))
 
 
 # --- Utilitaires ---------------------------------------------------------------------

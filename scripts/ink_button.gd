@@ -494,10 +494,8 @@ func _icon(kind: String, c: Vector2, s: float, ink: Color) -> void:
 			# Atelier : le pinceau et son trait
 			UiKit.glyph(self, "at_brush", c, s, ink, _hole)
 		"dojo":
-			# Dojo : le caractère 道 (la Voie)
-			var dfs := int(s * 1.75)
-			if dfs > 0:
-				UiKit.text(self, UiKit.TITLE_FONT, "道", c + Vector2(0, dfs * 0.36), dfs, ink)
+			# Dojo : le torii (plus de kanji dans l'interface)
+			UiKit.glyph(self, "torii", c, s * 1.15, ink, _hole)
 		"hanger":
 			UiKit.hanger_icon(self, c, s * 1.15, ink)
 		"bestiary":

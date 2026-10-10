@@ -543,6 +543,14 @@ func _ready() -> void:
 		if sl >= 0:
 			picker.set("_sel", clampi(int(wsearch.substr(sl + 4).get_slice("&", 0)), 0, 2))
 	if "atelier" in wsearch:
+		# `?atelier&tab=1` (captures) : l'onglet N ouvert ; `&fresh` : encre et rangs remis à zéro (prix visibles)
+		if "fresh" in wsearch:
+			meta.sumi = 60
+			meta.seals = 2
+			meta.ranks = {}
+		var tb := wsearch.find("tab=")
+		if tb >= 0:
+			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 2))
 		_on_atelier()
 	if "dojo" in wsearch:
 		_start_dojo()
@@ -550,15 +558,50 @@ func _ready() -> void:
 		# `?tuto` (web) : première partie du tutoriel en jeu
 		meta.coach_reset()
 		_start_first_run()
+	# `?tuto&coach=figures` (captures) : cette bulle du coach dès que le jeu tourne (figures, dodge, ult…)
+	var cf := wsearch.find("coach=")
+	if cf >= 0:
+		coach.force(wsearch.substr(cf + 6).get_slice("&", 0))
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
 	if "intro" in wsearch:
 		_open_intro(false)
+	# `?mondes` (captures) : la carte des mondes ; `?mondes&reveal=N` : le monde N se révèle (rouleaux compris)
+	if "mondes" in wsearch:
+		var rv := wsearch.find("reveal=")
+		if rv >= 0:
+			var rid := clampi(int(wsearch.substr(rv + 7).get_slice("&", 0)), 1, Worlds.WORLDS.size())
+			_open_worlds(rid - 1, rid, ["fire_burn", "water_tide", "fire_spark", "fire_kasha"])  # rouleaux de démonstration
+		else:
+			_open_worlds()
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
 	# `?bestiaire` (captures) : ouvre l'encyclopédie des yōkai depuis l'accueil (avec `unlockall` : complète)
 	if "bestiaire" in wsearch:
 		_open_bestiary()
+	# `?carnet` (captures) : le dojo, carnet des figures ouvert
+	if "carnet" in wsearch:
+		_start_dojo()
+		tuto.dojo.call("_toggle_book")
+	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
+	if "garderobe" in wsearch:
+		_open_wardrobe()
+	if "options" in wsearch:
+		_open_options()
+	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée (étape 5, chiffres de démo)
+	if "victoire" in wsearch or "defaite" in wsearch:
+		_start(false)
+		room = 5
+		stage_i = 2
+		kills = 23
+		max_chain = 14
+		run_time = 312.0
+		score.points = 61280 if "victoire" in wsearch else 18420
+		shape_counts = {"loop": 12, "zigzag": 7, "straight": 31, "return": 4, "enso": 2}
+		_ending_victory = "victoire" in wsearch
+		_finish_run()
+		if not _ending_victory:
+			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)
@@ -822,9 +865,9 @@ func _set_state(s: String) -> void:
 				music.play_world(current_world)
 				var wd: Dictionary = Worlds.world(current_world)
 				if in_hub:
-					hud.banner("SANCTUAIRE", "PASSE LE TORII", wd.color, 2.6)
+					hud.banner("SANCTUAIRE", "", wd.color, 2.6)
 				else:
-					hud.banner(String(wd.name).to_upper(), "ÉTAPE 1  ·  AVANCE, TRACE POUR FRAPPER", wd.color, 2.4)
+					hud.banner(String(wd.name).to_upper(), "ÉTAPE 1", wd.color, 2.4)
 		"over":
 			menu.show_mode("over")
 		"worlds", "sail":
@@ -1004,7 +1047,7 @@ func _start_dojo() -> void:
 	_set_state("tuto")
 	hero.face(Vector3(0, 0, -1))
 	hero.guard_t = 99999.0
-	hud.banner("DOJO", "ENTRAÎNE-TOI LIBREMENT", Toon.PRUSSIAN, 1.6)
+	hud.banner("DOJO", "", Toon.PRUSSIAN, 1.6)
 	tuto.begin_dojo()
 
 
@@ -2606,7 +2649,7 @@ func boss_killed(b: Node3D) -> void:
 		if clean and room < ROOMS:
 			# aucun coup reçu : un rouleau d'exception (épique ou légendaire) à la fin du combat
 			_flawless_pending = true
-			hud.toast("SANS UNE ÉGRATIGNURE  ·  ROULEAU D'EXCEPTION")
+			hud.toast("SANS UNE ÉGRATIGNURE")
 			float_text(b.position, "SANS UNE ÉGRATIGNURE", Toon.GOLD)
 	else:
 		boss_kills += 1
@@ -2772,7 +2815,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 		# défi d'un recoin relevé : belle récompense
 		pickups.drop(e.position, "coin", 8)
 		pickups.drop(e.position, "xp", 6)
-		hud.toast("DÉFI RELEVÉ  ·  BUTIN")
+		hud.toast("DÉFI RELEVÉ")
 		sfx.play("levelup", 1.2, -4.0)
 
 
@@ -2806,7 +2849,7 @@ func _open_passage(j: int) -> void:
 	elan = elan_max()
 	_set_state("play")
 	var jc: Vector3 = arena.join_center(j)
-	hud.banner("ZONE NETTOYÉE", "LA HAIE S'OUVRE  ·  AVANCE  ·  COMBAT %d / %d" % [arena.zones_done() + 1, arena.zones.size()], Toon.GOLD, 1.6)
+	hud.banner("ZONE NETTOYÉE", "COMBAT %d / %d" % [arena.zones_done() + 1, arena.zones.size()], Toon.GOLD, 1.6)
 	_splash(jc + Vector3(0, 0.4, 0), Toon.SUMI, 14)
 	shake = maxf(shake, 0.1)
 	sfx.play("torii", 1.15, -5.0)
@@ -2821,7 +2864,7 @@ func _open_gate() -> void:
 	arena.open_gate()
 	# fin d'étape bien visible : le torii s'éveille (arena), chemin d'encre du héros jusqu'à lui
 	if room > 0 and not in_hub and not was_open:
-		hud.banner("ÉTAPE NETTOYÉE", "LE TORII S'ÉVEILLE  ·  SUIS LE CHEMIN D'ENCRE", Toon.GOLD, 1.8)
+		hud.banner("ÉTAPE NETTOYÉE", "", Toon.GOLD, 1.8)
 		arena.gate_path(hero.position)
 		shake = maxf(shake, 0.12)
 		sfx.play("torii", 1.0, -3.0)
@@ -2870,7 +2913,7 @@ func _spawn_shrine() -> void:
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.position = Vector3(0, 1.45, 0)
 	_shrine.add_child(l)
-	hud.banner("UN SANCTUAIRE", "TOUCHE-LE POUR UN PACTE  ·  OU PASSE LE TORII", Color("#7A1F1A"), 2.6)
+	hud.banner("SANCTUAIRE", "UN PACTE ?", Color("#7A1F1A"), 2.6)
 	sfx.play("shrine", 1.0, -4.0)
 
 
@@ -3331,7 +3374,7 @@ func _update_pockets() -> void:
 					vfx.chest_burst(p)
 					sfx.play("coin", 0.8, -2.0)
 					sfx.play("shot", 1.6, -6.0)
-					hud.toast("COFFRE  ·  OR ET EXPÉRIENCE")
+					hud.toast("COFFRE")
 			"spring":
 				if d < 1.1 and hero.hp < hero.max_hp:
 					pk["used"] = true
@@ -3344,7 +3387,7 @@ func _update_pockets() -> void:
 						gl2.visible = false
 					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
 					sfx.play("shrine", 1.4, -4.0)
-					hud.toast("SOURCE  ·  SOIN +1")
+					hud.toast("SOIN +1")
 			"elite":
 				if d < 3.0 and _enc < 0:
 					pk["used"] = true
@@ -3375,7 +3418,7 @@ func _spawn_elite(p: Vector3) -> void:
 	shake = maxf(shake, 0.3)
 	sfx.play("strike", 0.45)
 	_splash(p + Vector3(0, 0.4, 0), Toon.VERMILION, 20)
-	hud.banner("DÉFI", "UN GARDIEN D'ÉLITE  ·  BUTIN À LA CLÉ", Toon.VERMILION, 1.6)
+	hud.banner("DÉFI", "GARDIEN D'ÉLITE", Toon.VERMILION, 1.6)
 
 
 # ------------------------------------------------------------------ énigmes des recoins
@@ -3834,7 +3877,7 @@ func _victory() -> void:
 	_ending_victory = true
 	hero.invuln = 999.0
 	if _flawless_boss:
-		hud.banner("VICTOIRE", "SANS UNE ÉGRATIGNURE  ·  +2 SCEAUX, +40 ENCRE", Toon.GOLD, 2.6)
+		hud.banner("VICTOIRE", "SANS UNE ÉGRATIGNURE", Toon.GOLD, 2.6)
 	else:
 		hud.banner("VICTOIRE", String(Worlds.world(current_world).name), Toon.GOLD, 2.2)
 	music.play_victory()
@@ -3850,7 +3893,7 @@ func _finish_run() -> void:
 	# victoire : le bouton principal mène au monde suivant (REJOUER sur le dernier monde, et en cas de défaite)
 	menu.next_label = ""
 	if won and current_world < Worlds.WORLDS.size():
-		menu.next_label = "DÉCOUVRIR LE MONDE SUIVANT" if int(menu.unlock_world) > 0 else "MONDE SUIVANT"
+		menu.next_label = "MONDE SUIVANT"
 	menu.new_record = room > record
 	if room > record:
 		record = room
