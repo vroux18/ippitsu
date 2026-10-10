@@ -4792,6 +4792,10 @@ func _break_chain() -> void:
 func _hurt_hero(n := 1) -> void:
 	if hero.dash_safe() or hero.invuln > 0.0 or hero.protected() or game_over:
 		return
+	# temps figé (choix de rouleau, pause, arrêt sur image) ou hors combat : les coups de contact, testés par
+	# position à chaque image, ne doivent pas passer (on mourait en choisissant un rouleau)
+	if not (state in ST_FIGHT) or Engine.time_scale <= 0.0:
+		return
 	if foam > 0:
 		# bouclier d'écume : le coup est bu par l'écume
 		foam -= 1
@@ -5271,6 +5275,7 @@ func _process(_delta: float) -> void:
 		if _lv_cele < 0.0:
 			# montée de niveau : d'abord la fête (bandeau or, anneaux, éclat du héros), les rouleaux viennent après
 			_lv_cele = 0.0
+			hero.invuln = maxf(hero.invuln, LV_CELE + 0.4)  # intouchable le temps de la fête (les ennemis bougent encore)
 			hud.banner("NIVEAU %d" % level, "", Toon.GOLD, LV_CELE + 0.3)
 			var hp := Vector3(hero.position.x, 0.05, hero.position.z)
 			vfx.ring(hp, Toon.GOLD, 2.4)
