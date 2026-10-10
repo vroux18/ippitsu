@@ -101,6 +101,188 @@ class Layer extends Control:
 	var part := ""
 
 	func _draw() -> void:
+		op.call("_draw_part", self, part)
+
+
+func _ready() -> void:
+	set_anchors_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	visible = false
+	_ui.base_font = UiKit.UI_FONT
+	_ui.spacing_glyph = 2
+	_paper = Layer.new()
+	_paper.op = self
+	_paper.part = "paper"
+	_paper.clip_contents = true
+	_paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_paper)
+	_over = Layer.new()
+	_over.op = self
+	_over.part = "over"
+	_over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_over)
+	_skip_btn = InkButton.new()
+	_skip_btn.text = "PASSER"
+	_skip_btn.style = "ghost"
+	_skip_btn.font = _ui
+	_skip_btn.visible = false
+	_skip_btn.pressed.connect(skip)
+	add_child(_skip_btn)
+	_build_ronin_path()
+
+
+## Lance l'ouverture depuis le début (ou depuis la seconde `start`, pour les captures : `?opening&t=N`).
+func play(start := 0.0) -> void:
+	_t = maxf(start, 0.0)
+	_end_t = -1.0
+	_revealed = false
+	_holding = false
+	_hold_t = 0.0
+	_cues.clear()
+	_tip_set = false
+	_last_ms = 0
+	visible = true
+	modulate.a = 1.0
+
+
+## Passer : court fondu puis fin (toucher maintenu, PASSER, bouton Retour).
+func skip() -> void:
+	if not visible or _end_t >= 0.0 or _t >= T_FADE:
+		return
+	_end_t = 0.0
+	_cue("skip", "whoosh", 0.9, -8.0)
+
+
+func _finish() -> void:
+	if not visible:
+		return
+	visible = false
+	_t = -1.0
+	if not _revealed:
+		_revealed = true
+		reveal.emit()
+	finished.emit()
+
+
+## Toucher maintenu : un anneau se remplit sous le doigt, puis l'ouverture passe.
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		accept_event()
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		_holding = mb.pressed and _t > 0.4
+		_hold_t = 0.0
+		_hold_p = mb.position
+	elif event is InputEventMouseMotion and _holding:
+		_hold_p = (event as InputEventMouseMotion).position
+
+
+func _process(_delta: float) -> void:
+	if not visible or _t < 0.0:
+		return
+	size = get_viewport_rect().size
+	var now := Time.get_ticks_msec()
+	var real := 0.0 if _last_ms == 0 else minf(float(now - _last_ms) / 1000.0, 1.0)
+	_last_ms = now
+	_t += real
+	if _holding:
+		_hold_t += real
+		if _hold_t >= SKIP_HOLD:
+			_holding = false
+			skip()
+	if _end_t >= 0.0:
+		_end_t += real
+		if not _revealed and _end_t >= SKIP_FADE * 0.4:
+			_revealed = true
+			reveal.emit()
+		if _end_t >= SKIP_FADE:
+			_finish()
+			return
+	elif _t >= T_FADE + 0.3 and not _revealed:
+		_revealed = true
+		reveal.emit()
+	if _t >= T_END and _end_t < 0.0:
+		_finish()
+		return
+	_sounds()
+	_layout()
+	queue_redraw()
+
+
+## Repères sonores, joués une fois chacun quand l'horloge les franchit.
+func _sounds() -> void:
+	if _end_t >= 0.0:
+		return
+	if _t >= T_WAVE:
+		_cue("wave", "ink", 0.8, -10.0)
+	if _t >= T_WAVE + 4.0:
+		_cue("foam", "whoosh", 1.3, -14.0)
+	if _t >= T_WAVE + 9.9:
+		_cue("seal", "shot", 1.3, -12.0)
+	if _t >= T_DARK:
+		_cue("dark", "whoosh", 0.55, -6.0)
+	if _t >= T_MASK:
+		_cue("mask", "shot", 0.6, -8.0)
+	for i in PRINTS.size():
+		if _t >= T_EAT + EAT_STEP * i:
+			_cue("eat%d" % i, "shot", 1.1 + 0.08 * i, -12.0)
+	if _t >= T_DIP:
+		_cue("dip", "ink", 1.0, -8.0)
+	if _t >= T_ONE:
+		_cue("one", "whoosh", 0.7, -10.0)
+	if _t >= T_ONE + ONE_DUR:
+		_cue("katana", "slash", 1.0, -6.0)
+	if _t >= T_EYES:
+		_cue("eyes", "iai", 1.2, -10.0)
+	if _t >= T_PUSH:
+		_cue("push", "whoosh", 1.0, -8.0)
+	if _t >= T_ZOOM:
+		_cue("zoom", "whoosh", 0.6, -6.0)
+	if _t >= T_ENSO:
+		_cue("enso", "ink", 0.6, -6.0)
+	if _t >= T_FADE:
+		_cue("torii", "torii", 1.0, -6.0)
+
+
+func _cue(key: String, snd: String, pitch: float, db: float) -> void:
+	if _cues.has(key):
+		return
+	_cues[key] = true
+	if sfx != null:
+		sfx.play(snd, pitch, db)
+
+
+func _layout() -> void:
+	var u := minf(size.x / 400.0, size.y / 800.0)
+	_u = u
+	_f = Rect2((size - Vector2(400, 800) * u) / 2.0, Vector2(400, 800) * u)
+	_sheet = Rect2(_f.position + Vector2(34, 232) * u, Vector2(332, 372) * u)
+	if _sheet != _strokes_sheet:
+		_build_painting()
+	var safe := UiKit.safe_insets(size)
+	_skip_btn.visible = _t > 2.0 and _end_t < 0.0 and _t < T_FADE
+	_skip_btn.size = Vector2(96, 36) * u
+	_skip_btn.position = Vector2(_f.end.x - 104.0 * u, _f.position.y + safe.x + 14.0 * u)
+	_skip_btn.font_size = int(12 * u)
+	_skip_btn.modulate.a = UiKit.ease_out((_t - 2.0) / 0.5) * 0.8
+	# le calque de la feuille suit la plongée (grossie autour du cœur de la vague) et s'élargit pour couvrir l'écran
+	var zoom := _k(_t, T_ZOOM, 1.6)
+	var z := 1.0 + 7.0 * pow(zoom, 1.7)
+	var g := zoom * 400.0 * u
+	var xf := _cur_zoom_xf()
+	_paper.position = xf.origin + (_sheet.position - Vector2(g, g)) * z
+	_paper.scale = Vector2(z, z)
+	_paper.size = _sheet.size + Vector2(2.0 * g, 2.0 * g)
+	_over.position = Vector2.ZERO
+	_over.size = size
+	_paper.queue_redraw()
+	_over.queue_redraw()
+
+
+# ------------------------------------------------------------------ dessin
+
+func _draw() -> void:
 	_ci = self
 	_base = Transform2D.IDENTITY
 	if _t < 0.0 or size.x < 10.0:
