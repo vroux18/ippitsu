@@ -571,6 +571,10 @@ func _ready() -> void:
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
 	if "intro" in wsearch:
 		_open_intro(false)
+		# `?intro&page=N` (captures) : la planche N (0..5) directement
+		var ip := wsearch.find("page=")
+		if ip >= 0:
+			intro._go(clampi(int(wsearch.substr(ip + 5).get_slice("&", 0)), 0, 5))
 	# `?mondes` (captures) : la carte des mondes ; `?mondes&reveal=N` : le monde N se révèle (rouleaux compris)
 	if "mondes" in wsearch:
 		var rv := wsearch.find("reveal=")
@@ -4536,6 +4540,15 @@ func _launch(s: MeshInstance3D) -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = s
+	# Oikaze (vent arrière) : un trait dans le sens du précédent est poussé plus loin, gratuitement
+	var ext: float = powers.stroke_extend(s.points)
+	if ext > 0.0:
+		var pts: PackedVector3Array = s.points
+		var n := pts.size()
+		var edir: Vector3 = pts[n - 1] - pts[maxi(0, n - 4)]
+		edir.y = 0
+		if edir.length() > 0.01:
+			s.extend_to(_clamp_point(pts[n - 1] + edir.normalized() * ext), ext)
 	hero.dash_guard = _dash_guard()
 	if hero.dashing:
 		# on enchaîne : la ruée en cours se termine et la nouvelle prend le relais
