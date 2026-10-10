@@ -93,6 +93,9 @@ signal reroll
 var rerolls := 0  # relances disponibles (Atelier : Choix, Omamori)
 var style := STYLE_V2  # style des cartes : 0 kakemono épuré, 1 ofuda, 2 estampe, 3 carte v2 (par défaut)
 
+var _fx_rows := {}  # lignes d'effet des cartes v2 : [ligne, bords, échelle] -> mise en page
+var _bub_h := {}  # hauteurs mesurées des bulles : [carte, largeur, échelle] -> px (offre fixe jusqu'au prochain open)
+var _scene_cache := {}  # scènes peintes des cartes v2 : [élément, pacte, origine, échelle, découpe] -> géométrie
 var _ids: Array = []
 var _infos: Array = []
 var _t := 0.0
@@ -157,6 +160,7 @@ func _ready() -> void:
 func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_ids = ids
 	_infos = infos
+	_bub_h.clear()
 	_title_text = title
 	_sub_text = sub
 	_t = 0.0
@@ -2493,7 +2497,7 @@ func _draw_v2() -> void:
 	var bub_w := minf(w - 28.0 * u, 340.0 * u)
 	var bub_h := 60.0 * u  # place réservée à la bulle (la plus haute des cartes : rien ne saute au toucher)
 	for i in slots:
-		bub_h = maxf(bub_h, _v2_bubble(Rect2(Vector2.ZERO, Vector2(bub_w, 4000.0)), _infos[i], _id(i), u, 0.0, false))
+		bub_h = maxf(bub_h, _v2_bubble_h(i, bub_w, u))
 	var sub_h := 18.0 * u if _title_text != "" and _sub_text != "" else 0.0
 	var strip_h := 46.0 * u if not _owned.is_empty() and not _curse_mode else 0.0
 	var tip_h := _tip_h(u) + 14.0 * u if _tip_on else 0.0
@@ -2627,7 +2631,7 @@ func _draw_v2() -> void:
 	# bulle d'encre de la carte touchée, pointe vers elle
 	var ba := fade * (UiKit.ease_out(_sel_t / 0.2) if _chosen < 0 else 1.0)
 	if _sel >= 0 and _sel < n and _is_card(_sel) and ba > 0.01:
-		var bh := _v2_bubble(Rect2(Vector2.ZERO, Vector2(bub_w, 4000.0)), _infos[_sel], _id(_sel), u, 0.0, false)
+		var bh := _v2_bubble_h(_sel, bub_w, u)
 		var box := Rect2(Vector2(w / 2.0 - bub_w / 2.0, by + 6.0 * u * (1.0 - ba)), Vector2(bub_w, bh))
 		var sr: Rect2 = _rects[_sel]
 		var tipx := clampf(sr.get_center().x, box.position.x + 20.0 * u, box.end.x - 20.0 * u)
@@ -2934,16 +2938,56 @@ func _v2_fx_row(rw: Array, x0: float, x1: float, ym: float, s: float, el: Color,
 		return
 	UiKit.fx_icon(self, String(rw[0]), Vector2(x0 + 6.0 * s, ym), 12.0 * s, el, a)
 	var lx := x0 + 15.0 * s
+	var font: Font = UiKit.UI_FONT
+	var muted := Color(UIColors.TEXT_MUTED, a)
+	# mise en page de la ligne (capitales, tailles ajustées, largeurs, points de conduite) : ne dépend que du texte,
+	# des bords et de l'échelle ; calculée une fois, redessinée à chaque image
+	var key := [rw, x0, x1, s]
+	var lay: Array = _fx_rows.get(key, [])
+	if lay.is_empty():
+		lay = _fx_row_layout(rw, lx, x1, s)
+		if _fx_rows.size() > 64:
+			_fx_rows.clear()
+		_fx_rows[key] = lay
+	var lab: String = lay[0]
+	var lfs: int = lay[1]
+	draw_string(font, Vector2(lx, ym + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, muted)
+	if lay.size() < 3:
+		return
+	var head: String = lay[2]
+	var num: String = lay[3]
+	var unit: String = lay[4]
+	var vfs: int = lay[5]
+	var hfs: int = lay[6]
+	var ufs: int = lay[7]
+	var hw: float = lay[8]
+	var nw: float = lay[9]
+	var vx: float = lay[10]
+	var dots: PackedFloat32Array = lay[11]
+	var nf := UiKit.num_font()
+	var dot := maxf(1.0, s)
+	var dc := Color(UIColors.SUMI, 0.3 * a)
+	for dx in dots:
+		draw_rect(Rect2(Vector2(dx, ym + 4.0 * s), Vector2(dot, dot)), dc)
+	var bl := ym + float(vfs) * 0.36
+	if head != "":
+		draw_string(nf, Vector2(vx, bl), head, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Color(UIColors.SUMI, 0.5 * a))
+	draw_string(nf, Vector2(vx + hw, bl), num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(UIColors.SUMI, a))
+	if unit != "":
+		draw_string(font, Vector2(vx + hw + nw + 1.5 * s, bl), unit, HORIZONTAL_ALIGNMENT_LEFT, -1, ufs, Color(UIColors.SUMI, 0.6 * a))
+
+
+## Mise en page d'une ligne d'effet : [libellé, taille] sans chiffre ; sinon [libellé, taille, avant, chiffre, unité,
+## tailles du chiffre, de l'avant et de l'unité, largeurs de l'avant et du chiffre, x du chiffre, x des points].
+func _fx_row_layout(rw: Array, lx: float, x1: float, s: float) -> Array:
 	var lab := UiKit.caps(String(rw[2]))
 	var v := String(rw[1])
 	var font: Font = UiKit.UI_FONT
 	var lfs := maxi(1, int(8.5 * s))
-	var muted := Color(UIColors.TEXT_MUTED, a)
 	if v == "":
 		while lfs > 5 and font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x > x1 - lx:
 			lfs -= 1
-		draw_string(font, Vector2(lx, ym + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, muted)
-		return
+		return [lab, lfs]
 	var parts := UiKit.split_value(v)
 	var head := String(parts[0])
 	var num := String(parts[1])
@@ -2960,24 +3004,40 @@ func _v2_fx_row(rw: Array, x0: float, x1: float, ym: float, s: float, el: Color,
 	while lfs > 5 and lx + font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x + 6.0 * s > vx:
 		lfs -= 1
 	var lw := font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
-	draw_string(font, Vector2(lx, ym + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, muted)
+	var dots := PackedFloat32Array()
 	var dx := lx + lw + 3.0 * s
 	var dot := maxf(1.0, s)
-	var dc := Color(UIColors.SUMI, 0.3 * a)
 	while dx < vx - 3.0 * s:
-		draw_rect(Rect2(Vector2(dx, ym + 4.0 * s), Vector2(dot, dot)), dc)
+		dots.append(dx)
 		dx += 2.0 * dot
-	var bl := ym + float(vfs) * 0.36
-	if head != "":
-		draw_string(nf, Vector2(vx, bl), head, HORIZONTAL_ALIGNMENT_LEFT, -1, hfs, Color(UIColors.SUMI, 0.5 * a))
-	draw_string(nf, Vector2(vx + hw, bl), num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(UIColors.SUMI, a))
-	if unit != "":
-		draw_string(font, Vector2(vx + hw + nw + 1.5 * s, bl), unit, HORIZONTAL_ALIGNMENT_LEFT, -1, ufs, Color(UIColors.SUMI, 0.6 * a))
+	return [lab, lfs, head, num, unit, vfs, hfs, ufs, hw, nw, vx, dots]
 
 
 ## Scène peinte d'une carte v2 (gabarit 116 × 104, origine o, échelle s), découpée au polygone clip : fond de
 ## l'élément et son motif (flammes, vagues, éclairs, vent, rayons d'ombre, lavis, boucle de figure).
 func _v2_scene(clip: PackedVector2Array, o: Vector2, school: String, s: float, a: float, dark := false) -> void:
+	# la scène d'une carte ne dépend que de son élément, de sa place et de sa taille (le mouvement de la carte est dans
+	# la transformation) : ses découpes (Geometry2D, ~0,1 ms par carte) sont calculées une fois et gardées
+	var key := [school, dark, o, s, clip]
+	var g: Array = _scene_cache.get(key, [])
+	if g.is_empty():
+		g = _v2_scene_build(clip, o, school, s, dark)
+		if _scene_cache.size() > 48:
+			_scene_cache.clear()
+		_scene_cache[key] = g
+	draw_colored_polygon(clip, Color(g[0], a))
+	var fill := Color(g[1], a)
+	for pp in g[2]:
+		draw_colored_polygon(pp, fill)
+	var dc := Color(g[3], a)
+	var lw: float = g[5]
+	for seg in g[4]:
+		draw_polyline(seg, dc, lw, true)
+
+
+## Géométrie de la scène peinte : [fond, couleur des pleins, pleins découpés, couleur du motif, traits découpés,
+## épaisseur], dans l'ordre de tracé d'origine (fond, pleins, puis traits).
+func _v2_scene_build(clip: PackedVector2Array, o: Vector2, school: String, s: float, dark: bool) -> Array:
 	var sc := UIColors.card_scene(school)
 	var bg: Color = sc["bg"]
 	var deco: Color = sc["deco"]
@@ -2985,11 +3045,12 @@ func _v2_scene(clip: PackedVector2Array, o: Vector2, school: String, s: float, a
 		# scène « pacte » : le fond s'enfonce dans l'encre, le motif garde la couleur de nuit de l'élément
 		bg = bg.lerp(PACT_BODY, 0.62)
 		deco = UIColors.element(school, true)
-	draw_colored_polygon(clip, Color(bg, a))
+	var fill_col := deco
+	var fills: Array = []
 	var lines: Array = []  # polylignes à l'écran, découpées ensuite à la scène
 	match UIColors.element_of(school):
 		"feu":
-			var fill: Color = sc.get("fill", deco)
+			fill_col = sc.get("fill", deco)
 			var flames: Array = [[Vector2(0, 104), Vector2(8, 70), Vector2(16, 92), Vector2(24, 60), Vector2(34, 90), Vector2(44, 66), Vector2(52, 104)],
 				[Vector2(64, 104), Vector2(72, 64), Vector2(82, 92), Vector2(92, 56), Vector2(102, 88), Vector2(110, 66), Vector2(116, 104)]]
 			for fp in flames:
@@ -2997,7 +3058,7 @@ func _v2_scene(clip: PackedVector2Array, o: Vector2, school: String, s: float, a
 				for piece in Geometry2D.intersect_polygons(poly, clip):
 					var pp: PackedVector2Array = piece
 					if pp.size() >= 3 and UiKit.poly_area(pp) > 1.0:
-						draw_colored_polygon(pp, Color(fill, a))
+						fills.append(pp)
 				var edge := poly.duplicate()
 				edge.append(poly[0])
 				lines.append(edge)
@@ -3047,12 +3108,14 @@ func _v2_scene(clip: PackedVector2Array, o: Vector2, school: String, s: float, a
 				pl4.append(o + (fc + Vector2(cos(ang), sin(ang)) * 46.0) * s)
 			lines.append(pl4)
 	var lw := maxf(1.0, 2.0 * s)
+	var segs: Array = []
 	for ln in lines:
 		var src: PackedVector2Array = ln
 		for piece in Geometry2D.intersect_polyline_with_polygon(src, clip):
 			var seg: PackedVector2Array = piece
 			if seg.size() >= 2:
-				draw_polyline(seg, Color(deco, a), lw, true)
+				segs.append(seg)
+	return [bg, fill_col, fills, deco, segs, lw]
 
 
 ## Bonus d'harmonie d'une carte en deux mots (« Feu +25 % ») : celui du palier visé ou atteint.
@@ -3065,6 +3128,17 @@ func _aff_bonus(info: Dictionary) -> String:
 	if tier < shorts.size():
 		return _p(String(shorts[tier]))
 	return _p(String(info.get("aff_text", "")))
+
+
+## Hauteur de la bulle de la carte i (mesure sans dessin, texte coupé en lignes) : gardée jusqu'à la prochaine
+## offre (open), la mesure refaite à chaque image coûtait ~0,15 ms.
+func _v2_bubble_h(i: int, bub_w: float, u: float) -> float:
+	var key := [i, bub_w, u]
+	if _bub_h.has(key):
+		return _bub_h[key]
+	var h := _v2_bubble(Rect2(Vector2.ZERO, Vector2(bub_w, 4000.0)), _infos[i], _id(i), u, 0.0, false)
+	_bub_h[key] = h
+	return h
 
 
 ## Bulle d'encre de la carte touchée (planche Rouleaux) : nom japonais en capitales d'or, déclencheur en pictogrammes,
