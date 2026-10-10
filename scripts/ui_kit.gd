@@ -2293,6 +2293,88 @@ static func figure_icon(ci: CanvasItem, fig: String, c: Vector2, sz: float, a :=
 	_fsym(ci, fig, c, sz * 0.4, Color(tint, tint.a * a), maxf(1.2, sz * 0.07))
 
 
+# ------------------------------------------------------------------ cadenas des yōkai scellés
+
+## Cadenas d'un yōkai scellé (hud._draw_seal_locks, coach) : même langage que les sceaux de pouvoir du HUD (ombre
+## portée, cerne sumi épais, corps de couleur, glyphe papier) mais en forme de cadenas et en indigo (LOCK_COL :
+## aucune école ni figure ne l'emploie). Gabarit en unités (s = pixels par unité) : corps 22 × 18 à coins ronds
+## centré en c, anse en arc au-dessus (pieds en x = ±6), figure qui brise le sceau au centre (_fsym, sans pointe).
+const LOCK_COL := Color("#5038C0")  # indigo violacé (ai-murasaki) : ni l'eau (bleu de Prusse), ni l'ombre (gris violet), ni la figure (prune)
+const LOCK_SHINE := Color("#9C90E6")  # reflet de l'anse
+const LOCK_GOLD := Color("#F2BE45")  # éclat du sceau brisé
+const LOCK_RICO := Color("#FF6A52")  # figure qui rougit au ricochet (vermillon éclairci : lisible sur l'indigo)
+const LOCK_H := 9.0  # demi-hauteur du corps (le haut de l'anse monte à 21 au-dessus du centre)
+const LOCK_RIM := 0.5  # liseré papier autour du cerne (lisible sur les mondes sombres : Ryūgū-jō, Yomi)
+static var _lock_poly := {}  # « rim », « ring », « body » : contours unité du corps, calculés une fois
+
+
+## `rico` : ricochet (1 -> 0 : tressaute, figure vermillon) ; `open_k` : ouverture (0 -> 1 : l'anse se soulève puis
+## pivote sur son pied droit) ; `flash` : éclat d'or (1 -> 0) ; `t` : horloge (tressautement) ; `a` : opacité.
+static func seal_lock(ci: CanvasItem, c: Vector2, s: float, fig: String, a := 1.0, rico := 0.0, open_k := 0.0, flash := 0.0, t := 0.0) -> void:
+	if s <= 0.0 or a <= 0.005:
+		return
+	if _lock_poly.is_empty():
+		_lock_poly["body"] = _round_rect(Rect2(-11.0, -LOCK_H, 22.0, LOCK_H * 2.0), 5.0)
+		_lock_poly["ring"] = _round_rect(Rect2(-13.5, -LOCK_H - 2.5, 27.0, LOCK_H * 2.0 + 5.0), 7.0)
+		_lock_poly["rim"] = _round_rect(Rect2(-14.8, -LOCK_H - 3.8, 29.6, LOCK_H * 2.0 + 7.6), 8.3)
+	var o := c + Vector2(sin(t * 70.0) * 2.4 * rico, 0.0) * s
+	var k := s * (1.0 + 0.08 * rico + 0.12 * flash)
+	var xf := Transform2D(0.0, Vector2(k, k), 0.0, o)
+	var ring: PackedVector2Array = xf * (_lock_poly["ring"] as PackedVector2Array)
+	var body: PackedVector2Array = xf * (_lock_poly["body"] as PackedVector2Array)
+	var sumi := Color(Toon.SUMI, 0.92 * a)
+	# éclat d'or derrière le cadenas (sceau brisé) : un disque doux qui s'ouvre et s'éteint
+	if flash > 0.0:
+		var e := 1.0 - flash
+		ci.draw_circle(o + Vector2(0.0, -4.0) * k, (17.0 + 12.0 * e) * k, Color(LOCK_GOLD.lightened(0.35), 0.5 * flash * a))
+		ci.draw_arc(o + Vector2(0.0, -4.0) * k, (20.0 + 15.0 * e) * k, 0.0, TAU, 40, Color(LOCK_GOLD.lightened(0.4), flash * a), 3.0 * k * flash + 0.5, true)
+	# ombre portée (comme le cachet rond), liseré papier, puis l'anse, que le corps recouvre à ses pieds
+	ci.draw_colored_polygon(Transform2D(0.0, Vector2.ONE, 0.0, Vector2(0.0, 1.8 * s)) * ring, Color(Toon.SUMI, 0.35 * a))
+	var rim := Color(Toon.WASHI, LOCK_RIM * a)
+	ci.draw_colored_polygon(xf * (_lock_poly["rim"] as PackedVector2Array), rim)
+	var lift := 8.0 * ease_out(open_k / 0.4)
+	var th := PI * 0.82 * smoothstep(0.25, 1.0, open_k)
+	var hp := PackedVector2Array()
+	hp.append(Vector2(-6.0, -4.0))
+	for i in 13:
+		var ang := PI + PI * float(i) / 12.0
+		hp.append(Vector2(cos(ang) * 6.0, -14.0 + sin(ang) * 6.0))
+	hp.append(Vector2(6.0, 2.0))
+	for i in hp.size():
+		var p := hp[i]
+		hp[i] = Vector2(6.0 + (p.x - 6.0) * cos(th), p.y - lift)
+	hp = xf * hp
+	var gold := clampf(maxf(flash, open_k) * 2.0, 0.0, 1.0)  # le sceau cède : anse et figure se dorent
+	var shine := LOCK_SHINE.lerp(LOCK_GOLD.lightened(0.3), gold)
+	ci.draw_polyline(hp, rim, 9.6 * k, true)
+	ci.draw_circle(hp[0], 4.8 * k, rim)
+	ci.draw_polyline(hp, sumi, 7.0 * k, true)
+	ci.draw_circle(hp[0], 3.5 * k, sumi)
+	ci.draw_polyline(hp, Color(shine, a), 2.6 * k, true)
+	ci.draw_circle(hp[0], 1.3 * k, Color(shine, a))
+	# corps : cerne sumi épais, indigo, reflet en haut
+	ci.draw_colored_polygon(ring, sumi)
+	ring.append(ring[0])
+	ci.draw_polyline(ring, sumi, 1.0, true)
+	ci.draw_colored_polygon(body, Color(LOCK_COL, a))
+	ci.draw_line(o + Vector2(-7.0, -LOCK_H + 2.2) * k, o + Vector2(7.0, -LOCK_H + 2.2) * k, Color(LOCK_SHINE.lerp(Color.WHITE, flash), 0.45 * a), 1.4 * k, true)
+	# la figure qui brise le sceau, au trait papier (vermillon au ricochet, dorée quand il cède)
+	var gc := Toon.WASHI.lerp(LOCK_RICO, clampf(rico * 1.6, 0.0, 1.0)).lerp(LOCK_GOLD.lightened(0.15), gold)
+	_fsym(ci, fig, o + Vector2(0.0, 1.0) * k, 6.6 * k, Color(gc, a), 2.0 * k)
+
+
+## Contour d'un rectangle à coins ronds (rayon r), sens horaire, 6 points par coin.
+static func _round_rect(r: Rect2, rad: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var cs := [Vector2(r.end.x - rad, r.position.y + rad), Vector2(r.end.x - rad, r.end.y - rad),
+		Vector2(r.position.x + rad, r.end.y - rad), Vector2(r.position.x + rad, r.position.y + rad)]
+	for q in 4:
+		for i in 7:
+			var ang := -PI * 0.5 + PI * 0.5 * (float(q) + float(i) / 6.0)
+			out.append(Vector2(cs[q]) + Vector2(cos(ang), sin(ang)) * rad)
+	return out
+
+
 ## Médaillon de pouvoir v2, centré en c, s = pixels par unité du gabarit 60 : disque washi (rayon disc_r) cerné
 ## de `ring` (épaisseur ring_w), filet intérieur facultatif (inner, rayon 23, épaisseur 2), glyphe sumi (trait glyph_w).
 static func power_medal(ci: CanvasItem, id: String, c: Vector2, s: float, ring: Color, disc_r: float, ring_w: float,

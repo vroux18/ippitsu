@@ -315,6 +315,19 @@ func _wanted(id: String) -> bool:
 	return false
 
 
+## Leçon « seal » : le cadenas du yōkai (celui du HUD, redessiné par-dessus le voile), cerclé d'un anneau d'or
+## qui pulse : c'est sa figure qu'il faut tracer.
+func _show_lock(se: Node3D, u: float, a: float) -> void:
+	var p := _screen(se.seal_anchor())
+	if p.x < -9000.0:
+		return
+	var hud: Control = main.hud
+	var c: Vector2 = hud.call("_lock_at", p, hud.size, hud.size.x / 400.0)
+	var pulse := 0.5 + 0.5 * sin(_t * 5.0)
+	draw_arc(c + Vector2(0, -4.0 * u), (24.0 + 4.0 * pulse) * u, 0.0, TAU, 48, Color(Toon.GOLD, (0.55 + 0.45 * pulse) * a), 2.5 * u, true)
+	UiKit.seal_lock(self, c, hud.LOCK_S * hud.size.x / 400.0, String(se.seal_fig), a, float(se.seal_rico), 0.0, 0.0, _t)
+
+
 ## Yōkai scellé vivant et visible le plus proche du héros (leçon « seal »), ou null.
 func _sealed() -> Node3D:
 	if main.get("enemies") == null or not is_instance_valid(main.hero):
@@ -462,7 +475,8 @@ func _draw() -> void:
 				sr = Vector2(120.0, 150.0) * u
 			"seal":
 				var se := _sealed()
-				sc = _screen(se.position + Vector3(0, 1.0, 0)).lerp(feet, 0.35) if se != null else feet
+				# le projecteur prend le yōkai et son cadenas (au-dessus de sa tête)
+				sc = _screen(se.seal_anchor()).lerp(feet, 0.3) if se != null else feet
 				sr = Vector2(110.0, 170.0) * u
 		if sc.x < -9000.0 or mark == "" or mark == "figures":
 			draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, _veil))
@@ -508,6 +522,7 @@ func _draw() -> void:
 			if se != null:
 				icon = "fig:" + String(se.seal_fig)
 				_ghost_line(_screen(hp), _screen(se.position), u, a)
+				_show_lock(se, u, a)
 		"figures":
 			icon = "fig:zigzag"
 			if _fz >= 0.0:

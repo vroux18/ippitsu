@@ -81,7 +81,7 @@ var _pz_seen := 0
 var _pz_solved := 0
 var _seal_seen := 0  # coffres scellés posés / ouverts sur toute la campagne
 var _seal_open := 0
-var _sealed_set := 0  # yōkai scellés posés / tués à la figure de leur ofuda sur toute la partie du robot
+var _sealed_set := 0  # yōkai scellés posés / tués à la figure de leur cadenas sur toute la partie du robot
 var _sealed_kill := 0
 
 
@@ -511,7 +511,7 @@ func _play(dt: float) -> void:
 	_stroke(target)
 
 
-## Yōkai scellé en vue : le robot trace la figure de son ofuda à travers lui (BotShapes.through), comme un
+## Yōkai scellé en vue : le robot trace la figure de son cadenas à travers lui (BotShapes.through), comme un
 ## joueur ; trop loin pour la figure, un trait court vers lui qui s'arrête avant de le toucher. Faux s'il n'y en a
 ## pas (ou plus d'essai sur lui : il l'use alors à coups normaux, qui ricochent).
 func _seal_attack() -> bool:
