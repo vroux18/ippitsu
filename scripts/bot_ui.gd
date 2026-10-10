@@ -966,6 +966,23 @@ func _transit_to_room1(w: int) -> bool:
 	if not await _until(func(): return String(main.state) == "play" and not bool(main.in_hub) and bool(main.arena.stage), "monde %d : transit -> étape 1" % w):
 		return false
 	_ok("monde %d : torii, transit, étape 1 (%s)" % [w, String(main.arena.layout)])
+	# portes à deux sceaux au bout de l'étape 1 : deux torii, deux sceaux différents
+	var ks: Array = main.arena.gate_seals()
+	_check(ks.size() == 2 and String(ks[0]) != String(ks[1]) and main.arena.gate_spots.size() == 2,
+		"monde %d : deux portes à sceaux %s" % [w, str(ks)], "sceaux %s, %d torii" % [str(ks), main.arena.gate_spots.size()])
+	# rouleau d'un sceau d'élément (hors combat, premier monde) : trois rouleaux de cette école, au toucher
+	if w == 1:
+		main._seal_picks.append({"school": "water"})
+		if not await _until(func(): return String(main.state) == "pick" and String(main._pick_mode) == "seal", "monde %d : rouleau du sceau ouvert" % w):
+			return false
+		var all_water := true
+		for sid in main._last_offer:
+			if String(PowerData.POWERS[String(sid)]["school"]) != "water":
+				all_water = false
+		_check(all_water, "monde %d : rouleau du sceau de l'eau %s" % [w, str(main._last_offer)], "hors école : %s" % str(main._last_offer))
+		if not await _pick_card(0, "rouleau du sceau"):
+			return false
+		await _settle_play("après le rouleau du sceau")
 	# l'étape avance : on marche jusqu'à la première zone de combat, qui se ferme derrière le héros
 	t0 = Time.get_ticks_msec()
 	while int(main.room) < 1:
@@ -1194,7 +1211,9 @@ func _step_sanctuary() -> bool:
 		_check(main.curses.size() == want, "sanctuaire : %s" % ("malédiction acceptée %s" % str(main.curses) if take else "PASSER"), "%d malédiction(s), attendu %d" % [main.curses.size(), want])
 		if not take:
 			# refuser se paie en or (refuse_cost)
-			_check(int(main.run_gold) == g0 - int(main.refuse_cost()), "sanctuaire : REFUSER payé (or %d -> %d)" % [g0, int(main.run_gold)], "prix non retiré")
+			# (une pièce d'un ennemi tombé juste avant peut encore être ramassée pendant l'attente : tolérance de 3)
+			var extra: int = int(main.run_gold) - (g0 - int(main.refuse_cost()))
+			_check(extra >= 0 and extra <= 3, "sanctuaire : REFUSER payé (or %d -> %d)" % [g0, int(main.run_gold)], "prix non retiré")
 	return true
 
 

@@ -186,7 +186,7 @@ const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès le départ)
 const ELAN_REGEN := 10.0  # par seconde réelle, hors tracé
 const ELAN_PER_HIT := 3.5
-const ENEMY_HP_MULT := 2.0
+const ENEMY_HP_MULT := 2.05  # 2.0 avant les portes à sceaux : +2,5 % pour leurs rouleaux en plus (robots campagne)
 const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
@@ -413,6 +413,7 @@ const SEAL_GOLD := 60  # sceau koban : or versé à la fin de l'étape (monde 1)
 const SEAL_GOLD_STEP := 15  # … et en plus par monde
 const SEAL_HEAL := 2  # sceau du cœur : la source garantie rend deux cœurs
 const SEAL_ONI_HP := 1.35  # sceau de l'oni : PV du défi d'élite en plus
+const XP_SEAL_K := 1.3  # expérience par niveau ×1,3 depuis les portes à sceaux (~3 rouleaux de sceau de plus par monde)
 var seal_reward := ""  # sceau de l'étape en cours : école ("fire"…), "gold", "heart", "oni" ; "" : aucun
 var _seal_picks: Array = []  # rouleaux de sceau à ouvrir hors combat : {"school": s} ou {"rank": 1}
 var _seal_cur: Dictionary = {}  # rouleau de sceau ouvert (relance)
@@ -2998,8 +2999,9 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 
 
 func xp_need() -> int:
-	# courbe plus raide : ~1 niveau par salle au début, puis de plus en plus espacé
-	return 8 + 5 * level + level * level
+	# courbe plus raide : ~1 niveau par salle au début, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
+	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau)
+	return int(round(float(8 + 5 * level + level * level) * XP_SEAL_K))
 
 
 ## Butin ramassé (appelé par pickups.gd).
