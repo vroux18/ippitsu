@@ -20,6 +20,7 @@ const LEG_LEVEL := 6  # ... ou de ce niveau
 const LEG_MAX := 3  # légendaires par partie
 const PITY_EPIC := 3  # offres d'affilée sans épique (ou mieux) avant d'en garantir un
 const PITY_LEG := 5  # offres sans légendaire (une fois permis) avant d'en garantir un
+const FIG_WEIGHT := 0.8  # poids de l'école des figures au tirage d'une carte (un élément : 1)
 const DASH_SPEED := 34.0  # même valeur que hero.gd
 const Vfx = preload("res://scripts/vfx.gd")
 const FOX_COLOR := Color("#B58BFF")  # feu de renard : lilas (école de l'ombre)
@@ -344,6 +345,7 @@ func offer(room_n: int = -1) -> Array:
 	var leg_ok := float(w["legendary"]) > 0.0 and not leg_pool.is_empty()
 	var force_leg := leg_ok and _since_leg >= PITY_LEG
 	var force_epic := _since_epic >= PITY_EPIC
+	var first := _offer_n == 0  # première offre de la partie : trois familles différentes
 	var guard := 0
 	while out.size() < 3 and guard < 20:
 		guard += 1
@@ -352,7 +354,9 @@ func offer(room_n: int = -1) -> Array:
 			rar = "legendary"
 		elif force_epic and out.size() == 2 and not _has_rank(out, 2):
 			rar = "legendary" if leg_ok and randf() < 0.25 else "epic"
-		var id := _pick(pools, rar, out)
+		var id := _pick(pools, rar, out, 1, first)
+		if id == "" and first:
+			id = _pick(pools, rar, out)  # pas assez d'écoles : on tolère un doublon
 		if id == "":
 			break
 		out.append(id)
@@ -363,7 +367,10 @@ func offer(room_n: int = -1) -> Array:
 			for rk in range(force_rank, Data.RARITY_ORDER.size()):
 				if rk == 3 and not leg_ok:
 					break
-				var fid := _pick(pools, String(Data.RARITY_ORDER[rk]), out)
+				var rest := out.slice(1)
+				var fid := _pick(pools, String(Data.RARITY_ORDER[rk]), out, 1 - _fig_n(rest), first)
+				if fid == "" and first:
+					fid = _pick(pools, String(Data.RARITY_ORDER[rk]), out, 1 - _fig_n(rest))
 				if fid != "":
 					out[0] = fid
 					break
@@ -391,6 +398,7 @@ func offer_seal(school: String, rank_min := 0) -> Array:
 	var lv := int(main.level) if main != null else 1
 	var w := _rarity_weights(r, lv)
 	var pools := _pools(r, lv, Data.RARITY_ORDER)
+	var max_fig := 3 if school == "fig" else 1  # sceau des figures : trois rouleaux de figure
 	var out: Array = []
 	for pass_i in 3:
 		# 0 : école et rang ; 1 : école seule ; 2 : rang seul (l'école est épuisée)
@@ -406,7 +414,7 @@ func offer_seal(school: String, rank_min := 0) -> Array:
 				keep.append(id)
 			sp[rk] = keep
 		if rank_min >= 1 and pass_i == 0 and not _has_rank(out, 2):
-			var eid := _pick(sp, "epic", out)
+			var eid := _pick(sp, "epic", out, max_fig)
 			if eid != "" and _rank(eid) >= 2:
 				out.append(eid)
 		var guard := 0
@@ -415,7 +423,7 @@ func offer_seal(school: String, rank_min := 0) -> Array:
 			var rar := _roll(w)
 			if Data.RARITY_ORDER.find(rar) < rank_min:
 				rar = String(Data.RARITY_ORDER[rank_min])
-			var id2 := _pick(sp, rar, out)
+			var id2 := _pick(sp, rar, out, max_fig)
 			if id2 == "":
 				break
 			out.append(id2)
@@ -520,7 +528,8 @@ func _want_fig(out: Array) -> bool:
 	return _offer_n == 2 or randf() < 0.5
 
 
-## Remplace un rouleau ordinaire (ni épique ni légendaire) par un rouleau qui débloque une figure.
+## Remplace un rouleau ordinaire (ni épique ni légendaire) par un rouleau qui débloque une figure
+## (la carte de figure déjà offerte s'il y en a une : une seule par offre).
 func _force_fig(out: Array, r: int, lv: int) -> void:
 	var cands: Array = []
 	for v in Data.FIG_UNLOCK.values():
@@ -530,13 +539,29 @@ func _force_fig(out: Array, r: int, lv: int) -> void:
 	if cands.is_empty():
 		return
 	var pick := String(cands[randi() % cands.size()])
-	if out.size() < 3:
+	if out.size() < 3 and _fig_n(out) == 0:
 		out.append(pick)
+		return
+	# une seule carte de figure par offre : on remplace d'abord celle qui y serait déjà
+	for i in out.size():
+		if String(Data.POWERS[String(out[i])]["school"]) == "fig" and _rank(String(out[i])) < 2:
+			out[i] = pick
+			return
+	if _fig_n(out) > 0:
 		return
 	for i in range(out.size() - 1, -1, -1):
 		if _rank(String(out[i])) < 2:
 			out[i] = pick
 			return
+
+
+## Cartes de figure (école « fig ») parmi `ids`.
+func _fig_n(ids: Array) -> int:
+	var n := 0
+	for id in ids:
+		if String(Data.POWERS[String(id)]["school"]) == "fig":
+			n += 1
+	return n
 
 
 ## Nombre de techniques de figure débloquées.
@@ -635,55 +660,82 @@ func _eligible(id: String, r: int, lv: int) -> bool:
 	return true
 
 
-## Un pouvoir de la rareté voulue (sinon la plus proche en dessous, puis au-dessus), pondéré :
-## les écoles déjà commencées reviennent plus souvent, pour des builds lisibles.
-func _pick(pools: Dictionary, rar: String, exclude: Array) -> String:
+## Un pouvoir de la rareté voulue (sinon la plus proche en dessous, puis au-dessus), tiré en deux temps :
+## d'abord l'école (_school_weight : chaque élément à poids égal, qu'il ait 2 ou 8 rouleaux possibles ; les
+## écoles déjà commencées reviennent plus souvent, pour des builds lisibles), puis le rouleau dans l'école (_bias).
+## `max_fig` : cartes de figure au plus dans `exclude` + la nouvelle (offre ordinaire : une seule) ;
+## `distinct` : écoles absentes de `exclude` seulement (première offre : trois familles différentes).
+func _pick(pools: Dictionary, rar: String, exclude: Array, max_fig := 1, distinct := false) -> String:
 	var start: int = Data.RARITY_ORDER.find(rar)
 	var order: Array = []
 	for k in range(start, -1, -1):
 		order.append(Data.RARITY_ORDER[k])
 	for k in range(start + 1, Data.RARITY_ORDER.size()):
 		order.append(Data.RARITY_ORDER[k])
+	var taken := {}  # école -> cartes déjà dans `exclude`
+	for e in exclude:
+		var es := String(Data.POWERS[String(e)]["school"])
+		taken[es] = int(taken.get(es, 0)) + 1
 	for rk in order:
-		var cands: Array = []
-		var weights: Array = []
-		var total := 0.0
+		var by_school := {}
 		for id in pools[rk]:
 			if id in exclude:
 				continue
-			var wt := _bias(String(id))
-			cands.append(id)
-			weights.append(wt)
-			total += wt
-		if cands.is_empty():
+			var s := String(Data.POWERS[String(id)]["school"])
+			if s == "fig" and int(taken.get("fig", 0)) >= max_fig:
+				continue
+			if distinct and taken.has(s):
+				continue
+			if not by_school.has(s):
+				by_school[s] = []
+			(by_school[s] as Array).append(String(id))
+		if by_school.is_empty():
 			continue
-		var x := randf() * total
-		for i in cands.size():
-			x -= float(weights[i])
-			if x <= 0.0:
-				return String(cands[i])
-		return String(cands[cands.size() - 1])
+		var school := _weighted(by_school.keys(), func(s): return _school_weight(String(s), String(rk)))
+		return _weighted(by_school[school], func(id): return _bias(String(id)))
 	return ""
 
 
+## Tirage pondéré d'un élément de `items` (poids donné par `wf`).
+func _weighted(items: Array, wf: Callable) -> String:
+	var weights: Array = []
+	var total := 0.0
+	for it in items:
+		var wt := float(wf.call(it))
+		weights.append(wt)
+		total += wt
+	var x := randf() * total
+	for i in items.size():
+		x -= float(weights[i])
+		if x <= 0.0:
+			return String(items[i])
+	return String(items[items.size() - 1])
+
+
+## Poids d'une école au tirage d'une carte : 1 par élément ; école commencée ×1,7 ; à la rareté légendaire,
+## école à 2 pouvoirs ou plus ×2. Figures : FIG_WEIGHT (leur technique est en plus garantie par _want_fig).
+func _school_weight(school: String, rk: String) -> float:
+	if school == "fig":
+		return FIG_WEIGHT
+	var b := 1.0
+	if school != "ink" and _aff_raw(school) > 0:
+		b *= 1.7
+	if rk == "legendary" and _aff_raw(school) >= 2:
+		b *= 2.0
+	return b
+
+
+## Poids d'un rouleau dans son école : ses améliorations (déjà pris) reviennent plus souvent.
 func _bias(id: String) -> float:
 	var d: Dictionary = Data.POWERS[id]
-	var school := String(d["school"])
-	var b := 1.0
-	if school == "fig":
+	if String(d["school"]) == "fig":
 		# figures : une nouvelle technique de temps en temps (de plus en plus rare), ses améliorations souvent
 		if lvl(id) > 0:
 			return 1.4
 		if id in Data.FIG_UNLOCK.values():
 			return 1.0 / (1.0 + 0.6 * float(fig_count()))
 		return 1.6
-	if lvl(id) > 0:
-		b *= 1.4
-	elif school != "ink" and _aff_raw(school) > 0:
-		b *= 1.7
-	if String(d["rarity"]) == "legendary" and _aff_raw(school) >= 2:
-		b *= 2.0
-	return b
+	return 1.4 if lvl(id) > 0 else 1.0
 
 
 # ------------------------------------------------------------------ description (cartes, récapitulatif)

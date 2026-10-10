@@ -13,14 +13,15 @@ extends RefCounted
 ## École « fig » (figures) : une figure tracée donne seulement +1 chaîne et +15 % de dégâts sur sa ruée ;
 ## son premier rouleau (FIG_UNLOCK) débloque la technique, les suivants l'améliorent (needs).
 
+# "role" : ce que fait la famille, en 2 à 4 mots (bandeau des cartes de rouleau, picker._v2_family)
 const SCHOOLS := {
-	"fire": {"kanji": "火", "color": Color("#D7372B"), "name": "FEU", "word": "Feu"},
-	"water": {"kanji": "水", "color": Color("#1F3A5F"), "name": "EAU", "word": "Eau"},
-	"bolt": {"kanji": "雷", "color": Color("#C49A45"), "name": "FOUDRE", "word": "Foudre"},
-	"wind": {"kanji": "風", "color": Color("#5F8F86"), "name": "VENT", "word": "Vent"},
-	"shadow": {"kanji": "影", "color": Color("#3A3846"), "name": "OMBRE", "word": "Ombre"},
-	"ink": {"kanji": "墨", "color": Color("#6E5A44"), "name": "ENCRE", "word": "Encre"},
-	"fig": {"kanji": "法", "color": Color("#A8436B"), "name": "FIGURE", "word": "Figure"},
+	"fire": {"kanji": "火", "color": Color("#D7372B"), "name": "FEU", "word": "Feu", "role": "brûlure qui se propage"},
+	"water": {"kanji": "水", "color": Color("#1F3A5F"), "name": "EAU", "word": "Eau", "role": "repousse et soigne"},
+	"bolt": {"kanji": "雷", "color": Color("#C49A45"), "name": "FOUDRE", "word": "Foudre", "role": "éclairs en chaîne"},
+	"wind": {"kanji": "風", "color": Color("#5F8F86"), "name": "VENT", "word": "Vent", "role": "portée et encre"},
+	"shadow": {"kanji": "影", "color": Color("#3A3846"), "name": "OMBRE", "word": "Ombre", "role": "critiques et esquive"},
+	"ink": {"kanji": "墨", "color": Color("#6E5A44"), "name": "ENCRE", "word": "Encre", "role": "soutien et chance"},
+	"fig": {"kanji": "法", "color": Color("#A8436B"), "name": "FIGURE", "word": "Figure", "role": "technique à tracer"},
 }
 const SCHOOL_ORDER := ["fig", "fire", "water", "bolt", "wind", "shadow", "ink"]
 

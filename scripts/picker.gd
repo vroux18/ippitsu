@@ -11,7 +11,6 @@ extends Control
 ## maigrit, le papier et sa monture de soie paraissent, le contenu se révèle au passage, petit rebond à la pose.
 ## Un toucher pendant le déroulé l'achève d'un coup. Au choix, la choisie se réenroule vite puis s'envole en
 ## s'effaçant ; les autres se réenroulent et s'effacent.
-## Toute première ouverture : une petite feuille au-dessus des cartes explique les rouleaux (COMPRIS, ou un choix).
 ## Trois styles de cartes à comparer (`style`, `?pickstyle=N` sur le web) : 0 kakemono épuré (ci-dessus),
 ## 1 ofuda (talisman de laque, sceau vermillon, pictogramme d'or), 2 estampe (tableau ukiyo-e, cartouche du nom ;
 ## style par défaut). L'effet se lit en pastilles (pictogramme, chiffre en couleur, libellé court : Data.EFFECTS),
@@ -35,6 +34,7 @@ const STYLE_V2 := 3  # carte de rouleau v2 (style par défaut)
 const V2_W := 116.0  # carte v2 (× u, avant mise à l'échelle des cartes)
 const V2_H := 250.0
 const V2_GAP := 8.0
+const V2_TAG := 32.0  # bandeau de famille accroché sous la carte (× u, dépassement sous le bord)
 const V2_LIFT := 14.0  # carte touchée : soulevée de 14 u
 # CHOISIR au pinceau (gabarit 210 × 64) : contour (courbes de Bézier et segments) et trait vermillon dessous
 const V2_BTN_W := 210.0
@@ -50,7 +50,6 @@ const UP_COL := Color("#3FA88E")  # amélioration d'un pouvoir déjà pris
 const FLIP_AFTER := 0.08  # le légendaire se retourne juste après son déroulé (s après la pose)
 const REVEAL_DUR := 0.3
 const CONFIRM := 100  # cible « bouton CHOISIR »
-const TIP := 101  # cible « explication des rouleaux » (COMPRIS)
 const REFUSE := 102  # cible « bouton REFUSER » du sanctuaire (= la carte « refuse » des ids)
 const PACT_BODY := Color("#1C1A21")  # corps sombre d'une carte de pacte (planche Sanctuaire)
 const PACT_VEIL := Color("#140F12")  # fond du sanctuaire
@@ -132,11 +131,6 @@ var _cut := NO_CUT  # rouleau du bas de la carte en cours de dessin : bord du pa
 var _ahead := 0.0  # le contenu se révèle un peu avant le rouleau (caché dessous), plein une fois déroulé
 var _band := 12.0  # un élément apparaît sur cette distance, une fois sorti du rouleau
 var _swallow := false  # relâché à ignorer (l'appui a achevé le déroulé)
-var _tip_on := false  # explication des rouleaux : place réservée dans la mise en page (première ouverture)
-var _tip_gone := false  # explication fermée (COMPRIS ou choix)
-var _tip_a := 0.0
-var _tip_rect := Rect2()
-var _tip_ex: Array = []  # exemples de déclencheurs (« DANS LE DOS = frappe de dos »…), cartes montrées d'abord
 var _no_v2 := false  # une carte sans rareté hors sanctuaire (« Passer ») : la carte v2 cède la place à l'estampe
 var _v2_title := FontVariation.new()  # UN ROULEAU (espacement 6 u)
 var _v2_caps := FontVariation.new()  # nom japonais de la bulle (espacement 2 u)
@@ -204,64 +198,7 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_raise = 0.0
 	_cut = NO_CUT
 	_ahead = 0.0
-	# toute première ouverture d'un vrai rouleau (pas le sanctuaire) : l'explication s'affiche
-	_tip_gone = false
-	_tip_a = 0.0
-	_tip_rect = Rect2()
-	_tip_on = not _curse_mode and _tip_due()
-	_tip_ex = _tip_examples() if _tip_on else []
 	visible = true
-
-
-## Méta (sauvegarde), lue sur le nœud de jeu parent qui porte « meta » ; null hors du jeu.
-func _meta() -> Object:
-	var n: Node = get_parent()
-	while n != null:
-		if "meta" in n:
-			var cand = n.get("meta")
-			if cand is Object and is_instance_valid(cand) and "scroll_tip_done" in cand:
-				return cand
-		n = n.get_parent()
-	return null
-
-
-## L'explication des rouleaux reste-t-elle à montrer ?
-func _tip_due() -> bool:
-	var m: Object = _meta()
-	return m != null and not bool(m.get("scroll_tip_done"))
-
-
-## Explication lue (COMPRIS, ou un rouleau choisi) : elle s'efface et ne reviendra plus.
-func _tip_close() -> void:
-	if not _tip_on or _tip_gone:
-		return
-	_tip_gone = true
-	var m: Object = _meta()
-	if m != null:
-		m.set("scroll_tip_done", true)
-		if m.has_method("save_data"):
-			m.call("save_data")
-
-
-## Déclencheurs à expliquer : ceux des cartes montrées, puis des exemples connus (dos, arrivée, figure).
-func _tip_examples() -> Array:
-	var out: Array = []
-	var cands: Array = _ids.duplicate()
-	cands.append("shadow_back")
-	cands.append(String(Data.FIG_UNLOCK.get("enso", "")))
-	cands.append("water_tide")
-	var fig_done := false  # une seule figure en exemple
-	for c in cands:
-		var cid := String(c)
-		var line := UiKit.trigger_hint(cid)
-		if line == "" or out.has(line):
-			continue
-		var is_fig := UiKit.trigger_figure(cid) != ""
-		if is_fig and fig_done:
-			continue
-		fig_done = fig_done or is_fig
-		out.append(line)
-	return out
 
 
 ## Pouvoirs déjà pris, lus sur le nœud de jeu parent qui porte « powers » : [id, niveau, niveau max], par école.
@@ -436,9 +373,7 @@ func _gui_input(event: InputEvent) -> void:
 		if event.pressed:
 			_down = i
 		elif _down != -1 and i == _down:
-			if i == TIP:
-				_tip_close()
-			elif i == CONFIRM:
+			if i == CONFIRM:
 				_choose(_sel)
 			elif i == REFUSE:
 				if _refuse_can():
@@ -482,7 +417,6 @@ func _choose(i: int) -> void:
 	_sel = i
 	_chosen = i
 	_t = 0.0
-	_tip_close()
 
 
 func _hit(p: Vector2) -> int:
@@ -490,8 +424,6 @@ func _hit(p: Vector2) -> int:
 		return CONFIRM
 	if _curse_mode and _refuse_rect.has_point(p):
 		return REFUSE
-	if _tip_on and not _tip_gone and _tip_a > 0.3 and _tip_rect.has_point(p):
-		return TIP
 	for i in _rects.size():
 		var r: Rect2 = _rects[i]
 		if r.has_point(p):
@@ -510,9 +442,6 @@ func _process(_delta: float) -> void:
 	_t += real
 	_sel_t += real
 	_refuse_shake = maxf(0.0, _refuse_shake - real / 0.45)
-	# explication des rouleaux : arrive avec les cartes, s'efface une fois lue
-	var tip_to := 1.0 if _tip_on and not _tip_gone and _t > 0.15 else 0.0
-	_tip_a = move_toward(_tip_a, tip_to, real * 5.0)
 	# levée des cartes : amortie (critique, sans rebond) vers la carte touchée
 	var sm := 1.0 - exp(-real * 16.0)
 	for i in _lift.size():
@@ -591,8 +520,6 @@ func _draw() -> void:
 		bub_h = maxf(bub_h, _bubble_h(_infos[i], _id(i), w - 28.0 * u, u))
 	var strip_h := _strip_h(w, u)
 	var head := 62.0 * u + strip_h + 18.0 * u
-	if _tip_on:
-		head += _tip_h(u) + 10.0 * u  # place gardée jusqu'à la fermeture : les cartes ne sautent pas
 	var conf_h := 50.0 * u
 	var tail := 16.0 * u + bub_h + 12.0 * u + conf_h
 	if rerolls > 0:
@@ -649,7 +576,6 @@ func _draw() -> void:
 		_rects.append(Rect2(Vector2(x0 + float(i) * (cw + gap), top), Vector2(cw, ch)))
 	_draw_links(u, fade)  # positions des icônes de l'image précédente : les traits passent sous la bande
 	_draw_strip(gt + 62.0 * u, w, u, fade)
-	_draw_tip(gt + 62.0 * u + strip_h + 6.0 * u, w, u, fade)
 
 	# cartes côte à côte : chaque rouleau tombe, se balance et se déroule, en décalé ; la carte levée (ou choisie)
 	# se dessine en dernier, par-dessus. Les rectangles de toucher restent fixes : seul le dessin bouge.
@@ -760,70 +686,6 @@ func _draw_motes(w: float, h: float, u: float, a: float) -> void:
 		var y := h - fmod(_t * float(m[1]) * h + float(m[2]) * h, h)
 		var tw := 0.5 + 0.5 * sin(_t * 3.0 + float(m[2]) * 11.0)
 		draw_circle(Vector2(x, y), float(m[3]) * u, Color(GOLD_HI, 0.45 * a * tw))
-
-
-# ------------------------------------------------------------------ explication des rouleaux (première fois)
-
-## Hauteur de l'explication : quatre lignes courtes.
-func _tip_h(u: float) -> float:
-	return 20.0 * u + 4.0 * float(_fs(11.5, u)) * 1.45
-
-
-## Feuille de washi au-dessus des cartes : un rouleau = un pouvoir, le bandeau dit quand, l'élément, le niveau.
-## Onglet COMPRIS sur le bord haut ; toute la feuille se touche pour la fermer.
-func _draw_tip(y0: float, w: float, u: float, fade: float) -> void:
-	var a := _tip_a * fade
-	if not _tip_on or a <= 0.01:
-		_tip_rect = Rect2()
-		return
-	var fs := _fs(11.5, u)
-	var lh := float(fs) * 1.45
-	var pad := 10.0 * u
-	var box := Rect2(Vector2(14.0 * u, y0 - 6.0 * u * (1.0 - _tip_a)), Vector2(w - 28.0 * u, _tip_h(u)))
-	UiKit.box(_sb, Color(Toon.ui_paper, 0.97 * a), int(10 * u), Color(GOLD_HI, 0.85 * a), maxi(1, int(1.5 * u)))
-	_sb.shadow_color = Color(0, 0, 0, 0.35 * a)
-	_sb.shadow_size = int(10 * u)
-	_sb.shadow_offset = Vector2(0, 4 * u)
-	draw_style_box(_sb, box)
-	var ink: Color = Toon.ui_ink
-	var accent: Color = GOLD_HI if Toon.ui_dark else Toon.VERMILION
-	var x := box.position.x + pad + 10.0 * u
-	var tw := box.end.x - pad - x
-	# exemples de déclencheurs : autant qu'il en tient sur la ligne (au moins un)
-	var when := "En haut = QUAND il agit : "
-	var ex := ""
-	for e in _tip_ex:
-		var cand: String = String(e) if ex == "" else ex + " · " + String(e)
-		if ex == "" or _ui.get_string_size(when + cand, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= tw:
-			ex = cand
-	var lines: Array = [
-		"Un rouleau = un pouvoir, gardé toute la partie",
-		"En bas : son élément, ou la figure à tracer",
-		"Points près de l'élément : 2 du même = harmonie",
-		"Crans dorés : reprends-le plus tard pour le monter",
-	]
-	if _sty() == STYLE_V2:
-		lines = [
-			"Un rouleau = un pouvoir, gardé toute la partie",
-			"En haut à droite : quand il agit",
-			"Anneau : 2 pouvoirs du même élément = harmonie",
-			"Crans dorés : reprends-le plus tard pour le monter",
-		]
-	for k in lines.size():
-		var by := box.position.y + pad + lh * float(k) + float(fs)
-		draw_circle(Vector2(x - 8.0 * u, by - float(fs) * 0.35), 2.5 * u, Color(accent, a))
-		var lf := fs
-		var txt := _p(String(lines[k]))
-		while lf > maxi(10, int(float(fs) * 0.8)) and _ui.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, lf).x > tw:
-			lf -= 1
-		draw_string(_ui, Vector2(x, by), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, lf, Color(ink, 0.9 * a))
-	# onglet COMPRIS, posé sur le bord haut à droite
-	var cfs := _fs(11.0, u)
-	var cw := _ui.get_string_size("COMPRIS", HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x + 18.0 * u
-	var tab := Rect2(Vector2(box.end.x - cw - 12.0 * u, box.position.y - 10.0 * u), Vector2(cw, 20.0 * u))
-	draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, a), 999, Color(Toon.SUMI, 0.5 * a), maxi(1, int(1.2 * u))), tab)
-	UiKit.text(self, _ui, "COMPRIS", Vector2(tab.get_center().x, tab.get_center().y + float(cfs) * 0.36), cfs, Color(Toon.WASHI, a))
-	_tip_rect = box.merge(tab).grow(6.0 * u)
 
 
 # ------------------------------------------------------------------ TES POUVOIRS
@@ -2479,8 +2341,8 @@ const STAR4 := "M16 2 L19.5 12.5 L30 16 L19.5 19.5 L16 30 L12.5 19.5 L2 16 L12.5
 
 
 ## Écran du choix v2 (planche Rouleaux), en un bloc centré verticalement : titre souligné, bande des pouvoirs pris,
-## explication (première fois), cartes, bulle d'encre de la carte touchée, relance ronde et CHOISIR au pinceau.
-## Pose les rectangles de toucher (_rects, _confirm_rect, _reroll_rect, _tip_rect) comme le dessin des autres styles.
+## cartes, bulle d'encre de la carte touchée, relance ronde et CHOISIR au pinceau.
+## Pose les rectangles de toucher (_rects, _confirm_rect, _reroll_rect) comme le dessin des autres styles.
 func _draw_v2() -> void:
 	var w := size.x
 	var h := size.y
@@ -2506,9 +2368,9 @@ func _draw_v2() -> void:
 		bub_h = maxf(bub_h, _v2_bubble_h(i, bub_w, u))
 	var sub_h := 18.0 * u if _title_text != "" and _sub_text != "" else 0.0
 	var strip_h := 46.0 * u if not _owned.is_empty() and not _curse_mode else 0.0
-	var tip_h := _tip_h(u) + 14.0 * u if _tip_on else 0.0
 	var refuse_h := 62.0 * u if _curse_mode else 0.0  # pilule REFUSER sous SCELLER
-	var fixed := 44.0 * u + sub_h + strip_h + tip_h + bub_h + V2_BTN_H * u + refuse_h
+	var tag_h := 0.0 if _curse_mode else V2_TAG * u  # bandeau de famille sous les cartes
+	var fixed := 44.0 * u + sub_h + strip_h + tag_h + bub_h + V2_BTN_H * u + refuse_h
 	var gsum := (18.0 + 32.0 + 22.0 + 24.0) * u
 	var avail := h - ins.x - ins.y - 24.0 * u
 	var gk := 1.0
@@ -2525,8 +2387,8 @@ func _draw_v2() -> void:
 	var y0 := ins.x + 12.0 * u + maxf(0.0, (avail - (fixed + gsum * gk + ch)) * 0.42)
 	var ty := y0 + 30.0 * u  # ligne de base du titre
 	var sy := y0 + 44.0 * u + sub_h + 18.0 * u * gk  # haut de la bande des pouvoirs
-	var top := sy + strip_h + tip_h + 32.0 * u * gk  # haut des cartes
-	var by := top + ch + 22.0 * u * gk  # haut de la bulle
+	var top := sy + strip_h + 32.0 * u * gk  # haut des cartes
+	var by := top + ch + tag_h + 22.0 * u * gk  # haut de la bulle
 	var btn_y := by + bub_h + 24.0 * u * gk  # haut de la rangée relance / CHOISIR
 
 	# voile d'encre ; lueur d'or (cercles, sans flou) et poussière quand un légendaire est là
@@ -2563,12 +2425,11 @@ func _draw_v2() -> void:
 	if sub_h > 0.0:
 		UiKit.text(self, _ui, _p(_sub_text), Vector2(w / 2.0, ty + 34.0 * u + tdy), _fs(12.0, u), Color(GOLD_HI, 0.85 * fade))
 
-	# bande des pouvoirs pris, puis l'explication (toute première fois)
+	# bande des pouvoirs pris
 	if strip_h > 0.0:
 		_v2_strip(Vector2(w / 2.0, sy + strip_h * 0.5), w, u, fade)
 	else:
 		_owned_pos.clear()
-	_draw_tip(sy + strip_h + 4.0 * u, w, u, fade)
 
 	# cartes côte à côte (rectangles de toucher fixes) ; chaque carte est donnée face cachée, monte et se retourne ;
 	# la carte touchée se soulève (14 u) et se dessine en dernier
@@ -2936,6 +2797,36 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		UiKit.harmony_ring(self, rc, 16.0 * s, aff, gain, el, UIColors.LINE_MUTED, ta, nxt >= int(Data.AFF_TIERS[0]), true)
 	UiKit.element_icon(self, school, rc, 15.0 * s, ta)
 	_sheen_pass(r, u, a, rank)
+	_v2_family(r, school, s, a, ta)
+
+
+## Bandeau de famille accroché sous la carte, à la couleur de l'école : « FEU » en capitales espacées, puis son
+## rôle (« brûlure qui se propage »), sur deux lignes pour rester lisible sur 116 u. Il chevauche le bord bas
+## (comme une étiquette nouée au rouleau) et suit la carte (dessiné sous _xf).
+func _v2_family(r: Rect2, school: String, s: float, a: float, ta: float) -> void:
+	var sd: Dictionary = Data.SCHOOLS.get(school, {})
+	if sd.is_empty():
+		return
+	var nm := String(sd.get("name", ""))
+	var role := _p(String(sd.get("role", "")))
+	var maxw := r.size.x - 4.0 * s
+	var nfs := maxi(1, int(12.0 * s))
+	var rfs := maxi(1, int(10.5 * s))
+	while rfs > maxi(1, int(8.0 * s)) and UiKit.UI_FONT.get_string_size(role, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x > maxw - 8.0 * s:
+		rfs -= 1
+	var sp := 2.0 * s
+	var wn := _spaced(UiKit.UI_FONT, nm, Vector2.ZERO, nfs, sp, Color.WHITE, false)
+	var wr := UiKit.UI_FONT.get_string_size(role, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
+	var bw := minf(maxw, maxf(wn, wr) + 14.0 * s)
+	var band := Rect2(Vector2(r.get_center().x - bw / 2.0, r.end.y - 4.0 * s), Vector2(bw, (V2_TAG + 2.0) * s))
+	var el := UIColors.element(school)
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.3 * a), int(5.0 * s)), Rect2(band.position + Vector2(0, 2.0 * s), band.size))
+	draw_style_box(UiKit.box(_sb, Color(el, a), int(5.0 * s), Color(UIColors.SUMI, a), maxi(1, int(1.5 * s))), band)
+	var cx := band.get_center().x
+	var y1 := band.position.y + 5.0 * s + float(nfs) * 0.78
+	_spaced(UiKit.UI_FONT, nm, Vector2(cx - wn / 2.0, y1), nfs, sp, Color(UIColors.WASHI_LIGHT, ta))
+	var y2 := band.end.y - 4.5 * s
+	draw_string(UiKit.UI_FONT, Vector2(cx - wr / 2.0, y2), role, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(UIColors.WASHI_LIGHT, 0.95 * ta))
 
 
 ## Ligne d'effet (variante C) : pictogramme 12 à la couleur d'élément, LIBELLÉ (8,5, encre pâle), points de conduite,
