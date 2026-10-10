@@ -1954,12 +1954,15 @@ const FIG_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "straig
 # glyphe d'un pouvoir dans son médaillon (gabarit 60, disque de rayon 28) : [tracé SVG, remplissage à la couleur
 # d'élément ?]. Pouvoirs dessinés par la maquette (Rouleaux, MesPouvoirs) ; les autres gardent glyph(icon_of(id)).
 const POWER_GLYPH := {
-	"water_tide": ["M8 43 C10 29 20 19 33 20 C45 21 51 32 45 38 C40 42 33 37 38 32 M15 39 C18 30 25 25 33 26 M8 43 C16 50 24 40 32 45 C40 50 46 43 53 46", false],
-	"bolt_arc": ["M34 7 L16 33 H28 L23 54 L44 26 H32 Z M44 38 L39 45 L45 45 L41 53", true],
+	# ---- FEU
 	"fire_burn": ["M15 45 L38 22 M34 18 L42 26 M40 33 C44 39 47 41 45 45 A4 4 0 0 1 37 45 C36 41 38 39 40 33 Z", true],
-	"fig_hook": ["M13 30 H45 M38 23 L46 30 L38 37 M13 25 V35", false],
-	"fig_hook_double": ["M13 24 H43 M36 18 L44 24 L36 30 M13 36 H43 M36 30 L44 36 L36 42", false],
-	"fig_hook_back": ["M13 30 H45 M38 23 L46 30 L38 37 M18 21 L23 30 L18 39", false],
+	"fire_trail": ["M17 31 C18.3 35.5 22.2 39.2 22.2 41.1 A5.2 5.2 0 0 1 11.8 41.1 C11.8 39.2 15.7 35.5 17 31 Z M30 22 C31.6 29.2 36.5 35.2 36.5 39.8 A6.5 6.5 0 0 1 23.5 39.8 C23.5 35.2 28.4 29.2 30 22 Z M43 31 C44.3 35.5 48.2 39.2 48.2 41.1 A5.2 5.2 0 0 1 37.8 41.1 C37.8 39.2 41.7 35.5 43 31 Z", true, "M9 47 H51"],
+	"fire_edge": ["M32 1.5 C39 13.8 49.5 19 46 33 A14 14 0 0 1 18 33 C16.2 22.5 25 19 25 10.2 C28.5 15.5 30.2 17.2 32 1.5 Z", true, "M8 52 L29 31 M21 30 L31 40"],
+	"fire_hearth": ["M30 8 C31.1 11.9 34.2 15.2 34.2 17 A4.2 4.2 0 0 1 25.8 17 C25.8 15.2 28.9 11.9 30 8 Z M49.1 19 C46.2 21.9 45 26.2 43.3 27.1 A4.2 4.2 0 0 1 39.1 19.9 C40.8 18.9 45.2 20 49.1 19 Z M49.1 41 C45.2 40 40.8 41.1 39.1 40.1 A4.2 4.2 0 0 1 43.3 32.9 C45 33.8 46.2 38.1 49.1 41 Z M30 52 C29 48.1 25.8 44.9 25.8 43 A4.2 4.2 0 0 1 34.2 43 C34.2 44.9 31.1 48.1 30 52 Z M10.9 41 C13.8 38.1 15 33.8 16.7 32.9 A4.2 4.2 0 0 1 20.9 40.1 C19.2 41.1 14.8 40 10.9 41 Z M10.9 19 C14.8 20 19.2 18.9 20.9 19.9 A4.2 4.2 0 0 1 16.7 27.1 C15 26.2 13.8 21.9 10.9 19 Z M24 30 A6 6 0 1 0 36 30 A6 6 0 1 0 24 30 Z", true],
+	"fire_spark": ["M30 7.7 C36.2 18.6 45.5 23.2 42.4 35.6 A12.4 12.4 0 0 1 17.6 35.6 C16 26.3 23.8 23.2 23.8 15.4 C26.9 20.1 28.4 21.6 30 7.7 Z M11 20 L15 24 L11 28 L7 24 Z M49 20 L53 24 L49 28 L45 24 Z M15 6 L19 10 L15 14 L11 10 Z M45 6 L49 10 L45 14 L41 10 Z", true],
+	"fire_kasha": ["M25.5 30 A11.5 11.5 0 1 0 48.5 30 A11.5 11.5 0 1 0 25.5 30 Z M32.5 30 A4.5 4.5 0 1 0 41.5 30 A4.5 4.5 0 1 0 32.5 30 Z M6.5 30 C11.9 28 16.4 22 16.9 22 A8 8 0 0 1 16.9 38 C16.4 38 11.9 32 6.5 30 Z", true],
+	"fire_fudo": ["M30 9 Q32.6 17.3 36.1 17.4 L46.4 16.9 Q41.6 24.1 43.6 26.9 L50.5 34.7 Q41.9 35.3 40.9 38.7 L39.1 48.9 Q33.2 42.6 30 44 L20.9 48.9 Q22.2 40.4 19.1 38.7 L9.5 34.7 Q17 30.3 16.4 26.9 L13.6 16.9 Q21.6 20 23.9 17.4 Q26.8 17.4 30 9 Z M22 30 A8 8 0 1 0 38 30 A8 8 0 1 0 22 30 Z M26.8 30 A3.2 3.2 0 1 0 33.2 30 A3.2 3.2 0 1 0 26.8 30 Z", true],
+	"fire_hoo": ["M30 8 C33 8 34 12 34 18 C40 14 46 12 52 12 C50 22 44 32 34 34 C35 40 33 46 36 52 C32 48 28 48 24 52 C27 46 25 40 26 34 C16 32 10 22 8 12 C14 12 20 14 26 18 C26 12 27 8 30 8 Z", true],
 }
 
 static var _num_font: FontVariation = null
@@ -2072,13 +2075,18 @@ static func draw_icon(ci: CanvasItem, key: String, c: Vector2, sz: float, a := 1
 
 
 ## Source SVG construite (tracé d) dessinée centrée en c, taille sz (gabarit box × box).
-static func draw_path(ci: CanvasItem, d: String, box: int, c: Vector2, sz: float, stroke: Color, sw: float, fill := NONE, a := 1.0) -> void:
+## Remplissage pair-impair : un sous-tracé inscrit dans un autre fait un trou (œil de masque, face de daruma).
+## d2 : second tracé, au trait seul (pour les lignes ouvertes d'un glyphe rempli : arcs, rides, lignes de vitesse).
+static func draw_path(ci: CanvasItem, d: String, box: int, c: Vector2, sz: float, stroke: Color, sw: float, fill := NONE, a := 1.0, d2 := "") -> void:
 	if sz < 1.0 or a <= 0.005:
 		return
 	var src := SVG_HEAD % [box, box, box, box]
-	src += '<path d="%s" fill="%s" stroke="%s" stroke-width="%s" stroke-linecap="round" stroke-linejoin="round"/></svg>' % [
+	src += '<path d="%s" fill="%s" fill-rule="evenodd" stroke="%s" stroke-width="%s" stroke-linecap="round" stroke-linejoin="round"/>' % [
 		d, UIColors.hex(fill) if fill.a > 0.0 else "none", UIColors.hex(stroke), str(sw)]
-	var t := svg_tex(src, sz, {}, "p%d|%s|%s|%s" % [d.hash(), UIColors.hex(stroke), UIColors.hex(fill) if fill.a > 0.0 else "-", str(sw)])
+	if d2 != "":
+		src += '<path d="%s" fill="none" stroke="%s" stroke-width="%s" stroke-linecap="round" stroke-linejoin="round"/>' % [d2, UIColors.hex(stroke), str(sw)]
+	src += '</svg>'
+	var t := svg_tex(src, sz, {}, "p%d|%d|%s|%s|%s" % [d.hash(), d2.hash(), UIColors.hex(stroke), UIColors.hex(fill) if fill.a > 0.0 else "-", str(sw)])
 	if t != null:
 		_blit(ci, t, c, sz, a)
 
@@ -2155,7 +2163,7 @@ static func power_medal(ci: CanvasItem, id: String, c: Vector2, s: float, ring: 
 	var gp: Array = POWER_GLYPH.get(id, [])
 	if gp.size() >= 2:
 		var fill: Color = UIColors.element(power_school(id)) if bool(gp[1]) else NONE
-		draw_path(ci, String(gp[0]), 60, c, 60.0 * s, UIColors.SUMI, glyph_w, fill, a)
+		draw_path(ci, String(gp[0]), 60, c, 60.0 * s, UIColors.SUMI, glyph_w, fill, a, String(gp[2]) if gp.size() >= 3 else "")
 	else:
 		glyph(ci, icon_of(id), c, 15.0 * s, UIColors.SUMI, UIColors.WASHI_LIGHT, a)
 	ci.draw_arc(c, disc_r * s, 0.0, TAU, 56, Color(ring, ring.a * a), maxf(1.0, ring_w * s), true)
