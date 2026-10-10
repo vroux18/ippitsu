@@ -1010,7 +1010,7 @@ func _pill(r: Rect2, u: float, a := 1.0) -> void:
 	_ci.draw_style_box(UiKit.box(_sb, Color(UIColors.SUMI_HUD_BG, UIColors.SUMI_HUD_BG.a * a), 999, Color(UIColors.WASHI, 0.55 * a), maxi(1, int(1.5 * u))), r)
 
 
-## Étape : pilule h44 à gauche (x 14) : picto du monde dans un carré de 30 à la couleur du monde, « 5/8 » en 20/13,
+## Étape : pilule h44 à gauche (x 14) : picto du monde dans un rond de 30 à la couleur du monde, « 5/8 » en 20/13,
 ## crans de combat 9 × 4 (or quand le combat est gagné).
 func _draw_stage(u: float) -> void:
 	var cy := (BAR_Y + BAR_H / 2.0) * u
@@ -1026,7 +1026,9 @@ func _draw_stage(u: float) -> void:
 	_pill(pill, u)
 	_stage_end_x = pill.end.x
 	var sq := Rect2(Vector2(pill.position.x + 7.0 * u, cy - 15.0 * u), Vector2(30.0, 30.0) * u)
-	_ci.draw_style_box(UiKit.box(_sb, world_color, int(5.0 * u), UIColors.WASHI, maxi(1, int(1.5 * u))), sq)
+	# picto du monde dans un rond (cachet), cerné de papier
+	_ci.draw_circle(sq.get_center(), 15.0 * u + maxf(1.0, 1.5 * u), UIColors.WASHI)
+	_ci.draw_circle(sq.get_center(), 15.0 * u, world_color)
 	UiKit.draw_icon(_ci, String(UIColors.WORLD_ICON.get(world_kanji, "hud/vague")), sq.get_center(), 18.9 * u, 1.0, UIColors.WASHI)
 	var tx := sq.end.x + 9.0 * u
 	var by: float = (cy - 1.0 * u) if crans > 0 else (cy + nfs * 0.36)
