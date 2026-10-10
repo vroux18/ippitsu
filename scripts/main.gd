@@ -4952,7 +4952,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_fig_mods = {}
 	if not _shape.is_empty():
 		_fig_slow = FIG_SLOW_LEN
-		float_icon(s.last(), String(UiKit.FIG_ICON.get(_shape.shape, "")), UIColors.FIGURES_INK.get(_shape.shape, Toon.SUMI))
+		# (plus de sceau coloré flottant au bout du trait : le sceau papier du HUD, au-dessus du héros, dit déjà la figure)
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
 		hero.speed_mult *= float(_fig_mods.get("speed", 1.0))
