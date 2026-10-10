@@ -30,6 +30,7 @@ const RANK_COLORS := [Color("#B5838D"), Color("#5E8C4A"), Color("#2F6B5E"), Colo
 var hud: Control  # pour les petites annonces de points (hud.score_pop)
 var points := 0
 var best_mult := 1.0
+var bonus_mult := 1.0  # Tambour des morts (pacte du sanctuaire) : tous les gains de points ×1,4 (main._take_curse)
 var fig_t := 0.0  # fenêtre de la dernière figure
 var room_t := 0.0  # durée du combat en cours
 var room_hurt := false
@@ -39,6 +40,7 @@ var room_n := 0
 func reset() -> void:
 	points = 0
 	best_mult = 1.0
+	bonus_mult = 1.0
 	fig_t = 0.0
 	room_t = 0.0
 	room_hurt = false
@@ -122,7 +124,7 @@ func update(dt: float) -> void:
 func _gain(base: int, chain: int, label: String) -> int:
 	var m := mult(chain)
 	best_mult = maxf(best_mult, m)
-	var g := int(roundf(float(base) * m / 10.0)) * 10
+	var g := int(roundf(float(base) * m * bonus_mult / 10.0)) * 10
 	points += g
 	if hud != null and label != "":
 		hud.score_pop(label, g)
