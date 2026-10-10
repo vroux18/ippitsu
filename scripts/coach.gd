@@ -484,14 +484,18 @@ func _draw_spot(c: Vector2, r: Vector2, k: float) -> void:
 		var ty := 1.0e9
 		if absf(d.y) > 0.0001:
 			ty = ((size.y + 4.0 - c.y) if d.y > 0.0 else (-4.0 - c.y)) / d.y
-		var b := c + d * maxf(minf(tx, ty), 0.0)
+		var tb := maxf(minf(tx, ty), 0.0)
+		var b := c + d * tb
+		# l'ellipse peut déborder l'écran : son point est ramené au bord (le quad dégénère, on le saute)
+		if (e - c).length() >= tb - 0.5:
+			e = b
 		if i > 0:
-			_pts.resize(4)
-			_pts[0] = prev_e
-			_pts[1] = e
-			_pts[2] = b
-			_pts[3] = prev_b
-			draw_colored_polygon(_pts, veil)
+			_pts.resize(0)
+			for q in [prev_e, e, b, prev_b]:
+				if _pts.is_empty() or _pts[_pts.size() - 1].distance_squared_to(q) > 0.25:
+					_pts.append(q)
+			if _pts.size() >= 3 and _pts[0].distance_squared_to(_pts[_pts.size() - 1]) > 0.25:
+				draw_colored_polygon(_pts, veil)
 		prev_e = e
 		prev_b = b
 	# liseré pointillé (4 / 8 u) sur l'ellipse
