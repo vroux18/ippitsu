@@ -175,6 +175,9 @@ static func _detect_loop(p: PackedVector3Array) -> Dictionary:
 			var b := mini(n - 1, j + 1 + LOOP_PAD)
 			if absf(turning_deg(p.slice(a, b + 1))) < LOOP_TURN:
 				continue
+			# un grand cercle qui se recoupe au bout (le joueur a « fermé » son ensō en dépassant) reste un ensō
+			if st.x >= ENSO_MIN_R and st.y / maxf(st.x, EPS) < ENSO_ROUND:
+				return {"shape": "enso", "center": c, "radius": st.x}
 			return {"shape": "loop", "center": c, "radius": st.x}
 	# petit cercle refermé sans se recouper (trop petit pour un ensō) : c'est une boucle
 	if absf(turning_deg(p)) >= LOOP_TURN:
@@ -203,6 +206,11 @@ static func _detect_loop_open(p: PackedVector3Array) -> Dictionary:
 	var c := _centroid(sub)
 	var st := _radius_stats(sub, c)
 	if st.x < LOOP_R_MIN or st.x > LOOP_R_MAX or st.y / maxf(st.x, EPS) > 0.6:
+		return {}
+	# grand et rond : c'est un ensō un peu ouvert, pas une boucle (la boucle est le petit tour serré)
+	if st.x >= ENSO_MIN_R and st.y / maxf(st.x, EPS) < ENSO_ROUND and float(run[0]) >= ENSO_MIN_TURN:
+		return {"shape": "enso", "center": c, "radius": st.x}
+	if st.x >= ENSO_MIN_R:
 		return {}
 	return {"shape": "loop", "center": c, "radius": st.x}
 
@@ -762,6 +770,18 @@ static func self_test() -> Array:
 		lo.append(Vector3(1.2 * cos(t3), 0.0, 1.2 + 1.2 * sin(t3)))
 	lo.append(Vector3(-2.4, 0.0, 3.2))
 	_check(fails, "boucle ouverte", _resample_step(lo, step), "loop")
+	# Ensō dépassé : grand cercle r2.2 bouclé à 400° (le doigt a continué après la fermeture) -> ensō, pas boucle
+	var ov2 := PackedVector3Array()
+	for k in range(111):
+		var t4 := deg_to_rad(400.0) * float(k) / 110.0
+		ov2.append(Vector3(2.2 * cos(t4), 0.0, 2.2 * sin(t4)))
+	_check(fails, "enso dépassé", _resample_step(ov2, step), "enso")
+	# Ensō ouvert d'un tiers (r2.0, 260°) -> ensō (tolérant), pas boucle
+	var ov3 := PackedVector3Array()
+	for k in range(81):
+		var t5 := deg_to_rad(260.0) * float(k) / 80.0
+		ov3.append(Vector3(2.0 * cos(t5), 0.0, 2.0 * sin(t5)))
+	_check(fails, "enso ouvert", _resample_step(ov3, step), "enso")
 	# Kaeshi : aller-retour légèrement décalé
 	_check(fails, "return", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(5, 0.4), Vector2(0.3, 0.5)])), step), "return")
 	# Inazuma : 3 angles vifs

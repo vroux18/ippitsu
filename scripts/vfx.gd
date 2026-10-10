@@ -381,9 +381,8 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false, tint := Color(0, 0, 0,
 	_fx.append({"node": burst, "t": 0.0, "life": 0.3, "kind": "burst", "s": 0.75 if big else 0.6})
 	# tache d'encre étoilée au sol, qui s'étale d'un coup puis sèche
 	_decal(Vector3(pos.x, 0.0, pos.z), 0.7 if big else 0.55, Color(Toon.SUMI, 0.5), 1.3)
-	if not big:
-		return
-	# grand sceau vermillon « entaille » (picto v2 hud/slash, plus de kanji), face caméra
+	# (plus de sceau « entaille » à la mise à mort : les deux traits rouges à chaque coup gênaient)
+	return
 	var tex := UiKit.icon("hud/slash", 128.0, {"*": UIColors.hex(Toon.VERMILION)})
 	if tex == null:
 		return

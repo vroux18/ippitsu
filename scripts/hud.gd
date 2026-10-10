@@ -794,8 +794,8 @@ func _draw_ult(c: Vector2, u: float) -> void:
 	draw_arc(c, 21.0 * k, 0.0, TAU, 48, Color(UIColors.WASHI, 0.6), maxf(1.0, 1.0 * k), true)
 	UiKit.draw_icon(self, "hud/pinceau", c, 25.2 * u, 1.0, UIColors.GOLD if full else Color(UIColors.WASHI, 0.6))
 	draw_set_transform(Vector2.ZERO)
-	if full:
-		# double tap : rond papier de 22 accroché en haut à gauche du sceau
+	if false and full:
+		# (picto double tap retiré à la demande de Victor ; le sceau d'or plein suffit)
 		var bc := c + Vector2(-29.0, -27.0) * u
 		var bs := u * (1.0 + 0.08 * pulse)
 		draw_circle(bc, 10.0 * bs, UIColors.WASHI)

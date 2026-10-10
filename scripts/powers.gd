@@ -976,7 +976,6 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		var left := float(e.hp) - out
 		if left > 0.0 and left <= mx * th / 100.0:
 			out = float(e.hp) + 0.01
-			main.float_icon(e.position, "hud/slash", Toon.VERMILION)
 			_tag("shadow_execute", e.position)
 	# brûlure
 	var burn := val("fire_burn")
