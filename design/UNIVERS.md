@@ -5,26 +5,31 @@
 
 ---
 
-## État actuel du jeu (8 octobre 2026)
+## État actuel du jeu (10 octobre 2026)
 
 *Ce résumé fait foi pour ce qui est implémenté ; la suite du document est la vision v1 d'origine (salles, héros multiples, boutique… : en partie remplacée).*
 
 - **Commandes** (un doigt) : tracer = ruée qui tranche (intouchable au départ : c'est la seule esquive, un tap seul ne fait rien) ; **double tap** = ultime quand le sceau 筆 est plein ; doigt posé hors combat = course. Pad tactile en bas (ou tracé direct sur l'écran, option).
 - **HUD** : vie, niveau / XP et or en haut à gauche, chaîne dessous ; sceau du monde + étape (x / 8) au centre ; pause en haut à droite ; **jauge d'encre verticale sur le bord droit** avec le sceau d'ultime ; colonne de progression de l'étape à gauche. Les pouvoirs ne sont plus affichés en jeu (pause → MES POUVOIRS, et bilan de fin).
-- **Structure** : accueil (barque) → sanctuaire de départ (dojo, torii) → **5 mondes × 8 étapes**. Une étape = longue carte vers le fond avec des **zones de combat** (vagues d'ennemis, haies sacrées qui se ferment), des recoins (coffre, source, défi d'élite, énigmes stèle / lanternes / esprit) et un torii au bout. 15 combats par monde (`STAGE_PLAN`) : étape 4 = arène du **mini-boss**, étape 8 = **boss**. Sanctuaire de malédiction après les combats 5 et 10. Battre le boss ouvre le monde suivant (carte emakimono).
+- **Structure** : accueil (barque) → sanctuaire de départ (dojo, torii) → **8 mondes × 8 étapes**. Une étape = longue carte vers le fond avec des **zones de combat** (vagues d'ennemis, haies sacrées qui se ferment), des recoins (coffre, source, défi d'élite, énigmes stèle / lanternes / esprit) et un torii au bout. 15 combats par monde (`STAGE_PLAN`) : étape 4 = arène du **mini-boss**, étape 8 = **boss**. Sanctuaire de malédiction après les combats 5 et 10. Battre le boss ouvre le monde suivant (carte emakimono).
 - **Mondes et bestiaire** (`worlds.gd`, `enemy.gd`) : base commune oni, kappa, brute, tate (bouclier frontal), funa ; puis
   1 Grande Vague — umibozu, kappa_yumi, ika, umi_nyobo ;
   2 Tanabata — kitsunebi, kamaitachi, tanuki, kitsune_tsukai ;
   3 Cent Contes — yukionna, yuki_warashi, onryo, tsurara ;
   4 Fuji Rouge — kasha, hinotama, teppo, tengu, kanabo, moryo ;
-  5 Trente-six Vues — kagebo, sumidama, kasa, moryo, onryo, teppo, tengu.
-  PV ×1.0 → ×1.6 du monde 1 au monde 5.
-- **Gardiens / boss** : mini-boss Ō-Kappa, Tsuchigumo, Yuki-onna, Ibaraki-dōji, Bakekujira ; boss Uwabami, Kyūbi, Gashadokuro, Daidarabotchi, Kuro-Nami. Chacun a un point faible (geste) affiché sous sa barre.
-- **Boucliers et élites** : barre bleue — tant qu'il en reste, un coup n'entame que 25 % ; figures et pouvoirs l'usent ×2. Élites (dès le 4e combat) : ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes (blindé, rapide, vampire, explosif, invocateur, enragé).
+  5 Trente-six Vues — kagebo, sumidama, kasa, moryo, onryo, teppo, tengu ;
+  6 Kurama — tengu, kamaitachi, moryo, karasu, yamabushi, konoha, et les ninjas shinobi, shuriken, kemuri, kunoichi ;
+  7 Ryūgū-jō — umibozu, ika, umi_nyobo, kani, ningyo, fugu ;
+  8 Yomi — onryo, kagebo, kanabo, moryo, gaki, gokusotsu, shiryo, kemuri.
+  PV ×1.0 → ×1.9 du monde 1 au monde 8. Tous les yōkai (36 communs) et les 16 gardiens/boss sont en direction « Masque d'encre » (corps d'encre, masque de nō, or ; `yokai_ink_wN.gd`, `ink_rig.gd`).
+- **Gardiens / boss** : gardiens Ō-Kappa, Tsuchigumo, Yuki-onna, Ibaraki-dōji, Bakekujira, Karasu-tengu, Umibōzu, Gaki-ō ; boss Uwabami, Kyūbi, Gashadokuro, Daidarabotchi, Kuro-Nami, Sōjōbō, Ryūjin, Izanami. Chacun a un point faible (geste) affiché sous sa barre après 12 s sans l'entamer. Les dégâts des boss sont ×0.55 (`BOSS_TOUGH`) ; la ruée est plus lente dans les mondes 1–3 (`WORLD_DASH`).
+- **Boucliers et élites** : puce d'encre à six crans sous le makimono (élites : fine barre bleu de Prusse) — tant qu'il en reste, un coup n'entame que 25 % ; figures et pouvoirs l'usent ×2. Élites (dès le 4e combat) : ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes (blindé, rapide, vampire, explosif, invocateur, enragé).
 - **Progression de partie** : XP et or au sol ; chaque niveau = un **rouleau** parmi 3. **71 pouvoirs** (`power_data.gd`) en 4 raretés (25 communs, 23 rares, 14 épiques, 9 légendaires) et 7 écoles (feu, eau, foudre, vent, ombre, encre, figure) ; affinités à 2 et 4 pouvoirs d'une école, synergies ; paliers de déblocage par monde vaincu.
-- **Figures** (`stroke_shapes.gd`) : boucle, zigzag, trait droit, aller-retour, ensō, crochet. Tracée sans son rouleau : +1 chaîne et +15 % de dégâts ; son **rouleau de figure** (école « figure », 16 rouleaux) débloque la technique puis l'améliore.
+- **Figures** (`stroke_shapes.gd`) : boucle, zigzag, trait droit, aller-retour, ensō, crochet. Le geste est lu à l'échelle de l'écran (m/cm selon la hauteur dans l'arène) ; corpus de test `tools/fig_corpus.gd` (`--figtest`). Tracée sans son rouleau : +1 chaîne et +15 % de dégâts ; son **rouleau de figure** (école « figure », 16 rouleaux) débloque la technique puis l'améliore.
 - **Méta (Atelier)** : encre (sumi) → Pierre à encre (6 lignes à rangs) ; sceaux (dons permanents, légendaires) ; collection d'estampes (Vues) qui débloquent des apparences.
-- **Tests** : robots du CI `bot.gd` (campaign, powers, stress), `bot_ui.gd` (parcours des écrans), `bot_shapes.gd` (figures).
+- **Sanctuaires** : 10 pactes (`CURSES`) proposés 3 par 3 après les combats 5 et 10, autel au milieu de la salle ; refuser soigne un cœur (ou 15 pièces).
+- **Hors jeu** : le ronin de papier (chapeau de paille, kimono washi, hakama bleu de Prusse seigaiha fixe, écharpe vermillon qui seule change de couleur), carte des mondes emakimono, bestiaire de 55 fiches, atelier, garde-robe. 120 Hz par défaut.
+- **Tests** : robots du CI `bot.gd` (campaign, powers, stress), `bot_ui.gd` (parcours des écrans), `bot_shapes.gd` (figures), captures `--q=…`/`--shot=…`.
 
 ---
 
@@ -70,7 +75,7 @@ C'est tout : l'effort va sur les mondes, ennemis, pouvoirs et la progression.
 
 ---
 
-## 2. Les cinq mondes
+## 2. Les huit mondes
 
 ### 2.0 Le fil rouge : Hokusai et le Japon
 Chaque monde **est une œuvre de Hokusai** (ou une série) dans laquelle on entre, enrichie d'un lieu, d'une fête, d'objets et d'une nourriture japonaise reconnaissables. Le fond peint de chaque arène reprend la composition de l'estampe de référence (cadrage, Fuji minuscule, vague, nuages en bandes).
@@ -94,7 +99,7 @@ Règles transverses :
 Palette commune : washi `#EFE6D2` · sumi `#1B1A1E` · vermillon `#D7372B` (coups, danger) · bleu de Prusse `#1F3A5F` · écume `#E9EEF0` · or `#C49A45` (récompenses).
 Règle : **le vermillon reste réservé au danger et aux coups du joueur** dans tous les mondes ; les couleurs propres au monde ne doivent jamais ressembler à une annonce.
 
-Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (v1 : 9 salles ; aujourd'hui 8 étapes, voir « État actuel »). Battre le boss d'un monde ouvre le suivant au départ de l'atelier (§6).
+Ordre de déblocage : 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 (les mondes 6 à 8 sont décrits en §2.6–2.8 ; palettes dans PALETTES.md). Une partie = **un monde** (v1 : 9 salles ; aujourd'hui 8 étapes, voir « État actuel »). Battre le boss d'un monde ouvre le suivant au départ de l'atelier (§6).
 
 ---
 
@@ -257,6 +262,30 @@ Ordre de déblocage : 1 → 2 → 3 → 4 → 5. Une partie = **un monde** (v1 :
   - **Phase 2 — Le Fuji** (50 PV) : la vague menace le Fuji au centre de l'arène (petit mont, 10 PV de « vie du Fuji » qui baisse de 1 / vague qui le touche). Ses vagues arrivent par 3 couloirs (annonces 1.2 s). **Mécanique : le trait retour** devant une vague la renvoie (« Kaeshi ») et lui inflige 8 dmg. Fuji détruit = défaite.
   - **Phase 3 — L'Ensō** (50 PV) : la vague s'enroule en spirale autour de l'arène qui rétrécit (r 8 → 3 en 40 s). Au centre, un œil sumi. **Seul dégât possible : tracer un Ensō (boucle presque fermée, écart 0.5–1.5 m, rayon ≥ 2.5 m) autour de l'œil**. Un ensō parfait (écart dans la plage, rondeur > 0.85) = 25 dmg. Deux ensō = victoire → Vue finale.
 - **Musique / sons** : toutes les mélodies des mondes 1–4 reprises au koto, puis effacées une à une ; phase 3 : silence + respiration + un seul coup de taiko à chaque ensō. Vagues d'encre (son « liquide visqueux »), papier qui se déchire.
+
+### Monde 6 — KURAMA (la forêt des tengu au crépuscule)
+*Référence : le mont Kurama, où Ushiwakamaru apprend le sabre des tengu ; lumière de fin de jour.*
+- **Ambiance** : escaliers de granit rose-gris jonchés d'aiguilles de cèdre, cèdres bleu-noir en contre-jour, brumes mauves, lanternes braise, ciel orangé-violet. Aucun vert dans la lumière (le vert appartient à Tanabata).
+- **Palette propre** : prune `#4A3450`, ciel `#5A4668`, brume `#9A7E8E`, cèdre rouge pour les ponts.
+- **Ennemis** : tengu, kamaitachi, moryo, **karasu** (corbeau qui plonge en piqué, couloir), **yamabushi** (rafale de l'éventail, cône), **konoha** (tengu-feuille, vif), et les quatre ninjas : shinobi (cligne sur le flanc), shuriken (éventail de lignes), kemuri (bombe de fumée, ressurgit dans le dos), kunoichi (balayage de kusarigama).
+- **Gardien — Karasu-tengu** (chef des corbeaux) : lame et ailes d'ébène, piqués annoncés en couloir, bouclier à briser.
+- **Boss — Sōjōbō** (roi des tengu, maître d'armes) : leçons de sabre en phases, bourrasques qui balaient l'arène, point faible au geste.
+
+### Monde 7 — RYŪGŪ-JŌ (le palais du roi dragon)
+*Référence : le conte d'Urashima Tarō ; grand fond marin, parvis englouti.*
+- **Ambiance** : eau indigo / outremer, sable nacré chaud et bois flotté blanchi au sol, laque sombre et or au palais du fond, lumières ponctuelles bleu caustique (perles, lanternes).
+- **Palette propre** : outremer `#1E3A74`, nuit marine `#1A2C64`, sable `#A69070`.
+- **Ennemis** : umibozu, ika, umi_nyobo, **kani** (heikegani : crabe au visage de samouraï, garde frontale), **ningyo** (sirène : chant qui attire, plonge), **fugu** (poisson-globe : gonfle et explose en piquants).
+- **Gardien — Umibōzu** (moine géant des abysses) : plonge sous les planches, ressurgit sous le héros, bouclier de houle.
+- **Boss — Ryūjin** (roi dragon) : corps d'encre à masques, perles des marées à trancher, raz-de-marée en couloirs.
+
+### Monde 8 — YOMI (le pays des morts)
+*Référence : la descente d'Izanagi à Yomi ; la pente de Yomotsu, la cendre.*
+- **Ambiance** : dalles de cendre grise désaturées, bois de cendre, brume ; le lilas des âmes est la seule couleur vive.
+- **Palette propre** : améthyste sombre `#3A2E48`, ciel `#3A3442`, âmes lilas.
+- **Ennemis** : onryo, kagebo, kanabo, moryo, kemuri, **gaki** (affamé au ventre gonflé, se jette sur le héros), **gokusotsu** (geôlier à tête de bœuf, chaîne de fer en arc), **shiryo** (feu froid, se téléporte).
+- **Gardien — Gaki-ō** (roi des affamés, enchaîné) : charges et chaînes, bouclier de faim qui se reforme.
+- **Boss final — Izanami** (reine des morts) : phases de voile, d'âmes et de jugement ; dernier monde, dernier torii.
 
 ---
 
