@@ -164,15 +164,14 @@ static func figure(ci: CanvasItem, shape: String, c: Vector2, r: float, a: float
 		"return":
 			ci.draw_arc(c + Vector2(0, -0.1) * s, s * 0.55, PI, TAU, 16, ink, w, true)
 			ci.draw_line(c + Vector2(-0.55, -0.1) * s, c + Vector2(-0.55, 0.8) * s, ink, w, true)
-			ci.draw_line(c + Vector2(0.55, -0.1) * s, c + Vector2(0.55, 0.6) * s, ink, w, true)
-			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0.3, 0.55) * s, c + Vector2(0.8, 0.55) * s, c + Vector2(0.55, 0.95) * s]), ink)
+			ci.draw_line(c + Vector2(0.55, -0.1) * s, c + Vector2(0.55, 0.8) * s, ink, w, true)  # un trait, sans pointe
 		"enso":
 			ci.draw_arc(c, s * 0.85, -PI * 0.35, PI * 1.5, 32, ink, w * 1.5, true)
 			ci.draw_circle(c + Vector2.from_angle(-PI * 0.35) * s * 0.85, w * 0.9, ink)
 		"hook":
 			ci.draw_line(c + Vector2(0.35, -0.9) * s, c + Vector2(0.35, 0.3) * s, ink, w, true)
 			ci.draw_arc(c + Vector2(0.0, 0.3) * s, s * 0.35, 0.0, PI, 14, ink, w, true)
-			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.6, 0.0) * s, c + Vector2(-0.2, 0.05) * s]), ink)
+			ci.draw_line(c + Vector2(-0.35, 0.3) * s, c + Vector2(-0.35, -0.05) * s, ink, w, true)  # un trait, sans pointe
 
 
 ## Geste d'une figure, en coordonnées 0..1 du cadre (tracé de bas en haut, comme au doigt).
@@ -539,15 +538,14 @@ static func _fsym(ci: CanvasItem, shape: String, c: Vector2, s: float, col: Colo
 		"return":
 			_arc(ci, o, q, Vector2(0, -0.1), 0.55, PI, TAU, col, w)
 			_ln(ci, o, q, Vector2(-0.55, -0.1), Vector2(-0.55, 0.8), col, w)
-			_ln(ci, o, q, Vector2(0.55, -0.1), Vector2(0.55, 0.55), col, w)
-			_head(ci, o, q, Vector2(0.55, 0.95), Vector2(0, 1), 0.4, col)
+			_ln(ci, o, q, Vector2(0.55, -0.1), Vector2(0.55, 0.8), col, w)  # un trait, sans pointe
 		"enso":
 			_arc(ci, o, q, Vector2.ZERO, 0.8, -PI * 0.35, PI * 1.45, col, w * 1.5)
 			ci.draw_circle(o + Vector2.from_angle(-PI * 0.35) * 0.8 * q, w * 0.8, col)
 		"hook":
 			_ln(ci, o, q, Vector2(0.35, -0.9), Vector2(0.35, 0.3), col, w)
 			_arc(ci, o, q, Vector2(0.0, 0.3), 0.35, 0.0, PI, col, w)
-			_head(ci, o, q, Vector2(-0.45, 0.0), Vector2(-0.25, -1.0), 0.4, col)
+			_ln(ci, o, q, Vector2(-0.35, 0.3), Vector2(-0.35, -0.05), col, w)  # un trait, sans pointe
 
 
 static func _sword(ci: CanvasItem, c: Vector2, s: float, col: Color, w: float) -> void:
