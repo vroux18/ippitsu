@@ -936,6 +936,11 @@ func _draw_ink(u: float) -> void:
 	var fh := ir.size.y * clampf(elan, 0.0, 1.0)
 	if fh > 1.0:
 		_ci.draw_style_box(UiKit.box(_sb, ink, int(6.0 * u)), Rect2(Vector2(ir.position.x, ir.end.y - fh), Vector2(ir.size.x, fh)))
+	# Réserve (Arbre du pinceau) : l'encre qui déborde de la jauge pleine, en or, le long de son bord droit
+	var over := clampf(elan - 1.0, 0.0, 1.0)
+	if over > 0.0:
+		var oh := ir.size.y * over
+		_ci.draw_style_box(UiKit.box(_sb, UIColors.GOLD, int(3.0 * u)), Rect2(Vector2(ir.end.x - ir.size.x * 0.35, ir.end.y - oh), Vector2(ir.size.x * 0.35, oh)))
 	# graduations : une encoche tous les 2 m de trait
 	var ticks := int(elan_m / 2.0)
 	for i in range(1, ticks + 1):

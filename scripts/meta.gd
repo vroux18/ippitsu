@@ -1,7 +1,6 @@
 extends RefCounted
 ## Progression permanente, sauvegardée entre les parties :
-## - sumi (encre) : la Pierre à encre, six lignes d'améliorations à rangs ;
-## - sceaux : dons permanents achetés une fois (rouleau de départ, relance, légendaires...) ;
+## - sumi (encre) : l'Arbre du pinceau (quatre branches de nœuds appris une fois, sommets légendaires) ;
 ## - Vues : collection d'estampes ; chacune débloque une apparence (écharpe, sillage de lame, encre du trait).
 
 const Toon = preload("res://scripts/toon.gd")
@@ -13,46 +12,76 @@ const SUMI_PER_ROOM := 8  # réglage d'équilibrage : bonus d'encre par salle fr
 const MINI_ROOM := 8  # = main.MINI_ROOM (salle du gardien)
 const WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "Trente-six Vues"]
 
-## Ordre d'affichage des lignes de la Pierre à encre.
-const ORDER := ["brush", "ink", "paper", "breath", "purse", "choice"]
-
-## Données des lignes : nom affiché, idéogramme, coûts (un par rang), texte d'effet (valeur = base + step × rang).
-## Coûts revus : un rang à peu près toutes les une à deux parties au début.
-const LINES := {
-	"brush": {"name": "Pinceau long", "kanji": "筆", "costs": [30, 60, 110, 170, 250],
-		"fmt": "Élan max +%d m", "base": 0, "step": 1},
-	"ink": {"name": "Encre vive", "kanji": "墨", "costs": [30, 60, 110, 170, 250],
-		"fmt": "Recharge +%d %%", "base": 0, "step": 6},
-	"paper": {"name": "Peau de papier", "kanji": "士", "costs": [80, 170, 300],
-		"fmt": "PV max +%d", "base": 0, "step": 1},
-	"breath": {"name": "Second souffle", "kanji": "風", "costs": [200, 420],
-		"fmt": "%d filets par combat", "base": 1, "step": 1},
-	"purse": {"name": "Bourse", "kanji": "円", "costs": [25, 50, 85, 130, 180],
-		"fmt": "Encre gagnée +%d %%", "base": 0, "step": 5},
-	"choice": {"name": "Choix", "kanji": "道", "costs": [100, 200, 340],
-		"fmt": "Relances +%d par partie", "base": 0, "step": 1},
+## --- Arbre du pinceau (méta-progression de l'Atelier) ---
+## Un tronc (déjà acquis), quatre branches de six nœuds et un sommet légendaire. Un nœud s'apprend en encre
+## (sumi) quand celui du dessous est appris. Remplace la Pierre à encre (lignes à rangs) et les sceaux.
+const TREE_ROOT := "root"
+const TREE_VERSION := 1  # sauvegarde : 0 = ancienne Pierre à encre et sceaux (remboursés en encre une fois)
+const SEAL_SUMI := 40  # les sceaux n'existent plus : chaque sceau (dépensé, gardé, ou gagné en partie) vaut 40 encre
+const BRANCH_ORDER := ["lame", "encre", "papier", "voie"]
+const BRANCHES := {
+	"lame": {"name": "LAME", "col": Color("#D7372B"), "text": "Attaque : dégâts, critiques, chaîne."},
+	"encre": {"name": "ENCRE", "col": Color("#1F3A5F"), "text": "Le trait : longueur, recharge, réserve, second souffle."},
+	"papier": {"name": "PAPIER", "col": Color("#C49A45"), "text": "Survie : cœurs, garde au départ, kintsugi, dernier souffle."},
+	"voie": {"name": "VOIE", "col": Color("#A8436B"), "text": "Rouleaux et figures : relances, rouleau de départ, figures."},
 }
-
-## Dons des sceaux : achetés une fois, pour toujours. « power » : légendaire retiré des rouleaux tant qu'il n'est pas scellé.
-const SEAL_ORDER := ["reroll", "scroll", "purse", "blessing", "hp", "leg_hoo", "leg_kitsune", "leg_ippitsu"]
-const SEAL_ITEMS := {
-	"reroll": {"name": "Seconde chance", "kanji": "返", "cost": 2,
-		"text": "+1 relance des rouleaux à chaque partie."},
-	"scroll": {"name": "Rouleau de départ", "kanji": "巻", "cost": 3,
-		"text": "Commence chaque partie avec un rouleau commun de ton choix."},
-	"purse": {"name": "Sceau du marchand", "kanji": "金", "cost": 3,
-		"text": "+20 % d'encre gagnée à chaque fin de partie."},
-	"blessing": {"name": "Bénédiction", "kanji": "福", "cost": 4,
-		"text": "Ton premier choix de rouleaux de la partie en offre un second."},
-	"hp": {"name": "Kintsugi", "kanji": "命", "cost": 5,
-		"text": "+1 cœur max à chaque partie."},
-	"leg_hoo": {"name": "Hōō, le phénix", "kanji": "鳳", "cost": 4, "power": "fire_hoo",
-		"text": "Libère ce légendaire du feu : il pourra sortir dans les rouleaux."},
-	"leg_kitsune": {"name": "Kitsunebi", "kanji": "狐", "cost": 4, "power": "shadow_kitsunebi",
-		"text": "Libère ce légendaire de l'ombre : il pourra sortir dans les rouleaux."},
-	"leg_ippitsu": {"name": "Ippitsu, un seul trait", "kanji": "筆", "cost": 6, "power": "ink_ippitsu",
-		"text": "Libère le légendaire du maître : il pourra sortir dans les rouleaux."},
+## Nœuds : branche « b », étage « t » (1..6, 7 = sommet), nom, effet, coût en encre, glyphe ; « power » : légendaire
+## retiré des rouleaux tant que le sommet n'est pas appris ; « fig » : figure apprise (fig_learned).
+const TREE_ORDER := ["l1", "l2", "l3", "l4", "l5", "l6", "lc", "e1", "e2", "e3", "e4", "e5", "e6", "ec",
+	"p1", "p2", "p3", "p4", "p5", "p6", "pc", "v1", "v2", "v3", "v4", "v5", "v6", "vc"]
+const TREE := {
+	"l1": {"b": "lame", "t": 1, "name": "Tranchant I", "text": "Dégâts +8 %.", "cost": 40, "glyph": "lame"},
+	"l2": {"b": "lame", "t": 2, "name": "Tranchant II", "text": "Dégâts +8 % de plus.", "cost": 90, "glyph": "lame"},
+	"l3": {"b": "lame", "t": 3, "name": "Fil du sabre", "text": "La chaîne passe à ×1,5 dès 2 traits réussis au lieu de 3.", "cost": 150, "glyph": "lame"},
+	"l4": {"b": "lame", "t": 4, "name": "Coup net", "text": "La première touche de chaque combat est critique.", "cost": 220, "glyph": "lame"},
+	"l5": {"b": "lame", "t": 5, "name": "Lame d'encre", "text": "Un ennemi tranché pendant une figure saigne 2 s.", "cost": 320, "glyph": "lame"},
+	"l6": {"b": "lame", "t": 6, "name": "Élan du rōnin", "text": "Dégâts +15 % tant que la chaîne atteint 10.", "cost": 450, "glyph": "lame"},
+	"lc": {"b": "lame", "t": 7, "name": "Ippitsu, un seul trait", "text": "Libère le légendaire du maître dans les rouleaux.", "cost": 600, "glyph": "lame", "power": "ink_ippitsu"},
+	"e1": {"b": "encre", "t": 1, "name": "Pinceau long I", "text": "Élan max +1 m.", "cost": 30, "glyph": "encre"},
+	"e2": {"b": "encre", "t": 2, "name": "Encre vive I", "text": "Recharge de l'encre +6 %.", "cost": 60, "glyph": "encre"},
+	"e3": {"b": "encre", "t": 3, "name": "Pinceau long II", "text": "Élan max +1 m de plus.", "cost": 110, "glyph": "encre"},
+	"e4": {"b": "encre", "t": 4, "name": "Encre vive II", "text": "Recharge +6 % de plus.", "cost": 170, "glyph": "encre"},
+	"e5": {"b": "encre", "t": 5, "name": "Réserve", "text": "Un trait d'avance : la jauge peut déborder d'un trait.", "cost": 250, "glyph": "encre"},
+	"e6": {"b": "encre", "t": 6, "name": "Second souffle", "text": "Un filet d'encre de secours par combat.", "cost": 420, "glyph": "encre"},
+	"ec": {"b": "encre", "t": 7, "name": "Kitsunebi", "text": "Libère ce légendaire de l'ombre dans les rouleaux.", "cost": 600, "glyph": "encre", "power": "shadow_kitsunebi"},
+	"p1": {"b": "papier", "t": 1, "name": "Peau de papier I", "text": "+1 cœur max.", "cost": 80, "glyph": "papier"},
+	"p2": {"b": "papier", "t": 2, "name": "Garde au départ", "text": "Intouchable les 2 premières secondes de chaque combat.", "cost": 120, "glyph": "papier"},
+	"p3": {"b": "papier", "t": 3, "name": "Peau de papier II", "text": "+1 cœur max de plus.", "cost": 170, "glyph": "papier"},
+	"p4": {"b": "papier", "t": 4, "name": "Kintsugi", "text": "Chaque gardien vaincu rend un cœur.", "cost": 240, "glyph": "papier"},
+	"p5": {"b": "papier", "t": 5, "name": "Peau de papier III", "text": "+1 cœur max de plus.", "cost": 300, "glyph": "papier"},
+	"p6": {"b": "papier", "t": 6, "name": "Dernier souffle", "text": "Une fois par partie, un coup mortel laisse 1 cœur.", "cost": 450, "glyph": "papier"},
+	"pc": {"b": "papier", "t": 7, "name": "Hōō, le phénix", "text": "Libère ce légendaire du feu dans les rouleaux.", "cost": 600, "glyph": "papier", "power": "fire_hoo"},
+	"v1": {"b": "voie", "t": 1, "name": "Seconde chance", "text": "+1 relance des rouleaux par partie.", "cost": 100, "glyph": "voie"},
+	"v2": {"b": "voie", "t": 2, "name": "Figure : Vague", "text": "Apprend la Vague (un S). Sa technique Ressac entre dans les rouleaux.", "cost": 150, "glyph": "vague", "fig": "wave"},
+	"v3": {"b": "voie", "t": 3, "name": "Rouleau de départ", "text": "Commence chaque partie avec un rouleau commun de ton choix.", "cost": 200, "glyph": "voie"},
+	"v4": {"b": "voie", "t": 4, "name": "Figure : Pointe", "text": "Apprend la Pointe (un V aigu). Sa technique Kunai entre dans les rouleaux.", "cost": 260, "glyph": "pointe", "fig": "point"},
+	"v5": {"b": "voie", "t": 5, "name": "Bénédiction", "text": "Le premier choix de rouleaux de la partie en offre un second.", "cost": 320, "glyph": "voie"},
+	"v6": {"b": "voie", "t": 6, "name": "Figure : Triangle", "text": "Apprend le Triangle. Sa technique Kekkai entre dans les rouleaux.", "cost": 420, "glyph": "triangle", "fig": "triangle"},
+	"vc": {"b": "voie", "t": 7, "name": "Maître des figures", "text": "L'ultime se charge en 4 figures au lieu de 5, et chaque figure rapporte +25 % de points.", "cost": 600, "glyph": "voie"},
 }
+## Figures de base, toujours connues ; les trois autres s'apprennent dans la branche VOIE (nœuds « fig »).
+const BASE_FIGURES := ["loop", "zigzag", "return", "hook", "straight", "enso"]
+## Réglages des effets de l'arbre (lus par main et score).
+const TREE_DMG_STEP := 0.08  # Tranchant I et II
+const RONIN_DMG := 0.15  # Élan du rōnin, chaîne >= RONIN_CHAIN
+const RONIN_CHAIN := 10
+const NET_CRIT := 2.0  # Coup net
+const BLEED_TIME := 2.0  # Lame d'encre (s)
+const BLEED_DPS := 0.6  # dégâts/s du saignement (une brûlure de base : 0,6)
+const RESERVE_FRAC := 0.35  # Réserve : la jauge déborde d'environ un trait (35 % de l'élan max, ~6 m)
+const START_GUARD := 2.0  # Garde au départ (s)
+const MASTER_ULT := 0.25  # Maître des figures : part de la jauge d'ultime par figure (4 figures)
+const MASTER_FIG_PTS := 1.25  # Maître des figures : points de figure
+
+## Bourse : hors de l'arbre (décision de Victor), seule ligne à rangs gardée de l'ancienne Pierre à encre.
+## Cinq rangs en encre, +5 % d'encre gagnée en fin de partie par rang ; les rangs déjà achetés sont conservés.
+const PURSE_COSTS := [25, 50, 85, 130, 180]
+const PURSE_STEP := 5  # % d'encre gagnée par rang
+
+## Anciennes progressions (Pierre à encre sans la Bourse, sceaux), lues une seule fois pour rembourser en encre.
+const LEGACY_LINE_COSTS := {"brush": [30, 60, 110, 170, 250], "ink": [30, 60, 110, 170, 250], "paper": [80, 170, 300],
+	"breath": [200, 420], "choice": [100, 200, 340]}
+const LEGACY_SEAL_COSTS := {"reroll": 2, "scroll": 3, "purse": 3, "blessing": 4, "hp": 5, "leg_hoo": 4, "leg_kitsune": 4, "leg_ippitsu": 6}
 
 ## Les Vues (estampes). Condition : « c » = room (salle 4 atteinte), mini (gardien vaincu), win (victoire),
 ## curse (victoire avec 2 malédictions ou plus) dans le monde « w » ; runs (« n » parties jouées) ; all (5 mondes gagnés).
@@ -144,12 +173,12 @@ const THEMES := {
 }
 
 var sumi := 0  # encre, permanente
-var seals := 0  # sceaux (hanko)
 var prints := 0  # Vues collectionnées (= owned_prints.size(), max 24)
 var runs := 0  # parties jouées
 var best_room := 0  # meilleure salle atteinte
-var wins := 0  # victoires (la première rapporte +2 sceaux)
-var ranks := {}  # id de ligne -> rang acheté
+var wins := 0  # victoires (la première rapporte 2 sceaux, soit 80 encre)
+var tree := {}  # id de nœud de l'Arbre du pinceau -> true : appris
+var purse_rank := 0  # rangs de la Bourse (0..5), hors de l'arbre
 const WORLD_COUNT := 8  # mondes du jeu (worlds.gd WORLDS) : bornes des déblocages
 var unlocked := 1  # mondes débloqués (1..WORLD_COUNT) : le monde N+1 s'ouvre quand le monde N est vaincu
 var won_top := 0  # plus haut monde dont le boss a été vaincu (0 : aucun) : rang Maître ; seul témoin du dernier monde (unlocked y plafonne)
@@ -164,20 +193,14 @@ var scroll_tip_done := false  # explication des rouleaux (picker.gd) déjà vue
 var world_best := {}  # monde -> meilleure salle atteinte
 var world_score := {}  # monde -> meilleur score (score.gd)
 var world_chain := {}  # monde -> plus longue chaîne atteinte
-var seal_owned := {}  # id de don -> true
 var owned_prints := {}  # id de Vue -> true
 var look := {"cape": "", "trail": "", "ink": ""}  # apparence portée : id de Vue ("" = d'origine)
-var start_power_id := ""  # rouleau de départ choisi (don « scroll »)
+var start_power_id := ""  # rouleau de départ choisi (nœud « v3 » de l'arbre)
 var outfit := "sumi"  # tenue portée (OUTFITS)
 var theme := "washi"  # thème de l'interface (THEMES)
 var bought := {}  # « outfit:kaki », « theme:nuit »… -> true : achats de la garde-robe
 # bestiaire : id -> [victoires, premier monde, fiche ouverte (0/1)] ; boss rangés en « boss_<id> »
 var seen := {}
-
-
-func _init() -> void:
-	for id in ORDER:
-		ranks[id] = 0
 
 
 # --- Sauvegarde -------------------------------------------------------------
@@ -187,7 +210,6 @@ func load_data() -> void:
 	if cf.load(SAVE_PATH) != OK:
 		return
 	sumi = maxi(0, int(cf.get_value("meta", "sumi", 0)))
-	seals = maxi(0, int(cf.get_value("meta", "seals", 0)))
 	var legacy_prints := clampi(int(cf.get_value("meta", "prints", 0)), 0, MAX_PRINTS)
 	runs = maxi(0, int(cf.get_value("meta", "runs", 0)))
 	best_room = maxi(0, int(cf.get_value("meta", "best_room", 0)))
@@ -208,11 +230,16 @@ func load_data() -> void:
 		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
 		world_score[wid] = maxi(0, int(cf.get_value("scores", str(wid), 0)))
 		world_chain[wid] = maxi(0, int(cf.get_value("chains", str(wid), 0)))
-	for id in ORDER:
-		ranks[id] = clampi(int(cf.get_value("stone", id, 0)), 0, max_rank(id))
-	for id in SEAL_ORDER:
-		if bool(cf.get_value("seals", id, false)):
-			seal_owned[id] = true
+	var tree_migrated := false
+	# Bourse : section « purse » ; avant l'arbre, c'était la ligne « purse » de la Pierre à encre (rangs gardés)
+	purse_rank = clampi(int(cf.get_value("purse", "rank", cf.get_value("stone", "purse", 0))), 0, PURSE_COSTS.size())
+	if int(cf.get_value("meta", "tree_version", 0)) < TREE_VERSION:
+		_migrate_tree(cf)
+		tree_migrated = true
+	else:
+		for id in TREE_ORDER:
+			if bool(cf.get_value("tree", id, false)):
+				tree[id] = true
 	var had_vues := cf.has_section("vues")
 	for id in PRINT_ORDER:
 		if bool(cf.get_value("vues", id, false)):
@@ -251,8 +278,33 @@ func load_data() -> void:
 		theme = "washi"
 	_migrate_progress()
 	# rouleau de départ : on garde le choix même s'il n'est pas encore débloqué (start_power() le vérifie)
-	if owns_seal("scroll") and not Data.POWERS.has(start_power_id):
+	if learned("v3") and not Data.POWERS.has(start_power_id):
 		start_power_id = _first_choice()
+	if tree_migrated:
+		save_data()  # une seule fois : le drapeau tree_version est écrit, les anciens achats effacés
+
+
+## Ancienne sauvegarde (Pierre à encre et sceaux) : tout ce qui a été dépensé est rendu en encre (somme des
+## coûts des rangs et des dons possédés ; un sceau vaut SEAL_SUMI encre), ainsi que les sceaux gardés ; la Bourse
+## (ligne « purse ») n'est pas remboursée : ses rangs restent (purse_rank) ; le Sceau du marchand, lui, l'est.
+## Puis ces achats sont effacés (save_data ne réécrit plus les sections « stone » et « seals »).
+## L'arbre part vide : le joueur réapprend ce qu'il veut avec l'encre rendue.
+func _migrate_tree(cf: ConfigFile) -> void:
+	var refund := 0
+	for id in LEGACY_LINE_COSTS.keys():
+		var costs: Array = LEGACY_LINE_COSTS[id]
+		var r := clampi(int(cf.get_value("stone", String(id), 0)), 0, costs.size())
+		for i in r:
+			refund += int(costs[i])
+	var seal_n := maxi(0, int(cf.get_value("meta", "seals", 0)))
+	for id in LEGACY_SEAL_COSTS.keys():
+		if bool(cf.get_value("seals", String(id), false)):
+			seal_n += int(LEGACY_SEAL_COSTS[id])
+	refund += seal_n * SEAL_SUMI
+	sumi += refund
+	tree = {}
+	if refund > 0:
+		print("Atelier : Pierre à encre et sceaux remplacés par l'Arbre du pinceau, %d encre rendue" % refund)
 
 
 ## Anciennes sauvegardes (mondes tous ouverts du prototype, paliers absents) : les victoires passées
@@ -275,7 +327,7 @@ func _migrate_progress() -> void:
 func save_data() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("meta", "sumi", sumi)
-	cf.set_value("meta", "seals", seals)
+	cf.set_value("meta", "tree_version", TREE_VERSION)
 	cf.set_value("meta", "prints", prints)
 	cf.set_value("meta", "runs", runs)
 	cf.set_value("meta", "best_room", best_room)
@@ -296,10 +348,9 @@ func save_data() -> void:
 		cf.set_value("scores", str(wid), int(world_score[wid]))
 	for wid in world_chain.keys():
 		cf.set_value("chains", str(wid), int(world_chain[wid]))
-	for id in ORDER:
-		cf.set_value("stone", id, rank(id))
-	for id in SEAL_ORDER:
-		cf.set_value("seals", id, owns_seal(id))
+	for id in TREE_ORDER:
+		cf.set_value("tree", id, learned(id))
+	cf.set_value("purse", "rank", purse_rank)
 	for id in PRINT_ORDER:
 		cf.set_value("vues", id, has_print(id))
 	for kind in LOOK_KINDS:
@@ -397,99 +448,102 @@ func coach_first_run() -> bool:
 	return not tuto_done and not coach_seen.has("stroke")
 
 
-# --- Pierre à encre ---------------------------------------------------------
+# --- Arbre du pinceau --------------------------------------------------------
 
-func rank(id: String) -> int:
-	return int(ranks.get(id, 0))
-
-
-func max_rank(id: String) -> int:
-	if not LINES.has(id):
-		return 0
-	var line: Dictionary = LINES[id]
-	var costs: Array = line["costs"]
-	return costs.size()
+## Nœud appris (le tronc l'est toujours).
+func learned(id: String) -> bool:
+	return id == TREE_ROOT or bool(tree.get(id, false))
 
 
-## Prix du prochain rang, -1 si la ligne est au maximum (ou inconnue).
-func cost(id: String) -> int:
-	var r := rank(id)
-	if r >= max_rank(id):
-		return -1
-	var line: Dictionary = LINES[id]
-	var costs: Array = line["costs"]
-	return int(costs[r])
-
-
-func can_buy(id: String) -> bool:
-	var c := cost(id)
-	return c >= 0 and sumi >= c
-
-
-## Débite l'encre, monte le rang et sauvegarde.
-func buy(id: String) -> bool:
-	if not can_buy(id):
-		return false
-	sumi -= cost(id)
-	ranks[id] = rank(id) + 1
-	save_data()
-	return true
-
-
-## Texte d'effet total au rang donné (par défaut : le prochain rang, ou le rang max atteint).
-func effect_text(id: String, at_rank := -1) -> String:
-	if not LINES.has(id):
+## Nœud du dessous ("root" pour le premier de chaque branche, "" si l'id est inconnu).
+func node_prereq(id: String) -> String:
+	if not TREE.has(id):
 		return ""
-	var line: Dictionary = LINES[id]
-	var r := at_rank
-	if r < 0:
-		r = mini(rank(id) + 1, max_rank(id))
-	var v := int(line["base"]) + int(line["step"]) * r
-	return String(line["fmt"]) % v
+	var n: Dictionary = TREE[id]
+	var t := int(n["t"])
+	if t <= 1:
+		return TREE_ROOT
+	for k in TREE_ORDER:
+		var m: Dictionary = TREE[k]
+		if String(m["b"]) == String(n["b"]) and int(m["t"]) == t - 1:
+			return String(k)
+	return ""
 
 
-## Vrai si une ligne au moins est à la portée de l'encre actuelle (pastille sur l'onglet).
-func any_affordable() -> bool:
-	for id in ORDER:
-		if can_buy(String(id)):
-			return true
-	return false
+## Disponible : pas encore appris, et celui du dessous l'est.
+func node_open(id: String) -> bool:
+	return TREE.has(id) and not learned(id) and learned(node_prereq(id))
 
 
-# --- Sceaux ----------------------------------------------------------------
-
-func owns_seal(id: String) -> bool:
-	return bool(seal_owned.get(id, false))
-
-
-func seal_cost(id: String) -> int:
-	if not SEAL_ITEMS.has(id):
+func node_cost(id: String) -> int:
+	if not TREE.has(id):
 		return -1
-	var it: Dictionary = SEAL_ITEMS[id]
-	return int(it["cost"])
+	var n: Dictionary = TREE[id]
+	return int(n["cost"])
 
 
-func can_buy_seal(id: String) -> bool:
-	return SEAL_ITEMS.has(id) and not owns_seal(id) and seals >= seal_cost(id)
+func can_learn(id: String) -> bool:
+	return node_open(id) and sumi >= node_cost(id)
 
 
-func any_seal_affordable() -> bool:
-	for id in SEAL_ORDER:
-		if can_buy_seal(String(id)):
-			return true
-	return false
-
-
-## Débite les sceaux, acquiert le don pour toujours et sauvegarde.
-func buy_seal(id: String) -> bool:
-	if not can_buy_seal(id):
+## Débite l'encre, apprend le nœud et sauvegarde.
+func learn(id: String) -> bool:
+	if not can_learn(id):
 		return false
-	seals -= seal_cost(id)
-	seal_owned[id] = true
-	if id == "scroll" and not (start_power_id in start_choices()):
+	sumi -= node_cost(id)
+	tree[id] = true
+	if id == "v3" and not (start_power_id in start_choices()):
 		start_power_id = _first_choice()
 	save_data()
 	return true
+
+
+## Vrai si un nœud au moins est à la portée de l'encre actuelle (pastille sur l'onglet).
+func any_learnable() -> bool:
+	for id in TREE_ORDER:
+		if can_learn(String(id)):
+			return true
+	return can_buy_purse()
+
+
+## Bourse : prix du prochain rang (-1 au rang max).
+func purse_cost() -> int:
+	return -1 if purse_rank >= PURSE_COSTS.size() else int(PURSE_COSTS[purse_rank])
+
+
+func can_buy_purse() -> bool:
+	var c := purse_cost()
+	return c >= 0 and sumi >= c
+
+
+## Débite l'encre, monte la Bourse d'un rang et sauvegarde.
+func buy_purse() -> bool:
+	if not can_buy_purse():
+		return false
+	sumi -= purse_cost()
+	purse_rank += 1
+	save_data()
+	return true
+
+
+## Nombre de nœuds appris parmi ids.
+func _count(ids: Array) -> int:
+	var n := 0
+	for id in ids:
+		if learned(String(id)):
+			n += 1
+	return n
+
+
+## Figure connue : les six de base toujours ; Vague, Pointe et Triangle une fois apprises (v2, v4, v6).
+func fig_learned(kind: String) -> bool:
+	if kind in BASE_FIGURES:
+		return true
+	for id in ["v2", "v4", "v6"]:
+		var n: Dictionary = TREE[id]
+		if String(n.get("fig", "")) == kind:
+			return learned(id)
+	return false
 
 
 ## Rouleaux communs proposés au départ (débloqués, et qui ne dépendent d'aucun autre pouvoir).
@@ -507,9 +561,9 @@ func _first_choice() -> String:
 	return "" if ch.is_empty() else String(ch[0])
 
 
-## Rouleau de départ effectif ("" sans le don).
+## Rouleau de départ effectif ("" sans le nœud « Rouleau de départ »).
 func start_power() -> String:
-	if not owns_seal("scroll"):
+	if not learned("v3"):
 		return ""
 	return start_power_id if String(start_power_id) in start_choices() else _first_choice()
 
@@ -525,19 +579,19 @@ func cycle_start_power(dir: int) -> void:
 	save_data()
 
 
-## Sceau de l'Atelier qui libère ce pouvoir ("" s'il n'en dépend pas).
-func _seal_of(id: String) -> String:
-	for sid in SEAL_ORDER:
-		var it: Dictionary = SEAL_ITEMS[sid]
-		if String(it.get("power", "")) == id:
-			return String(sid)
+## Sommet de l'arbre qui libère ce pouvoir ("" s'il n'en dépend pas).
+func _node_of_power(id: String) -> String:
+	for nid in TREE_ORDER:
+		var n: Dictionary = TREE[nid]
+		if String(n.get("power", "")) == id:
+			return String(nid)
 	return ""
 
 
-## Vrai pour un légendaire de l'Atelier dont le sceau n'est pas encore acheté.
+## Vrai pour un légendaire de l'arbre dont le sommet n'est pas encore appris.
 func power_sealed(id: String) -> bool:
-	var sid := _seal_of(id)
-	return sid != "" and not owns_seal(sid)
+	var nid := _node_of_power(id)
+	return nid != "" and not learned(nid)
 
 
 ## Palier de rouleaux effectif (tout ouvert pour le robot et les tests).
@@ -545,21 +599,21 @@ func effective_tier() -> int:
 	return Data.UNLOCK_MAX if test_unlock_all else power_tier
 
 
-## Vrai si ce pouvoir peut sortir dans les rouleaux : légendaire de l'Atelier -> son sceau (quel que soit
+## Vrai si ce pouvoir peut sortir dans les rouleaux : légendaire de l'arbre -> son sommet (quel que soit
 ## le palier) ; sinon son palier « unlock » doit être atteint. powers.gd écarte les autres de ses offres.
 func power_unlocked(id: String) -> bool:
-	var sid := _seal_of(id)
-	if sid != "":
-		return owns_seal(sid)
+	var nid := _node_of_power(id)
+	if nid != "":
+		return learned(nid)
 	return Data.unlock_tier(id) <= effective_tier()
 
 
-## Pouvoirs d'un palier (dans l'ordre de power_data), sans les légendaires des sceaux.
+## Pouvoirs d'un palier (dans l'ordre de power_data), sans les légendaires de l'arbre.
 func powers_of_tier(t: int) -> Array:
 	var out: Array = []
 	for key in Data.POWERS.keys():
 		var id := String(key)
-		if Data.unlock_tier(id) == t and _seal_of(id) == "":
+		if Data.unlock_tier(id) == t and _node_of_power(id) == "":
 			out.append(id)
 	return out
 
@@ -574,13 +628,13 @@ func world_won(wid: int) -> bool:
 	return has_print("w%d_win" % wid)
 
 
-## Pouvoirs encore verrouillés par un sceau (légendaires à sceller).
+## Pouvoirs encore verrouillés par un sommet de l'arbre (légendaires à apprendre).
 func locked_powers() -> Array:
 	var out: Array = []
-	for sid in SEAL_ORDER:
-		var it: Dictionary = SEAL_ITEMS[sid]
-		var p := String(it.get("power", ""))
-		if p != "" and not owns_seal(String(sid)):
+	for nid in TREE_ORDER:
+		var n: Dictionary = TREE[nid]
+		var p := String(n.get("power", ""))
+		if p != "" and not learned(String(nid)):
 			out.append(p)
 	return out
 
@@ -866,34 +920,52 @@ func apply_look(hero) -> void:
 
 # --- Effets appliqués à une partie -------------------------------------------
 
-## Mètres d'élan max en plus.
+## Mètres d'élan max en plus (Pinceau long I et II).
 func elan_bonus() -> float:
-	return float(rank("brush"))
+	return float(_count(["e1", "e3"]))
 
 
-## Multiplicateur de recharge de l'élan.
+## Multiplicateur de recharge de l'élan (Encre vive I et II).
 func regen_mult() -> float:
-	return 1.0 + 0.06 * rank("ink")
+	return 1.0 + 0.06 * _count(["e2", "e4"])
 
 
-## PV max en plus (Peau de papier + don Kintsugi).
+## PV max en plus (Peau de papier I, II, III).
 func hp_bonus() -> int:
-	return rank("paper") + (1 if owns_seal("hp") else 0)
+	return _count(["p1", "p3", "p5"])
 
 
-## Filets de sécurité par salle (1 de base).
+## Filets de sécurité par salle (1 de base, +1 avec Second souffle).
 func safety_per_room() -> int:
-	return 1 + rank("breath")
+	return 1 + _count(["e6"])
 
 
-## Relances de rouleaux par partie (Choix + don Seconde chance).
+## Relances de rouleaux par partie (Seconde chance).
 func rerolls() -> int:
-	return rank("choice") + (1 if owns_seal("reroll") else 0)
+	return _count(["v1"])
 
 
-## Multiplicateur de l'encre gagnée en fin de partie (Bourse + Sceau du marchand).
+## Multiplicateur de l'encre gagnée en fin de partie (Bourse).
 func sumi_mult() -> float:
-	return 1.0 + 0.05 * rank("purse") + (0.2 if owns_seal("purse") else 0.0)
+	return 1.0 + 0.01 * PURSE_STEP * purse_rank
+
+
+## Multiplicateur des dégâts du trait : Tranchant I et II, Élan du rōnin (chaîne >= RONIN_CHAIN).
+func dmg_mult(chain: int) -> float:
+	var m := 1.0 + TREE_DMG_STEP * _count(["l1", "l2"])
+	if chain >= RONIN_CHAIN and learned("l6"):
+		m *= 1.0 + RONIN_DMG
+	return m
+
+
+## Jauge d'élan : plafond de la recharge (Réserve : déborde d'environ un trait au-delà de l'élan max).
+func reserve_mult() -> float:
+	return 1.0 + RESERVE_FRAC if learned("e5") else 1.0
+
+
+## Part de la jauge d'ultime par figure (main.ULT_PER_FIGURE sans le Maître des figures).
+func ult_per_figure(base: float) -> float:
+	return MASTER_ULT if learned("vc") else base
 
 
 ## Début de partie (appelé par main._start une fois le héros créé et ses PV posés) :
@@ -906,15 +978,15 @@ func apply_run_start(m) -> void:
 	if sp != "" and m.powers != null:
 		m.powers.add(sp)
 		m.elan = m.elan_max()
-	if owns_seal("blessing"):
+	if learned("v5"):
 		m._extra_picks = int(m._extra_picks) + 1
 
 
 # --- Fin de partie ----------------------------------------------------------
 
 ## Calcule et crédite les gains d'une partie (§5.1), sauvegarde, renvoie {"sumi", "seals", "print", "prints"}.
-## Sceaux : +1 par gardien, +2 par boss, et en cas de victoire +1 par malédiction portée (3 au plus),
-## +2 à la toute première victoire. Vues : selon le monde joué (world_id) et le nombre de parties.
+## Les anciens sceaux sont payés en encre (SEAL_SUMI chacun) : 1 par gardien, 2 par boss, et en cas de victoire
+## 1 par malédiction portée (3 au plus), 2 à la toute première victoire ; « seals » vaut toujours 0. Vues : selon le monde joué (world_id) et le nombre de parties.
 func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, victory: bool, mini_boss_kills := 0, world_id := 0) -> Dictionary:
 	var base := float(floori(maxi(0, kills) / 5.0) + 10 * mini_boss_kills + 30 * boss_kills + SUMI_PER_ROOM * rooms_cleared)
 	base *= 1.0 + 0.15 * maxi(0, curses)
@@ -925,8 +997,8 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 		if wins == 0:
 			new_seals += 2
 		wins += 1
+	gained += new_seals * SEAL_SUMI
 	sumi += gained
-	seals += new_seals
 	runs += 1
 	best_room = maxi(best_room, rooms_cleared)
 	# Vues gagnées
@@ -953,7 +1025,7 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 	if all_won and _grant("all"):
 		new_prints.append("all")
 	save_data()
-	return {"sumi": gained, "seals": new_seals, "print": not new_prints.is_empty(), "prints": new_prints}
+	return {"sumi": gained, "seals": 0, "print": not new_prints.is_empty(), "prints": new_prints}
 
 
 ## Fin d'une partie dans un monde : record du monde ; en cas de victoire, le monde suivant s'ouvre et le

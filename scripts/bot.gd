@@ -676,20 +676,25 @@ func _powers_setup() -> void:
 		print("BOT FIGURES plan %s : reconnue depuis %d/%d positions de départ" % [String(k), int(r[0]), int(r[1])])
 		if int(r[0]) == 0:
 			alert("figure %s : aucune orientation reconnue par StrokeShapes.detect" % String(k))
-	# légendaires scellés : on les libère à l'Atelier, comme un joueur (sceaux offerts)
+	# légendaires de l'arbre : on apprend chaque branche jusqu'à son sommet à l'Atelier, comme un joueur (encre offerte)
 	var locked: Array = main.meta.locked_powers()
-	main.meta.seals = int(main.meta.seals) + 30
-	for sid in Meta.SEAL_ORDER:
-		var it: Dictionary = Meta.SEAL_ITEMS[sid]
-		var pid := String(it.get("power", ""))
+	for nid in Meta.TREE_ORDER:
+		var nd: Dictionary = Meta.TREE[nid]
+		var pid := String(nd.get("power", ""))
 		if pid == "":
 			continue
-		if not main.meta.owns_seal(String(sid)):
-			main.meta.buy_seal(String(sid))
+		var guard := 0
+		while not main.meta.learned(String(nid)) and guard < 8:
+			guard += 1
+			var step := String(nid)
+			while not main.meta.node_open(step) and not main.meta.learned(main.meta.node_prereq(step)):
+				step = main.meta.node_prereq(step)
+			main.meta.sumi = int(main.meta.sumi) + main.meta.node_cost(step)
+			main.meta.learn(step)
 		if main.meta.power_unlocked(pid):
 			print("BOT POUVOIR %s déverrouillé (%s)" % [pid, "était scellé" if pid in locked else "déjà libre"])
 		else:
-			alert("pouvoir %s : toujours scellé après l'achat du sceau %s" % [pid, String(sid)])
+			alert("pouvoir %s : toujours scellé après le sommet %s de l'arbre" % [pid, String(nid)])
 	_order = PowerData.POWERS.keys()
 	_order.shuffle()
 
