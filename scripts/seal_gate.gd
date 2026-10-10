@@ -31,6 +31,20 @@ const SEAL_TILT := 0.62  # inclinaison vers la caméra (rad, ~35°)
 const FACE_PX := 256  # côté de la texture d'un sceau
 const NEAR := 3.2  # distance (m) où l'approche commence
 const NEAR_FULL := 1.3  # distance où le sceau est pleinement éveillé
+const GATE3_DX := 3.05  # omamori des portes : trois torii, écart entre deux voisins (parvis sur toute la largeur)
+const GATE3_K := 0.9  # … un peu plus petits (× GATE_K) pour tenir dans l'arène (±4,6 m)
+
+
+## Abscisses des torii (repère du nœud, centré sur gate_pos) pour `n` portes (2, ou 3 avec l'omamori des portes).
+static func offsets(n: int) -> Array:
+	if n >= 3:
+		return [-GATE3_DX, 0.0, GATE3_DX]
+	return [-GATE_DX, GATE_DX]
+
+
+## Demi-largeur occupée par les torii (décor gardé dégagé derrière eux : worlds.gate_spread).
+static func spread(n: int) -> float:
+	return GATE3_DX if n >= 3 else GATE_DX
 
 # luminosité du sceau par monde (non éclairé, il garde sa lecture partout ; juste accordé à la lumière du
 # monde, pleine à l'approche)
@@ -40,10 +54,10 @@ var world_id := 1
 var kinds: Array = ["fire", "gold"]
 var hero: Node3D = null  # héros suivi (approche) ; retrouvé dans la scène s'il manque
 var hover_force := -1  # captures : porte forcée en état « approché » (-1 : selon la distance du héros)
-var hover: Array = [0.0, 0.0]  # éveil de chaque porte (0..1), lissé
+var hover: Array = [0.0, 0.0, 0.0]  # éveil de chaque porte (0..1), lissé
 var opened := false  # étape nettoyée : les portes s'éveillent (avant : sceaux visibles mais éteints)
 var _open_t := -1.0  # depuis l'éveil (s)
-var _flash: Array = [0.0, 0.0]  # éclat au passage d'une porte
+var _flash: Array = [0.0, 0.0, 0.0]  # éclat au passage d'une porte
 var _gates: Array = []  # par porte : {root, pivot, seal, halo_mat, face_mat, ofuda, rope, rays, ray_mat, ph, lum}
 var _dots: Array = []  # chemin d'encre : [MeshInstance3D, délai, taille]
 var _t := 0.0
@@ -52,10 +66,12 @@ var _t := 0.0
 const LIGHT_DOTS := [8]
 
 
-## Construit les deux portes, à ±GATE_DX du nœud (posé par arena au centre du parvis, sur gate_pos).
+## Construit les portes (deux à ±GATE_DX ; trois avec l'omamori des portes) autour du nœud (posé par arena au
+## centre du parvis, sur gate_pos).
 func build(_arena: Node = null) -> void:
-	for i in 2:
-		_gates.append(_build_gate(i, String(kinds[i]), Vector3((-1.0 if i == 0 else 1.0) * GATE_DX, 0, 0)))
+	var xs := offsets(kinds.size())
+	for i in xs.size():
+		_gates.append(_build_gate(i, String(kinds[i]), Vector3(float(xs[i]), 0, 0)))
 
 
 ## Étape nettoyée : les sceaux s'éveillent (halo, balancement), l'approche devient possible.
@@ -67,7 +83,7 @@ func open() -> void:
 
 ## Éclat de la porte `i` franchie (rituel du torii).
 func flash(i: int) -> void:
-	if i >= 0 and i < 2:
+	if i >= 0 and i < _gates.size():
 		_flash[i] = 1.0
 
 
@@ -78,7 +94,7 @@ func _build_gate(i: int, kind: String, pos: Vector3) -> Dictionary:
 	# corps de la porte : le torii de sortie (échelle 0.55, mêmes repères que arena._build_gate), agrandi de GATE_K
 	var body := Node3D.new()
 	root.add_child(body)
-	body.scale = Vector3.ONE * GATE_K
+	body.scale = Vector3.ONE * GATE_K * (GATE3_K if kinds.size() >= 3 else 1.0)
 	var t := Decor.torii(body, Vector3(0, 0, -0.3), 0.55, true)
 	t.visible = true
 	var g := {"root": root, "ph": float(i) * 1.9, "kind": kind}
@@ -201,11 +217,14 @@ func path(arena: Node, from: Vector3) -> void:
 	var m := Toon.flat(Color(Toon.WASHI, 0.6) if light else Color(Toon.SUMI, 0.62))
 	var disc := Toon.cyl(1.0, 1.0, 0.004, 10)
 	var legs: Array = [[Vector3(from.x, 0, maxf(from.z, fork.z + 0.8)), fork]]
-	for i in 2:
-		legs.append([fork, Vector3(org.x + (-1.0 if i == 0 else 1.0) * GATE_DX, 0, org.z + 0.7)])
-	# les deux branches se tracent ensemble, après le tronc
+	for x in offsets(kinds.size()):
+		legs.append([fork, Vector3(org.x + float(x), 0, org.z + 0.7)])
+	# les branches se tracent ensemble, après le tronc
 	var trunk: float = (legs[0][1] - legs[0][0]).length()
-	var span := trunk + maxf((legs[1][1] - legs[1][0]).length(), (legs[2][1] - legs[2][0]).length())
+	var longest := 0.0
+	for li in range(1, legs.size()):
+		longest = maxf(longest, (legs[li][1] - legs[li][0]).length())
+	var span := trunk + longest
 	for li in legs.size():
 		var a: Vector3 = legs[li][0]
 		var b: Vector3 = legs[li][1]
@@ -391,6 +410,8 @@ static func mock(main: Node, q: String) -> void:
 		var parts := q.substr(at + 7).get_slice("&", 0).split(",", false)
 		if parts.size() >= 2:
 			ks = [parts[0], parts[1]]
+		if parts.size() >= 3:
+			ks.append(parts[2])  # trois portes (omamori des portes)
 	var sq := q.find("sceau=")
 	if sq >= 0:
 		main.set("seal_reward", q.substr(sq + 6).get_slice("&", 0))

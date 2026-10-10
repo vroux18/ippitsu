@@ -5,6 +5,8 @@ extends RefCounted
 
 const Toon = preload("res://scripts/toon.gd")
 const Data = preload("res://scripts/power_data.gd")
+const Gear = preload("res://scripts/gear_data.gd")
+const Score = preload("res://scripts/score.gd")
 
 const SAVE_PATH := "user://ippitsu_meta.cfg"
 const MAX_PRINTS := 24
@@ -200,6 +202,14 @@ var start_power_id := ""  # rouleau de départ choisi (nœud « v3 » de l'arbre
 var outfit := "sumi"  # tenue portée (OUTFITS)
 var theme := "washi"  # thème de l'interface (THEMES)
 var bought := {}  # « outfit:kaki », « theme:nuit »… -> true : achats de la garde-robe
+# pinceaux et omamori (gear_data.gd) : choix de l'écran de départ et déblocages
+const GEAR_VERSION := 1  # sauvegarde : 0 = avant les pinceaux (Fude · Maître acquis, charmes rendus d'après les rangs)
+var brush_sel := "fude"  # pinceau choisi pour la prochaine partie
+var aspect_sel := {}  # pinceau -> aspect choisi (0..2)
+var aspects_won := {}  # pinceau -> aspects possédés (1..3 ; le premier vient avec le pinceau)
+var charm_sel := ""  # omamori porté ("" : aucun)
+var charms_won := {}  # omamori -> true
+var gear_force := false  # robot et captures : pinceau, aspect et charme imposés même verrouillés (jamais sauvegardé)
 # bestiaire : id -> [victoires, premier monde, fiche ouverte (0/1)] ; boss rangés en « boss_<id> »
 var seen := {}
 
@@ -264,6 +274,16 @@ func load_data() -> void:
 				if arr.size() >= 3:
 					fresh = clampi(int(arr[2]), 0, 1)
 				seen[String(k)] = [maxi(0, int(arr[0])), clampi(int(arr[1]), 1, WORLD_COUNT), fresh]
+	# pinceaux et omamori
+	brush_sel = String(cf.get_value("gear", "brush", "fude"))
+	charm_sel = String(cf.get_value("gear", "charm", ""))
+	for bid in Gear.ORDER:
+		aspect_sel[bid] = clampi(int(cf.get_value("gear_aspect", bid, 0)), 0, 2)
+		aspects_won[bid] = clampi(int(cf.get_value("gear_won", bid, 1)), 1, 3)
+	for cid in Gear.CHARM_ORDER:
+		if bool(cf.get_value("gear_charm", cid, false)):
+			charms_won[cid] = true
+	var gear_v := int(cf.get_value("gear", "version", 0))
 	# Vues déjà méritées d'après les records (salles atteintes, parties jouées)
 	_retro_prints()
 	# anciennes sauvegardes : les Vues n'étaient qu'un nombre ; on garde au moins autant d'estampes
@@ -281,7 +301,14 @@ func load_data() -> void:
 	# rouleau de départ : on garde le choix même s'il n'est pas encore débloqué (start_power() le vérifie)
 	if learned("v3") and not Data.POWERS.has(start_power_id):
 		start_power_id = _first_choice()
-	if tree_migrated:
+	if gear_v < GEAR_VERSION:
+		_migrate_gear()
+	_retro_charms()
+	if not Gear.BRUSHES.has(brush_sel):
+		brush_sel = "fude"
+	if charm_sel != "" and not Gear.CHARMS.has(charm_sel):
+		charm_sel = ""
+	if tree_migrated or gear_v < GEAR_VERSION:
 		save_data()  # une seule fois : le drapeau tree_version est écrit, les anciens achats effacés
 
 
@@ -325,8 +352,34 @@ func _migrate_progress() -> void:
 	won_top = clampi(maxi(won_top, maxi(top_won, unlocked - 1)), 0, WORLD_COUNT)
 
 
+## Sauvegarde d'avant les pinceaux : Fude · Maître acquis d'office (aspects_won vaut 1 par défaut), aucun
+## charme porté ; les omamori déjà mérités (rang Maître d'un monde) sont rendus par _retro_charms.
+func _migrate_gear() -> void:
+	brush_sel = "fude"
+	charm_sel = ""
+	for bid in Gear.ORDER:
+		aspect_sel[bid] = 0
+		aspects_won[bid] = maxi(1, int(aspects_won.get(bid, 1)))
+
+
+## Omamori mérités d'après les records : rang Maître (極) au meilleur score d'un monde vaincu.
+func _retro_charms() -> void:
+	for cid in Gear.CHARM_ORDER:
+		var wid := int(Gear.CHARMS[cid]["world"])
+		if Score.rank_of(world_score_of(wid), wid, world_cleared(wid)) >= Score.RANK_PTS.size():
+			charms_won[cid] = true
+
+
 func save_data() -> void:
 	var cf := ConfigFile.new()
+	cf.set_value("gear", "version", GEAR_VERSION)
+	cf.set_value("gear", "brush", brush_sel)
+	cf.set_value("gear", "charm", charm_sel)
+	for bid in Gear.ORDER:
+		cf.set_value("gear_aspect", bid, int(aspect_sel.get(bid, 0)))
+		cf.set_value("gear_won", bid, int(aspects_won.get(bid, 1)))
+	for cid in Gear.CHARM_ORDER:
+		cf.set_value("gear_charm", cid, charms_won.has(cid))
 	cf.set_value("meta", "sumi", sumi)
 	cf.set_value("meta", "tree_version", TREE_VERSION)
 	cf.set_value("meta", "prints", prints)
@@ -920,6 +973,85 @@ func apply_look(hero) -> void:
 	var stroke_script: Script = load("res://scripts/ink_stroke.gd")
 	if stroke_script != null:
 		stroke_script.set("ink", ink)
+
+
+# --- Pinceaux et omamori ------------------------------------------------------
+
+## Pinceau débloqué : Fude d'office, les autres en battant le boss de leur monde.
+func brush_unlocked(id: String) -> bool:
+	if not Gear.BRUSHES.has(id):
+		return false
+	var w := int(Gear.BRUSHES[id]["world"])
+	return w <= 0 or world_cleared(w)
+
+
+## Aspect `k` du pinceau possédé (le premier vient avec le pinceau, les suivants dans l'ordre).
+func aspect_owned(id: String, k: int) -> bool:
+	return brush_unlocked(id) and k >= 0 and k < int(aspects_won.get(id, 1))
+
+
+func charm_owned(id: String) -> bool:
+	return charms_won.has(id)
+
+
+## Équipement de la partie qui commence : le choix gardé, ramené à ce qui est possédé (sauf gear_force).
+## Renvoie {"brush", "aspect", "charm"}.
+func gear_now() -> Dictionary:
+	var b := brush_sel if Gear.BRUSHES.has(brush_sel) else "fude"
+	var k := clampi(int(aspect_sel.get(b, 0)), 0, 2)
+	var c := charm_sel if Gear.CHARMS.has(charm_sel) else ""
+	if not gear_force:
+		if not brush_unlocked(b):
+			b = "fude"
+			k = 0
+		if not aspect_owned(b, k):
+			k = 0
+		if c != "" and not charm_owned(c):
+			c = ""
+	return {"brush": b, "aspect": k, "charm": c}
+
+
+## Choix de l'écran de départ (PARTIR) : gardé pour les parties suivantes.
+func choose_gear(b: String, k: int, c: String) -> void:
+	brush_sel = b
+	aspect_sel[b] = clampi(k, 0, 2)
+	charm_sel = c
+	save_data()
+
+
+## Boss du monde vaincu avec le pinceau `b` : son aspect suivant (dans l'ordre), et les pinceaux qu'ouvre ce
+## monde (`before` : brushes_open() avant la victoire). Renvoie [{"kind": "brush"|"aspect", "id", "k"}].
+func on_world_won(b: String, before: Dictionary) -> Array:
+	var out: Array = []
+	if Gear.BRUSHES.has(b) and brush_unlocked(b) and not gear_force:
+		var n := int(aspects_won.get(b, 1))
+		if n < 3:
+			aspects_won[b] = n + 1
+			out.append({"kind": "aspect", "id": b, "k": n})
+	for bid in Gear.ORDER:
+		if not bool(before.get(bid, false)) and brush_unlocked(bid):
+			out.append({"kind": "brush", "id": bid, "k": 0})
+	save_data()
+	return out
+
+
+## Pinceaux débloqués à cet instant (pour comparer avant / après une victoire).
+func brushes_open() -> Dictionary:
+	var d := {}
+	for bid in Gear.ORDER:
+		d[bid] = brush_unlocked(bid)
+	return d
+
+
+## Omamori gagné au rang Maître du monde `wid` (après score.finish) : son id, sinon "".
+func check_charm(wid: int) -> String:
+	for cid in Gear.CHARM_ORDER:
+		if int(Gear.CHARMS[cid]["world"]) == wid and not charms_won.has(cid):
+			if Score.rank_of(world_score_of(wid), wid, world_cleared(wid)) >= Score.RANK_PTS.size():
+				charms_won[cid] = true
+				save_data()
+				return cid
+	return ""
 
 
 # --- Effets appliqués à une partie -------------------------------------------

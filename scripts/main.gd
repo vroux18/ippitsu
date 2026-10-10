@@ -464,6 +464,31 @@ var _seal_cur: Dictionary = {}  # rouleau de sceau ouvert (relance)
 var _gate_force: Array = []  # captures (`?portes=a,b`) : sceaux imposés aux portes de l'étape
 var _flawless_boss := false  # boss du monde vaincu sans dégât
 
+# --- pinceaux et omamori (gear_data.gd), choisis sur l'écran de départ (departure.gd), lus par _start ---
+const Gear = preload("res://scripts/gear_data.gd")
+const Departure = preload("res://scripts/departure.gd")
+var brush := "fude"  # pinceau de la partie
+var aspect := 0  # son aspect (0..2)
+var charm := ""  # omamori porté ("" : aucun)
+var departure: Control  # écran AVANT LE DÉPART
+var _dep_world := 0  # monde à ouvrir après PARTIR
+var _dep_from_map := false  # écran ouvert depuis la carte (retour : la carte)
+var _rain: Array = []  # Fude · Pluie : gouttes au sol [MeshInstance3D, position, vie]
+var _rain_mat: StandardMaterial3D
+var _wall_pts := PackedVector3Array()  # Hake · Mur : trait posé qui bloque les projectiles
+var _wall_t := 0.0
+var _dash_s := 0.0  # mètres parcourus depuis le début de la ruée (écart du pinceau fendu)
+var _tresse_next := 0.0  # Warefude · Tresse : prochain croisement (m)
+var _split_hits := {}  # Warefude : ennemi -> lignes qui l'ont déjà touché pendant ce trait (bits 1, 2)
+var _blood := 0.0  # Calame de sang : dette de vie (cœurs) des mètres au-delà de CHI_FREE
+var _half := 0  # Calame · Pacte : demi-cœurs gagnés (deux = un cœur)
+var _pact_key := -1  # Calame · Pacte : trait de figure déjà payé
+var _aiguille_key := -1  # Menso · Aiguille : trait dont le critique a déjà relancé la technique
+var _garde_stage := -1  # omamori de la garde : étape où le coup a déjà été annulé
+var _portes_used := false  # omamori des portes : la troisième porte a paru dans ce monde
+var _refuse_free_used := false  # omamori du pacte : refus gratuit pris dans ce monde
+var _fig_double_room := -1  # omamori de la figure : combat dont la première figure a déjà doublé
+
 var _ink_lock := 0.0  # Encre maudite : secondes restantes sans recharge d'encre (après un coup reçu)
 var _boss_scripts := {}  # chemin -> GDScript chargé (gardé : pas recompilé à chaque boss)
 var _frame_cache := {}  # cadrages calculés par taille d'écran (_frame), gardés aussi sur le disque
@@ -513,6 +538,14 @@ func _ready() -> void:
 	ref_layer.add_child(refuge)
 	refuge.closed.connect(_on_refuge_closed)
 	_setup_wardrobe()
+	var dep_layer := CanvasLayer.new()
+	dep_layer.layer = 4
+	add_child(dep_layer)
+	departure = Departure.new()
+	departure.set("meta", meta)
+	dep_layer.add_child(departure)
+	departure.connect("go", _on_departure_go)
+	departure.connect("closed", _on_departure_back)
 	menu.atelier_pressed.connect(_on_atelier)
 	menu.worlds_pressed.connect(_on_home_worlds)
 	menu.world_step.connect(_on_home_world_step)
@@ -598,6 +631,9 @@ func _ready() -> void:
 	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
 		meta.test_unlock_all = true
 	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, Worlds.WORLDS.size()) if wpos >= 0 else 1)
+	# `&pinceau=hake&aspect=1&charme=garde` (captures) : équipement imposé, même verrouillé ; `&won=N` : progression
+	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés) pour l'écran de départ ; rien n'est sauvegardé
+	_gear_query(wsearch)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
@@ -789,6 +825,15 @@ func _ready() -> void:
 	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
 	if "garderobe" in wsearch:
 		_open_wardrobe()
+	# `?depart[&voir=warefude][&sel=portes]` (captures) : l'écran AVANT LE DÉPART, ce pinceau affiché, ce charme touché
+	if "depart" in wsearch:
+		_ask_departure(current_world, false)
+		var vq := wsearch.find("voir=")
+		if vq >= 0:
+			departure.call("show_brush", wsearch.substr(vq + 5).get_slice("&", 0))
+		var cq := wsearch.find("sel=")
+		if cq >= 0:
+			departure.call("tap", "charm:" + wsearch.substr(cq + 4).get_slice("&", 0))
 	if "options" in wsearch:
 		_open_options()
 	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée (étape 5, chiffres de démo)
@@ -1310,9 +1355,7 @@ func _on_seal_broken(_id: int) -> void:
 
 func _on_world_chosen(id: int) -> void:
 	sfx.play("slash", 0.9, -4.0)
-	# le monde est construit sous le rideau d'encre (_intro_swap), pas sous les yeux
-	_intro_world = id
-	_set_state("intro")
+	_ask_departure(id, true)
 
 
 ## Sous le rideau d'encre : monde choisi construit, barque cachée, héros posé au départ.
@@ -1369,6 +1412,8 @@ func _notification(what: int) -> void:
 			intro.close()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and wardrobe != null and wardrobe.visible:
 			wardrobe.call("close")
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and departure != null and departure.visible:
+			departure.call("close")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and bestiary != null and bestiary.visible:
 			bestiary.call("back")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and state == "menu":
@@ -2104,11 +2149,60 @@ func _home_play() -> void:
 	if id > _unlocked_count():
 		_open_worlds(id)
 		return
-	if arena.world_id != id:
-		_home_scene(id)  # fondu pas encore basculé : le paysage du monde choisi tout de suite
-	apply_world(id)  # le monde du joueur devient le monde choisi (_home_scene_end ne le remet pas)
+	_ask_departure(id, false)
+
+
+## Écran AVANT LE DÉPART (JOUER de l'accueil, PARTIR de la carte) : pinceau, aspect et omamori de la partie ;
+## PARTIR (un seul toucher garde le dernier choix) entre dans le monde `id`.
+func _ask_departure(id: int, from_map: bool) -> void:
+	_dep_world = id
+	_dep_from_map = from_map
+	departure.call("open")
+
+
+func _on_departure_go() -> void:
+	var id := _dep_world
+	if id <= 0:
+		return
+	_dep_world = 0
+	sfx.play("slash", 0.9, -4.0)
+	if not _dep_from_map:
+		if arena.world_id != id:
+			_home_scene(id)  # fondu pas encore basculé : le paysage du monde choisi tout de suite
+		apply_world(id)  # le monde du joueur devient le monde choisi (_home_scene_end ne le remet pas)
+	# le monde est construit sous le rideau d'encre (_intro_swap), pas sous les yeux
 	_intro_world = id
 	_set_state("intro")
+
+
+## Retour depuis l'écran de départ : l'accueil, ou la carte des mondes d'où l'on venait.
+func _on_departure_back() -> void:
+	var id := _dep_world
+	_dep_world = 0
+	if _dep_from_map and id > 0:
+		_open_worlds(id)
+
+
+## Paramètres de capture de l'équipement (voir _ready).
+func _gear_query(q: String) -> void:
+	var wq := q.find("won=")
+	if wq >= 0:
+		var n := clampi(int(q.substr(wq + 4).get_slice("&", 0)), 0, Meta.WORLD_COUNT)
+		meta.won_top = n
+		meta.charms_won = {}
+		for cid in Gear.CHARM_ORDER:
+			if int(Gear.CHARMS[cid]["world"]) <= n:
+				meta.charms_won[cid] = true
+	var bq := q.find("pinceau=")
+	var cq := q.find("charme=")
+	if bq >= 0 or cq >= 0:
+		if bq >= 0:
+			meta.brush_sel = q.substr(bq + 8).get_slice("&", 0)
+		var aq := q.find("aspect=")
+		meta.aspect_sel[meta.brush_sel] = clampi(int(q.substr(aq + 7).get_slice("&", 0)), 0, 2) if aq >= 0 else 0
+		if cq >= 0:
+			meta.charm_sel = q.substr(cq + 7).get_slice("&", 0)
+		meta.gear_force = true
 
 
 func _home_scene_tick(real: float) -> void:
@@ -2686,6 +2780,25 @@ func _start(hub := true, tutorial := false) -> void:
 	# Arbre du pinceau : Fil du sabre (×1,5 dès 2), Maître des figures (+25 % de points de figure)
 	score.chain_early = meta.learned("l3")
 	score.fig_mult = Meta.MASTER_FIG_PTS if meta.learned("vc") else 1.0
+	# pinceau et omamori de la partie (écran de départ ; robot et captures : gear_force)
+	var gear: Dictionary = meta.gear_now()
+	brush = String(gear["brush"])
+	aspect = int(gear["aspect"])
+	charm = String(gear["charm"])
+	InkStroke.brush = brush
+	InkStroke.aspect = aspect
+	if charm == "ascete":
+		score.bonus_mult = Gear.ASCETE_PTS  # points +25 % (le Tambour des morts le multiplie)
+	_clear_rain()
+	_wall_t = 0.0
+	_blood = 0.0
+	_half = 0
+	_pact_key = -1
+	_aiguille_key = -1
+	_garde_stage = -1
+	_portes_used = false
+	_refuse_free_used = false
+	_fig_double_room = -1
 	_last_breath_used = false
 	_net_ready = false
 	_bleed.clear()
@@ -2706,6 +2819,7 @@ func _start(hub := true, tutorial := false) -> void:
 	hero.max_hp = 5 + meta.hp_bonus()
 	hero.hp = hero.max_hp
 	meta.apply_run_start(self)  # apparence de l'Atelier, rouleau de départ, bénédiction
+	hero.set_charm(charm, Gear.charm(charm).get("col", Color.WHITE) if charm != "" else Color.WHITE)
 	game_over = false
 	touching = false
 	shake = 0.0
@@ -2718,7 +2832,45 @@ func _start(hub := true, tutorial := false) -> void:
 
 
 func elan_max() -> float:
-	return (ELAN_MAX + powers.elan_bonus() + meta.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
+	var add := 0.0
+	var mul := 1.0
+	match brush:
+		"fude":
+			add = Gear.VENT_ELAN if aspect == 2 else 0.0  # Vent
+		"hake":
+			mul = Gear.HAKE_ELAN
+		"menso":
+			mul = Gear.MENSO_ELAN
+	return (ELAN_MAX + powers.elan_bonus() + meta.elan_bonus() + add) * mul * (0.7 if "dry" in curses else 1.0)
+
+
+## Dégâts du trait selon le pinceau : Vent −10 %, Calame +40 % (Démon ×1,5 à 2 cœurs ou moins).
+func brush_dmg() -> float:
+	match brush:
+		"fude":
+			return Gear.VENT_DMG if aspect == 2 else 1.0
+		"chi":
+			var m := Gear.CHI_DMG
+			if aspect == 2 and is_instance_valid(hero) and int(hero.hp) <= Gear.CHI_DEMON_HP:
+				m *= Gear.CHI_DEMON
+			return m
+	return 1.0
+
+
+## Portée latérale du coup de trait (HIT_REACH ; Hake : tout ce qu'il frôle ; Menso : fin).
+func brush_reach() -> float:
+	match brush:
+		"hake":
+			return Gear.HAKE_REACH
+		"menso":
+			return Gear.MENSO_REACH
+	return HIT_REACH
+
+
+## L'omamori porté vient d'agir : il brille à la ceinture.
+func charm_fx() -> void:
+	if is_instance_valid(hero):
+		hero.charm_flash()
 
 
 ## Plafond de la recharge d'élan : l'élan max, ou un peu plus avec la Réserve (Arbre du pinceau).
@@ -2775,6 +2927,10 @@ func _begin_room() -> void:
 	foam = powers.foam_per_room()
 	powers.on_room_start(room)
 	safety_left = meta.safety_per_room()
+	if charm == "encre" and state != "tuto" and not in_hub:
+		# omamori de l'encre : la jauge démarre pleine, et déborde (réserve d'or)
+		elan = maxf(elan, elan_max() * Gear.ENCRE_FILL)
+		charm_fx()
 	# Arbre du pinceau : Coup net (1re touche critique), Garde au départ (intouchable 2 s), saignements oubliés
 	_net_ready = meta.learned("l4")
 	_bleed.clear()
@@ -3428,6 +3584,16 @@ func _on_enemy_killed(e: Node3D) -> void:
 		_count_kill(k)  # bestiaire : victoires
 		score.on_kill(int(KIND_XP.get(k, 1)), e.has_meta("elite"), not _fig_mods.is_empty() or float(score.fig_t) > 0.0 or e.has_meta("unsealed"), chain)
 	_last_kill_pos = e.position
+	if brush == "chi" and aspect == 1 and state == "play" and _pact_key != stroke_id \
+			and (not _fig_mods.is_empty() or float(score.fig_t) > 0.0 or e.has_meta("unsealed")):
+		# Calame · Pacte : une figure qui tue rend un demi-cœur (deux demis : un cœur)
+		_pact_key = stroke_id
+		_half += 1
+		if _half >= 2:
+			_half = 0
+			heal(1)
+		else:
+			float_text(e.position + Vector3(0, 0.6, 0), "+½", Toon.VERMILION)
 	pickups.drop(e.position, "xp", int(KIND_XP.get(k, 1)))
 	if randf() < (0.8 if k == "brute" else 0.4):
 		pickups.drop(e.position, "coin", 2 if k == "brute" else 1)
@@ -3608,7 +3774,7 @@ func gate_choice(si: int) -> bool:
 
 ## Tirage des deux sceaux : deux différents parmi les écoles (pondérées vers celles du build, une école neuve
 ## de temps en temps), l'or, le cœur (plus souvent quand la vie est basse) et l'oni.
-func _draw_seals() -> Array:
+func _draw_seals(count := 2) -> Array:
 	var cands: Array = []
 	var counts: Dictionary = powers.school_counts()
 	var ew: Array = []
@@ -3625,7 +3791,7 @@ func _draw_seals() -> Array:
 	cands.append(["heart", 0.3 + (0.5 if hero.hp * 2 <= hero.max_hp else 0.0)])
 	cands.append(["oni", 0.45])
 	var out: Array = []
-	for n in 2:
+	for _n in count:
 		var tot := 0.0
 		for c in cands:
 			tot += float(c[1])
@@ -3662,6 +3828,9 @@ func _seal_pocket(kinds: Array, spots: Array) -> void:
 ## Sceau koban : l'or de l'étape tombe en pluie de pièces (SEAL_GOLD, +SEAL_GOLD_STEP par monde).
 func _seal_gold() -> void:
 	var total := SEAL_GOLD + SEAL_GOLD_STEP * maxi(0, current_world - 1)
+	if charm == "or":
+		total *= 2  # omamori de l'or
+		charm_fx()
 	var n := 12
 	pickups.drop(_last_kill_pos, "coin", n, int(ceil(float(total) / float(n))))
 	vfx.ring(Vector3(_last_kill_pos.x, 0.05, _last_kill_pos.z), Toon.GOLD, 3.0)
@@ -3678,14 +3847,14 @@ func bot_gate() -> int:
 		var counts: Dictionary = powers.school_counts()
 		var best := 0
 		var bv := -2
-		for i in 2:
+		for i in ks.size():
 			var k := String(ks[i])
 			var v: int = (int(counts.get(k, 0)) + 1) if k in SealGate.SCHOOLS else (0 if k == "oni" else -1)
 			if v > bv:
 				bv = v
 				best = i
 		return best
-	return (stage_i + current_world) % 2
+	return (stage_i + current_world) % ks.size()
 
 
 ## Sanctuaire : PACT_OFFER pactes (au plus un légendaire) en cartes v2, et « refuser » (un cœur, sinon de l'or).
@@ -3696,7 +3865,7 @@ func _open_sanctuary() -> void:
 	for id in CURSES.keys():
 		if id in curses:
 			continue
-		if "ronin" in curses and (id == "haste" or id == "cursed_ink"):
+		if ("ronin" in curses or charm == "ascete") and (id == "haste" or id == "cursed_ink"):
 			continue  # le serment interdit tout soin : les pactes qui en promettent un ne sont plus proposés
 		pool.append(id)
 	pool.shuffle()
@@ -3717,7 +3886,7 @@ func _open_sanctuary() -> void:
 	_last_offer = ids
 	# refuser se paie en or ; sans assez d'or, le bouton est éteint : il faut sceller un pacte
 	var cost := refuse_cost()
-	infos.append({"name": "Refuser", "pact": false, "refuse": true, "cost": cost, "can": run_gold >= cost, "level": -1})
+	infos.append({"name": "Refuser", "pact": false, "refuse": true, "cost": cost, "can": run_gold >= cost, "level": -1, "free": refuse_free()})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
 	sfx.play("pact", 1.0, -4.0)
@@ -3756,11 +3925,24 @@ func _open_flawless() -> void:
 
 ## Prix du refus au sanctuaire dans le monde en cours.
 func refuse_cost() -> int:
+	if refuse_free():
+		return 0
 	return REFUSE_COST + REFUSE_COST_STEP * maxi(0, current_world - 1)
+
+
+## Omamori du pacte : le premier refus du monde est gratuit, même sans or.
+func refuse_free() -> bool:
+	return charm == "pacte" and not _refuse_free_used
 
 
 ## « Refuser » au sanctuaire : on paie le prix (l'or de la partie, converti en encre à la fin).
 func _pay_refuse() -> void:
+	if refuse_free():
+		_refuse_free_used = true
+		float_text(hero.position, "REFUS OFFERT", Gear.CHARMS["pacte"]["col"])
+		charm_fx()
+		sfx.play("shrine", 1.2, -4.0)
+		return
 	run_gold = maxi(0, run_gold - refuse_cost())
 	sfx.play("coin", 0.6, -4.0)
 
@@ -3914,8 +4096,10 @@ func _build_segment() -> void:
 	_clear_pockets()
 	hazards.clear()
 	var boss_seg := next == MINI_ROOM or next >= ROOMS
-	# deux portes à sceaux au bout de l'étape, sauf avant le gardien et avant le boss
-	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals() if gate_choice(stage_i) else [])
+	# deux portes à sceaux au bout de l'étape, sauf avant le gardien et avant le boss ; omamori des portes : une
+	# fois par monde, la première fois qu'il y a un choix, trois portes
+	var nk := 3 if charm == "portes" and not _portes_used and _gate_force.is_empty() else 2
+	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals(nk) if gate_choice(stage_i) else [])
 	if boss_seg:
 		arena.build_room(next, ROOMS, randi(), MINI_ROOM)
 	else:
@@ -3923,6 +4107,10 @@ func _build_segment() -> void:
 		room = int(plan[0]) - 1
 		arena.build_stage(plan.size(), randi(), int(plan[0]) == 1)
 		_build_pockets()
+	if arena.gate_spots.size() == 3:
+		_portes_used = true
+		if _bot != null:
+			print("BOT OMAMORI portes : trois portes %s (monde %d, étape %d)" % [str(arena.gate_seals()), current_world, stage_i + 1])
 	hero.cancel_moves()
 	hero.position = arena.start
 	_prev_hero = hero.position
@@ -4168,7 +4356,7 @@ func _update_pockets() -> void:
 			"spring":
 				if d < 1.1 and hero.hp < hero.max_hp:
 					pk["used"] = true
-					heal(SEAL_HEAL if bool(pk.get("seal", false)) else 1)
+					heal(SEAL_HEAL if bool(pk.get("seal", false)) else 1, bool(pk.get("seal", false)))
 					var w := n.get_node_or_null("Water") as MeshInstance3D
 					if w != null:
 						w.material_override = Toon.flat(Color("#4E6E78", 0.6))
@@ -4218,11 +4406,13 @@ func _open_chest(pk: Dictionary, rich: bool) -> void:
 		pickups.drop(p, "coin", randi_range(6, 9))
 		pickups.drop(p, "xp", randi_range(3, 5))
 	elif randf() < SEAL_SCROLL:
-		pickups.drop(p, "coin", randi_range(5, 7))
+		pickups.drop(p, "coin", randi_range(5, 7), 2 if charm == "or" else 1)
 		pickups.drop(p, "xp", 6, ceili(float(maxi(1, xp_need() - xp)) / 6.0))
 	else:
-		pickups.drop(p, "coin", randi_range(11, 15))
+		pickups.drop(p, "coin", randi_range(11, 15), 2 if charm == "or" else 1)
 		pickups.drop(p, "xp", randi_range(6, 8))
+	if rich and charm == "or":
+		charm_fx()  # omamori de l'or : pièces doublées du coffre scellé
 	if rich:
 		vfx.ring(Vector3(p.x, 0.05, p.z), Toon.GOLD, 2.2)
 	vfx.chest_burst(p)
@@ -4568,7 +4758,7 @@ func _solve_puzzle(pk: Dictionary) -> void:
 	# gravure et figure dorées, colonne de lumière ; lanternes allumées ; l'esprit s'envole (puzzle_art.gd)
 	PuzzleArt.solve(pk, n)
 	var reward := String(pk["reward"])
-	if reward == "heal" and hero.hp >= hero.max_hp:
+	if reward == "heal" and (hero.hp >= hero.max_hp or charm == "ascete"):
 		reward = "gold"
 	var txt := ""
 	match reward:
@@ -4675,7 +4865,12 @@ func _slowmo_w() -> float:
 func _award(victory: bool) -> void:
 	var cleared := room if victory or _room_done else room - 1
 	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world)
+	var open_before: Dictionary = meta.brushes_open()
 	var un: Dictionary = meta.record_world(current_world, room, victory)
+	# pinceaux : le boss vaincu avec ce pinceau donne son aspect suivant ; le monde ouvre peut-être un pinceau
+	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory else []
+	if _bot != null and not menu.unlock_gear.is_empty():
+		print("BOT ÉQUIPEMENT gagné : %s" % str(menu.unlock_gear))
 	# ce que la victoire débloque : le monde suivant et une famille de rouleaux (rangée DÉBLOQUÉ des résultats)
 	menu.unlock_world = int(un.get("world", 0))
 	var ups: Array = un.get("powers", [])
@@ -4720,7 +4915,8 @@ func _take_curse(id: String) -> void:
 			_extra_picks += 1
 		"heavy":
 			hero.max_hp += 1
-			hero.hp += 1
+			if charm != "ascete":
+				hero.hp += 1  # (l'ascète gagne la place du cœur, pas le soin)
 			_extra_picks += 1
 		"haste":
 			_extra_picks += 1
@@ -4732,7 +4928,7 @@ func _take_curse(id: String) -> void:
 			hero.max_hp += 2
 			hero.hp = hero.max_hp
 		"drum":
-			score.bonus_mult = 1.4
+			score.bonus_mult *= 1.4
 		"ronin", "mask":
 			pass  # gains permanents : curse_dmg_mult, or ×2
 	if hero.hp > hero.max_hp:
@@ -4846,6 +5042,12 @@ func _award_score() -> void:
 	menu.score_record = bool(r.get("record", false))
 	menu.score_rank = int(r.get("rank", 0))
 	menu.score_next = Score.next_rank_pts(int(r.get("score", 0)), current_world, _ending_victory)
+	# omamori : rang Maître de ce monde atteint (il exige le boss)
+	var cid: String = meta.check_charm(current_world)
+	if cid != "":
+		menu.unlock_gear.append({"kind": "charm", "id": cid, "k": 0})
+		if _bot != null:
+			print("BOT OMAMORI gagné : %s (monde %d)" % [cid, current_world])
 	menu.gain_sumi += int(r.get("sumi", 0))
 	menu.sumi = meta.sumi
 
@@ -4917,10 +5119,16 @@ func damage_bosses_line(pts: PackedVector3Array, r: float, dmg_in: float, fx := 
 				break
 
 
-func heal(n: int) -> void:
+## `sealed` : soin du sceau du cœur des portes (sa source garantie), permis même à l'ascète.
+func heal(n: int, sealed := false) -> void:
 	if "ronin" in curses:
 		# Serment du rōnin : plus aucun soin de la partie
 		float_text(hero.position, "SERMENT", Toon.VERMILION)
+		return
+	if charm == "ascete" and not sealed:
+		# omamori de l'ascète : aucun soin (sauf la source du sceau du cœur ; Hōō et Dernier souffle ne sont pas des soins)
+		float_text(hero.position, "ASCÈTE", Gear.CHARMS["ascete"]["col"])
+		charm_fx()
 		return
 	hero.hp = mini(hero.max_hp, hero.hp + n)
 	float_text(hero.position, "+%d" % n, Toon.VERMILION)
@@ -4928,7 +5136,7 @@ func heal(n: int) -> void:
 
 ## Dégâts du héros multipliés par les pactes (Serment du rōnin : +30 %).
 func curse_dmg_mult() -> float:
-	return 1.3 if "ronin" in curses else 1.0
+	return (1.3 if "ronin" in curses else 1.0) * (Gear.ASCETE_DMG if charm == "ascete" else 1.0)
 
 
 ## Malus permanents d'un yōkai qui paraît (pactes) : vie, vitesse, annonces plus courtes.
@@ -4984,12 +5192,24 @@ func _apply_shape() -> void:
 	score.figure_used()
 	shape_counts[String(sh.shape)] = int(shape_counts.get(String(sh.shape), 0)) + 1
 	var label: String = powers.figure_end(String(sh.shape), sh)
+	if charm == "figure" and _fig_double_room != room and not _explore and state == "play" and room > 0:
+		# omamori de la figure : la première figure du combat déclenche sa technique une seconde fois
+		_fig_double_room = room
+		get_tree().create_timer(0.35, false).timeout.connect(_fig_again.bind(String(sh.shape), sh))
 	if _fig_shot != "" and String(sh.shape) == _force_fig:
 		_fig_snap()
 	hud.shape_pop(String(sh.shape), label)
 	var ts: Array = TECH_SFX.get(String(sh.shape), ["tech_" + String(sh.shape), 1.0])
 	sfx.play(String(ts[0]), float(ts[1]), -3.0)
 	feel("figure")
+
+
+func _fig_again(shape: String, info: Dictionary) -> void:
+	if state != "play" or game_over or not is_instance_valid(hero):
+		return
+	powers.figure_end(shape, info)
+	float_text(hero.position + Vector3(0, 0.4, 0), "×2", Gear.CHARMS["figure"]["col"])
+	charm_fx()
 
 
 ## Fin d'un bond (figure) : les pouvoirs de figure frappent à l'atterrissage.
@@ -5618,6 +5838,11 @@ func _launch(s: MeshInstance3D) -> void:
 	_stroke_stop = 0.0
 	_stroke_hit = false
 	_prev_hero = hero.position
+	_dash_s = 0.0
+	_split_hits.clear()
+	_tresse_next = Gear.TRESSE_WAVE * 0.5
+	if not _explore and state == "play":
+		_brush_launch(s)
 	hero.speed_mult = powers.dash_mult() * _world_dash_mult() * (0.8 if "heavy" in curses else 1.0)  # Pas lourd
 	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
@@ -5646,12 +5871,92 @@ func _launch(s: MeshInstance3D) -> void:
 	feel("dash")
 
 
+## Règles du pinceau au lâcher d'un trait de combat : Calame de sang (les mètres au-delà de CHI_FREE se paient
+## en vie, jamais le dernier cœur), Hake · Mur (le trait posé bloque les projectiles).
+func _brush_launch(s: MeshInstance3D) -> void:
+	if brush == "chi":
+		var over := float(s.length) - Gear.CHI_FREE
+		if over > 0.0:
+			_blood += over * Gear.CHI_COST
+			while _blood >= 1.0:
+				if int(hero.hp) <= 1:
+					_blood = 0.99  # plancher : la dette attend un cœur de plus, elle ne tue jamais
+					break
+				_blood -= 1.0
+				hero.hp -= 1
+				hud.hurt_flash = maxf(float(hud.hurt_flash), 0.45)
+				float_text(hero.position, "−1 SANG", Toon.VERMILION)
+				_splash(hero.position, Toon.VERMILION, 6)
+	elif brush == "hake" and aspect == 1:
+		_wall_pts = s.points.duplicate()
+		_wall_t = Gear.HAKE_WALL_T
+
+
+## Hake · Mur : vrai si `p` touche le trait posé (largeur du pinceau large).
+func _on_wall(p: Vector3) -> bool:
+	if _wall_t <= 0.0:
+		return false
+	for i in range(0, _wall_pts.size(), 2):
+		var q: Vector3 = _wall_pts[i]
+		if Vector2(p.x - q.x, p.z - q.z).length() < 0.95:
+			return true
+	return false
+
+
+## Fude · Pluie : le trait de combat sèche en gouttes qui ralentissent les ennemis qui marchent dessus.
+func _rain_drop(pts: PackedVector3Array) -> void:
+	if _rain_mat == null:
+		_rain_mat = Toon.flat(Color(Toon.SUMI, 0.5))
+	var acc := Gear.PLUIE_STEP * 0.5
+	for i in range(1, pts.size()):
+		acc += pts[i].distance_to(pts[i - 1])
+		if acc < Gear.PLUIE_STEP:
+			continue
+		acc = 0.0
+		var p := Vector3(pts[i].x, 0, pts[i].z)
+		var d := _disc(self, 0.36, _rain_mat, 0.016)
+		d.position = Vector3(p.x, 0.016, p.z)
+		_rain.append([d, p, Gear.PLUIE_LIFE])
+	while _rain.size() > 40:
+		var old: Array = _rain.pop_front()
+		if is_instance_valid(old[0]):
+			old[0].queue_free()
+
+
+func _update_rain(dt: float) -> void:
+	_wall_t = maxf(0.0, _wall_t - dt)
+	for i in range(_rain.size() - 1, -1, -1):
+		var r: Array = _rain[i]
+		r[2] = float(r[2]) - dt
+		var mi = r[0]
+		if float(r[2]) <= 0.0 or not is_instance_valid(mi):
+			if is_instance_valid(mi):
+				mi.queue_free()
+			_rain.remove_at(i)
+			continue
+		var k := clampf(float(r[2]) / 0.5, 0.0, 1.0)
+		(mi as Node3D).scale = Vector3(0.36 * k, 1, 0.36 * k)
+		var p: Vector3 = r[1]
+		for e in enemies:
+			if is_instance_valid(e) and not e.dead and Vector2(e.position.x - p.x, e.position.z - p.z).length() < Gear.PLUIE_R + float(e.radius) * 0.5:
+				e.ink_slow(Gear.PLUIE_SLOW)
+
+
+func _clear_rain() -> void:
+	for r in _rain:
+		if is_instance_valid(r[0]):
+			r[0].queue_free()
+	_rain.clear()
+
+
 func _on_dash_finished() -> void:
 	if _auto_step:
 		_auto_step = false
 		return
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
+		if brush == "fude" and aspect == 1 and not _explore and state == "play":
+			_rain_drop(dash_stroke.points)
 	dash_stroke = null
 	if state == "tuto":
 		tuto.on_dash_end(hero.position, _stroke_kills, String(_shape.get("shape", "")))
@@ -5797,6 +6102,14 @@ func _hurt_hero(n := 1) -> void:
 	# position à chaque image, ne doivent pas passer (on mourait en choisissant un rouleau)
 	if not (state in ST_FIGHT) or Engine.time_scale <= 0.0:
 		return
+	if charm == "garde" and _garde_stage != stage_i and state == "play":
+		# omamori de la garde : le premier coup de chaque étape est annulé
+		_garde_stage = stage_i
+		hero.invuln = 0.8
+		clang(hero.position)
+		float_text(hero.position, "GARDE", Gear.CHARMS["garde"]["col"])
+		charm_fx()
+		return
 	if foam > 0:
 		# bouclier d'écume : le coup est bu par l'écume
 		foam -= 1
@@ -5866,73 +6179,27 @@ func _check_slashes() -> void:
 	if not hero.dashing and a.distance_to(b) < 0.001:
 		return
 	var seg := b - a
-	for e in enemies:
-		if not is_instance_valid(e) or e.dead or e.is_harmless() or e.last_stroke == stroke_id:
-			continue
-		var p: Vector3 = e.position
-		var t := 0.0
-		if seg.length_squared() > 0.0001:
-			t = clampf((p - a).dot(seg) / seg.length_squared(), 0.0, 1.0)
-		var q := a + seg * t
-		if Vector2(p.x - q.x, p.z - q.z).length() < e.radius + HIT_REACH:
-			e.last_stroke = stroke_id
-			combo += 1
-			if String(e.seal_fig) != "" and String(_shape.get("shape", "")) == String(e.seal_fig):
-				# la figure de son ofuda, tracée à travers lui : le sceau se brise, il tombe d'un coup
-				_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
-				continue
-			var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
-			var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
-			var piercing: bool = bool(_fig_mods.get("pierce", false))
-			if not piercing and e.blocks(dir):
-				e.last_stroke = stroke_id
-				combo -= 1
-				clang(p)
-				float_text(p, "GARDE !", Toon.FOAM)
-				e.shield_break()
-				hero.stop_dash()
-				# le héros rebondit sur le bouclier au lieu de rester collé
-				hero.position = arena.clamp_walk(hero.position - dir.normalized() * 0.8, 0.4)
-				_prev_hero = hero.position
-				continue
-			dmg *= float(_fig_mods.get("dmg", 1.0))
-			dmg *= chain_mult() * curse_dmg_mult() * meta.dmg_mult(chain)
-			dmg *= _net_crit(p)
-			dmg = powers.on_hit(e, dmg, dir)
-			_stroke_hit = true
-			_chain_t = 0.0
-			var killed: bool = e.take_hit(dmg, dir)
-			if not killed and not _shape.is_empty() and meta.learned("l5"):
-				_bleed_start(e)  # Lame d'encre : tranché pendant une figure, il saigne
-			_dmg_text(p, dmg, killed, e)
-			vfx.impact(p, dir, killed)
-			_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
-			_cam_kick(dir, 0.25 if killed else 0.12)
-			if killed:
-				_on_enemy_killed(e)
-				# le grand 斬 dès la deuxième touche du trait ; quelques gouttes à la couleur du yōkai
-				vfx.kill_burst(p, dir, combo >= 2, _ink_tint(e))
-				hud.screen_flash = maxf(hud.screen_flash, 0.25)
-			if killed:
-				kills += 1
-				_stroke_kills += 1
-				powers.on_kill(e)
-				if _stroke_kills == 3:
-					_zoom_k = 1.0  # trois d'un trait : la caméra s'approche un instant
-			elan = maxf(elan, minf(elan_cap(), elan + ELAN_PER_HIT))
-			shake = maxf(shake, 0.3 if killed else 0.15)
-			sfx.play("kill" if killed else "slash", _combo_pitch())
-			if killed:
-				sfx.play("strike", 0.7, -6.0)  # coup sourd sous la mise à mort
-			var boost := 0.05 * float(mini(combo, 5))
-			feel("multi" if killed and _stroke_kills >= 2 else ("kill" if killed else "hit"), boost)
-			hero.slash_pop()
-			# touche : quelques gouttes d'encre (la mise à mort a sa giclée et sa tache, vfx.kill_burst)
-			if not killed:
-				_splash(p, Toon.SUMI, 3)
-			_slash_mark(p, dir)
-			if combo >= 3:
-				_combo_label(p, combo)
+	if hero.dashing:
+		_dash_s += seg.length()
+	if brush == "warefude":
+		# pinceau fendu : deux lignes de part et d'autre du chemin (écart gear_data.split_off), 60 % chacune ;
+		# le chemin du héros lui-même ne frappe plus
+		var sd := Vector3(-seg.z, 0, seg.x)
+		if sd.length_squared() > 0.000001:
+			sd = sd.normalized()
+			var s0 := maxf(0.0, _dash_s - seg.length())
+			for li in 2:
+				var sk := 1.0 if li == 0 else -1.0
+				var oa := a + sd * Gear.split_off(aspect, s0) * sk
+				var ob := b + sd * Gear.split_off(aspect, _dash_s) * sk
+				_slash_line(oa, ob, seg, Gear.SPLIT_REACH, Gear.SPLIT_DMG, li + 1)
+		if aspect == 2 and hero.dashing:
+			# Tresse : chaque croisement des lignes éclate en petite onde
+			while _dash_s >= _tresse_next:
+				_tresse_next += Gear.TRESSE_WAVE * 0.5
+				_tresse_burst(b)
+	else:
+		_slash_line(a, b, seg, brush_reach(), 1.0, 0)
 	for bo in bosses:
 		if not is_instance_valid(bo):
 			continue
@@ -5940,6 +6207,9 @@ func _check_slashes() -> void:
 			combo += 1
 			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0)) * curse_dmg_mult()
 			bd *= meta.dmg_mult(chain) * _net_crit(bo.position)
+			# pinceau : ses dégâts ; les boss gardent le chemin du héros (leurs mécaniques le lisent), le pinceau
+			# fendu y porte ses deux lignes (2 × 60 %)
+			bd *= brush_dmg() * (2.0 * Gear.SPLIT_DMG if brush == "warefude" else 1.0)
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
@@ -5955,6 +6225,124 @@ func _check_slashes() -> void:
 			_splash(bo.position + Vector3(0, 0.6, 0), Toon.SUMI, 5)
 			_slash_mark(bo.position, bdir)
 			vfx.impact(bo.position, bdir, false)
+
+
+## Une ligne de coupe a..b (le chemin du héros, ou une ligne du pinceau fendu `line` 1 ou 2) : chaque ennemi
+## n'est touché qu'une fois par ligne et par trait ; `reach` : portée latérale, `k` : part des dégâts.
+func _slash_line(a: Vector3, b: Vector3, seg: Vector3, reach: float, k: float, line: int) -> void:
+	var ls := b - a
+	for e in enemies:
+		if not is_instance_valid(e) or e.dead or e.is_harmless():
+			continue
+		var key := 0
+		var mask := 0
+		if line == 0:
+			if e.last_stroke == stroke_id:
+				continue
+		else:
+			key = e.get_instance_id()
+			mask = int(_split_hits.get(key, 0))
+			if mask & line:
+				continue
+		var p: Vector3 = e.position
+		var t := 0.0
+		if ls.length_squared() > 0.0001:
+			t = clampf((p - a).dot(ls) / ls.length_squared(), 0.0, 1.0)
+		var q := a + ls * t
+		var dist := Vector2(p.x - q.x, p.z - q.z).length()
+		if dist < e.radius + reach:
+			if line != 0:
+				_split_hits[key] = mask | line
+			_slash_hit(e, seg, k, dist)
+
+
+## Touche d'un ennemi par le trait (sceau, garde, dégâts, effets du pinceau).
+func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
+	var p: Vector3 = e.position
+	e.last_stroke = stroke_id
+	combo += 1
+	var fig := String(_shape.get("shape", ""))
+	if String(e.seal_fig) != "" and fig != "" and (fig == String(e.seal_fig) or charm == "sceaux"):
+		# la figure de son ofuda, tracée à travers lui : le sceau se brise, il tombe d'un coup
+		# (omamori des sceaux : n'importe quelle figure)
+		if fig != String(e.seal_fig):
+			charm_fx()
+		_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
+		return
+	var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
+	var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
+	var piercing: bool = bool(_fig_mods.get("pierce", false))
+	if not piercing and e.blocks(dir):
+		combo -= 1
+		clang(p)
+		float_text(p, "GARDE !", Toon.FOAM)
+		e.shield_break()
+		hero.stop_dash()
+		# le héros rebondit sur le bouclier au lieu de rester collé
+		hero.position = arena.clamp_walk(hero.position - dir.normalized() * 0.8, 0.4)
+		_prev_hero = hero.position
+		return
+	dmg *= float(_fig_mods.get("dmg", 1.0))
+	dmg *= chain_mult() * curse_dmg_mult() * meta.dmg_mult(chain)
+	dmg *= _net_crit(p)
+	dmg *= k * brush_dmg()
+	if brush == "menso" and dist < float(e.radius) * Gear.MENSO_CENTER:
+		# Menso : le trait passe au centre de l'ennemi, critique garanti
+		dmg *= Gear.MENSO_CRIT
+		float_text(p + Vector3(0, 0.5, 0), "CRITIQUE", Toon.GOLD)
+		vfx.dusk_crit(p)
+		if aspect == 1 and fig != "" and _aiguille_key != stroke_id:
+			# Aiguille : le critique déclenche aussi la technique de la figure en cours de tracé
+			_aiguille_key = stroke_id
+			powers.figure_end(fig, _shape)
+	dmg = powers.on_hit(e, dmg, dir)
+	_stroke_hit = true
+	_chain_t = 0.0
+	var killed: bool = e.take_hit(dmg, dir)
+	if not killed and not _shape.is_empty() and meta.learned("l5"):
+		_bleed_start(e)  # Lame d'encre : tranché pendant une figure, il saigne
+	if brush == "hake" and aspect == 2 and not killed and is_instance_valid(e):
+		e.push(dir.normalized() * Gear.HAKE_PUSH)  # Balai : repoussé dans le sens du trait
+	if brush == "menso" and aspect == 2:
+		_add_chain(1)  # Fil : chaque ennemi transpercé
+	_dmg_text(p, dmg, killed, e)
+	vfx.impact(p, dir, killed)
+	_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
+	_cam_kick(dir, 0.25 if killed else 0.12)
+	if killed:
+		_on_enemy_killed(e)
+		# le grand 斬 dès la deuxième touche du trait ; quelques gouttes à la couleur du yōkai
+		vfx.kill_burst(p, dir, combo >= 2, _ink_tint(e))
+		hud.screen_flash = maxf(hud.screen_flash, 0.25)
+		kills += 1
+		_stroke_kills += 1
+		powers.on_kill(e)
+		if _stroke_kills == 3:
+			_zoom_k = 1.0  # trois d'un trait : la caméra s'approche un instant
+	elan = maxf(elan, minf(elan_cap(), elan + ELAN_PER_HIT))
+	shake = maxf(shake, 0.3 if killed else 0.15)
+	sfx.play("kill" if killed else "slash", _combo_pitch())
+	if killed:
+		sfx.play("strike", 0.7, -6.0)  # coup sourd sous la mise à mort
+	var boost := 0.05 * float(mini(combo, 5))
+	feel("multi" if killed and _stroke_kills >= 2 else ("kill" if killed else "hit"), boost)
+	hero.slash_pop()
+	# touche : quelques gouttes d'encre (la mise à mort a sa giclée et sa tache, vfx.kill_burst)
+	if not killed:
+		_splash(p, Toon.SUMI, 3)
+	_slash_mark(p, dir)
+	if combo >= 3:
+		_combo_label(p, combo)
+
+
+## Warefude · Tresse : croisement des deux lignes, petite onde qui frappe autour.
+func _tresse_burst(p: Vector3) -> void:
+	var c := Vector3(p.x, 0.06, p.z)
+	vfx.ring(c, Gear.BRUSHES["warefude"]["col"], Gear.TRESSE_R)
+	var d: float = Gear.TRESSE_DMG * chain_mult() * meta.dmg_mult(chain)
+	for o in nearest_enemies(p, Gear.TRESSE_R, 99, null):
+		damage_enemy(o, d)
+	damage_bosses(p, Gear.TRESSE_R, d, false)
 
 
 func _update_bullets(dt: float) -> void:
@@ -5980,6 +6368,10 @@ func _update_bullets(dt: float) -> void:
 			for o in nearest_enemies(hp, 0.8, 1, null):
 				damage_enemy(o, 1.5)
 				b.life = 0.0
+		elif _wall_t > 0.0 and b.life > 0.0 and _on_wall(hp):
+			# Hake · Mur : le trait posé arrête le projectile
+			b.life = 0.0
+			clang(hp)
 		elif d < 0.3 + Hero.RADIUS and not hero.dash_safe() and hero.invuln <= 0.0:
 			_hurt_hero()
 			b.life = 0.0
@@ -6277,6 +6669,7 @@ func _process(_delta: float) -> void:
 
 	_check_slashes()
 	_update_bullets(dt)
+	_update_rain(dt)
 	_update_effects(dt, real)
 
 	# nettoyage et vagues

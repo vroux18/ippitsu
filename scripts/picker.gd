@@ -3438,7 +3438,7 @@ func _pact_bubble(box: Rect2, info: Dictionary, u: float, a: float, really: bool
 func _refuse_parts(u: float) -> Dictionary:
 	var ri := _refuse_index()
 	var info: Dictionary = _infos[ri] if ri >= 0 else {}
-	var txt := "−%d" % int(info.get("cost", 0))
+	var txt := "OFFERT" if bool(info.get("free", false)) else "−%d" % int(info.get("cost", 0))  # omamori du pacte
 	var sp := maxi(1, int(4.0 * u))
 	var fs := int(15 * u)
 	var ww := _spaced(UiKit.TITLE_FONT, "REFUSER", Vector2.ZERO, fs, float(sp), Color.WHITE, false)

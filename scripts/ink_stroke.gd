@@ -8,6 +8,14 @@ const WIDTH := 0.3
 const STEP := 0.18
 const DRY := Color("#6E6A66")
 static var ink := Toon.SUMI  # encre du trait (Atelier), réglée par meta.apply_run_start
+const Gear = preload("res://scripts/gear_data.gd")
+# pinceau de la partie (gear_data.gd), posé par main._start : forme du trait dessiné ; le trait (points, geste
+# brut) reste le même pour tous les pinceaux : la lecture des figures ne change pas
+static var brush := "fude"
+static var aspect := 0
+var _brush := "fude"
+var _aspect := 0
+var _base := Color.BLACK  # encre de ce trait (celle du pinceau, sinon celle de l'Atelier)
 
 var points := PackedVector3Array()
 var jitter := PackedFloat32Array()
@@ -38,16 +46,21 @@ func _init(start: Vector3, layer: int) -> void:
 	_y = 0.02 + 0.002 * float(layer % 8)
 	mesh = _imesh
 	cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_col = ink
-	_goal = ink
-	_mat = Toon.flat(ink)
+	_brush = brush
+	_aspect = aspect
+	var bc := Gear.ink_of(_brush)
+	_base = bc if bc.a > 0.0 else ink
+	_col = _base
+	_goal = _base
+	# Fude : matière à l'encre et sommets teintés (rendu d'origine) ; les pinceaux colorés gardent leur vraie couleur
+	_mat = Toon.flat(_base if _brush == "fude" else Color.WHITE)
 	_mat.vertex_color_use_as_albedo = true
 	material_override = _mat
 	_add(Vector3(start.x, 0, start.z))
 
 
 func _ready() -> void:
-	_tip = Toon.disc(self, 0.16, Color(ink, 0.9), _y + 0.002)
+	_tip = Toon.disc(self, 0.16, Color(_base, 0.9), _y + 0.002)
 	# cercle d'arrivée : là où le héros va s'arrêter (vermillon = zone qui va frapper)
 	_ring = Toon.disc(self, 0.55, Color(Toon.SUMI, 0.18), _y + 0.001)
 	_rebuild()
@@ -93,7 +106,7 @@ func set_figure(shape: String) -> void:
 	if shape == figure:
 		return
 	figure = shape
-	_goal = ink.lerp(FIG_INK[shape], 0.7) if FIG_INK.has(shape) else ink
+	_goal = _base.lerp(FIG_INK[shape], 0.7) if FIG_INK.has(shape) else _base
 	if shape != "":
 		_pop = 1.0
 
@@ -104,7 +117,7 @@ func start_drying() -> void:
 	drying = true
 	_rebuild()  # une seule fois : ensuite le séchage ne touche qu'à la matière
 	_col = _goal
-	_mat.albedo_color = Color(_col.r * _col.r, _col.g * _col.g, _col.b * _col.b, 1.0)
+	_mat.albedo_color = Color(_col.r * _col.r, _col.g * _col.g, _col.b * _col.b, 1.0) if _brush == "fude" else Color(_col, 1.0)
 	if _tip:
 		_tip.visible = false
 		_ring.visible = false
@@ -141,7 +154,7 @@ func _process(delta: float) -> void:
 		# l'encre fraîche est noire, elle pâlit et s'efface en séchant
 		var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0)
 		var tint := _col.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
-		_mat.albedo_color = Color(_col.r * tint.r, _col.g * tint.g, _col.b * tint.b, fade)
+		_mat.albedo_color = Color(_col.r * tint.r, _col.g * tint.g, _col.b * tint.b, fade) if _brush == "fude" else Color(tint, fade)
 	if _pt != 0:
 		Perf.add(&"ink_stroke", _pt)
 
@@ -153,6 +166,21 @@ func _rebuild() -> void:
 		return
 	# en séchant, la teinte passe par la matière (voir _process) : sommets blancs
 	var tint := Color.WHITE if drying else _col
+	if _brush == "warefude":
+		# pinceau fendu : deux lignes de part et d'autre du chemin du héros
+		_strip(tint, 1.0)
+		_strip(tint, -1.0)
+	else:
+		_strip(tint, 0.0)
+	if _brush == "chi" and length > Gear.CHI_FREE:
+		_blood_drops(tint)
+
+
+## Une bande du trait ; `side_k` : 0 = sur le chemin, ±1 = ligne A / B du pinceau fendu (écart gear_data.split_off).
+func _strip(tint: Color, side_k: float) -> void:
+	var n := points.size()
+	var wk := Gear.width_k(_brush)
+	var tail := 0.55 if _brush == "hake" else (0.75 if _brush == "warefude" else 0.3)
 	_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	var s := 0.0
 	for i in n:
@@ -169,10 +197,45 @@ func _rebuild() -> void:
 		var side := Vector3(-t.z, 0, t.x)
 		var u := s / maxf(length, 0.001)
 		# attaque franche du pinceau, puis s'effile en fin de trait
-		var w := WIDTH * jitter[i] * clampf(s / 0.25 + 0.45, 0.0, 1.0) * lerpf(1.0, 0.3, u * u)
+		var w := WIDTH * wk * jitter[i] * clampf(s / 0.25 + 0.45, 0.0, 1.0) * lerpf(1.0, tail, u * u)
 		var c := Color(tint, 0.95 - 0.25 * u)
+		var q := Vector3(p.x, _y, p.z)
+		if side_k != 0.0:
+			q += side * Gear.split_off(_aspect, s) * side_k
 		_imesh.surface_set_color(c)
-		_imesh.surface_add_vertex(Vector3(p.x, _y, p.z) + side * w)
+		_imesh.surface_add_vertex(q + side * w)
 		_imesh.surface_set_color(c)
-		_imesh.surface_add_vertex(Vector3(p.x, _y, p.z) - side * w)
+		_imesh.surface_add_vertex(q - side * w)
+	_imesh.surface_end()
+
+
+## Calame de sang : au-delà des mètres gratuits, des gouttes de sang le long du trait (le prix en vie).
+func _blood_drops(tint: Color) -> void:
+	var red := Color(0.84, 0.22, 0.17) if not drying else Color.WHITE
+	_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var s := 0.0
+	var next := Gear.CHI_FREE
+	var k := 0
+	for i in range(1, points.size()):
+		s += points[i].distance_to(points[i - 1])
+		if s < next:
+			continue
+		next += 0.55
+		k += 1
+		var p := points[i]
+		var t := points[i] - points[i - 1]
+		t.y = 0
+		var side := Vector3(-t.z, 0, t.x).normalized() if t.length_squared() > 0.000001 else Vector3.RIGHT
+		var c := p + side * (0.32 if k % 2 == 0 else -0.28) + Vector3(0, _y + 0.001 - p.y, 0)
+		var r := 0.07 + 0.03 * float(k % 3)
+		var col := Color(red, 0.95) if not drying else Color(tint, 0.95)
+		for j in 6:
+			var a0 := TAU * float(j) / 6.0
+			var a1 := TAU * float(j + 1) / 6.0
+			_imesh.surface_set_color(col)
+			_imesh.surface_add_vertex(c)
+			_imesh.surface_set_color(col)
+			_imesh.surface_add_vertex(c + Vector3(cos(a1), 0, sin(a1)) * r)
+			_imesh.surface_set_color(col)
+			_imesh.surface_add_vertex(c + Vector3(cos(a0), 0, sin(a0)) * r)
 	_imesh.surface_end()
