@@ -613,7 +613,9 @@ func _step_atelier() -> bool:
 	await _ref_tap("prev")
 	_check(sp1 != sp0 and String(meta.start_power()) == sp0, "atelier : rouleau de départ (flèches)", "%s -> %s -> %s" % [sp0, sp1, String(meta.start_power())])
 	await _ref_scroll()
-	# onglet 2 : estampes, une apparence portée par type (écharpe, sillage, encre)
+	# onglet 2 : estampes, une apparence portée par type (écharpe, sillage, encre) ; le second toucher
+	# bascule l'apparence (meta.toggle_look) : on part de rien de porté, quelle que soit la sauvegarde
+	meta.look = {"cape": "", "trail": "", "ink": ""}
 	await _ref_tab(2)
 	for kind in Meta.LOOK_KINDS:
 		var pid := ""
