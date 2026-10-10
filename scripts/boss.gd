@@ -318,7 +318,7 @@ static func _uwabami_head(lite: bool) -> ArrayMesh:
 	a.cyl(Vector3(0, 0.5, 0.97), Vector3(0.78, 0.05, 0.68), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 12)
 	_seigaiha(a, Vector3(0, 0.5, 0.78), Vector2(0.8, 0.7), 5 if lite else 8, 0.1)
 	# masque : plaque washi légèrement relevée, cerne d'or ; traits posés dans son repère
-	var mrot := Vector3(-0.62, 0, 0)  # relevé vers le ciel : la caméra plonge, la face doit se lire du dessus
+	var mrot := Vector3(0.62, 0, 0)  # relevé vers le ciel (face -Z vers le haut et l'avant) : la caméra plonge
 	var mb := Basis.from_euler(mrot)
 	var mc := Vector3(0, 0.78, -0.9)
 	a.ball(mc, Vector3(0.64, 0.6, 0.14), Yokai.MASK_WASHI, mrot, 10)
@@ -326,11 +326,11 @@ static func _uwabami_head(lite: bool) -> ArrayMesh:
 	var fz := -0.135
 	for sx in [-1.0, 1.0]:
 		var x := float(sx)
-		a.box(mc + mb * Vector3(x * 0.27, 0.3, fz), Vector3(0.3, 0.07, 0.03), Toon.SUMI, Vector3(-0.62, 0, x * 0.42))
+		a.box(mc + mb * Vector3(x * 0.27, 0.3, fz), Vector3(0.3, 0.07, 0.03), Toon.SUMI, Vector3(0.62, 0, x * 0.42))
 		f.ball(mc + mb * Vector3(x * 0.25, 0.1, fz), Vector3(0.14, 0.11, 0.02), Yokai.EYE_GOLD, mrot, 8)
 		f.box(mc + mb * Vector3(x * 0.25, 0.1, fz - 0.014), Vector3(0.04, 0.15, 0.012), Toon.SUMI, mrot)
 		# crocs d'or qui descendent de la lèvre
-		a.spike(mc + mb * Vector3(x * 0.24, -0.17, fz + 0.01), 0.05, 0.22, Toon.GOLD, Vector3(PI - 0.45, 0, x * 0.1), 0.0, 4)
+		a.spike(mc + mb * Vector3(x * 0.24, -0.17, fz + 0.01), 0.05, 0.22, Toon.GOLD, Vector3(PI + 0.45, 0, x * 0.1), 0.0, 4)
 		if not lite:
 			a.ball(mc + mb * Vector3(x * 0.07, -0.06, fz), Vector3(0.03, 0.02, 0.012), Toon.SUMI, mrot, 6)
 	# gueule : la seule tache de vermillon, là où il crache
@@ -365,9 +365,9 @@ static func _uwabami_seg(lite: bool, fin: bool) -> ArrayMesh:
 		a.cyl(Vector3(0, 0.45, float(z)), Vector3(0.575, 0.035, 0.495), Toon.GOLD, Vector3(PI / 2.0, 0, 0), 1.0, 12)
 	_seigaiha(a, Vector3(0, 0.45, 0.22), Vector2(0.56, 0.48), 5 if lite else 8, 0.065)
 	# petit masque washi posé sur le dos, tourné vers le ciel : cerne d'or, yeux d'or, sourcil, bouche
-	var mrot := Vector3(-1.25, 0, 0)
+	var mrot := Vector3(1.2, 0, 0)
 	var mb := Basis.from_euler(mrot)
-	var pc := Vector3(0, 0.9, -0.2)
+	var pc := Vector3(0, 0.9, -0.12)
 	a.ball(pc, Vector3(0.26, 0.3, 0.07), Yokai.MASK_WASHI, mrot, 8)
 	a.ball(pc + mb * Vector3(0, 0, 0.035), Vector3(0.29, 0.33, 0.05), Toon.GOLD, mrot, 8)
 	for sx in [-1.0, 1.0]:
