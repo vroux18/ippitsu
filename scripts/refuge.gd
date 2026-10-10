@@ -44,7 +44,7 @@ const LINE_UNITS := {"brush": "+%d m", "ink": "+%d %%", "paper": "+%d", "breath"
 const SEAL_GLYPHS := {"reroll": "reroll", "scroll": "scroll", "purse": "coin", "blessing": "cards", "hp": "kintsugi"}
 const SEAL_COLORS := {"reroll": Color("#3D78B8"), "scroll": Color("#5E7F4A"), "purse": Color("#B88A2E"),
 	"blessing": Color("#8752B5"), "hp": Color("#B8443A")}
-const TABS := ["AMÉLIORATIONS", "SCEAUX", "ESTAMPES"]
+const TABS := ["AMÉLIORER", "SCEAUX", "ESTAMPES"]
 const TAB_GLYPHS := ["at_drop", "at_seal", "at_print"]
 const CHIP_GLYPHS := ["at_drop", "at_seal", "at_print"]
 const CHIP_COLORS := [Color("#2F5D8A"), Color("#D7372B"), Color("#C49A45")]
@@ -726,41 +726,21 @@ func _draw_counters(w: float, u: float) -> void:
 			draw_string(_ui, Vector2(lx, rr.get_center().y + lfs * 0.36 - rise), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(lc, la))
 
 
-## Commande segmentée : trois segments, le segment actif (papier) glisse ; pastille : un achat est à portée.
+## Onglets (UI v2, Boutons) : un mot par onglet, coup de pinceau papier derrière l'actif (il glisse) ; pastille : un
+## achat est à portée.
 func _draw_tabs(w: float, u: float) -> void:
 	if meta == null:
 		return
 	var a := UiKit.ease_out((_t - 0.15) / 0.4)
 	var bar := Rect2(Vector2(14 * u, _top + TABS_Y * u), Vector2(w - 28 * u, UiKit.SEG_H * u))
-	_panel(self, bar, Color(Toon.SUMI, 0.55 * a), bar.size.y / 2.0, Color(Toon.WASHI, 0.08 * a), 1.0)
-	var sw := (bar.size.x - 6.0 * u) / float(TABS.size())
-	var slide := Rect2(Vector2(bar.position.x + 3 * u + _seg * sw, bar.position.y + 3 * u), Vector2(sw, bar.size.y - 6 * u))
-	_panel(self, slide, Color(Toon.ui_paper, a), slide.size.y / 2.0, Color(0, 0, 0, 0), 0.0, 0.3 * a, u * 0.5)
-	var fs := int(UiKit.FS_CAPTION * u)
-	for i in TABS.size():
-		var key := "tab:%d" % i
-		var r := Rect2(Vector2(bar.position.x + 3 * u + float(i) * sw, bar.position.y + 3 * u), Vector2(sw, bar.size.y - 6 * u))
-		_hits.append([r, key])
-		var on := clampf(1.0 - absf(_seg - float(i)), 0.0, 1.0)
-		var col := Color(Toon.WASHI, 0.7).lerp(Toon.ui_ink, on)
-		if _pressed == key:
-			col.a *= 0.6
-		var lab := _p(String(TABS[i]))
-		var lw := _tabf.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		var gr := 5.5 * u
-		var x0 := r.get_center().x - (lw + gr * 2.0 + 5.0 * u) / 2.0
-		var gbg: Color = Toon.ui_paper if on > 0.5 else UiKit.NONE
-		UiKit.glyph(self, String(TAB_GLYPHS[i]), Vector2(x0 + gr, r.get_center().y), gr, col, gbg, a)
-		draw_string(_tabf, Vector2(x0 + gr * 2.0 + 5.0 * u, r.get_center().y + fs * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(col, col.a * a))
-		var dot := false
-		if i == 0:
-			dot = meta.any_affordable()
-		elif i == 1:
-			dot = meta.any_seal_affordable()
-		if dot:
-			var dc := Vector2(r.end.x - 9 * u, r.position.y + 7 * u)
-			draw_circle(dc, 4.5 * u, Color(Toon.ui_paper if on > 0.5 else Toon.SUMI, a))
-			draw_circle(dc, 3.2 * u, Color(Toon.VERMILION, a))
+	var dots: Array = []
+	if meta.any_affordable():
+		dots.append(0)
+	if meta.any_seal_affordable():
+		dots.append(1)
+	var trs: Array = UiKit.tabs(self, TABS, bar, _seg, Toon.WASHI, Toon.SUMI, Color(Toon.WASHI, 0.75), a, u, dots)
+	for i in trs.size():
+		_hits.append([trs[i], "tab:%d" % i])
 
 
 # ------------------------------------------------------------------ améliorations
@@ -897,33 +877,12 @@ func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
 # ------------------------------------------------------------------ estampes : filtre
 
 func _draw_filters(w: float, u: float) -> void:
+	# onglets secondaires (UI v2) : même dessin que les onglets principaux, plus bas et plus serrés
 	var a := UiKit.ease_out(_tab_t / 0.3)
-	var fs := int(UiKit.FS_CAPTION * u)
-	var hgt: float = UiKit.CHIP_H * u
-	var gap := 6.0 * u
-	var widths: Array = []
-	var text_w := 0.0
-	for lb in FILTERS:
-		var tw := _tabf.get_string_size(_p(String(lb)), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		widths.append(tw)
-		text_w += tw
-	# marge des puces : de quoi loger la pointe vermillon, sans dépasser l'écran
-	var n := float(FILTERS.size())
-	var pad := clampf((w - 28.0 * u - gap * (n - 1.0) - text_w) / n, 14.0 * u, hgt * 1.15)
-	var total := text_w + pad * n + gap * (n - 1.0)
-	var x := (w - total) / 2.0
-	for i in FILTERS.size():
-		var fw2: float = float(widths[i]) + pad
-		var key := "filter:%d" % i
-		var r := Rect2(Vector2(x, _top + FILTERS_Y * u), Vector2(fw2, hgt))
-		x += fw2 + gap
-		_hits.append([r, key])
-		var on := i == _filter
-		var rr: Rect2 = r.grow(-1.0 * u) if _pressed == key else r
-		if not on:
-			_panel(self, rr, Color(Toon.SUMI, 0.5 * a), hgt / 2.0)
-		# puce commune (UiKit.chip) : washi plein quand elle est choisie, cernée de washi sinon (fond de bois, tout thème)
-		UiKit.chip(self, _sb, rr, _p(String(FILTERS[i])), _tabf, fs, on, Toon.WASHI, Toon.SUMI, a)
+	var bar := Rect2(Vector2(14.0 * u, _top + FILTERS_Y * u), Vector2(w - 28.0 * u, UiKit.CHIP_H * u))
+	var trs: Array = UiKit.tabs(self, FILTERS, bar, float(_filter), Toon.WASHI, Toon.SUMI, Color(Toon.WASHI, 0.7), a, u)
+	for i in trs.size():
+		_hits.append([trs[i], "filter:%d" % i])
 
 
 # ------------------------------------------------------------------ ligne du bas
