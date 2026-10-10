@@ -2,7 +2,7 @@ extends Node
 ## Rouleaux (pouvoirs) choisis en montant de niveau, au sanctuaire et après le gardien :
 ## raretés (commun → légendaire), affinités d'école, synergies, légendaires uniques et visibles.
 ## Données dans power_data.gd. `main` appelle les hooks : on_hit, on_boss_hit, on_kill, on_dash_end,
-## on_stroke_release, update ; et en plus on_hurt, on_dodge, time_mult, boss_dmg, on_room_start
+## on_stroke_release, update ; et en plus on_hurt, time_mult, boss_dmg, on_room_start, free_ink / ink_cost
 ## (facultatif : la salle est aussi détectée dans update).
 ## Figures : main appelle figure_launch (au lancement), figure_end (à l'arrivée), figure_update (chaque image),
 ## figure_landed (fin du bond d'ensō) et figure_cancel. Sans son rouleau (Data.FIG_UNLOCK), une figure
@@ -777,8 +777,18 @@ func dash_mult() -> float:
 	return m
 
 
-func dodge_dist(base: float) -> float:
-	return val("wind_feather") if lvl("wind_feather") > 0 else base
+## Plume : mètres de trait encore offerts quand le trait mesure déjà `len` (main : budget du tracé).
+func free_ink(len: float) -> float:
+	return maxf(0.0, val("wind_feather") - len)
+
+
+## Encre réellement dépensée pour `used` mètres ajoutés à un trait qui mesurait `from_len` (Plume : les
+## premiers mètres sont gratuits). main : `elan -= powers.ink_cost(stroke.length - used, used)`.
+func ink_cost(from_len: float, used: float) -> float:
+	var free := val("wind_feather")
+	if free <= 0.0:
+		return used
+	return maxf(0.0, from_len + used - maxf(from_len, free))
 
 
 func foam_per_room() -> int:
@@ -1068,6 +1078,12 @@ func on_dash_end(pos: Vector3, kills: int) -> void:
 		main.vfx.shadow_burst(pos, 1.4)
 		main.sfx.play("puff", 0.9, -5.0)
 		_tag("shadow_veil", pos)
+	if lvl("shadow_step") > 0:
+		# Pas d'ombre : l'arrivée est couverte un court instant (bouffée d'ombre aux pieds)
+		main.hero.invuln = maxf(float(main.hero.invuln), val("shadow_step"))
+		main.vfx.smoke(pos, 0.35, 4)
+		_tag("shadow_step", pos, false)
+	_tsumuji(pos, false)
 	if lvl("water_tide") > 0:
 		var td := val("water_tide") * _wave_mult()
 		main.vfx.water_burst(pos, 1.75, true)
@@ -1111,6 +1127,7 @@ func on_stroke_release(points: PackedVector3Array) -> void:
 	if points.size() < 2:
 		return
 	var length := _length(points)
+	_tsumuji(points[0], true)
 	if lvl("fire_trail") > 0:
 		_add_trail(points, 3.0, val("fire_trail"))
 		_tag("fire_trail", points[points.size() - 1], false)
@@ -1533,14 +1550,14 @@ func _fig_exposed(e, dir: Vector3) -> bool:
 
 # ------------------------------------------------------------------ hooks de combat (suite)
 
-## Bond d'esquive. main : `powers.on_dodge(origin, end)` juste après `_launch(s)` dans la branche d'esquive.
-func on_dodge(from: Vector3, to: Vector3) -> void:
+## Tsumuji : tourbillon tranchant au départ (on_stroke_release) et à l'arrivée (on_dash_end) de chaque ruée.
+func _tsumuji(p: Vector3, tag: bool) -> void:
 	if lvl("wind_tsumuji") == 0:
 		return
 	var d := val("wind_tsumuji") * (1.5 if lvl("wind_feather") > 0 else 1.0)
-	_tag("wind_tsumuji", from)
-	_whirl_burst(from, 1.5, d)
-	_whirl_burst(to, 1.5, d)
+	if tag:
+		_tag("wind_tsumuji", p)
+	_whirl_burst(p, 1.5, d)
 
 
 ## Coup reçu (après l'écume) de `n` cœurs : renvoie true pour l'annuler (Utsusemi, renaissance de Hōō).

@@ -18,8 +18,8 @@ const PAGES := [
 		"text": "Chaque trait use de l'encre. Elle revient quand tu ne traces pas."},
 	{"kanji": "円", "title": "Les figures",
 		"text": "Dessine une forme (boucle, zigzag, cercle…) : ton coup devient plus fort. Trouve son rouleau pour débloquer sa technique."},
-	{"kanji": "風", "title": "Esquive",
-		"text": "Un ennemi va frapper ? Touche l'écran : le ronin bondit hors de danger."},
+	{"kanji": "風", "title": "Esquive en traçant",
+		"text": "Un ennemi va frapper ? Trace un trait : la ruée te rend intouchable au départ, le coup tombe dans le vide."},
 	{"kanji": "道", "title": "Progresse",
 		"text": "Tue des yokai pour monter de niveau et choisis un pouvoir sur un rouleau."},
 	{"kanji": "鬼", "title": "8 étapes, un gardien",
@@ -501,20 +501,26 @@ func _page_figures(t0: float) -> void:
 		_symbol(sh, c, rr, al)
 
 
-## 4. Un oni lève sa massue, une zone rouge annonce le coup ; un toucher sur le ronin le fait bondir hors de la zone,
-## et le coup tombe dans le vide.
+## 4. Un oni lève sa massue, une zone rouge annonce le coup ; le doigt trace un trait depuis le ronin, qui file
+## hors de la zone en ruée (intouchable au départ), et le coup tombe dans le vide. Plus d'esquive au tap.
 func _page_esquive(t0: float) -> void:
 	var u := _u
-	var lp := 3.6
+	var lp := 3.8
 	var t := fmod(t0, lp)
 	var fade := _k(t, 0.0, 0.25) * (1.0 - _k(t, lp - 0.4, 0.4))
 	var c0 := _at(0.42, 0.76)
-	var land := _at(0.12, 0.76)
 	var zc := c0 + Vector2(8, 0) * u
 	var rx := 64.0 * u
 	var ry := 22.0 * u
-	var tap_t := 0.8
-	var hit_t := 1.45
+	var draw_t := 0.55  # le doigt commence à tracer
+	var dash_t := 1.1  # la ruée part
+	var hit_t := 1.55  # le coup tombe
+	# le trait de fuite : du ronin vers la gauche, en légère courbe
+	var path := _bez_pts(c0, _at(0.26, 0.62), _at(0.1, 0.72), 30)
+	var drawn := _k(t, draw_t, 0.5)
+	var dash := _k(t, dash_t, 0.4)
+	if drawn > 0.0:
+		_stroke(path, 0.0, drawn, 7.0 * u, _c(Toon.SUMI, 0.85 * fade))
 	# la zone rouge se remplit : le coup arrive
 	var za := _k(t, 0.3, 0.2) * (1.0 - _k(t, hit_t + 0.1, 0.4)) * fade
 	if za > 0.0:
@@ -539,23 +545,17 @@ func _page_esquive(t0: float) -> void:
 	if t >= hit_t + 0.05:
 		var mk := UiKit.ease_out(_k(t, hit_t + 0.05, 0.25))
 		UiKit.text(self, UiKit.TITLE_FONT, UiKit.plain("RATÉ !"), zc + Vector2(0, -50) * u, int((18.0 + 8.0 * (1.0 - mk)) * u), _c(Toon.VERMILION, mk * fade))
-	# le bond d'esquive, juste après le toucher
-	var hop := _k(t, tap_t + 0.05, 0.35)
-	var hopping := hop > 0.0 and hop < 1.0
-	var rp := c0.lerp(land, UiKit.ease_out(hop))
-	var lift := sin(PI * hop) * 34.0 * u
-	if hopping:
-		_speed_lines(rp - Vector2(0, lift), Vector2.LEFT, u, fade)
-	_ronin(rp, u, 1.0, 2 if hopping else 0, fade, lift)
-	# le doigt vient toucher le ronin
-	var body := c0 - Vector2(0, 20) * u
-	var fk := _k(t, 0.45, 0.15) * (1.0 - _k(t, tap_t + 0.15, 0.2)) * fade
-	if fk > 0.0:
-		var press := 1.0 - UiKit.ease_out(_k(t, tap_t - 0.25, 0.25))
-		_finger(body + Vector2(10, 14) * u * press, u, fk)
-	_tap_fx(body, _k(t, tap_t, 0.45))
-	if t >= tap_t and t < tap_t + 0.6:
-		UiKit.text(self, _ui, UiKit.plain("TOUCHE !"), body + Vector2(40, -30) * u, int(11 * u), _c(Toon.VERMILION, (1.0 - _k(t, tap_t + 0.4, 0.2)) * fade))
+	# la ruée le long du trait, hors de la zone (traits de vitesse, sabre tendu)
+	var rp := _pt_at(path, dash)
+	var dashing := dash > 0.0 and dash < 1.0
+	if dashing:
+		_speed_lines(rp, _dir_at(path, dash), u, fade)
+	_ronin(rp, u, -1.0 if dash > 0.0 else 1.0, 1 if dashing else 0, fade)
+	# le doigt trace le trait depuis le ronin
+	if t < dash_t + 0.2:
+		_finger(_pt_at(path, drawn), u, _k(t, draw_t - 0.15, 0.15) * (1.0 - _k(t, dash_t, 0.2)) * fade)
+	if t >= dash_t and t < dash_t + 0.7:
+		UiKit.text(self, _ui, UiKit.plain("TRACE !"), c0 + Vector2(40, -50) * u, int(11 * u), _c(Toon.VERMILION, (1.0 - _k(t, dash_t + 0.5, 0.2)) * fade))
 
 
 ## 5. Le ronin tranche trois oni ; leur XP file vers la barre, il monte de niveau,

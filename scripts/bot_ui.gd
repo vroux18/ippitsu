@@ -2,7 +2,7 @@ extends Node
 ## Robot testeur, mode ui (`-- --bot --mode=ui`) : parcours scripté des écrans, sans combat du robot.
 ## Il passe par les mêmes entrées que le doigt : _gui_input des écrans dessinés (clics synthétiques aux
 ## rectangles qu'ils ont calculés), appui/relâché au centre des boutons, main._touch_down / _touch_up pour
-## l'esquive et la course. Chaque étape réussie : « BOT UI <étape> ok » ; état attendu non atteint
+## la course et l'ultime. Chaque étape réussie : « BOT UI <étape> ok » ; état attendu non atteint
 ## à temps : « BOT ALERTE ui: … », puis retour à l'accueil et étape suivante.
 
 const Meta = preload("res://scripts/meta.gd")
@@ -733,7 +733,7 @@ func _step_bestiary() -> bool:
 # ------------------------------------------------------------------ dojo
 
 ## Dojo : entrée depuis l'accueil, quelques figures et traits ratés (verdict), un trait à travers trois
-## mannequins, une esquive, le mannequin offensif (zone rouge), le carnet, l'ultime au double tap, puis la maison.
+## mannequins, le mannequin offensif (zone rouge fuie d'un trait), le carnet, l'ultime au double tap, puis la maison.
 func _step_dojo() -> bool:
 	var dj = main.tuto.dojo
 	await _press(main.menu._dojo, "DOJO")
@@ -776,15 +776,7 @@ func _step_dojo() -> bool:
 		await _until(func(): return _hero_still(), "fin de la ruée (dojo)", 10.0)
 		await _frames(3)
 		_check(dj.done.has("multi3"), "dojo : défi « 3 mannequins d'un trait »", "défi non coché")
-	# esquive
-	await _until(func(): return _hero_still(), "héros posé (dojo)", 10.0)
-	var dg0 := int(dj.dodges)
-	var hd: Vector3 = main.hero.position
-	bot.dodge(Vector3(-hd.x, 0, -hd.z))
-	await _until(func(): return _hero_still(), "fin du bond (dojo)", 10.0)
-	await _frames(3)
-	_check(int(dj.dodges) > dg0, "dojo : esquive comptée", "esquive non comptée")
-	# mannequin offensif : une zone rouge à esquiver
+	# mannequin offensif : une zone rouge à fuir d'un trait
 	await _press(dj._off, "OFFENSIF")
 	_check(bool(dj.offensive), "dojo : mannequin offensif activé", "toujours inactif")
 	var tries := 0
@@ -794,10 +786,10 @@ func _step_dojo() -> bool:
 			break
 		await _until(func(): return _hero_still(), "héros posé (dojo)", 10.0)
 		var hz: Vector3 = main.hero.position
-		bot.dodge(Vector3(-hz.x, 0, -hz.z))
+		bot.flee(Vector3(-hz.x, 0, -hz.z))
 		await _until(func(): return dj._zone == null, "dojo : impact de la zone rouge", 10.0)
 		await _frames(2)
-	_check(int(dj.zones_ok) >= 1 and dj.done.has("zone"), "dojo : zone rouge esquivée", "aucune zone esquivée")
+	_check(int(dj.zones_ok) >= 1 and dj.done.has("zone"), "dojo : zone rouge fuie d'un trait", "aucune zone fuie")
 	await _press(dj._off, "OFFENSIF")
 	_check(not bool(dj.offensive) and dj._zone == null, "dojo : mannequin offensif désactivé", "toujours actif")
 	# carnet : déplié puis replié

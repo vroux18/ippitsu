@@ -6,7 +6,7 @@ extends Node
 ##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement au dernier coup encaissable :
 ##    1 cœur, 2 dès que les coups lourds en ôtent 2). Bilan par monde (BOT STATS, BOT BILAN).
 ##  powers : chaque pouvoir, à chaque niveau, actif pendant une salle de combat entière (gardien et boss
-##    compris) ; les six figures, des esquives, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
+##    compris) ; les six figures, des traits de fuite, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
 ##  ui : parcours scripté des écrans (bot_ui.gd), sans combat du robot.
 ##  stress : vagues doublées, 16 pouvoirs dont 6 légendaires, nœuds comptés salle après salle.
 ## Il signale les salles où il reste bloqué (« BOT ALERTE »). Fin : « BOT DONE » puis il quitte.
@@ -66,7 +66,7 @@ var _kills0 := 0
 var _room_ended := true
 var _take_shrine := true
 var _shape_stats := {}  # forme -> [essais, orientation trouvée, reconnue par le jeu]
-var _dodges := 0
+var _flees := 0  # traits de fuite réussis (mode powers)
 var _trig := {"water_foam": 0, "shadow_utsusemi": 0, "fire_hoo": 0}
 var _prev_foam := 0
 var _prev_utsu := 0
@@ -461,11 +461,11 @@ func _play(dt: float) -> void:
 					target = bo.position
 	var fight := target != Vector3.INF
 	if mode == "powers" and fight:
-		# esquive : sous une attaque annoncée, ou de temps en temps
+		# fuite : sous une attaque annoncée, ou de temps en temps, un trait court à l'opposé de la cible
 		if main.is_danger(main.hero.position, 0.35) or _n % 6 == 5:
 			_n += 1
 			var away: Vector3 = main.hero.position - target
-			if dodge(away):
+			if flee(away):
 				return
 	if not fight:
 		# hors combat, au pied d'une énigme : il la résout comme un joueur (un seul trait)
@@ -512,7 +512,7 @@ func _check_stuck(dt: float) -> void:
 			alert("monde %d salle %d (%s) : %s coincé en %s (héros en %s)" % [world, main.room, String(main.arena.layout), e.kind, str(p.snapped(Vector3(0.1, 0.1, 0.1))), str(main.hero.position.snapped(Vector3(0.1, 0.1, 0.1)))])
 
 
-# ------------------------------------------------------------------ traits, figures, esquives (aussi pour bot_ui)
+# ------------------------------------------------------------------ traits, figures, fuites (aussi pour bot_ui)
 
 ## Trait qui part du héros et passe par les points donnés (ramenés dans l'arène). null si trop court.
 func make_stroke(pts: PackedVector3Array) -> Node3D:
@@ -564,30 +564,35 @@ func figure(kind: String, target: Vector3) -> bool:
 	return true
 
 
-## Esquive comme au doigt : petit coup sec posé sur le héros (main._touch_down / _touch_up).
-func dodge(dir: Vector3) -> bool:
+## Fuite comme au doigt : un trait court (2,5 m) dans la direction donnée, loin du danger (il n'y a plus
+## d'esquive au tap : la ruée protège son départ). Cherche une direction voisine qui atterrit en sécurité.
+func flee(dir: Vector3) -> bool:
 	if main.touching or main.game_over or main.hero.dashing:
 		return false
-	var d := Vector2(dir.x, dir.z)
+	var d := Vector3(dir.x, 0, dir.z)
 	if d.length_squared() < 0.0001:
-		d = Vector2(0, -1)
+		d = Vector3(0, 0, 1)
 	d = d.normalized()
-	# le geste se lit au sol : on vise un point à 0,4 m du héros (un bond, pas un trait)
 	var hp: Vector3 = main.hero.position
-	var sp: Vector2 = main.cam.unproject_position(hp)
-	var flick: Vector2 = main.cam.unproject_position(hp + Vector3(d.x, 0, d.y) * 0.4) - sp
-	if main.hud.is_over_pause(sp) or main.tuto.is_over_ui(sp) or main.coach.is_over_ui(sp):
+	var best: Vector3 = main._clamp_point(hp + d * 2.5)
+	for k in [0.0, 0.7, -0.7, 1.4, -1.4, PI]:
+		var dv: Vector3 = d.rotated(Vector3.UP, float(k))
+		var p: Vector3 = main._clamp_point(hp + dv * 2.5)
+		if not main.hazards.is_hole(p, 0.2) and not main.is_danger(p, 0.2):
+			best = p
+			break
+	var s := make_stroke(PackedVector3Array([best]))
+	if s == null:
 		return false
-	main._touch_down(sp)
-	main._touch_up(sp + flick)
+	main._launch(s)
 	if bool(main.hero.dashing):
-		_dodges += 1
+		_flees += 1
 		return true
 	return false
 
 
-func dodges() -> int:
-	return _dodges
+func flees() -> int:
+	return _flees
 
 
 ## Énigme d'un recoin (main.spawn_puzzle) résolue d'un trait depuis le héros : la figure de la stèle,
@@ -823,9 +828,9 @@ func _powers_run_end() -> void:
 		print("BOT FIGURES %s : %d reconnues sur %d lancées (%d essais)" % [String(k), int(st[2]), int(st[1]), int(st[0])])
 		if int(st[2]) == 0:
 			alert("figure %s jamais reconnue en jeu" % String(k))
-	print("BOT ESQUIVES : %d" % _dodges)
-	if _dodges == 0:
-		alert("aucune esquive réussie")
+	print("BOT FUITES : %d" % _flees)
+	if _flees == 0:
+		alert("aucun trait de fuite réussi")
 	for k in _trig.keys():
 		print("BOT DÉCLENCHEMENTS %s : %d" % [String(k), int(_trig[k])])
 		if int(_trig[k]) == 0:
