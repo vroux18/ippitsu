@@ -2309,3 +2309,89 @@ static func split_value(v: String) -> Array:
 	if last < 0:
 		return [head, body, ""]
 	return [head, body.substr(0, last + 1).strip_edges(), body.substr(last + 1).strip_edges()]
+
+
+# ------------------------------------------------------------------ UI v2 : compteur d'encre, onglets, sceaux à picto
+
+static var _tab_font: FontVariation = null
+
+
+## Police des onglets (UI v2, Boutons) : capitales UI_FONT, interlettrage 2.
+static func tab_font() -> Font:
+	if _tab_font == null:
+		var f := FontVariation.new()
+		f.base_font = UI_FONT
+		f.spacing_glyph = 2
+		_tab_font = f
+	return _tab_font
+
+
+## Compteur d'encre (UI v2, Accueil / Garde-robe) : pilule sumi à contour papier, goutte sur disque indigo, nombre en
+## Zen Kaku. x : bord gauche de la pilule (ou bord droit si anchor_right), cy : son centre. Renvoie son cadre.
+static func ink_counter(ci: CanvasItem, sb: StyleBoxFlat, x: float, cy: float, value: int, u: float, a: float,
+		anchor_right := false) -> Rect2:
+	var nf := num_font()
+	var fs := maxi(1, int(FS_NUMBER * 0.85 * u))
+	var txt := str(value)
+	var tw := nf.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var h := 32.0 * u
+	var w := 10.0 * u + 22.0 * u + 7.0 * u + tw + 12.0 * u
+	var r := Rect2(Vector2(x - w if anchor_right else x, cy - h / 2.0), Vector2(w, h))
+	ci.draw_style_box(box(sb, Color(UIColors.SUMI_HUD_BG, UIColors.SUMI_HUD_BG.a * a), int(h / 2.0),
+		Color(UIColors.WASHI, 0.3 * a), maxi(1, int(BW * u))), r)
+	var dc := Vector2(r.position.x + 10.0 * u + 11.0 * u, cy)
+	ci.draw_circle(dc, 11.0 * u, Color(INDIGO, a))
+	glyph(ci, "at_drop", dc, 5.5 * u, Toon.WASHI, NONE, a)
+	ci.draw_string(nf, Vector2(dc.x + 11.0 * u + 7.0 * u, cy + float(fs) * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+		Color(UIColors.WASHI, a))
+	return r
+
+
+## Onglets (UI v2, Boutons) : un mot centré par onglet (tab_font, FS_BODY), coup de pinceau `stroke` derrière l'actif
+## (texte `on_text`), les autres en `off_text`. active peut être fractionnaire (glissement) ; dots : indices des
+## onglets qui portent une pastille vermillon. Chaque onglet occupe une part égale de r ; renvoie ces cadres (tactiles).
+static func tabs(ci: CanvasItem, labels: Array, r: Rect2, active: float, stroke: Color, on_text: Color, off_text: Color,
+		a: float, u: float, dots := []) -> Array:
+	var n := labels.size()
+	var rects: Array = []
+	if n == 0:
+		return rects
+	var font := tab_font()
+	var fs := maxi(1, int(FS_BODY * u))
+	var cw := r.size.x / float(n)
+	var sh := 30.0 * u
+	var cy := r.get_center().y
+	# le pinceau : quadrilatère aux bouts biseautés, un peu plus large que le mot, qui glisse avec `active`
+	var ai := clampi(int(round(active)), 0, n - 1)
+	var aw := font.get_string_size(plain(String(labels[ai])), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 30.0 * u
+	var acx := r.position.x + cw * (clampf(active, 0.0, float(n - 1)) + 0.5)
+	var sx0 := acx - aw / 2.0
+	var sx1 := acx + aw / 2.0
+	var pts := PackedVector2Array([Vector2(sx0 + 5.0 * u, cy - sh / 2.0), Vector2(sx1, cy - sh / 2.0 + 2.0 * u),
+		Vector2(sx1 - 5.0 * u, cy + sh / 2.0), Vector2(sx0, cy + sh / 2.0 - 2.0 * u)])
+	ci.draw_colored_polygon(pts, Color(stroke, a))
+	for i in n:
+		var cr := Rect2(Vector2(r.position.x + cw * float(i), r.position.y), Vector2(cw, r.size.y))
+		rects.append(cr)
+		var on := clampf(1.0 - absf(active - float(i)), 0.0, 1.0)
+		var lab := plain(String(labels[i]))
+		var col: Color = off_text.lerp(on_text, on)
+		var tw := text(ci, font, lab, Vector2(cr.get_center().x, cy + float(fs) * 0.36), fs, Color(col, col.a * a))
+		if i in dots:
+			ci.draw_circle(Vector2(cr.get_center().x + tw / 2.0 + 6.0 * u, cy - float(fs) * 0.55), 3.0 * u, Color(Toon.VERMILION, a))
+	return rects
+
+
+## Sceau de monstre (UI v2, Bestiaire / Mondes) : carré arrondi vermillon (boss) ou or (gardien), cerné de sumi,
+## picto oni ou couronne en papier. Remplace le hanko à kanji.
+static func monster_badge(ci: CanvasItem, sb: StyleBoxFlat, r: Rect2, mini: bool, a: float, u: float) -> void:
+	var fill: Color = UIColors.GOLD_DARK if mini else Toon.VERMILION
+	ci.draw_style_box(box(sb, Color(fill, a), int(minf(r.size.x, r.size.y) * 0.2), Color(Toon.SUMI, 0.85 * a), maxi(1, int(BW * u))), r)
+	draw_icon(ci, "hud/couronne" if mini else "hud/oni", r.get_center(), minf(r.size.x, r.size.y) * 0.62, a, Toon.WASHI)
+
+
+## Sceau de monde (UI v2) : carré arrondi à la couleur du monde, son picto (UIColors.WORLD_ICON, clé « kanji » de
+## worlds.gd, jamais affichée) en papier. Remplace le hanko à kanji.
+static func world_badge(ci: CanvasItem, sb: StyleBoxFlat, r: Rect2, key: String, col: Color, a: float) -> void:
+	ci.draw_style_box(box(sb, Color(col, a), int(minf(r.size.x, r.size.y) * 0.2)), r)
+	draw_icon(ci, String(UIColors.WORLD_ICON.get(key, "hud/vague")), r.get_center(), minf(r.size.x, r.size.y) * 0.66, a, Toon.WASHI)
