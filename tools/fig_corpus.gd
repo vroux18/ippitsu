@@ -27,10 +27,11 @@ func _init() -> void:
 	quit()
 
 
-## Joue tout le corpus ; renvoie {"ok": int, "n": int, "rate": {fig: float}, "fails": Array, "bot_ok": bool}.
-static func run(verbose: bool) -> Dictionary:
+## Joue tout le corpus (graine `seed` : une autre graine, d'autres gestes) ;
+## renvoie {"ok": int, "n": int, "rate": {fig: float}, "fails": Array, "unstable": Array, "bot_ok": bool}.
+static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
-	rng.seed = SEED
+	rng.seed = seed
 	var samples := build(rng)
 	var mat := {}
 	for a in COLS:
@@ -50,7 +51,16 @@ static func run(verbose: bool) -> Dictionary:
 		if got == want:
 			ok += 1
 		else:
-			fails.append("%s : attendu '%s', obtenu '%s'" % [String(s["name"]), want, got])
+			var why := ""
+			if got == "":
+				why = " — " + StrokeShapes.describe(StrokeShapes.near_miss(pts.slice(maxi(0, int(s.get("lead", -1))))))
+			if verbose:
+				# tous les candidats du geste seul (sans amorce) : note et condition la plus manquée
+				var ff: Dictionary = StrokeShapes._features(pts.slice(maxi(0, int(s.get("lead", -1)))))
+				if not ff.is_empty():
+					for c: Dictionary in StrokeShapes._candidates(ff, 0.0):
+						why += " | %s %.2f %s" % [String(c["shape"]), float(c["score"]), String(c["reason"])]
+			fails.append("%s : attendu '%s', obtenu '%s'%s" % [String(s["name"]), want, got, why])
 			if want == "":
 				fp += 1
 		# lecture en direct : le trait sans ses 30 derniers centimètres doit donner la même figure (ou rien)
@@ -172,7 +182,7 @@ static func _sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) 
 			g = _circle(rng, r, turn, 0.08)
 			tag = "r%.1f %d°" % [r, int(turn)]
 		"loop":
-			var r := _pick(rng, size, [0.6, 1.0], [1.0, 1.8], [1.8, 2.8])
+			var r := _pick(rng, size, [0.6, 0.9], [0.9, 1.2], [1.2, 2.2])
 			if k % 4 == 3:
 				# petit cercle seul, refermé ou presque, sans se recouper : une boucle (trop petit pour un ensō)
 				r = rng.randf_range(0.6, 1.0)
@@ -180,36 +190,47 @@ static func _sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) 
 				tag = "seule r%.1f" % r
 			else:
 				var turn := rng.randf_range(250.0, 400.0)
-				var tin := rng.randf_range(0.8, 4.0)
-				var tout := rng.randf_range(0.8, 4.0)
+				# une grande boucle (r > 1,2) n'est une boucle, et pas un ensō, que prise entre deux longues amorces
+				var tmin := 0.8 if size < 2 else 1.4 * r
+				var tin := rng.randf_range(tmin, 4.0)
+				var tout := rng.randf_range(tmin, 4.0)
 				g = _curl(r, turn, tin, tout)
 				tag = "r%.1f %d° amorces %.1f/%.1f" % [r, int(turn), tin, tout]
 		"return":
-			var far := _pick(rng, size, [3.0, 4.5], [4.5, 6.5], [6.5, 9.0])
+			var far := _pick(rng, size, [3.2, 4.5], [4.5, 6.5], [6.5, 9.0])
 			var off := rng.randf_range(0.0, 0.2) * far
-			var gap := rng.randf_range(0.0, 0.25) * far
+			var gap := rng.randf_range(0.0, 0.22) * far
 			var bow := rng.randf_range(0.0, 0.08) * far
 			g = _hairpin(far, off, gap, bow)
 			tag = "aller %.1f décalé %.1f écart %.1f" % [far, off, gap]
 		"zigzag":
 			var corners := 2 + k % 3
-			var br := _pick(rng, size, [1.0, 1.6], [1.6, 2.8], [2.8, 4.5])
-			var ang := rng.randf_range(80.0, 150.0)
+			var br := _pick(rng, size, [1.3, 1.8], [1.8, 2.8], [2.8, 4.5])  # (sous 1,3 m, moins d'un centimètre : illisible)
+			var ang := rng.randf_range(90.0, 145.0)  # (UNIVERS : > 100° ; sous 90°, c'est une vague ; au-delà, replié)
 			g = _zig(rng, corners, br, ang)
 			tag = "%d virages branche %.1f angle %d°" % [corners, br, int(ang)]
 		"straight":
 			var l := _pick(rng, size, [7.0, 8.0], [8.0, 10.0], [10.0, 12.0])
-			var bow := rng.randf_range(0.0, 0.3)
+			var bow := rng.randf_range(0.0, 0.25)
 			g = _bowed(l, bow)
 			tag = "%.1f m flèche %.2f" % [l, bow]
 		"hook":
 			var main := _pick(rng, size, [2.0, 3.0], [3.0, 4.5], [4.5, 6.0])
-			var last := rng.randf_range(1.2, 3.0) if k % 3 != 0 else rng.randf_range(1.2, 1.6)  # crochets courts
-			var ang := rng.randf_range(125.0, 165.0)
+			# le crochet est une barbe au bout du trait : au plus 60 % du trait (plus long et replié, il revient
+			# près du départ : un aller-retour) ; crochets courts (1,2-1,6 m)
+			var last := minf(0.6 * main, rng.randf_range(1.3, 3.0) if k % 3 != 0 else rng.randf_range(1.3, 1.6))
+			var ang := rng.randf_range(125.0, 160.0)
 			g = PackedVector2Array([Vector2(0, 0), Vector2(main, 0), Vector2(main, 0) + Vector2(cos(deg_to_rad(ang)), sin(deg_to_rad(ang))) * last])
 			tag = "%.1f puis %.1f à %d°" % [main, last, int(ang)]
-	var round_m := rng.randf_range(0.0, 0.5) if fig in ["zigzag", "hook", "return"] else 0.0
-	var over := rng.randf_range(0.2, 1.0) if k % 5 == 1 and fig in ["loop", "zigzag", "hook", "return"] else 0.0
+	# coins arrondis : le pouce arrondit d'autant plus que le geste est grand (jusqu'à un cinquième de la branche)
+	var round_m := 0.0
+	if fig == "zigzag":
+		round_m = rng.randf_range(0.0, 0.2) * _len2(g) / float(2 + k % 3 + 1)
+	elif fig == "hook":
+		round_m = rng.randf_range(0.0, 0.2) * g[1].distance_to(g[2])
+	elif fig == "return":
+		round_m = rng.randf_range(0.0, 0.06) * _len2(g)
+	var over := rng.randf_range(0.2, 1.0) if k % 5 == 1 and fig in ["loop", "zigzag", "return"] else 0.0  # (le crochet finit où il finit)
 	var laid := k % 2 == 0
 	var pts := _finish(rng, g, round_m, over, laid)
 	var name := "%s %s #%d (%s%s%s)" % [fig, ["petit", "moyen", "grand"][size], k, tag, ", posé" if laid else ", brut", ", dépassé %.1f" % over if over > 0.0 else ""]
@@ -227,18 +248,27 @@ static func _counter(rng: RandomNumberGenerator, kind: String, k: int) -> Dictio
 			# trait quelconque : courbe douce qui serpente un peu, 3 à 8 m
 			var l := rng.randf_range(3.0, 8.0)
 			var n := 40
-			var ang := 0.0
-			var p := Vector2.ZERO
 			var w := rng.randf_range(0.3, 1.2)
-			for i in n:
-				g.append(p)
-				ang += deg_to_rad(rng.randf_range(-14.0, 14.0)) * w
-				p += Vector2(cos(ang), sin(ang)) * (l / float(n))
+			var bend := deg_to_rad(rng.randf_range(2.0, 3.0)) * (1.0 if rng.randf() < 0.5 else -1.0)  # 80 à 120° au total
+			for _try in 6:
+				g = PackedVector2Array()
+				var ang := 0.0
+				var p := Vector2.ZERO
+				for i in n:
+					g.append(p)
+					ang += deg_to_rad(rng.randf_range(-14.0, 14.0)) * w + bend
+					p += Vector2(cos(ang), sin(ang)) * (l / float(n))
+				# un hasard presque droit serait un vrai trait droit : on retire
+				var sag := 0.0
+				for q: Vector2 in g:
+					sag = maxf(sag, _seg_dist2(q, g[0], g[g.size() - 1]))
+				if sag > 0.12 * l:
+					break
 			tag = "trait quelconque %.1f m" % l
 		"C":
-			# un C : arc d'un demi-tour (jusqu'à 200°) : pas un ensō
+			# un C : arc d'un demi-tour (jusqu'à 180° ; au-delà, jusqu'au tiers ouvert, c'est la zone ambiguë) : pas un ensō
 			var r := rng.randf_range(1.2, 4.0)
-			var turn := rng.randf_range(110.0, 200.0)
+			var turn := rng.randf_range(110.0, 180.0)
 			g = _circle(rng, r, turn, 0.04)
 			tag = "C r%.1f %d°" % [r, int(turn)]
 		"S":
@@ -258,7 +288,7 @@ static func _counter(rng: RandomNumberGenerator, kind: String, k: int) -> Dictio
 			# un seul virage à 50-100° au milieu : ni zigzag, ni crochet
 			var l1 := rng.randf_range(2.0, 4.0)
 			var l2 := rng.randf_range(2.0, 4.0)
-			var ang := rng.randf_range(50.0, 100.0)
+			var ang := rng.randf_range(50.0, 90.0)
 			g = PackedVector2Array([Vector2(0, 0), Vector2(l1, 0), Vector2(l1, 0) + Vector2(cos(deg_to_rad(ang)), sin(deg_to_rad(ang))) * l2])
 			tag = "V %d°" % int(ang)
 		"bent":
@@ -327,7 +357,8 @@ static func _hairpin(far: float, off: float, gap: float, bow: float) -> PackedVe
 		var t := float(i) / float(n)
 		out.append(Vector2(far * t, bow * sin(PI * t)))
 	out.append(Vector2(far + off * 0.5, off * 0.5))
-	var e := Vector2(gap * 0.7, off + gap * 0.3)
+	# la fin est à `gap` du départ, du côté du retour
+	var e := Vector2(0.4 * far, maxf(off, 0.01)).normalized() * gap
 	for i in range(1, n + 1):
 		var t := float(i) / float(n)
 		out.append(Vector2(far, off).lerp(e, t) + Vector2(0.0, bow * 0.6 * sin(PI * t)))
@@ -344,7 +375,7 @@ static func _zig(rng: RandomNumberGenerator, corners: int, br: float, ang: float
 		var l := br * rng.randf_range(0.7, 1.3)
 		p += Vector2(cos(dir), sin(dir)) * l
 		out.append(p)
-		dir += sgn * deg_to_rad(ang * rng.randf_range(0.85, 1.15))
+		dir += sgn * deg_to_rad(ang * rng.randf_range(0.92, 1.08))
 		sgn = -sgn
 	return out
 
@@ -366,7 +397,7 @@ static func _finish(rng: RandomNumberGenerator, g: PackedVector2Array, round_m: 
 	if round_m > 0.0:
 		dense = _smooth(dense, int(round_m / 0.05))
 	# anisotropie (perspective au sol : un cercle à l'écran est un peu ovale au sol) et rotation
-	var an := rng.randf_range(1.0, 1.3)
+	var an := rng.randf_range(1.0, 1.2)  # (en jeu, le geste brut est redressé par la caméra ; il en reste un peu)
 	var an_a := rng.randf_range(0.0, PI)
 	var rot := rng.randf_range(0.0, TAU)
 	var off := Vector2(rng.randf_range(-4.0, 4.0), rng.randf_range(-8.0, 8.0))
@@ -398,7 +429,9 @@ static func _finish(rng: RandomNumberGenerator, g: PackedVector2Array, round_m: 
 		for p: Vector2 in _resample2(trem, LAID_STEP):
 			out.append(Vector3(p.x, 0.0, p.y))
 		return out
+	# un grand geste est tracé plus vite : l'écart entre deux points du doigt grandit avec le geste (0,2 à 0,6 m)
 	var base := rng.randf_range(0.12, 0.35)
+	var cap := clampf(_len2(trem) / 15.0, 0.2, 0.6)
 	var f2 := rng.randf_range(0.3, 1.0)
 	var ph2 := rng.randf_range(0.0, TAU)
 	var total := _len2(trem)
@@ -413,7 +446,7 @@ static func _finish(rng: RandomNumberGenerator, g: PackedVector2Array, round_m: 
 		var t := clampf((target - acc) / maxf(sl, 0.0001), 0.0, 1.0)
 		var p := trem[i - 1].lerp(trem[i], t)
 		out.append(Vector3(p.x, 0.0, p.y))
-		target += clampf(base * (1.0 + 0.7 * sin(f2 * target + ph2)) * rng.randf_range(0.6, 1.4), 0.05, 0.6)
+		target += clampf(base * (1.0 + 0.7 * sin(f2 * target + ph2)) * rng.randf_range(0.6, 1.4), 0.05, cap)
 	var e := trem[trem.size() - 1]
 	if out.is_empty() or out[out.size() - 1].distance_to(Vector3(e.x, 0.0, e.y)) > 0.05:
 		out.append(Vector3(e.x, 0.0, e.y))
@@ -450,6 +483,15 @@ static func _smooth(p: PackedVector2Array, w: int) -> PackedVector2Array:
 			n += 1
 		out.append(acc / float(n))
 	return out
+
+
+static func _seg_dist2(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var l2 := ab.length_squared()
+	if l2 < 0.000001:
+		return p.distance_to(a)
+	var t := clampf((p - a).dot(ab) / l2, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
 
 
 static func _len2(p: PackedVector2Array) -> float:

@@ -3,83 +3,123 @@ extends RefCounted
 ## Fonctions statiques pures : on travaille dans le plan XZ (y ignoré / mis à 0).
 ## Usage : const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 ##         var info: Dictionary = StrokeShapes.detect(stroke.points)
+##
+## Méthode : le trait est nettoyé, rééchantillonné à un pas qui suit sa longueur, puis lu par caps (direction
+## d'une corde glissante) : le tremblement du pouce disparaît, les coins arrondis restent des coins. Chaque
+## figure est un candidat noté (produit des conditions, 1 = toutes tenues) ; detect() prend le premier candidat
+## qui tient dans l'ordre ORDER (zigzag, ensō, aller-retour, boucle, trait droit, crochet : les portes des
+## détecteurs les rendent exclusifs, un cercle n'est jamais un zigzag, un demi-tour serré jamais un crochet),
+## near_miss() le candidat le mieux noté parmi ceux qui ont manqué, avec la condition la plus manquée.
+## Ensō ou boucle : le même cercle est lu (grand virage d'un même sens, ou boucle entre deux croisements), puis
+## c'est la taille qui tranche (SPLIT_R, ou SPLIT_CM d'écran quand main passe l'échelle), et pour un cercle moyen
+## pris entre deux longues amorces, les amorces (LOOP_TAILS) : c'est une boucle dans un trait.
+## Les seuils de forme sont relatifs (au rayon, à l'aller, à la longueur du trait) ; les seuls seuils absolus
+## sont ceux qui ont un sens de jeu (trait droit de 7 m, aller d'au moins 3 m, rayon qui sépare boucle et ensō).
+## Vérification : tools/fig_corpus.gd (`-- --figtest`) joue un corpus de gestes réalistes.
 
 const EPS := 0.000001
 const CLEAN_DIST := 0.02        # points plus proches que ça = confondus
 const MIN_LENGTH := 0.5         # trait trop court : aucune forme
-const SIMPLIFY_TOL := 0.3       # tolérance RDP pour zigzag / crochet
+const SIMPLIFY_TOL := 0.3       # tolérance RDP (simplify, gardé pour les outils)
 
-# Ensō (cercle ouvert)
-const ENSO_GAP := 1.5            # écart fin-début toléré (au moins ; grandit avec le rayon)
-const ENSO_MIN_R := 1.6
-const ENSO_ROUND := 0.34          # un cercle à main levée, un peu ovale ou cabossé, passe
-const ENSO_MIN_TURN := 245.0
-# Uzu (boucle)
-const LOOP_TURN := 300.0
-const LOOP_R_MIN := 0.6
-const LOOP_R_MAX := 3.0         # en combat on trace grand : une grosse boucle reste une boucle
-const LOOP_PAD := 4             # points ajoutés de part et d'autre de la boucle pour l'angle cumulé
-# Kaeshi (aller-retour)
-const RET_GAP := 1.2
+# Échelle d'analyse : pas de rééchantillonnage et corde des caps, en fraction de la longueur du trait (bornés)
+const STEP_K := 0.01
+const STEP_MIN := 0.05
+const STEP_MAX := 0.15
+const HEAD_K := 0.06
+const HEAD_MIN := 0.15
+const HEAD_MAX := 0.5
+const RUN_TOL := 20.0           # contre-virage toléré (degrés cumulés) dans un virage « du même sens »
+
+# Cercles : ensō (grand cercle, ouvert jusqu'à 35 %, ou dépassé) et uzu (petite boucle, dans un trait ou seule)
+const CURL_MIN_R := 0.5
+const SPLIT_R := 1.5            # rayon (m au sol) qui sépare la boucle (plus petite) de l'ensō (plus grand)
+const SPLIT_CM := 0.7           # ... ou 0,7 cm d'écran quand l'échelle est connue (jamais sous SPLIT_R_MIN)
+const SPLIT_R_MIN := 1.3
+const ENSO_MIN_TURN := 210.0    # un ensō ouvert d'un bon tiers (234°) passe encore, un C (≤ 180°) jamais
+const ENSO_ROUND := 0.30        # écart-type du rayon / rayon : un cercle à main levée, un peu ovale, passe
+const LOOP_MIN_TURN := 230.0    # une boucle tracée vite ne se recoupe pas toujours (un « ρ », un « e » ouvert)
+const LOOP_ROUND := 0.45
+const LOOP_R_MAX := 2.8         # grand cercle entre deux longues amorces : encore une boucle jusqu'à ce rayon
+const LOOP_TAILS := 1.1         # amorces d'au moins 1,1 rayon de part et d'autre : boucle dans un trait, pas ensō
+const LOOP_CORNER := 110.0      # un vrai coin dans la boucle : un triangle de zigzag qui se recoupe, pas une boucle
+const CURL_COVER := 0.65        # longueur de l'arc / (tour × rayon) : au moins 0,65, sinon ce n'est pas un cercle
+const CURL_BAND := 0.25         # l'arc s'arrête là où le trait quitte la bande de ± 25 % autour du cercle ajusté
+const CURL_MIN_SPAN := 170.0    # les points font le tour du centre ajusté sur au moins 170° : un croissant (demi-tour aux côtés bombés) n'est pas un cercle
+const ENSO_MIN_SPAN := 195.0    # ... et sur 195° pour un ensō (le tour mesuré par les virages gonfle avec les bouts tremblés ; l'étendue vue du centre, non)
+# Kaeshi (aller-retour) : demi-tour serré, retour le long de l'aller
 const RET_FAR := 3.0
-const RET_DEV := 0.8
+const RET_GAP := 1.2
+const RET_GAP_K := 0.3
+const RET_DEV := 1.0
+const RET_DEV_K := 0.25
 const RET_SAMPLES := 24
-# Inazuma (zigzag)
-const ZZ_ANGLE := 85.0           # virage net (un Z dessiné vite tourne d'environ 110-150°, un N pressé ~80°)
-const ZZ_SEG_MIN := 0.6
-const ZZ_SEG_MAX := 12.0         # le pad agrandit le geste : les branches peuvent être longues
-const ZZ_COUNT := 2              # un Z (2 virages) suffit
+# Inazuma (zigzag) : virages nets alternés, branches droites
+const ZZ_ANGLE := 70.0          # angle vrai du coin (entre les branches) ; la perspective au sol en vole jusqu'à 15°
+const ZZ_SEED := 45.0           # virage sur la corde qui fait d'un point un coin possible
+const ZZ_FOCUS := 0.75          # le virage sur la corde fait au moins 75 % de l'angle du coin : un coin, pas un arc (un S)
+const ZZ_WIN_K := 0.1           # corde du virage : 10 % du trait, entre 0,3 et 0,9 m
+const ZZ_WIN_K2 := 0.16         # seconde corde, plus longue (coins très arrondis d'un grand Z)
+const ZZ_WIN_MIN := 0.3
+const ZZ_WIN_MAX := 0.9
+const ZZ_BRANCH_K := 0.15       # branche entre deux virages : 15 % du trait, au moins 0,5 m
+const ZZ_BRANCH_MIN := 0.5
+const ZZ_END_K := 0.5           # les deux bouts : au moins la moitié d'une branche
+const ZZ_STRAIGHT := 0.3        # flèche d'une branche / sa longueur : une branche est droite, pas un arc (un S)
+const ZZ_COUNT := 2             # un Z (2 virages) suffit
+const ZZ_CURVE := 200.0         # un virage cumulé de plus de 200° dans le même sens : une courbe, pas un zigzag
 # Ittō (trait droit)
 const ST_LEN := 7.0
-const ST_DEV := 0.4
-# Kagi (crochet) : changement de direction entre l'avant-dernier et le dernier segment
-const HK_LAST := 1.5
+const ST_DEV := 0.5
+const ST_DEV_K := 0.06
+# Kagi (crochet) : fin de trait cassée, repartant en arrière
+const HK_MIN := 110.0
+const HK_MAX := 172.0           # l'aller-retour est testé avant : un retour court et replié reste un crochet
+const HK_LAST := 0.9
+const HK_LAST_K := 0.15
 const HK_PREV := 0.8
-const HK_MIN := 120.0
-const HK_MAX := 170.0  # l'aller-retour est testé avant : un retour court et replié reste un crochet
+const HK_STRAIGHT := 0.3
+
+# ordre des candidats (_candidates) : le zigzag d'abord (ses portes l'excluent de toute courbe), l'ensō,
+# l'aller-retour avant la boucle (un demi-tour aux côtés écartés est une boucle plate, mais c'est un retour),
+# le trait droit, le crochet
+const ORDER := ["zigzag", "enso", "return", "loop", "straight", "hook"]
 
 
 ## Trait de combat : il part du héros, puis suit le doigt. Le geste du joueur commence au point `lead_n`
-## (premier contact du doigt) : on lit d'abord ce geste seul, l'amorce depuis le héros ne doit pas casser la figure.
-static func detect_lead(points: PackedVector3Array, lead_n: int) -> Dictionary:
-	if lead_n > 0 and lead_n < points.size() - 2 and length(points.slice(0, lead_n + 1)) >= 1.0:
-		var r := detect(points.slice(lead_n))
+## (premier contact du doigt) : on lit d'abord ce geste seul, l'amorce depuis le héros ne doit pas casser la
+## figure ; si le geste seul ne dit rien, le trait entier est lu. `scale` : mètres au sol par centimètre d'écran
+## au niveau du geste (0 : inconnu), pour le rayon qui sépare boucle et ensō.
+static func detect_lead(points: PackedVector3Array, lead_n: int, scale: float = 0.0) -> Dictionary:
+	if lead_n > 0 and lead_n < points.size() - 2:
+		var r := detect(points.slice(lead_n), scale)
 		if not r.is_empty():
 			return r
-	return detect(points)
-
-
-## Détecte la forme du trait. Renvoie {} ou {"shape": String, ...infos}.
-static func detect(points: PackedVector3Array) -> Dictionary:
-	var p := _clean(points)
-	if p.size() < 3 or length(p) < MIN_LENGTH:
+		# le trait entier, amorce comprise, ne vaut que pour le trait droit (l'amorce prolonge le geste) : partout
+		# ailleurs le coin entre l'amorce et le geste fabriquerait une figure (zigzag, crochet, cercle refermé)
+		r = detect(points, scale)
+		if String(r.get("shape", "")) == "straight":
+			return r
 		return {}
-	var r := _detect_enso(p)
-	if not r.is_empty():
-		return r
-	r = _detect_loop(p)
-	if not r.is_empty():
-		return r
-	r = _detect_return(p)
-	if not r.is_empty():
-		return r
-	# boucle ouverte (le trait tourne presque un tour complet sans se recouper) : une boucle, jamais un zigzag
-	r = _detect_loop_open(p)
-	if not r.is_empty():
-		return r
-	var s := simplify(p, SIMPLIFY_TOL)
-	r = _detect_zigzag(s)
-	if r.is_empty():
-		r = _detect_zigzag_soft(p)
-	if not r.is_empty():
-		return r
-	r = _detect_straight(p)
-	if not r.is_empty():
-		return r
-	return _detect_hook(s)
+	return detect(points, scale)
 
 
-# ---------------------------------------------------------------- utilitaires
+## Détecte la forme du trait. Renvoie {} ou {"shape": String, ...infos} :
+## enso / loop : center, radius ; return : far ; zigzag : corners ; straight : dir ; hook : tip, dir.
+static func detect(points: PackedVector3Array, scale: float = 0.0) -> Dictionary:
+	var f := _features(points)
+	if f.is_empty():
+		return {}
+	for c: Dictionary in _candidates(f, scale):
+		if float(c["score"]) >= 1.0:
+			var out := c.duplicate()
+			out.erase("score")
+			out.erase("reason")
+			return out
+	return {}
+
+
+# ---------------------------------------------------------------- utilitaires publics
 
 ## Longueur totale de la polyligne.
 static func length(points: PackedVector3Array) -> float:
@@ -140,111 +180,298 @@ static func turning_deg(points: PackedVector3Array) -> float:
 	return rad_to_deg(total)
 
 
-# ---------------------------------------------------------------- détecteurs
+# ---------------------------------------------------------------- lecture du trait
 
-static func _detect_enso(p: PackedVector3Array) -> Dictionary:
-	if absf(turning_deg(p)) < ENSO_MIN_TURN:
+## Trait nettoyé, rééchantillonné, caps et virages. {} si le trait est trop court.
+static func _features(points: PackedVector3Array) -> Dictionary:
+	var p := _clean(points)
+	if p.size() < 3:
 		return {}
-	var c := _centroid(p)
-	var st := _radius_stats(p, c)
-	# un grand cercle peut rester plus ouvert : l'écart toléré suit le rayon
-	if p[0].distance_to(p[p.size() - 1]) > maxf(ENSO_GAP, st.x * 1.1):
+	var L := length(p)
+	if L < MIN_LENGTH:
 		return {}
-	if st.x < ENSO_MIN_R or st.y / st.x >= ENSO_ROUND:
-		return {}
-	return {"shape": "enso", "center": c, "radius": st.x}
+	var step := clampf(L * STEP_K, STEP_MIN, STEP_MAX)
+	var q := _resample_step(p, step)
+	var n := q.size()
+	var w := maxi(1, int(round(clampf(L * HEAD_K, HEAD_MIN, HEAD_MAX) / step)))
+	if n < 2 * w + 3:
+		w = maxi(1, (n - 3) / 2)
+	# cap de la corde [i-w, i+w] en chaque point, et virage d'un cap au suivant (degrés signés)
+	var head := PackedFloat32Array()
+	head.resize(n)
+	var turn := PackedFloat32Array()
+	turn.resize(n)
+	turn.fill(0.0)
+	for i in range(w, n - w):
+		var d := q[i + w] - q[i - w]
+		head[i] = atan2(d.z, d.x)
+	for i in range(w, n - w - 1):
+		turn[i] = rad_to_deg(wrapf(head[i + 1] - head[i], -PI, PI))
+	return {"p": p, "L": L, "q": q, "step": step, "w": w, "turn": turn, "run": _trim_run(turn, _best_run(turn, w, n - w - 1))}
 
 
-static func _detect_loop(p: PackedVector3Array) -> Dictionary:
-	var n := p.size()
-	for i in range(n - 1):
-		for j in range(i + 2, n - 1):
-			var t := _seg_hit(p[i], p[i + 1], p[j], p[j + 1])
-			if t < 0.0:
-				continue
-			# sous-trait fermé : point de croisement -> boucle -> point de croisement
-			var x := p[i].lerp(p[i + 1], t)
-			var sub := PackedVector3Array([x])
-			sub.append_array(p.slice(i + 1, j + 1))
-			sub.append(x)
-			var c := _centroid(sub)
-			var st := _radius_stats(sub, c)
-			if st.x < LOOP_R_MIN or st.x > LOOP_R_MAX:
-				continue
-			var a := maxi(0, i - LOOP_PAD)
-			var b := mini(n - 1, j + 1 + LOOP_PAD)
-			if absf(turning_deg(p.slice(a, b + 1))) < LOOP_TURN:
-				continue
-			# un grand cercle qui se recoupe au bout (le joueur a « fermé » son ensō en dépassant) reste un ensō
-			if st.x >= ENSO_MIN_R and st.y / maxf(st.x, EPS) < ENSO_ROUND:
-				return {"shape": "enso", "center": c, "radius": st.x}
-			return {"shape": "loop", "center": c, "radius": st.x}
-	# petit cercle refermé sans se recouper (trop petit pour un ensō) : c'est une boucle
-	if absf(turning_deg(p)) >= LOOP_TURN:
-		var c2 := _centroid(p)
-		var st2 := _radius_stats(p, c2)
-		if st2.x >= LOOP_R_MIN and st2.x < ENSO_MIN_R and st2.y / st2.x < ENSO_ROUND 				and p[0].distance_to(p[n - 1]) < maxf(0.6, st2.x * 0.8):
-			return {"shape": "loop", "center": c2, "radius": st2.x}
-	return {}
+## Les bouts du virage qui traînent sur les amorces droites (le bruit y fait encore un peu « tourner ») sont
+## rognés : on retire, de chaque côté, les pas dont le virage moyen sur trois pas reste sous le tiers du virage
+## moyen du reste. [degrés, indice de début, indice de fin]
+static func _trim_run(turn: PackedFloat32Array, run: Array) -> Array:
+	var i0 := int(run[1])
+	var i1 := int(run[2])
+	if i1 - i0 < 6:
+		return run
+	var lim := float(run[0]) / float(i1 - i0) * 0.35
+	while i1 - i0 > 6 and absf(turn[i0] + turn[i0 + 1] + turn[i0 + 2]) / 3.0 < lim:
+		i0 += 1
+	while i1 - i0 > 6 and absf(turn[i1 - 1] + turn[i1 - 2] + turn[i1 - 3]) / 3.0 < lim:
+		i1 -= 1
+	var deg := 0.0
+	for k in range(i0, i1):
+		deg += turn[k]
+	return [absf(deg), i0, i1]
 
 
-## Boucle ouverte : une boucle tracée vite ne se recoupe pas toujours (un « ρ » ou un « e » ouvert). Si une
-## portion du trait tourne dans le même sens d'au moins LOOP_OPEN_TURN, avec un rayon de boucle, c'est une boucle.
-## Testé avant le zigzag : les joueurs voyaient leurs boucles prises pour des zigzags (deux demi-virages).
-const LOOP_OPEN_TURN := 250.0
-const LOOP_OPEN_STEP := 0.15
-
-
-static func _detect_loop_open(p: PackedVector3Array) -> Dictionary:
-	var q := _resample_step(p, LOOP_OPEN_STEP)
-	var run := _same_sign_run(q)
-	if float(run[0]) < LOOP_OPEN_TURN:
-		return {}
-	var sub := q.slice(int(run[1]), int(run[2]) + 1)
-	if sub.size() < 4:
-		return {}
-	var c := _centroid(sub)
-	var st := _radius_stats(sub, c)
-	if st.x < LOOP_R_MIN or st.x > LOOP_R_MAX or st.y / maxf(st.x, EPS) > 0.6:
-		return {}
-	# grand et rond : c'est un ensō un peu ouvert, pas une boucle (la boucle est le petit tour serré)
-	if st.x >= ENSO_MIN_R and st.y / maxf(st.x, EPS) < ENSO_ROUND and float(run[0]) >= ENSO_MIN_TURN:
-		return {"shape": "enso", "center": c, "radius": st.x}
-	if st.x >= ENSO_MIN_R:
-		return {}
-	return {"shape": "loop", "center": c, "radius": st.x}
-
-
-## Plus grand virage cumulé dans un même sens le long de q : [degrés, indice de début, indice de fin].
-static func _same_sign_run(q: PackedVector3Array) -> Array:
+## Plus grand virage cumulé dans un même sens (un contre-virage de moins de RUN_TOL degrés, le tremblement,
+## ne le coupe pas) : [degrés, indice de début, indice de fin] dans q.
+static func _best_run(turn: PackedFloat32Array, i_start: int, i_end: int) -> Array:
 	var best := 0.0
-	var b0 := 0
-	var b1 := 0
+	var b0 := i_start
+	var b1 := i_start
+	var s := 0.0
 	var acc := 0.0
-	var a0 := 0
-	var prev := Vector2.ZERO
-	var has_prev := false
-	for i in range(1, q.size()):
-		var d := Vector2(q[i].x - q[i - 1].x, q[i].z - q[i - 1].z)
-		if d.length_squared() < EPS:
+	var a0 := i_start
+	var cnt := 0.0
+	var c0 := i_start
+	for i in range(i_start, i_end):
+		var d := turn[i]
+		if s == 0.0:
+			if absf(d) > 0.01:
+				s = signf(d)
+			acc += d
+		elif signf(d) == s or absf(d) < 0.01:
+			acc += d
+			cnt = 0.0
+		else:
+			if cnt == 0.0:
+				c0 = i
+			cnt += absf(d)
+			acc += d
+			if cnt > RUN_TOL:
+				# le virage s'inverse pour de bon : nouveau virage depuis le début du contre-virage
+				s = -s
+				acc = s * cnt
+				a0 = c0
+				cnt = 0.0
+		if absf(acc) > best:
+			best = absf(acc)
+			b0 = a0
+			b1 = i + 1
+	return [best, b0, b1]
+
+
+## Virage (degrés signés) en chaque point entre les cordes [i-w, i] et [i, i+w].
+static func _corner_turn(q: PackedVector3Array, w: int) -> PackedFloat32Array:
+	var n := q.size()
+	var t := PackedFloat32Array()
+	t.resize(n)
+	t.fill(0.0)
+	for i in range(w, n - w):
+		var a := Vector2(q[i].x - q[i - w].x, q[i].z - q[i - w].z)
+		var b := Vector2(q[i + w].x - q[i].x, q[i + w].z - q[i].z)
+		if a.length_squared() < EPS or b.length_squared() < EPS:
 			continue
-		if has_prev:
-			var t := rad_to_deg(atan2(prev.cross(d), prev.dot(d)))
-			if acc == 0.0 or signf(t) == signf(acc) or absf(t) < 2.0:
-				acc += t
-			else:
-				acc = t
-				a0 = i - 1
-			if absf(acc) > absf(best):
-				best = acc
-				b0 = a0
-				b1 = i
-		prev = d
-		has_prev = true
-	return [absf(best), b0, b1]
+		t[i] = rad_to_deg(atan2(a.cross(b), a.dot(b)))
+	return t
 
 
-static func _detect_return(p: PackedVector3Array) -> Dictionary:
+## Coins : un par série de points qui virent fort dans le même sens (le pic). [[indice, signe], ...]
+static func _corners(t: PackedFloat32Array, thresh: float) -> Array:
+	var out: Array = []
+	var n := t.size()
+	var i := 0
+	while i < n:
+		if absf(t[i]) <= thresh:
+			i += 1
+			continue
+		var sg := signf(t[i])
+		var best := i
+		while i < n and absf(t[i]) > thresh * 0.6 and signf(t[i]) == sg:
+			if absf(t[i]) > absf(t[best]):
+				best = i
+			i += 1
+		out.append([best, sg])
+	return out
+
+
+# ---------------------------------------------------------------- candidats
+
+static func _candidates(f: Dictionary, scale: float) -> Array:
+	var curl := _curl(f, scale)
+	return [_zigzag(f), curl[0], _return(f), curl[1], _straight(f), _hook(f)]
+
+
+## Candidat : porte × produit des conditions (rapport ≥ 1 : tenue) ; la raison est la condition la plus manquée.
+static func _cand(shape: String, checks: Array, gate: float, info: Dictionary = {}) -> Dictionary:
+	var score := clampf(gate, 0.0, 1.0)
+	var reason := ""
+	var low := 2.0
+	for ck: Array in checks:
+		var r := clampf(float(ck[0]), 0.0, 1.0)
+		score *= r
+		if r < low:
+			low = r
+			reason = String(ck[1])
+	var out := {"shape": shape, "reason": reason, "score": score}
+	out.merge(info)
+	return out
+
+
+## Rayon qui sépare la boucle de l'ensō : 0,7 cm d'écran quand l'échelle est connue, sinon 1,5 m au sol.
+static func split_radius(scale: float) -> float:
+	if scale > 0.0:
+		return maxf(SPLIT_R_MIN, SPLIT_CM * scale)
+	return SPLIT_R
+
+
+## Cercles : trois lectures, dans l'ordre (le grand virage d'un même sens, la boucle entre deux croisements du
+## trait, le trait entier si le virage s'est fragmenté) ; la première qui dessine un vrai cercle (rond, de la
+## longueur de son tour, qui fait le tour de son centre) décide entre ensō et boucle. Sinon les candidats les
+## mieux notés servent au diagnostic. [ensō, boucle]
+static func _curl(f: Dictionary, scale: float) -> Array:
+	var q: PackedVector3Array = f["q"]
+	var n := q.size()
+	var w: int = f["w"]
+	var W := float(w) * float(f["step"])
+	var t_all := absf(turning_deg(q))
+	# [sous-trait, tour, amorce avant, amorce après, tour pour la couverture, premier indice, dernier indice]
+	var srcs: Array = []
+	var run: Array = f["run"]
+	if float(run[0]) >= 150.0:
+		var i0 := int(run[1])
+		var i1 := mini(n - 1, int(run[2]))
+		# la corde des caps rogne les deux bouts de l'arc : le tour est aussi mesuré, segment à segment, un peu plus large
+		var t_full := absf(turning_deg(q.slice(maxi(0, i0 - w), mini(n, i1 + w + 1))))
+		srcs.append([q.slice(i0, i1 + 1), maxf(float(run[0]), t_full), maxf(0.0, length(q.slice(0, i0 + 1)) - W), maxf(0.0, length(q.slice(i1)) - W), float(run[0]), i0, i1])
+	# boucle entre deux croisements : le trait se recoupe (une boucle serrée, un ensō « fermé » en dépassant)
+	var x := _first_cross(q)
+	if not x.is_empty():
+		var i: int = x[0]
+		var j: int = x[1]
+		var sub := PackedVector3Array([x[2]])
+		sub.append_array(q.slice(i + 1, j + 1))
+		sub.append(x[2])
+		var t_sub := absf(turning_deg(sub))
+		srcs.append([sub, t_sub, length(q.slice(0, i + 1)), length(q.slice(j + 1)), t_sub, i + 1, j])
+	# le trait entier : seulement si le grand virage s'est fragmenté (une hésitation dans l'ensō) ; sinon il ne
+	# ferait que réunir une petite boucle et ses amorces dans un faux grand cercle
+	if float(run[0]) < 0.85 * t_all:
+		srcs.append([q, t_all, 0.0, 0.0, t_all, 0, n - 1])
+	# coins francs (corde du zigzag) : une boucle n'en a pas
+	var wz := maxi(1, int(round(clampf(float(f["L"]) * ZZ_WIN_K, ZZ_WIN_MIN, ZZ_WIN_MAX) / float(f["step"]))))
+	var ct := _corner_turn(q, wz)
+	var best_e := {"shape": "enso", "reason": "", "score": 0.0}
+	var best_l := {"shape": "loop", "reason": "", "score": 0.0}
+	var split := split_radius(scale)
+	for s: Array in srcs:
+		var sub: PackedVector3Array = s[0]
+		if sub.size() < 4:
+			continue
+		var peak := 0.0
+		for k in range(int(s[5]), int(s[6]) + 1):
+			peak = maxf(peak, absf(ct[k]))
+		var fit := _circle_fit(sub)
+		if float(fit[1]) < EPS:
+			continue
+		# le grand virage traîne sur les amorces (le bruit y « tourne » encore) : l'arc est rogné là où le trait
+		# quitte la bande du cercle, puis le cercle est réajusté sur l'arc seul
+		var arc := _arc_trim(sub, fit[0], fit[1])
+		if arc.size() >= 4:
+			sub = arc
+			fit = _circle_fit(sub)
+		var c: Vector3 = fit[0]
+		var r: float = fit[1]
+		var rnd: float = fit[2] / maxf(r, EPS)
+		if r < EPS:
+			continue
+		# tour de l'arc : la somme des virages (plus la corde perdue aux deux bouts), ou la lecture de la source ;
+		# le geste du doigt commence et finit par une corde (points espacés) : il manque la moitié de chacune
+		var turn: float = s[1]
+		if s[0].size() != sub.size():
+			turn = maxf(turn, absf(turning_deg(sub)) + rad_to_deg(float(f["step"]) / r))
+		if int(s[5]) == 0 or int(s[6]) >= n - 1:
+			var p: PackedVector3Array = f["p"]
+			turn += rad_to_deg((p[1].distance_to(p[0]) + p[p.size() - 1].distance_to(p[p.size() - 2])) / (2.0 * r)) * 0.5
+		# amorces avant et après le cercle, lues par la géométrie : une amorce tangente de longueur t finit à
+		# √(r² + t²) du centre (plus sûr que l'indice où le virage commence)
+		var tail_in := sqrt(maxf(0.0, q[0].distance_squared_to(c) - r * r))
+		var tail_out := sqrt(maxf(0.0, q[n - 1].distance_squared_to(c) - r * r))
+		var tails := minf(tail_in, tail_out) / maxf(r, EPS)
+		# l'arc doit avoir la longueur de son tour et faire le tour de son centre : un trait qui tourne beaucoup
+		# mais loin du cercle ajusté (un demi-tour aux côtés bombés) n'en est pas un
+		var cov := length(sub) / maxf(deg_to_rad(turn) * r, EPS)
+		var cover := minf(cov, 1.0) / CURL_COVER
+		var span_deg := _angular_span(sub, c)
+		var span := span_deg / CURL_MIN_SPAN
+		# il faut au moins une bonne moitié de tour pour parler de cercle
+		var gate := (turn - 100.0) / 100.0
+		# ensō : grand, rond, presque fermé ; pas une boucle prise entre deux longues amorces (sauf très grand)
+		var e_tails := 1.0 if r > LOOP_R_MAX else LOOP_TAILS / maxf(tails, EPS)
+		var e := _cand("enso", [
+			[minf(turn / ENSO_MIN_TURN, span_deg / ENSO_MIN_SPAN), "fais presque tout le tour"],
+			[r / split, "cercle trop petit"],
+			[ENSO_ROUND / maxf(rnd, EPS), "pas assez rond"],
+			[e_tails, "trop de trait avant et après le cercle"],
+			[cover, "pas un cercle"],
+			[span, "pas un cercle"],
+		], gate, {"center": c, "radius": r})
+		# boucle : petit cercle (seul ou dans un trait), ou cercle moyen pris entre deux longues amorces
+		var small := split / r
+		if r <= LOOP_R_MAX:
+			small = maxf(small, tails / LOOP_TAILS)
+		var l := _cand("loop", [
+			[turn / LOOP_MIN_TURN, "boucle trop plate"],
+			[r / CURL_MIN_R, "boucle trop petite"],
+			[LOOP_ROUND / maxf(rnd, EPS), "boucle trop écrasée"],
+			[small, "trop grand pour une boucle"],
+			[cover, "pas un cercle"],
+			[span, "pas un cercle"],
+			[LOOP_CORNER / maxf(peak, EPS), "boucle anguleuse"],
+		], gate, {"center": c, "radius": r})
+		# un vrai cercle : cette lecture décide
+		if rnd <= LOOP_ROUND and cover >= 1.0 and span >= 1.0 and turn >= 200.0:
+			return [e, l]
+		if float(e["score"]) > float(best_e["score"]):
+			best_e = e
+		if float(l["score"]) > float(best_l["score"]):
+			best_l = l
+	return [best_e, best_l]
+
+
+## Arc seul : les points des deux bouts qui sortent de la bande ± CURL_BAND autour du cercle (c, r) sont retirés.
+static func _arc_trim(sub: PackedVector3Array, c: Vector3, r: float) -> PackedVector3Array:
+	var a := 0
+	var b := sub.size() - 1
+	var band := CURL_BAND * r
+	while a < b and absf(sub[a].distance_to(c) - r) > band:
+		a += 1
+	while b > a and absf(sub[b].distance_to(c) - r) > band:
+		b -= 1
+	return sub.slice(a, b + 1)
+
+
+## Étendue angulaire (degrés) des points vus du centre c : 360 moins le plus grand trou.
+static func _angular_span(p: PackedVector3Array, c: Vector3) -> float:
+	if p.size() < 3:
+		return 0.0
+	var angs := PackedFloat32Array()
+	for q: Vector3 in p:
+		angs.append(atan2(q.z - c.z, q.x - c.x))
+	angs.sort()
+	var gap := TAU - (angs[angs.size() - 1] - angs[0])
+	for i in range(1, angs.size()):
+		gap = maxf(gap, angs[i] - angs[i - 1])
+	return rad_to_deg(TAU - gap)
+
+static func _return(f: Dictionary) -> Dictionary:
+	var p: PackedVector3Array = f["q"]
 	var start := p[0]
 	var k := 0
 	var far := 0.0
@@ -253,11 +480,11 @@ static func _detect_return(p: PackedVector3Array) -> Dictionary:
 		if d > far:
 			far = d
 			k = i
-	if far < RET_FAR:
-		return {}
-	# un long aller-retour tracé vite revient moins précisément : tolérances proportionnelles à l'aller
-	if start.distance_to(p[p.size() - 1]) > _ret_gap(far):
-		return {}
+	# part du trait après le point le plus loin : sans retour, ce n'est pas un aller-retour
+	var back := 1.0 - float(k) / float(maxi(p.size() - 1, 1))
+	if back < 0.15 or far < 0.5:
+		return {"shape": "return", "reason": "reviens sur tes pas", "score": 0.0}
+	var gap := start.distance_to(p[p.size() - 1])
 	# aller (début -> point le plus loin) vs retour retourné (fin -> point le plus loin)
 	var aller := _resample_n(p.slice(0, k + 1), RET_SAMPLES)
 	var back_src := p.slice(k)
@@ -267,138 +494,186 @@ static func _detect_return(p: PackedVector3Array) -> Dictionary:
 	for s in range(RET_SAMPLES):
 		dev += aller[s].distance_to(retour[s])
 	dev /= float(RET_SAMPLES)
-	if dev >= _ret_dev(far):
-		return {}
-	return {"shape": "return", "far": p[k]}
+	return _cand("return", [
+		[far / RET_FAR, "aller trop court"],
+		[maxf(RET_GAP, far * RET_GAP_K) / maxf(gap, EPS), "reviens jusqu'au départ"],
+		[maxf(RET_DEV, far * RET_DEV_K) / maxf(dev, EPS), "retour trop écarté de l'aller"],
+	], back / 0.3, {"far": p[k]})
 
 
-static func _ret_gap(far: float) -> float:
-	return maxf(RET_GAP, far * 0.25)
+## Deux cordes de virage (courte pour un W aux branches courtes, longue pour un Z aux coins très arrondis) :
+## on garde la lecture la mieux notée.
+static func _zigzag(f: Dictionary) -> Dictionary:
+	var best := _zigzag_w(f, ZZ_WIN_K)
+	var alt := _zigzag_w(f, ZZ_WIN_K2)
+	if float(alt["score"]) > float(best["score"]):
+		return alt
+	return best
 
 
-static func _ret_dev(far: float) -> float:
-	return maxf(RET_DEV, far * 0.14)
-
-
-static func _detect_zigzag(s: PackedVector3Array) -> Dictionary:
-	var corners: Array = []
-	for i in range(1, s.size() - 1):
-		var a := s[i] - s[i - 1]
-		var b := s[i + 1] - s[i]
-		var la := a.length()
-		var lb := b.length()
-		if la < ZZ_SEG_MIN or la > ZZ_SEG_MAX or lb < ZZ_SEG_MIN or lb > ZZ_SEG_MAX:
-			continue
-		if _angle_change(a, b) > ZZ_ANGLE:
-			corners.append(s[i])
-	if corners.size() < ZZ_COUNT:
-		return {}
-	return {"shape": "zigzag", "corners": corners}
-
-
-## Zigzag à main levée : les coins tracés vite sont arrondis, RDP les coupe en deux demi-virages trop doux.
-## On mesure le virage sur une fenêtre glissante (≈ 0,6 m avant / après), on garde les pics, et il faut
-## au moins deux coins de sens alterné (un Z, un N, un W) séparés de vraies branches.
-const ZZ_STEP := 0.2
-const ZZ_WIN := 3
-const ZZ_SOFT_ANGLE := 95.0
-const ZZ_BRANCH := 1.0
-
-
-static func _detect_zigzag_soft(p: PackedVector3Array) -> Dictionary:
-	if length(p) < 3.5:
-		return {}
-	var q := _resample_step(p, ZZ_STEP)
-	# un virage cumulé de plus d'un demi-tour dans le même sens : c'est une courbe (boucle ratée), pas un zigzag
-	if float(_same_sign_run(q)[0]) > 200.0:
-		return {}
+static func _zigzag_w(f: Dictionary, win_k: float) -> Dictionary:
+	var q: PackedVector3Array = f["q"]
 	var n := q.size()
-	if n < ZZ_WIN * 2 + 3:
-		return {}
-	# virage signé de chaque point sur la fenêtre
-	var turn := PackedFloat32Array()
-	turn.resize(n)
-	turn.fill(0.0)
-	for i in range(ZZ_WIN, n - ZZ_WIN):
-		var a := Vector2(q[i].x - q[i - ZZ_WIN].x, q[i].z - q[i - ZZ_WIN].z)
-		var b := Vector2(q[i + ZZ_WIN].x - q[i].x, q[i + ZZ_WIN].z - q[i].z)
-		if a.length_squared() < EPS or b.length_squared() < EPS:
-			continue
-		turn[i] = rad_to_deg(atan2(a.cross(b), a.dot(b)))
-	# pics : un coin par série de points qui tournent fort dans le même sens
+	var L: float = f["L"]
+	var step: float = f["step"]
+	var wz := maxi(1, int(round(clampf(L * win_k, ZZ_WIN_MIN, ZZ_WIN_MAX) / step)))
+	if n < 2 * wz + 3:
+		return {"shape": "zigzag", "reason": "il faut deux virages nets", "score": 0.0, "corners": []}
+	var branch := maxf(ZZ_BRANCH_MIN, L * ZZ_BRANCH_K)
+	# coins possibles (virage sur la corde) ; l'angle vrai d'un coin est celui entre les cordes qui le relient à
+	# ses voisins (ou aux bouts) : l'arrondi du coin ne compte plus. Les faux coins (bosses du tremblement) sont
+	# retirés un à un, le plus mou d'abord, jusqu'à ce que tous soient nets.
+	var t := _corner_turn(q, wz)
 	var idx: Array = []
-	var sgn: Array = []
-	var i := 0
-	while i < n:
-		if absf(turn[i]) <= ZZ_SOFT_ANGLE:
-			i += 1
-			continue
-		var sg := signf(turn[i])
-		var best := i
-		while i < n and absf(turn[i]) > ZZ_SOFT_ANGLE * 0.6 and signf(turn[i]) == sg:
-			if absf(turn[i]) > absf(turn[best]):
-				best = i
-			i += 1
-		idx.append(best)
-		sgn.append(sg)
-	# plus longue suite de coins alternés, branches assez longues entre eux
-	var corners: Array = []
+	for c: Array in _corners(t, ZZ_SEED):
+		idx.append(int(c[0]))
+	var angs: Array = []
+	var soft := 0
+	while true:
+		angs = _chord_angles(q, idx)
+		var weakest := -1
+		var low := 1e9
+		for k in idx.size():
+			var a := absf(float(angs[k]))
+			# un coin net : l'angle entre les branches est franc, et il est concentré au coin (le virage sur la corde
+			# en fait l'essentiel) ; sur un arc (un S), le virage se répartit et la corde n'en voit qu'une moitié
+			var focus := absf(t[int(idx[k])]) / maxf(a, EPS)
+			var v := minf(a / ZZ_ANGLE, focus / ZZ_FOCUS)
+			if v < 1.0 and v < low:
+				low = v
+				weakest = k
+		if weakest < 0:
+			break
+		if low >= 0.6:
+			soft += 1
+		idx.remove_at(weakest)
+	# plus longue suite de coins alternés séparés de vraies branches droites
+	var best: Array = []
 	var run: Array = []
+	var weak := ""  # la raison du dernier coin écarté
 	for k in idx.size():
 		var ci: int = idx[k]
+		var sg := signf(float(angs[k]))
 		if not run.is_empty():
-			var pi: int = run[run.size() - 1]
-			var psg: float = sgn[idx.find(pi)]
-			var branch := q[ci].distance_to(q[pi])
-			if float(sgn[k]) == psg or branch < ZZ_BRANCH or branch > ZZ_SEG_MAX:
-				if run.size() > corners.size():
-					corners = run.duplicate()
+			var prev: Array = run[run.size() - 1]
+			var pi: int = prev[0]
+			var bl := length(q.slice(pi, ci + 1))
+			var why := ""
+			if sg == float(prev[1]):
+				why = "virages dans le même sens"
+			elif bl < branch:
+				why = "branches trop courtes"
+			elif _sagitta(q, pi, ci) / maxf(bl, EPS) > ZZ_STRAIGHT:
+				why = "branches courbes"
+			if why != "":
+				weak = why
+				if run.size() > best.size():
+					best = run.duplicate()
 				run = []
-		run.append(ci)
-	if run.size() > corners.size():
-		corners = run
-	if corners.size() < ZZ_COUNT:
-		return {}
-	# les deux bouts aussi doivent être de vraies branches
-	var c0: int = corners[0]
-	var c1: int = corners[corners.size() - 1]
-	if q[0].distance_to(q[c0]) < ZZ_BRANCH * 0.7 or q[n - 1].distance_to(q[c1]) < ZZ_BRANCH * 0.7:
-		return {}
+		run.append([ci, sg])
+	if run.size() > best.size():
+		best = run
+	var cnt := best.size()
+	var ends := 1.0
 	var pts: Array = []
-	for c in corners:
-		pts.append(q[int(c)])
-	return {"shape": "zigzag", "corners": pts}
+	if cnt >= 1:
+		var c0: int = best[0][0]
+		var c1: int = best[cnt - 1][0]
+		ends = minf(length(q.slice(0, c0 + 1)), length(q.slice(c1))) / (branch * ZZ_END_K)
+		for c: Array in best:
+			pts.append(q[int(c[0])])
+	var reason := "il faut deux virages nets"
+	if cnt < ZZ_COUNT:
+		if weak != "":
+			reason = weak
+		elif soft > 0:
+			reason = "angles trop doux"
+	# un virage cumulé de plus d'un demi-tour dans le même sens : c'est une courbe (boucle ratée), pas un zigzag
+	var gate := clampf((ZZ_CURVE + 60.0 - float(f["run"][0])) / 60.0, 0.0, 1.0)
+	var count_r := float(cnt) / float(ZZ_COUNT)
+	if cnt < ZZ_COUNT and cnt + soft >= ZZ_COUNT:
+		count_r = maxf(count_r, 0.6)
+	return _cand("zigzag", [
+		[count_r, reason],
+		[ends, "les deux bouts doivent être de vraies branches"],
+	], gate, {"corners": pts})
 
 
-static func _detect_straight(p: PackedVector3Array) -> Dictionary:
-	if length(p) < ST_LEN:
-		return {}
+## Angle signé (degrés) en chaque coin entre la corde qui vient du coin précédent (ou du départ) et celle qui
+## va au coin suivant (ou à l'arrivée).
+static func _chord_angles(q: PackedVector3Array, idx: Array) -> Array:
+	var out: Array = []
+	var n := q.size()
+	for k in idx.size():
+		var ci: int = idx[k]
+		var pi: int = idx[k - 1] if k > 0 else 0
+		var ni: int = idx[k + 1] if k + 1 < idx.size() else n - 1
+		var a := Vector2(q[ci].x - q[pi].x, q[ci].z - q[pi].z)
+		var b := Vector2(q[ni].x - q[ci].x, q[ni].z - q[ci].z)
+		if a.length_squared() < EPS or b.length_squared() < EPS:
+			out.append(0.0)
+		else:
+			out.append(rad_to_deg(atan2(a.cross(b), a.dot(b))))
+	return out
+
+## Flèche : plus grand écart des points de q entre les indices a et b à la corde [q[a], q[b]].
+static func _sagitta(q: PackedVector3Array, a: int, b: int) -> float:
+	var d := 0.0
+	for k in range(a + 1, b):
+		d = maxf(d, _seg_dist(q[k], q[a], q[b]))
+	return d
+
+
+static func _straight(f: Dictionary) -> Dictionary:
+	var p: PackedVector3Array = f["q"]
+	var L: float = f["L"]
 	var a := p[0]
 	var b := p[p.size() - 1]
-	var tol := _st_dev(length(p))
-	for q: Vector3 in p:
-		if _seg_dist(q, a, b) >= tol:
-			return {}
-	return {"shape": "straight", "dir": _flat_dir(b - a)}
+	var dev := _sagitta(p, 0, p.size() - 1)
+	var tol := maxf(ST_DEV, L * ST_DEV_K)
+	return _cand("straight", [
+		[L / ST_LEN, "trop court"],
+		[tol / maxf(dev, EPS), "trop sinueux pour un trait droit"],
+	], (2.5 * tol - dev) / (1.5 * tol), {"dir": _flat_dir(b - a)})  # un trait franchement courbe ou cassé n'est pas « presque droit »
 
 
-## Un long trait à main levée ondule un peu : l'écart toléré suit la longueur.
-static func _st_dev(l: float) -> float:
-	return maxf(ST_DEV, l * 0.035)
-
-
-static func _detect_hook(s: PackedVector3Array) -> Dictionary:
-	var n := s.size()
-	if n < 3:
-		return {}
-	var last := s[n - 1] - s[n - 2]
-	var prev := s[n - 2] - s[n - 3]
-	if last.length() < HK_LAST or prev.length() < HK_PREV:
-		return {}
-	var ang := _angle_change(prev, last)
-	if ang < HK_MIN or ang > HK_MAX:
-		return {}
-	return {"shape": "hook", "tip": s[n - 1], "dir": _flat_dir(last)}
+static func _hook(f: Dictionary) -> Dictionary:
+	var q: PackedVector3Array = f["q"]
+	var n := q.size()
+	var L: float = f["L"]
+	var step: float = f["step"]
+	var wz := maxi(1, int(round(clampf(L * ZZ_WIN_K, ZZ_WIN_MIN, ZZ_WIN_MAX) / step)))
+	var none := {"shape": "hook", "reason": "", "score": 0.0, "tip": q[n - 1], "dir": _flat_dir(q[n - 1] - q[0])}
+	if n < 2 * wz + 3:
+		return none
+	var corners := _corners(_corner_turn(q, wz), 60.0)
+	if corners.is_empty():
+		return none
+	var c: int = corners[corners.size() - 1][0]
+	var last := length(q.slice(c))
+	var prev := length(q.slice(0, c + 1))
+	# directions avant et après le coin, prises hors de son arrondi (un tiers de chaque côté, au plus un mètre)
+	var m0 := mini(c, int(round(minf(prev * 0.35, 1.0) / step)))
+	var m := maxi(1, mini(c - m0, int(round(minf(prev, 1.0) / step))))
+	var before := q[c - m0] - q[c - m0 - m]
+	var a0 := mini(n - 2, c + int(round(minf(last * 0.35, 1.0) / step)))
+	var after := q[n - 1] - q[a0]
+	var ang := _angle_change(before, after)
+	var straight := _sagitta(q, c, n - 1) / maxf(last, EPS)
+	# un retour qui revient presque au départ est un aller-retour (inachevé, en direct) : pas un crochet
+	var far := 0.0
+	for pt: Vector3 in q:
+		far = maxf(far, pt.distance_to(q[0]))
+	var gap := q[n - 1].distance_to(q[0])
+	var not_ret := 1.0 if far < RET_FAR else gap / (1.25 * maxf(RET_GAP, far * RET_GAP_K))
+	return _cand("hook", [
+		[last / maxf(HK_LAST, L * HK_LAST_K), "crochet trop court"],
+		[prev / HK_PREV, "premier trait trop court"],
+		[ang / HK_MIN, "repars plus en arrière"],
+		[HK_MAX / maxf(ang, EPS), "trop replié, presque un aller-retour"],
+		[not_ret, "trop replié, presque un aller-retour"],
+		[HK_STRAIGHT / maxf(straight, EPS), "crochet trop courbe"],
+	], (ang - 60.0) / 50.0, {"tip": q[n - 1], "dir": _flat_dir(after)})
 
 
 # ---------------------------------------------------------------- aides internes
@@ -439,6 +714,23 @@ static func _seg_hit(a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> float:
 	return t
 
 
+## Premier croisement du trait avec lui-même qui enferme la plus grande boucle : [i, j, point], ou [].
+static func _first_cross(q: PackedVector3Array) -> Array:
+	var n := q.size()
+	var best: Array = []
+	var best_len := 0.0
+	for i in range(n - 1):
+		for j in range(i + 2, n - 1):
+			var t := _seg_hit(q[i], q[i + 1], q[j], q[j + 1])
+			if t < 0.0:
+				continue
+			var l := length(q.slice(i + 1, j + 1))
+			if l > best_len:
+				best_len = l
+				best = [i, j, q[i].lerp(q[i + 1], t)]
+	return best
+
+
 ## Barycentre pondéré par la longueur des segments.
 static func _centroid(p: PackedVector3Array) -> Vector3:
 	var acc := Vector3.ZERO
@@ -453,6 +745,75 @@ static func _centroid(p: PackedVector3Array) -> Vector3:
 			acc += q
 		return acc / float(maxi(1, p.size()))
 	return acc / tot
+
+
+## Cercle des moindres carrés : [centre, rayon moyen, écart-type du rayon]. Ajustement algébrique (Kåsa) puis
+## quelques pas d'ajustement géométrique (Landau) : l'algébrique sous-estime le rayon d'un arc bruité, et le
+## barycentre seul d'un C est tiré vers l'arc (son rayon paraît irrégulier).
+static func _circle_fit(p: PackedVector3Array) -> Array:
+	var c0 := _kasa(p)
+	var m := Vector3.ZERO
+	for q: Vector3 in p:
+		m += q
+	m /= float(p.size())
+	var c := c0
+	for _it in 6:
+		var r := 0.0
+		var u := Vector3.ZERO
+		for q: Vector3 in p:
+			var d := q.distance_to(c)
+			r += d
+			if d > EPS:
+				u += (c - q) / d
+		r /= float(p.size())
+		u /= float(p.size())
+		var nc := m + u * r
+		if nc.distance_to(c) < 0.001:
+			c = nc
+			break
+		c = nc
+	# si l'ajustement géométrique s'égare (points presque alignés), on garde le premier
+	if c.distance_to(c0) > 2.0 * _radius_stats(p, c0).x:
+		c = c0
+	var st := _radius_stats(p, c)
+	return [c, st.x, st.y]
+
+
+## Ajustement algébrique (Kåsa) : le centre du cercle, ou le barycentre si les points sont presque alignés.
+static func _kasa(p: PackedVector3Array) -> Vector3:
+	var g := _centroid(p)
+	var sxx := 0.0
+	var syy := 0.0
+	var sxy := 0.0
+	var sxz := 0.0
+	var syz := 0.0
+	var n := float(p.size())
+	var sx := 0.0
+	var sy := 0.0
+	var sz := 0.0
+	for q: Vector3 in p:
+		var x := q.x - g.x
+		var y := q.z - g.z
+		var z := x * x + y * y
+		sx += x
+		sy += y
+		sz += z
+		sxx += x * x
+		syy += y * y
+		sxy += x * y
+		sxz += x * z
+		syz += y * z
+	# résout [sxx sxy sx ; sxy syy sy ; sx sy n] · [a b c] = -[sxz syz sz]
+	var det := sxx * (syy * n - sy * sy) - sxy * (sxy * n - sy * sx) + sx * (sxy * sy - syy * sx)
+	var c := g
+	if absf(det) > EPS:
+		var a := (-sxz * (syy * n - sy * sy) - sxy * (-syz * n + sy * sz) + sx * (-syz * sy + syy * sz)) / det
+		var b := (sxx * (-syz * n + sy * sz) + sxz * (sxy * n - sy * sx) + sx * (-sxy * sz + syz * sx)) / det
+		c = Vector3(g.x - a * 0.5, 0.0, g.z - b * 0.5)
+		# un ajustement aberrant (points presque alignés) : on garde le barycentre
+		if c.distance_to(g) > 4.0 * sqrt(sz / n):
+			c = g
+	return c
 
 
 ## Rayon moyen (x) et écart-type du rayon (y) autour de c.
@@ -497,6 +858,11 @@ static func _resample_n(p: PackedVector3Array, count: int) -> PackedVector3Array
 	return out
 
 
+static func _resample_step(p: PackedVector3Array, step: float) -> PackedVector3Array:
+	var n := maxi(2, int(ceil(length(p) / step)) + 1)
+	return _resample_n(p, n)
+
+
 ## Angle (0..180°) entre deux directions, en XZ.
 static func _angle_change(a: Vector3, b: Vector3) -> float:
 	var va := Vector2(a.x, a.z)
@@ -516,11 +882,10 @@ static func _flat_dir(v: Vector3) -> Vector3:
 
 
 # ---------------------------------------------------------------- diagnostic (dojo)
-# Trait non reconnu : la figure la plus proche et la condition qui a manqué, avec les mêmes seuils que detect().
+# Trait non reconnu : la figure la plus proche et la condition qui a manqué, avec les mêmes candidats que detect().
 
 const FIG_NAMES := {"enso": "un ensō", "loop": "une boucle", "return": "un aller-retour", "zigzag": "un zigzag", "straight": "un trait droit", "hook": "un crochet"}
 const NEAR_MIN := 0.35  # sous ce score : trait simple, aucune figure en vue
-const ZZ_SOFT := 50.0   # virage mou : presque un angle de zigzag
 
 
 ## Phrase d'un résultat de near_miss() (vide si le trait est reconnu).
@@ -538,186 +903,22 @@ static func describe(m: Dictionary) -> String:
 
 ## Figure la plus proche d'un trait non reconnu.
 ## Renvoie {} si le trait est reconnu, sinon {"shape": figure ("" : aucune), "reason": String, "score": 0..1}.
-static func near_miss(points: PackedVector3Array) -> Dictionary:
-	var p := _clean(points)
-	if p.size() < 3 or length(p) < MIN_LENGTH:
+static func near_miss(points: PackedVector3Array, scale: float = 0.0) -> Dictionary:
+	var f := _features(points)
+	if f.is_empty():
 		return {"shape": "", "reason": "trop court", "score": 0.0}
-	if not detect(points).is_empty():
-		return {}
-	var s := simplify(p, SIMPLIFY_TOL)
 	var best: Dictionary = {"shape": "", "reason": "aucune figure", "score": 0.0}
-	for c: Dictionary in [_miss_enso(p), _miss_loop(p), _miss_return(p), _miss_zigzag(s), _miss_straight(p), _miss_hook(s)]:
+	for c: Dictionary in _candidates(f, scale):
+		if float(c["score"]) >= 1.0:
+			return {}
 		if float(c["score"]) > float(best["score"]):
 			best = c
 	if float(best["score"]) < NEAR_MIN:
 		return {"shape": "", "reason": "aucune figure", "score": float(best["score"])}
-	return best
-
-
-## Score = porte × produit des conditions (rapport ≥ 1 : tenue) ; la raison est la condition la plus manquée.
-static func _worst(shape: String, checks: Array, gate: float) -> Dictionary:
-	var score := clampf(gate, 0.0, 1.0)
-	var reason := ""
-	var low := 2.0
-	for ck: Array in checks:
-		var r := clampf(float(ck[0]), 0.0, 1.0)
-		score *= r
-		if r < low:
-			low = r
-			reason = String(ck[1])
-	return {"shape": shape, "reason": reason, "score": score}
-
-
-static func _miss_enso(p: PackedVector3Array) -> Dictionary:
-	var turn := absf(turning_deg(p))
-	var c := _centroid(p)
-	var st := _radius_stats(p, c)
-	var gap := p[0].distance_to(p[p.size() - 1])
-	var gap_max := maxf(ENSO_GAP, st.x * 1.1)
-	var rnd := st.y / maxf(st.x, EPS)
-	var checks := [
-		[turn / ENSO_MIN_TURN, "fais presque tout le tour"],
-		[gap_max / maxf(gap, EPS), "cercle trop ouvert"],
-		[st.x / ENSO_MIN_R, "cercle trop petit"],
-		[ENSO_ROUND / maxf(rnd, EPS), "pas assez rond"],
-	]
-	# il faut au moins une bonne moitié de tour pour parler de cercle
-	return _worst("enso", checks, (turn - 120.0) / 120.0)
-
-
-static func _miss_loop(p: PackedVector3Array) -> Dictionary:
-	var n := p.size()
-	var best: Dictionary = {"shape": "loop", "reason": "", "score": 0.0}
-	var crossed := false
-	for i in range(n - 1):
-		for j in range(i + 2, n - 1):
-			var t := _seg_hit(p[i], p[i + 1], p[j], p[j + 1])
-			if t < 0.0:
-				continue
-			crossed = true
-			var x := p[i].lerp(p[i + 1], t)
-			var sub := PackedVector3Array([x])
-			sub.append_array(p.slice(i + 1, j + 1))
-			sub.append(x)
-			var st := _radius_stats(sub, _centroid(sub))
-			var a := maxi(0, i - LOOP_PAD)
-			var b := mini(n - 1, j + 1 + LOOP_PAD)
-			var turn := absf(turning_deg(p.slice(a, b + 1)))
-			var checks := [
-				[st.x / LOOP_R_MIN, "boucle trop petite"],
-				[LOOP_R_MAX / maxf(st.x, EPS), "boucle trop grande"],
-				[turn / LOOP_TURN, "boucle trop plate"],
-			]
-			var r := _worst("loop", checks, 1.0)
-			if float(r["score"]) > float(best["score"]):
-				best = r
-	if not crossed:
-		# ça tourne, mais le trait ne se recoupe pas : la boucle reste ouverte
-		var tt := absf(turning_deg(p))
-		best = {"shape": "loop", "reason": "recoupe ton propre trait", "score": clampf((tt - 180.0) / 180.0, 0.0, 1.0) * 0.8}
-	return best
-
-
-static func _miss_return(p: PackedVector3Array) -> Dictionary:
-	var start := p[0]
-	var k := 0
-	var far := 0.0
-	for i in range(p.size()):
-		var d := p[i].distance_to(start)
-		if d > far:
-			far = d
-			k = i
-	# part du trait après le point le plus loin : sans retour, ce n'est pas un aller-retour
-	var back := 1.0 - float(k) / float(maxi(p.size() - 1, 1))
-	if back < 0.15 or far < 0.5:
-		return {"shape": "return", "reason": "", "score": 0.0}
-	var gap := start.distance_to(p[p.size() - 1])
-	var aller := _resample_n(p.slice(0, k + 1), RET_SAMPLES)
-	var back_src := p.slice(k)
-	back_src.reverse()
-	var retour := _resample_n(back_src, RET_SAMPLES)
-	var dev := 0.0
-	for s in range(RET_SAMPLES):
-		dev += aller[s].distance_to(retour[s])
-	dev /= float(RET_SAMPLES)
-	var checks := [
-		[_ret_gap(far) / maxf(gap, EPS), "reviens jusqu'au départ"],
-		[far / RET_FAR, "aller trop court"],
-		[_ret_dev(far) / maxf(dev, EPS), "retour trop écarté de l'aller"],
-	]
-	return _worst("return", checks, back / 0.3)
-
-
-static func _miss_zigzag(s: PackedVector3Array) -> Dictionary:
-	var sharp := 0
-	var soft := 0
-	var n_short := 0
-	var n_long := 0
-	for i in range(1, s.size() - 1):
-		var a := s[i] - s[i - 1]
-		var b := s[i + 1] - s[i]
-		var ang := _angle_change(a, b)
-		if ang < ZZ_SOFT:
-			continue
-		var la := a.length()
-		var lb := b.length()
-		if la < ZZ_SEG_MIN or lb < ZZ_SEG_MIN:
-			n_short += 1
-		elif la > ZZ_SEG_MAX or lb > ZZ_SEG_MAX:
-			n_long += 1
-		elif ang > ZZ_ANGLE:
-			sharp += 1
-		else:
-			soft += 1
-	var reason := "il faut deux virages nets"
-	if soft > 0 and soft >= n_short and soft >= n_long:
-		reason = "angles trop doux"
-	elif n_short > 0 and n_short >= n_long:
-		reason = "branches trop courtes"
-	elif n_long > 0:
-		reason = "branches trop longues"
-	var score := (float(sharp) + 0.6 * float(soft + n_short + n_long)) / float(ZZ_COUNT)
-	return {"shape": "zigzag", "reason": reason, "score": clampf(score, 0.0, 0.95)}
-
-
-static func _miss_straight(p: PackedVector3Array) -> Dictionary:
-	var a := p[0]
-	var b := p[p.size() - 1]
-	var dev := 0.0
-	for q: Vector3 in p:
-		dev = maxf(dev, _seg_dist(q, a, b))
-	var checks := [
-		[length(p) / ST_LEN, "trop court"],
-		[_st_dev(length(p)) / maxf(dev, EPS), "trop sinueux pour un trait droit"],
-	]
-	# un trait franchement courbe ou cassé n'est pas « presque droit »
-	return _worst("straight", checks, (1.6 - dev) / 1.2)
-
-
-static func _miss_hook(s: PackedVector3Array) -> Dictionary:
-	var n := s.size()
-	if n < 3:
-		return {"shape": "hook", "reason": "", "score": 0.0}
-	var last := s[n - 1] - s[n - 2]
-	var prev := s[n - 2] - s[n - 3]
-	var ang := _angle_change(prev, last)
-	if ang < 60.0:
-		return {"shape": "hook", "reason": "", "score": 0.0}
-	var checks := [
-		[last.length() / HK_LAST, "crochet trop court"],
-		[prev.length() / HK_PREV, "premier trait trop court"],
-		[ang / HK_MIN, "repars plus en arrière"],
-		[HK_MAX / ang, "trop replié, presque un aller-retour"],
-	]
-	return _worst("hook", checks, (ang - 60.0) / 50.0)
+	return {"shape": String(best["shape"]), "reason": String(best["reason"]), "score": float(best["score"])}
 
 
 # ---------------------------------------------------------------- auto-test
-
-static func _resample_step(p: PackedVector3Array, step: float) -> PackedVector3Array:
-	var n := maxi(2, int(ceil(length(p) / step)) + 1)
-	return _resample_n(p, n)
-
 
 static func _poly(coords: PackedVector2Array) -> PackedVector3Array:
 	var out := PackedVector3Array()
@@ -735,7 +936,7 @@ static func _check(fails: Array, name: String, pts: PackedVector3Array, expected
 		fails.append("%s : attendu '%s', obtenu '%s'" % [name, expected, got])
 
 
-## Polylignes synthétiques -> liste des échecs (vide si tout passe).
+## Polylignes synthétiques -> liste des échecs (vide si tout passe). Le corpus complet : tools/fig_corpus.gd.
 static func self_test() -> Array:
 	var fails: Array = []
 	var step := 0.18
@@ -788,9 +989,9 @@ static func self_test() -> Array:
 	_check(fails, "zigzag", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(1, 2), Vector2(2, 0), Vector2(3, 2), Vector2(4, 0)])), step), "zigzag")
 	# Ittō : droite de 8 m
 	_check(fails, "straight", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(8, 0.2)])), step), "straight")
-	# Kagi : 5 m puis retour à 150° sur 1.8 m
 	# Z tracé au pad : 2 virages, branches longues
 	_check(fails, "zigzag Z", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(6, 0), Vector2(0.5, 4), Vector2(6.5, 4)])), step), "zigzag")
+	# Kagi : 5 m puis retour à 150° sur 1.8 m
 	var hk := deg_to_rad(30.0)
 	_check(fails, "hook", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(5.0 - 1.8 * cos(hk), 1.8 * sin(hk))])), step), "hook")
 	# petit cercle refermé (r 1.1) sans croisement : boucle
@@ -831,4 +1032,22 @@ static func self_test() -> Array:
 		same.append(Vector3(1, 0, 1))
 	_check(fails, "confondus", same, "")
 	_check(fails, "courbe douce", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(2, 0.5), Vector2(4, 1.5), Vector2(5, 3)])), step), "")
+	# un C (demi-tour, r 2) n'est pas un ensō ; un S (deux arcs opposés) n'est pas un zigzag
+	var cc := PackedVector3Array()
+	for k in range(41):
+		var t6 := deg_to_rad(190.0) * float(k) / 40.0
+		cc.append(Vector3(2.0 * cos(t6), 0.0, 2.0 * sin(t6)))
+	_check(fails, "C", _resample_step(cc, step), "")
+	var ss := PackedVector3Array()
+	for k in range(41):
+		var t7 := PI * float(k) / 40.0
+		ss.append(Vector3(1.5 * cos(PI - t7), 0.0, 1.5 + 1.5 * sin(PI - t7)))
+	for k in range(1, 41):
+		var t8 := PI * float(k) / 40.0
+		ss.append(Vector3(1.5 * cos(PI + t8) + 3.0, 0.0, 1.5 - 1.5 * sin(t8)))
+	_check(fails, "S", _resample_step(ss, step), "")
+	# le diagnostic : un cercle trop petit pour un ensō mais pas assez fermé pour une boucle parle du cercle
+	var m := near_miss(_resample_step(cc, step))
+	if String(m.get("shape", "")) != "enso":
+		fails.append("near_miss C : attendu 'enso', obtenu '%s'" % String(m.get("shape", "")))
 	return fails

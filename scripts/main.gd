@@ -4521,12 +4521,95 @@ func _touch_move(sp: Vector2) -> void:
 		sfx.play("empty", 0.8)
 
 
-## Figure d'un trait : le trait posé (amorce depuis le héros écartée), sinon le geste brut du doigt.
-## En combat, le trait posé est rogné par les bords de la zone et coupé par l'encre : une boucle contre un mur
-## devient un zigzag ou un crochet. Le geste brut du doigt (raw) fait foi quand il lit une forme fermée
-## (boucle, ensō, aller-retour) là où le trait posé n'en voit pas, ou en voit une plus pauvre.
-const FIG_CLOSED := ["loop", "enso", "return"]
+## Figure d'un trait : le geste brut du doigt (raw) fait foi ; sans geste brut (robot, trait enchaîné), le trait
+## posé est lu, amorce depuis le héros écartée. En combat, le trait posé est rogné par les bords de la zone et
+## coupé par l'encre : une boucle contre un mur devient un zigzag ou un crochet ; le geste brut, non.
+## En mode tactile, le doigt dessine sur l'écran mais ses points sont posés au sol en perspective : un cercle
+## à l'écran est un ovale au sol (1,7 fois plus long que large en haut de l'arène), un zigzag y perd ses angles.
+## Le geste est donc relu dans le plan de l'écran (_detect_screen), remis à la longueur de son tracé au sol pour
+## que les seuils en mètres (trait droit de 7 m, aller de 3 m) restent ceux du chemin que court le héros, et les
+## points de la figure (centre, coins, pointe) sont reprojetés au sol pour les techniques (powers).
+const FIG_CLOSED := ["loop", "enso", "return"]  # formes fermées (gardé pour les lecteurs du dict de figure)
 
+
+func _detect_fig(s: Node) -> Dictionary:
+	var rw: PackedVector3Array = s.get("raw")
+	if rw.size() >= 3:
+		var r: Dictionary = {}
+		if ctrl_mode == "pad":
+			# pad : le geste du doigt est reproduit au sol à l'échelle (15 m pour la largeur du pad) : rien à redresser
+			var vs := get_viewport().get_visible_rect().size
+			r = StrokeShapes.detect(rw, 15.0 / (7.0 * maxf(pad_rect().size.x / maxf(vs.x, 1.0), 0.1)))
+		else:
+			r = _detect_screen(rw)
+		if not r.is_empty():
+			return r
+	var pts: PackedVector3Array = s.get("points")
+	return StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
+
+
+## Lecture du geste brut dans le plan de l'écran : chaque point au sol est reprojeté à l'écran, le dessin est
+## mis à l'échelle pour garder la longueur du tracé au sol, et lu par StrokeShapes avec l'échelle du geste
+## (mètres par centimètre d'écran, pour le rayon qui sépare boucle et ensō). Les points de la figure reviennent au sol.
+func _detect_screen(rw: PackedVector3Array) -> Dictionary:
+	var vs := get_viewport().get_visible_rect().size
+	var g := Vector3.ZERO
+	for p in rw:
+		g += p
+	g /= float(rw.size())
+	var sc := cam.unproject_position(g)
+	var scr := PackedVector2Array()
+	var l_scr := 0.0
+	for p in rw:
+		var u := cam.unproject_position(p) - sc
+		if not scr.is_empty():
+			l_scr += u.distance_to(scr[scr.size() - 1])
+		scr.append(u)
+	var l_ground := StrokeShapes.length(rw)
+	if l_scr < 1.0 or l_ground <= 0.0 or not is_finite(l_scr):
+		return StrokeShapes.detect(rw)
+	var k := l_ground / l_scr  # « mètres » par pixel le long de ce geste
+	var sp := PackedVector3Array()
+	for u in scr:
+		sp.append(Vector3(u.x * k, 0.0, u.y * k))
+	var r: Dictionary = StrokeShapes.detect(sp, k * vs.x / 7.0)
+	if r.is_empty():
+		return r
+	# direction au sol (trait droit, crochet) : entre la pointe et un point un mètre en arrière, tous deux reprojetés
+	if r.has("dir"):
+		var tip: Vector3 = r.get("tip", sp[sp.size() - 1])
+		var back: Vector3 = tip - Vector3(r["dir"]) * 1.0
+		var d := _unrect(tip, sc, k) - _unrect(back, sc, k)
+		d.y = 0
+		r["dir"] = d.normalized() if d.length() > 0.001 else Vector3(r["dir"])
+	for key in ["center", "far", "tip"]:
+		if r.has(key):
+			r[key] = _unrect(r[key], sc, k)
+	if r.has("corners"):
+		var cs: Array = []
+		for c in r["corners"]:
+			cs.append(_unrect(c, sc, k))
+		r["corners"] = cs
+	if r.has("radius"):
+		# rayon au sol : distance du centre à un point du cercle, reprojetés tous deux (moyenne de deux directions)
+		var c3: Vector3 = r["center"]
+		var cr: Vector3 = _unrect_inv(c3, sc, k)
+		var rr := float(r["radius"])
+		var ra := _unrect(cr + Vector3(rr, 0, 0), sc, k).distance_to(c3)
+		var rb := _unrect(cr + Vector3(0, 0, rr), sc, k).distance_to(c3)
+		r["radius"] = (ra + rb) * 0.5
+	return r
+
+
+## Point du dessin redressé (« mètres » autour du centre d'écran sc, facteur k) -> point au sol.
+func _unrect(v: Vector3, sc: Vector2, k: float) -> Vector3:
+	return _ground(sc + Vector2(v.x, v.z) / k)
+
+
+## Point au sol -> dessin redressé (inverse de _unrect, pour le rayon).
+func _unrect_inv(p: Vector3, sc: Vector2, k: float) -> Vector3:
+	var u := cam.unproject_position(p) - sc
+	return Vector3(u.x * k, 0.0, u.y * k)
 
 ## `-- --figtest` : échelle du geste (mètres au sol par centimètre d'écran, caméra de jeu) puis le corpus de
 ## gestes réalistes de tools/fig_corpus.gd (matrice de confusion, ratés), et le jeu se ferme.
@@ -4545,18 +4628,6 @@ func _figtest() -> void:
 	var FigCorpus = load("res://tools/fig_corpus.gd")
 	FigCorpus.run(true)
 	get_tree().quit()
-
-
-func _detect_fig(s: Node) -> Dictionary:
-	var pts: PackedVector3Array = s.get("points")
-	var r: Dictionary = StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
-	var rw: PackedVector3Array = s.get("raw")
-	if rw.size() >= 3:
-		var r2: Dictionary = StrokeShapes.detect(rw)
-		if not r2.is_empty():
-			if r.is_empty() or (String(r2.get("shape")) in FIG_CLOSED and not (String(r.get("shape")) in FIG_CLOSED)):
-				r = r2
-	return r
 
 
 func _touch_up(sp: Vector2) -> void:
