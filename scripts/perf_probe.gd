@@ -16,6 +16,10 @@ const PERF_WINDOW := 150  # images par fenêtre (5 s à 30 images/s)
 const TOP_N := 10
 
 static var on := false
+# pas de temps réel simulé (s) : avec --fixed-fps, le moteur ne dort pas et une image dure 2 ms au lieu de 33 ;
+# les animations en temps réel de l'interface (UiKit.real_delta) dureraient 15 fois trop d'images et fausseraient
+# la part des images où le HUD s'anime. Sous --perf, elles avancent donc au pas fixe (0 : horloge réelle).
+static var sim_dt := 0.0
 static var _acc := {}  # poste -> µs cumulés depuis l'image précédente
 static var _calls := {}  # poste -> appels depuis l'image précédente
 
@@ -29,7 +33,7 @@ var _keys_win := {}
 var _calls_max := {}  # poste -> appels max dans une image
 var _worst_win := [0.0, ""]
 var _worst_all := [0.0, ""]
-const METRICS := ["img", "proc", "phys", "process", "physics", "nodes", "objects", "draws", "prims", "mem"]
+const METRICS := ["img", "proc", "phys", "process", "physics", "nodes", "objects", "draws", "d_vis", "d_shadow", "d_canvas", "prims", "mem"]
 var _proc0 := 0  # début des _process de l'image (nœud _Start, priorité la plus basse)
 var _phys_us := 0  # µs de _physics_process cumulés depuis l'image précédente
 var _phys0 := 0
@@ -66,6 +70,10 @@ static func add(key: StringName, t: int) -> void:
 
 func _init() -> void:
 	on = true
+	var args := OS.get_cmdline_args()
+	var i := args.find("--fixed-fps")
+	if i >= 0 and i + 1 < args.size() and int(args[i + 1]) > 0:
+		sim_dt = 1.0 / float(int(args[i + 1]))
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	process_priority = 100000  # après tous les autres _process de l'image
 	process_physics_priority = 100000
@@ -79,7 +87,76 @@ func _physics_process(_d: float) -> void:
 		_phys_us += Time.get_ticks_usec() - _phys0
 
 
+var _census_at: Array = []  # `--census=N[,M…]` : recensement de la scène 3D à ces images
+
+
+## Recensement de ce que la scène 3D dessine : instances de géométrie visibles par branche de l'arbre (premier
+## ancêtre sous main, puis sous le monde et l'arène), dont celles qui portent une ombre, matières distinctes,
+## particules. Pour savoir d'où viennent les appels de dessin.
+func census() -> void:
+	var rows := {}  # branche -> [instances, ombres, surfaces]
+	var mats := {}
+	var parts := 0
+	var stack: Array = [main]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		var gi := n as GeometryInstance3D
+		if gi == null or not gi.is_visible_in_tree():
+			continue
+		var key := _branch(n)
+		var r: Array = rows.get(key, [0, 0, 0])
+		r[0] += 1
+		if gi.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+			r[1] += 1
+		var mi := gi as MeshInstance3D
+		if mi != null and mi.mesh != null:
+			r[2] += mi.mesh.get_surface_count()
+			for si in mi.mesh.get_surface_count():
+				var m: Material = mi.material_override if mi.material_override != null else mi.get_active_material(si)
+				if m != null:
+					mats[m.get_instance_id()] = true
+		elif gi is GPUParticles3D or gi is CPUParticles3D:
+			parts += 1
+		rows[key] = r
+	var keys := rows.keys()
+	keys.sort_custom(func(a, b): return int(rows[a][0]) > int(rows[b][0]))
+	print("PERF RECENSEMENT [%s] : %d matières distinctes, %d émetteurs de particules visibles" % [_where(), mats.size(), parts])
+	for k in keys:
+		var r: Array = rows[k]
+		print("PERF RECENSEMENT %-40s instances %4d  ombres %4d  surfaces %4d" % [k, r[0], r[1], r[2]])
+
+
+func _branch(n: Node) -> String:
+	var chain: Array = []
+	var p := n
+	while p != null and p != main:
+		chain.push_front(p)
+		p = p.get_parent()
+	if chain.is_empty():
+		return "?"
+	var out := _label(chain[0])
+	# sous le monde ou l'arène : un niveau de plus (décor, ennemis, salle…)
+	if chain.size() > 1 and (out.begins_with("world") or out.begins_with("Arena") or out.begins_with("@Node3D")):
+		out += "/" + _label(chain[1])
+		if chain.size() > 2 and _label(chain[1]).begins_with("@Node3D"):
+			out += "/" + _label(chain[2])
+	return out
+
+
+func _label(n: Node) -> String:
+	var sc: Script = n.get_script()
+	if sc != null:
+		return "%s(%s)" % [String(n.name).left(16), sc.resource_path.get_file().get_basename()]
+	return "%s:%s" % [String(n.name).left(16), n.get_class()]
+
+
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if String(a).begins_with("--census="):
+			for v in String(a).substr(9).split(","):
+				_census_at.append(int(v))
 	for m in METRICS:
 		_win[m] = []
 		_all[m] = []
@@ -114,6 +191,9 @@ func _process(_delta: float) -> void:
 		"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
 		"objects": Performance.get_monitor(Performance.OBJECT_COUNT),
 		"draws": Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+		"d_vis": _rinfo(RenderingServer.VIEWPORT_RENDER_INFO_TYPE_VISIBLE),  # appels de dessin : passe principale
+		"d_shadow": _rinfo(RenderingServer.VIEWPORT_RENDER_INFO_TYPE_SHADOW),  # ombres
+		"d_canvas": _rinfo(RenderingServer.VIEWPORT_RENDER_INFO_TYPE_CANVAS),  # interface 2D
 		"prims": Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
 		"mem": Performance.get_monitor(Performance.MEMORY_STATIC) / 1048576.0,
 	}
@@ -144,6 +224,13 @@ func _process(_delta: float) -> void:
 		_worst_all = [cost, _where()]
 	if (_win["img"] as Array).size() >= PERF_WINDOW:
 		_print_window()
+	if _frames in _census_at:
+		census()
+
+
+func _rinfo(kind: int) -> float:
+	return float(RenderingServer.viewport_get_render_info(get_viewport().get_viewport_rid(), kind,
+		RenderingServer.VIEWPORT_RENDER_INFO_DRAW_CALLS_IN_FRAME))
 
 
 static func _stats(a: Array) -> Array:
@@ -160,7 +247,7 @@ static func _stats(a: Array) -> Array:
 
 func _fmt(m: String, a: Array) -> String:
 	var st := _stats(a)
-	if m in ["nodes", "objects", "draws", "prims"]:
+	if m in ["nodes", "objects", "draws", "d_vis", "d_shadow", "d_canvas", "prims"]:
 		return "%s %d/%d/%d/%d" % [m, int(st[0]), int(st[3]), int(st[1]), int(st[2])]
 	return "%s %.2f/%.2f/%.2f/%.2f" % [m, st[0], st[3], st[1], st[2]]
 

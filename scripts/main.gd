@@ -5439,6 +5439,8 @@ func _process_body(_delta: float) -> void:
 		_bot.step(real)
 		if _bt != 0:
 			Perf.add(&"bot", _bt)
+	elif Perf.sim_dt > 0.0:
+		real = Perf.sim_dt  # relevé --perf au pas fixe : partie rejouable à l'identique (mesures et captures avant/après)
 
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):

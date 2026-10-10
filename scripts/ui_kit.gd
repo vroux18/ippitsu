@@ -110,6 +110,8 @@ static func real_delta() -> float:
 		var now := Time.get_ticks_msec()
 		_delta = 0.0 if _last_ms == 0 else minf(float(now - _last_ms) / 1000.0, 0.1)
 		_last_ms = now
+		if Perf.sim_dt > 0.0:
+			_delta = Perf.sim_dt  # relevé --perf au pas fixe : le temps réel de l'interface suit le pas du moteur
 	return _delta
 
 
