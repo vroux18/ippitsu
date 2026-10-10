@@ -12,11 +12,12 @@ const UiKit = preload("res://scripts/ui_kit.gd")
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const INK_SHADER := "res://shaders/puzzle_ink.gdshader"
 
-## Centre de la figure peinte au sol, devant la stèle (côté caméra) ; la stèle recule d'autant.
-const GLYPH_O := Vector3(0, 0, 1.25)
-const GLYPH_K := 0.75
+## Centre de la figure peinte au sol, devant la stèle (côté caméra) ; la stèle recule d'autant. Figure large
+## d'environ 1,8 m sur un cercle de sable clair : lisible de la caméra de jeu, même sur les sols sombres (mondes 2, 4, 8).
+const GLYPH_O := Vector3(0, 0, 1.5)
+const GLYPH_K := 0.92
 const STELE_Z := -0.45
-const INLAY_R := 1.3
+const INLAY_R := 1.55
 ## (Numéros des lanternes : chiffres arabes sur le papier du foyer, plus de kanji en combat, UI v2.)
 const SPIRIT_RING_R := 1.4
 const DRAW_PERIOD := 3.4  # la figure se trace, reste, s'efface : un cycle (s)
@@ -113,7 +114,7 @@ static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shap
 			loc.append(Vector3(q.x, 0, q.z))
 		_meshes[ek] = ribbon_mesh([loc], 0.16, 0.6, 0.0)
 	var emat := Toon.flat(Color(ENGRAVE, 0.7))
-	var eng := Toon.part(slab, _meshes[ek], emat, Vector3(0, 0.68, 0.126), Vector3(0.2, 0.2, 0.2))
+	var eng := Toon.part(slab, _meshes[ek], emat, Vector3(0, 0.68, 0.126), Vector3.ONE * (0.15 / GLYPH_K))
 	eng.rotation.x = PI / 2.0
 	eng.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	pk["label"] = emat
@@ -149,7 +150,7 @@ static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shap
 		pb.rotation.y = randf() * TAU
 	var key := "fig_" + shape
 	if not _meshes.has(key):
-		_meshes[key] = ribbon_mesh([pts], 0.11, 1.0, 0.03)
+		_meshes[key] = ribbon_mesh([pts], 0.13, 1.0, 0.03)
 	var fig: Mesh = _meshes[key]
 	# la figure entière, à peine visible, et par-dessus le trait qui se trace (départ -> arrivée)
 	_part_flat(n, fig, _mat("ghost"), Vector3.ZERO)
@@ -166,25 +167,7 @@ static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shap
 static func _update_stele(pk: Dictionary, t: float, fk: float) -> void:
 	var gmv = pk.get("gmat")
 	if gmv is ShaderMaterial:
-		var gm: ShaderMaterial = gmv
-		var age := t - float(pk["cyc0"])
-		if age < 0.0:
-			# raté : la figure entière, vermillon, le temps de la secousse ; puis elle se retrace
-			gm.set_shader_parameter(P_INK, Color(Toon.VERMILION, 0.9))
-			gm.set_shader_parameter(P_REVEAL, 1.0)
-			gm.set_shader_parameter(P_FADE, 1.0)
-		else:
-			var u := fmod(age, DRAW_PERIOD) / DRAW_PERIOD
-			var rv := 1.0
-			var fd := 1.0
-			if u < 0.55:
-				var e := u / 0.55
-				rv = -0.02 + 1.02 * (1.0 - (1.0 - e) * (1.0 - e))
-			elif u > 0.8:
-				fd = 1.0 - (u - 0.8) / 0.2
-			gm.set_shader_parameter(P_INK, INK_COL)
-			gm.set_shader_parameter(P_REVEAL, rv)
-			gm.set_shader_parameter(P_FADE, fd)
+		_ink_cycle(gmv, t - float(pk["cyc0"]), DRAW_PERIOD, 0.55, INK_COL)
 	var lb = pk.get("label")
 	if lb is StandardMaterial3D:
 		var em: StandardMaterial3D = lb
@@ -579,6 +562,365 @@ static func _solve_spirit(pk: Dictionary, root: Node3D) -> void:
 	ts.tween_callback(sparks.queue_free).set_delay(1.6)
 
 
+# ------------------------------------------------------------------ coffre scellé (main._spawn_sealed_chest)
+
+## Coffre scellé : le karabitsu de main._pocket_node (W 1,15, D 0,78, joint du couvercle à 0,78 m) ligoté de deux
+## chaînes d'encre en croix sur la façade, d'une bande d'ofuda passée par-dessus le couvercle et d'un sceau hanko
+## vermillon au croisement ; à côté, sur deux piquets, une plaque (ema) inclinée face à la caméra où la figure à
+## tracer se peint en boucle au pinceau fantôme (point de départ vermillon). Pas de texte (UI v2).
+const SEAL_PERIOD := 3.0  # la figure se peint (55 %), reste, s'efface : un cycle (s)
+const SEAL_Y := 0.78  # joint du couvercle
+const SEAL_AT := Vector3(0, 1.19, 0.04)  # sceau, au croisement des chaînes sur le couvercle
+const SEAL_HALF := 0.085  # demi-largeur du sceau (deux moitiés)
+const EMA_TILT := -0.82  # plaque renversée vers la caméra (élévation 54°) : presque de face, encore posée
+const EMA_H := 1.4  # hauteur du centre de la plaque
+const EMA_SIZE := Vector2(1.9, 1.5)  # planche ; le papier est 0,16 plus étroit (lisible de la caméra de jeu)
+const EMA_GLYPH := 0.62  # demi-taille de la figure peinte (gabarit ±1 de glyph_path), en m
+const UNSEAL_T := 0.62  # du trait juste au couvercle qui saute (main._open_chest) (s)
+const SEAL_INK := Color(0.106, 0.102, 0.118, 0.95)
+
+
+## Figure d'une plaque, d'un seul trait dans l'ordre du geste : les glyphes des figures de l'interface
+## (UiKit._fsym : spirale, éclair, trait montant, arche, ensō, crochet), au gabarit ±1 du canevas (x à droite,
+## y vers le bas), posés dans le plan XZ (z = y du canevas) pour ribbon_mesh.
+static func glyph_path(shape: String) -> PackedVector3Array:
+	var out := PackedVector3Array()
+	match shape:
+		"loop":
+			for i in 56:
+				var t := float(i) / 55.0
+				var v := Vector2.from_angle(t * TAU * 1.75) * 0.92 * (0.12 + 0.88 * t)
+				out.append(Vector3(v.x, 0, v.y))
+		"zigzag":
+			for v: Vector2 in [Vector2(-0.6, -0.9), Vector2(0.3, -0.15), Vector2(-0.3, 0.12), Vector2(0.6, 0.9)]:
+				out.append(Vector3(v.x, 0, v.y))
+		"straight":
+			out.append(Vector3(-0.92, 0, 0.62))
+			out.append(Vector3(0.92, 0, -0.62))
+		"return":
+			out.append(Vector3(-0.55, 0, 0.85))
+			for i in 19:
+				var a := PI + PI * float(i) / 18.0
+				out.append(Vector3(cos(a) * 0.55, 0, -0.15 + sin(a) * 0.62))
+			out.append(Vector3(0.55, 0, 0.85))
+		"enso":
+			for i in 49:
+				var a2 := -PI * 0.3 + PI * 1.78 * float(i) / 48.0
+				out.append(Vector3(cos(a2), 0, sin(a2)) * 0.85)
+		"hook":
+			out.append(Vector3(0.38, 0, -0.9))
+			out.append(Vector3(0.38, 0, 0.3))
+			for i in range(1, 17):
+				var a3 := PI * float(i) / 16.0
+				out.append(Vector3(0.0, 0, 0.3) + Vector3(cos(a3) * 0.38, 0, sin(a3) * 0.4))
+			out.append(Vector3(-0.5, 0, -0.1))
+	return out
+
+
+## Pose le lien et la plaque sur le coffre `n` (nœud de main._pocket_node("chest")) ; `side` : côté (±1 en x)
+## où se dresse la plaque. Les nœuds animés et les matières propres à ce coffre vont dans `pk`.
+static func build_seal(n: Node3D, pk: Dictionary, shape: String, side: float) -> void:
+	var glow := n.get_node_or_null("Glow") as Node3D
+	if glow != null:
+		glow.visible = false  # l'or ne respire qu'une fois le sceau brisé
+	# lavis d'encre au sol, et l'éclair vermillon des ratés par-dessus
+	_part_flat(n, _mesh("disc"), _mat("seal_wash"), Vector3(0, 0.016, 0), Vector3(1.05, 1, 1.05))
+	var fm := Toon.flat(Color(Toon.VERMILION, 0.0))
+	_part_flat(n, _mesh("disc"), fm, Vector3(0, 0.02, 0), Vector3(1.3, 1, 1.3))
+	pk["fmat"] = fm
+	var bind := Node3D.new()
+	bind.name = "Bind"
+	n.add_child(bind)
+	pk["bind"] = bind
+	# deux chaînes d'encre : du pied de la façade, par-dessus le couvercle en diagonale, jusqu'à l'angle arrière
+	# opposé ; elles se croisent sous le sceau, au milieu du couvercle (la caméra haute voit surtout le dessus).
+	# Maillons alternés à plat / de chant contre la face qu'ils longent.
+	var links: Array = []
+	var lm := _mat("chain")
+	var lmesh := _mesh("chain_link")
+	var step := 0.12 if Toon.lite else 0.1
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		var path := [Vector3(0.4 * x, 0.2, 0.452), Vector3(0.4 * x, 0.93, 0.452), Vector3(0.4 * x, 1.072, 0.3), Vector3(-0.46 * x, 1.072, -0.3), Vector3(-0.5 * x, 0.94, -0.45)]
+		var nrm := [Vector3(0, 0, 1), Vector3(0, 0.7, 0.7), Vector3(0, 1, 0), Vector3(0, 0.7, -0.7)]
+		var j := 0
+		for si in path.size() - 1:
+			var a: Vector3 = path[si]
+			var b: Vector3 = path[si + 1]
+			var dir := (b - a).normalized()
+			var cnt := maxi(1, roundi(a.distance_to(b) / step))
+			for i in range(0 if si == 0 else 1, cnt + 1):
+				var p := a.lerp(b, float(i) / float(cnt))
+				j += 1
+				if Vector2(p.x, p.z).length() < 0.17 and p.y > 1.0:
+					continue  # caché sous le sceau
+				var nv: Vector3 = nrm[si]
+				var by := nv if j % 2 == 0 else dir.cross(nv).normalized()
+				var li := _part_flat(bind, lmesh, lm, p + nv * (0.012 if j % 2 == 0 else 0.0))
+				li.transform.basis = Basis(dir * 1.5, by, dir.cross(by))
+				links.append(li)
+	pk["links"] = links
+	# ofuda : bande de papier de l'arrière du couvercle jusqu'au bas de la façade, déchirée au joint (deux nœuds)
+	var paper := _mat("ofuda")
+	var top := Node3D.new()
+	bind.add_child(top)
+	top.position = Vector3(0, SEAL_Y, 0)
+	_part_flat(top, _mesh("ofuda_front"), paper, Vector3(0, 0.073, 0.437))
+	_part_flat(top, _mesh("ofuda_step"), paper, Vector3(0, 0.147, 0.365))
+	_part_flat(top, _mesh("ofuda_riser"), paper, Vector3(0, 0.205, 0.293))
+	_part_flat(top, _mesh("ofuda_top"), paper, Vector3(0, 0.267, 0.0))
+	var bot := Node3D.new()
+	bind.add_child(bot)
+	bot.position = Vector3(0, SEAL_Y, 0)
+	_part_flat(bot, _mesh("ofuda_low"), paper, Vector3(0, -0.19, 0.405))
+	# un coup de pinceau sumi le long du papier (motif de talisman, pas d'écriture)
+	_part_flat(bot, _mesh("ofuda_mark"), _mat("seal_ink"), Vector3(0, -0.2, 0.41))
+	_part_flat(top, _mesh("ofuda_mark"), _mat("seal_ink"), Vector3(0, 0.272, -0.1), Vector3(1, 1, 1)).rotation.x = PI / 2.0
+	pk["ofuda"] = [top, bot]
+	# sceau hanko au croisement des chaînes, dressé face à la caméra : bloc vermillon en deux moitiés (il se
+	# fend au déverrouillage) cerné d'un cadre de papier
+	var seal := Node3D.new()
+	bind.add_child(seal)
+	seal.position = SEAL_AT
+	seal.rotation.x = -0.9
+	pk["seal"] = seal
+	var halves: Array = []
+	for sx in [-1.0, 1.0]:
+		var h := Node3D.new()
+		seal.add_child(h)
+		h.position = Vector3(float(sx) * SEAL_HALF, 0, 0)
+		Toon.part(h, _mesh("seal_half"), _mat("seal_block"), Vector3.ZERO)
+		var mk := _mat("seal_mark")
+		_part_flat(h, _mesh("seal_bar_h"), mk, Vector3(float(sx) * -0.005, 0.14, 0.032))
+		_part_flat(h, _mesh("seal_bar_h"), mk, Vector3(float(sx) * -0.005, -0.14, 0.032))
+		_part_flat(h, _mesh("seal_bar_v"), mk, Vector3(float(sx) * 0.055, 0, 0.032))
+		halves.append(h)
+	pk["halves"] = halves
+	var crack := _part_flat(seal, _mesh("seal_crack"), _mat("seal_mark"), Vector3(0, 0, 0.034))
+	crack.visible = false
+	pk["crack"] = crack
+	# plaque (ema) sur deux piquets, à côté du coffre, renversée vers la caméra
+	var ema := Node3D.new()
+	ema.name = "Ema"
+	n.add_child(ema)
+	ema.position = Vector3(side * 1.75, 0, -0.4)
+	ema.rotation.y = -side * 0.12
+	pk["ema"] = ema
+	Toon.blob(ema, 1.0, 0.28)
+	for sx in [-1.0, 1.0]:
+		Toon.part(ema, _mesh("ema_stake"), _mat("wood_dark"), Vector3(float(sx) * 0.72, 0.65, -0.14))
+	var board := Node3D.new()
+	ema.add_child(board)
+	board.position = Vector3(0, EMA_H, 0)
+	board.rotation.x = EMA_TILT
+	Toon.part(board, _mesh("ema_plank"), _mat("wood"), Vector3.ZERO)
+	Toon.part(board, _mesh("ema_roof"), _mat("wood_dark"), Vector3(0, EMA_SIZE.y * 0.5 + 0.03, 0.01))
+	_part_flat(board, _mesh("ema_paper"), _mat("ema_paper"), Vector3(0, -0.02, 0.031))
+	# cordon de paille noué au faîte, deux shide aux angles
+	Toon.part(board, _mesh("ema_knot"), _mat("rope"), Vector3(0, EMA_SIZE.y * 0.5 - 0.02, 0.05))
+	for sx in [-1.0, 1.0]:
+		var sd := _part_flat(board, _mesh("shide"), _mat("paper"), Vector3(float(sx) * (EMA_SIZE.x * 0.5 + 0.02), EMA_SIZE.y * 0.5 - 0.12, 0.05), Vector3(1.4, 1.6, 1.0))
+		sd.rotation.z = float(sx) * 0.25
+	# la figure : fantôme entier, trait qui se peint par-dessus, sceau vermillon au départ
+	var gl := Node3D.new()
+	board.add_child(gl)
+	gl.position = Vector3(0, -0.02, 0.04)
+	gl.rotation.x = PI / 2.0  # plan XZ du ruban -> plan de la plaque (z du canevas vers le bas)
+	var key := "ema_" + shape
+	if not _meshes.has(key):
+		var src := glyph_path(shape)
+		var pts := PackedVector3Array()
+		for p in src:
+			pts.append(p * EMA_GLYPH)
+		_meshes[key] = ribbon_mesh([pts], 0.078, 0.5, 0.0)
+	var fig: Mesh = _meshes[key]
+	_part_flat(gl, fig, _mat("ema_ghost"), Vector3.ZERO)
+	var gm := ink_mat(SEAL_INK, 0.0, Color(Toon.VERMILION, 1.0))
+	gm.render_priority = 1
+	_part_flat(gl, fig, gm, Vector3(0, 0.004, 0))
+	pk["gmat"] = gm
+	pk["cyc0"] = -randf() * SEAL_PERIOD
+	var start := glyph_path(shape)
+	if not start.is_empty():
+		_part_flat(gl, _mesh("disc"), _mat("seal"), start[0] * EMA_GLYPH + Vector3(0, 0.008, 0), Vector3(0.075, 1, 0.075))
+
+
+## Trait au pinceau fantôme (stèle, plaque) : se peint en `draw` du cycle, reste, s'efface sur le dernier
+## cinquième ; avant cyc0 (raté), la figure entière en vermillon.
+static func _ink_cycle(gm: ShaderMaterial, age: float, period: float, draw: float, ink: Color) -> void:
+	if age < 0.0:
+		gm.set_shader_parameter(P_INK, Color(Toon.VERMILION, 0.9))
+		gm.set_shader_parameter(P_REVEAL, 1.0)
+		gm.set_shader_parameter(P_FADE, 1.0)
+		return
+	var u := fmod(age, period) / period
+	var rv := 1.0
+	var fd := 1.0
+	if u < draw:
+		var e := u / draw
+		rv = -0.02 + 1.02 * (1.0 - (1.0 - e) * (1.0 - e))
+	elif u > 0.8:
+		fd = 1.0 - (u - 0.8) / 0.2
+	gm.set_shader_parameter(P_INK, ink)
+	gm.set_shader_parameter(P_REVEAL, rv)
+	gm.set_shader_parameter(P_FADE, fd)
+
+
+static func _update_seal(pk: Dictionary, t: float, fk: float) -> void:
+	var gmv = pk.get("gmat")
+	if gmv is ShaderMaterial:
+		_ink_cycle(gmv, t - float(pk["cyc0"]), SEAL_PERIOD, 0.5, SEAL_INK)
+	# raté : le lien tremble, le sceau gonfle, éclair vermillon au sol ; sinon le sceau respire à peine
+	var bv = pk.get("bind")
+	if is_instance_valid(bv):
+		var bind: Node3D = bv
+		bind.position = Vector3(sin(t * 55.0) * 0.04 * fk, 0, 0)
+	var sv = pk.get("seal")
+	if is_instance_valid(sv):
+		var seal: Node3D = sv
+		seal.scale = Vector3.ONE * (1.0 + 0.3 * fk + 0.04 * sin(t * 2.6))
+	var fmv = pk.get("fmat")
+	if fmv is StandardMaterial3D:
+		var fm: StandardMaterial3D = fmv
+		fm.albedo_color = Color(Toon.VERMILION, 0.4 * fk)
+
+
+## Déverrouillage (main._unseal_chest) : la figure de la plaque se dore ; le sceau se fend, ses moitiés tombent ;
+## la chaîne se dissout en gouttes d'encre qui tachent le sol ; l'ofuda se déchire et s'envole. Le couvercle
+## saute ensuite (main._open_chest, après UNSEAL_T).
+static func unseal(pk: Dictionary, root: Node3D) -> void:
+	var gmv = pk.get("gmat")
+	if gmv is ShaderMaterial:
+		var gm: ShaderMaterial = gmv
+		gm.set_shader_parameter(P_INK, Color(Toon.GOLD.lightened(0.1), 1.0))
+		gm.set_shader_parameter(P_HEAD, Color(0, 0, 0, 0))
+		gm.set_shader_parameter(P_REVEAL, 1.0)
+		gm.set_shader_parameter(P_FADE, 1.0)
+	var fmv = pk.get("fmat")
+	if fmv is StandardMaterial3D:
+		var fm: StandardMaterial3D = fmv
+		fm.albedo_color = Color(Toon.GOLD, 0.0)
+		var tf := root.create_tween()
+		tf.tween_property(fm, "albedo_color:a", 0.45, 0.12)
+		tf.tween_property(fm, "albedo_color:a", 0.0, 0.7)
+	var bv = pk.get("bind")
+	if is_instance_valid(bv):
+		var bind0: Node3D = bv
+		bind0.position = Vector3.ZERO
+	# sceau : il gonfle, la fente blanche apparaît, les deux moitiés tombent en tournoyant puis fondent
+	var sv = pk.get("seal")
+	if is_instance_valid(sv):
+		var seal: Node3D = sv
+		seal.scale = Vector3.ONE
+		var ts := seal.create_tween()
+		ts.tween_property(seal, "scale", Vector3.ONE * 1.35, 0.08).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		var cv = pk.get("crack")
+		if is_instance_valid(cv):
+			ts.tween_callback((cv as Node3D).show)
+		ts.tween_interval(0.07)
+		var halves: Array = pk.get("halves", [])
+		for i in halves.size():
+			var hv = halves[i]
+			if not is_instance_valid(hv):
+				continue
+			var h: Node3D = hv
+			var sg := -1.0 if i == 0 else 1.0
+			var drop := func() -> void:
+				# hors du sceau (incliné) : la moitié tombe droit au sol, devant le coffre, en tournoyant
+				h.reparent(root)
+				var th := h.create_tween()
+				th.set_parallel(true)
+				th.tween_property(h, "position", h.position + Vector3(sg * 0.2, 0.12, 0.12), 0.1).set_ease(Tween.EASE_OUT)
+				th.chain().tween_property(h, "position", Vector3(sg * 0.5, 0.05, 0.85), 0.42).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+				th.tween_property(h, "rotation", Vector3(-PI / 2.0, sg * 0.5, sg * 1.7), 0.42)
+				th.chain().tween_property(h, "scale", Vector3.ZERO, 0.35).set_delay(0.5)
+				th.chain().tween_callback(h.queue_free)
+			ts.tween_callback(drop)
+		if is_instance_valid(cv):
+			ts.tween_callback((cv as Node3D).hide).set_delay(0.12)
+	# chaîne : chaque maillon fond (du sceau vers les bouts), gouttes d'encre qui tombent et tachent le sol
+	var links: Array = pk.get("links", [])
+	var drops := PackedVector3Array()
+	for lv in links:
+		if not is_instance_valid(lv):
+			continue
+		var li: Node3D = lv
+		var dc := li.position.distance_to(SEAL_AT)
+		var tl := li.create_tween()
+		tl.tween_property(li, "scale", Vector3(0.2, 0.2, 0.2), 0.16).set_delay(0.1 + dc * 0.45).set_ease(Tween.EASE_IN)
+		tl.tween_callback(li.queue_free)
+		if drops.size() < 24:
+			drops.append(li.position)
+	if not drops.is_empty():
+		_drops(root, drops, Toon.SUMI, 14 if Toon.lite else 30)
+	var bm := Toon.flat(Color(Toon.SUMI, 0.72))
+	for k in (3 if Toon.lite else 5):
+		var bp := Vector3(randf_range(-0.6, 0.6), 0.022 + 0.001 * float(k), randf_range(0.5, 0.85))
+		var blot := _part_flat(root, _mesh("disc"), bm, bp, Vector3(0.01, 1, 0.01))
+		var r := randf_range(0.07, 0.14)
+		var tb := blot.create_tween()
+		tb.tween_property(blot, "scale", Vector3(r, 1, r * randf_range(0.7, 1.0)), 0.18).set_delay(0.35 + 0.08 * float(k)).set_ease(Tween.EASE_OUT)
+		tb.tween_interval(1.4)
+		tb.tween_property(blot, "scale", Vector3(0.001, 1, 0.001), 0.5)
+		tb.tween_callback(blot.queue_free)
+	# ofuda : déchiré au joint, les deux morceaux s'envolent en tournoyant et rapetissent
+	var ofs: Array = pk.get("ofuda", [])
+	for i in ofs.size():
+		var ov = ofs[i]
+		if not is_instance_valid(ov):
+			continue
+		var o: Node3D = ov
+		var p0 := o.position
+		var up := 1.0 if i == 0 else 0.0
+		var dest := p0 + Vector3(0.55 if i == 0 else -0.6, 1.5 + 0.5 * up, 0.25 - 0.5 * up)
+		var spin := Vector3(1.2 + up, 2.4 - 4.5 * (1.0 - up), 1.6 if i == 0 else -1.9)
+		var fly := func(k: float) -> void:
+			var q := p0.lerp(dest, k)
+			q.x += sin(k * 9.0) * 0.12 * k
+			o.position = q
+			o.rotation = spin * k
+			o.scale = Vector3.ONE * clampf(1.4 - 1.4 * k, 0.0, 1.0)
+		var to := o.create_tween()
+		to.tween_interval(0.26 + 0.06 * float(i))
+		to.tween_method(fly, 0.0, 1.0, 1.15).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+		to.tween_callback(o.queue_free)
+	_motes(root, SEAL_AT, Toon.GOLD.lightened(0.3), 6 if Toon.lite else 14, 1.2, 1.4, 0.3)
+
+
+## Gouttes d'encre qui tombent (déverrouillage du coffre scellé) depuis `points` (locaux à `parent`).
+static func _drops(parent: Node3D, points: PackedVector3Array, col: Color, amount: int) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.mesh = _mesh("ink_drop")
+	p.material_override = _mat("ink_drop")
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	p.amount = maxi(1, amount)
+	p.lifetime = 0.75
+	p.one_shot = true
+	p.explosiveness = 0.55
+	p.local_coords = true
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_POINTS
+	p.emission_points = points
+	p.direction = Vector3(0, 1, 0.6)
+	p.spread = 60.0
+	p.initial_velocity_min = 0.4
+	p.initial_velocity_max = 1.4
+	p.gravity = Vector3(0, -9.0, 0)
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.4
+	p.color = col
+	parent.add_child(p)
+	p.emitting = true
+	var tw := p.create_tween()
+	tw.tween_callback(p.queue_free).set_delay(1.2)
+	return p
+
+
+## Préchauffage (main._warmup) : les gouttes du déverrouillage (les autres matières viennent de build_seal).
+static func warm_seal(parent: Node3D) -> void:
+	var p := _drops(parent, PackedVector3Array([Vector3.ZERO]), Toon.SUMI, 1)
+	p.one_shot = false
+
+
 # ------------------------------------------------------------------ autel du sanctuaire (main._spawn_shrine)
 
 const ALTAR_RING_R := 1.3  # anneau d'approche au sol (= rayon de déclenchement, main._stage_roam)
@@ -674,11 +1016,14 @@ static func update(pk: Dictionary, n: Node3D, t: float, lit: int, q: Vector3) ->
 			_update_lanterns(pk, t, lit, fk)
 		"spirit":
 			_update_spirit(pk, n, t, q, fk)
+		"seal":
+			_update_seal(pk, t, fk)
 
 
-## Raté (main._puzzle_fail) : la figure de la stèle passe au vermillon, puis se retrace depuis le début.
+## Raté (main._puzzle_fail) : la figure de la stèle (ou de la plaque du coffre scellé) passe au vermillon,
+## puis se retrace depuis le début.
 static func fail(pk: Dictionary, t: float) -> void:
-	if String(pk["pz"]) == "stele":
+	if String(pk["pz"]) in ["stele", "seal"]:
 		pk["cyc0"] = t + FAIL_T
 
 
@@ -851,6 +1196,14 @@ static func _label(parent: Node3D, txt: String, pos: Vector3, col: Color, size: 
 	l.position = pos
 	parent.add_child(l)
 	return l
+
+
+## Aplat sans lumière opaque (papier de la plaque, traits du sceau) : pas de tri avec l'encre transparente.
+static func _opaque(col: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = col
+	return m
 
 
 ## Lueur douce additive (dégradé radial des ombres de Toon), au sol ou face à la caméra.
@@ -1034,6 +1387,45 @@ static func _mesh(key: String) -> Mesh:
 			m = Toon.box(Vector3(0.045, 0.045, 0.004))
 		"altar_ring":
 			m = ribbon_mesh([_arc(ALTAR_RING_R, 0.0, TAU, 64)], 0.05, 0.0, 0.0)
+		"chain_link":
+			var tl := TorusMesh.new()
+			tl.inner_radius = 0.026
+			tl.outer_radius = 0.054
+			tl.rings = 10
+			tl.ring_segments = 5
+			m = tl
+		"ofuda_front":
+			m = Toon.box(Vector3(0.17, 0.146, 0.008))
+		"ofuda_step":
+			m = Toon.box(Vector3(0.17, 0.008, 0.15))
+		"ofuda_riser":
+			m = Toon.box(Vector3(0.17, 0.124, 0.008))
+		"ofuda_top":
+			m = Toon.box(Vector3(0.17, 0.008, 0.58))
+		"ofuda_low":
+			m = Toon.box(Vector3(0.17, 0.38, 0.008))
+		"ofuda_mark":
+			m = Toon.box(Vector3(0.03, 0.2, 0.004))
+		"seal_half":
+			m = Toon.box(Vector3(SEAL_HALF * 2.0, 0.34, 0.06))
+		"seal_bar_h":
+			m = Toon.box(Vector3(0.14, 0.02, 0.004))
+		"seal_bar_v":
+			m = Toon.box(Vector3(0.02, 0.3, 0.004))
+		"seal_crack":
+			m = Toon.box(Vector3(0.016, 0.36, 0.004))
+		"ema_stake":
+			m = Toon.cyl(0.045, 0.055, 1.3, 8)
+		"ema_plank":
+			m = Toon.box(Vector3(EMA_SIZE.x, EMA_SIZE.y, 0.05))
+		"ema_roof":
+			m = Toon.box(Vector3(EMA_SIZE.x + 0.16, 0.07, 0.12))
+		"ema_paper":
+			m = Toon.box(Vector3(EMA_SIZE.x - 0.16, EMA_SIZE.y - 0.2, 0.012))
+		"ema_knot":
+			m = Toon.sphere(0.06)
+		"ink_drop":
+			m = Toon.sphere(0.035)
 		"mote":
 			var q3 := QuadMesh.new()
 			q3.size = Vector2(0.1, 0.1)
@@ -1072,7 +1464,7 @@ static func _mat(key: String) -> Material:
 		"water":
 			m = Toon.flat(Color("#36545E", 0.9))
 		"inlay":
-			m = Toon.flat(Color(_wcol("stone", STONE).darkened(0.05), 0.3))
+			m = Toon.flat(Color(_wcol("stone", STONE).lerp(Color("#E2D8C0"), 0.6), 0.62))
 		"pebble":
 			m = Toon.mat(_wcol("pebble", Color("#9C978C")), true, 0.018)
 		"ghost":
@@ -1142,6 +1534,26 @@ static func _mat(key: String) -> Material:
 			var ah := _glow_mat(Color(LAMP_EMIT, 0.4), true)
 			ah.render_priority = -1
 			m = ah
+		"seal_wash":
+			m = Toon.flat(Color(Toon.SUMI, 0.12))
+		"chain":
+			m = Toon.mat(Color("#3E3B46"), false)
+		"ofuda":
+			m = Toon.mat(Color("#F4ECD8"), false)
+		"seal_ink":
+			m = _opaque(Toon.SUMI)
+		"seal_block":
+			m = Toon.mat(Toon.VERMILION, true, 0.012)
+		"seal_mark":
+			m = _opaque(Color("#F6E9CF"))
+		"ema_paper":
+			m = _opaque(Color("#E9DFC8"))
+		"ema_ghost":
+			var eg := ink_mat(Color(Toon.SUMI, 0.2))
+			eg.set_shader_parameter(P_DRY, 0.3)
+			m = eg
+		"ink_drop":
+			m = _opaque(Toon.SUMI)
 		"mote":
 			var mm := StandardMaterial3D.new()
 			mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED

@@ -128,6 +128,12 @@ const PUZZLE_REWARDS := ["gold", "heal", "reroll"]
 const LANTERN_R := 1.6
 const LANTERN_TOUCH := 0.6
 const STELE_NEAR := 2.5
+# coffres scellés des recoins (dès l'étape 2) : figure peinte sur la plaque (puzzle_art.build_seal)
+const SEAL_FIGS := ["loop", "zigzag", "straight", "return", "enso", "hook"]
+const SEAL_FIGS_EASY := ["loop", "zigzag", "straight", "return"]  # deux premières étapes du monde 1
+const SEAL_CHANCE := 0.5  # part des coffres de recoin scellés
+const SEAL_NEAR := 3.0  # le trait passe à moins de 3 m du coffre
+const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l'expérience du niveau suivant)
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const ROOMS := 15  # combats d'un monde
@@ -403,6 +409,8 @@ var _hold_sp := Vector2.ZERO
 var run_dist := 0.0  # distance courue depuis le dernier départ (robot)
 var puzzles_seen := 0
 var puzzles_solved := 0
+var chests_sealed := 0  # coffres scellés posés / ouverts (robot de campagne)
+var chests_unsealed := 0
 # combat de boss sans dégât
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
@@ -602,9 +610,22 @@ func _ready() -> void:
 			picker.set("_sel", clampi(int(wsearch.substr(sl2 + 4).get_slice("&", 0)), 0, PACT_OFFER - 1))
 	# `?autel` (captures) : l'autel du sanctuaire posé dans la salle en cours (avec `room=N`)
 	# `?enigme=stele` (captures) : cette énigme de recoin (stele, lanterns, spirit) posée devant le héros
+	# `?coffre` ou `?enigme=chest` (captures) : un coffre scellé devant le héros ; `fig=hook` sa figure,
+	# `ouvre=2.5` le déverrouille au bout de 2,5 s, `rate=1.5` y rate un trait (secousse vermillon)
 	var pq := wsearch.find("enigme=")
-	if pq >= 0 and state == "play":
-		spawn_puzzle(wsearch.substr(pq + 7).get_slice("&", 0), hero.position + Vector3(0, 0, -3.4))
+	var pqk := wsearch.substr(pq + 7).get_slice("&", 0) if pq >= 0 else ""
+	if (pqk == "chest" or "coffre" in wsearch) and state == "play":
+		meta.tuto_done = true  # (capture : pas de coach qui fige le jeu en attendant le premier trait)
+		var fq := wsearch.find("fig=")
+		var cpk := _spawn_sealed_chest(hero.position + Vector3(0, 0, -3.2), wsearch.substr(fq + 4).get_slice("&", 0) if fq >= 0 else "")
+		var oq := wsearch.find("ouvre=")
+		if oq >= 0:
+			get_tree().create_timer(float(wsearch.substr(oq + 6).get_slice("&", 0)), true, false, true).timeout.connect(_unseal_chest.bind(cpk))
+		var rq := wsearch.find("rate=")
+		if rq >= 0:
+			get_tree().create_timer(float(wsearch.substr(rq + 5).get_slice("&", 0)), true, false, true).timeout.connect(_puzzle_fail.bind(cpk, ""))
+	elif pq >= 0 and state == "play":
+		spawn_puzzle(pqk, hero.position + Vector3(0, 0, -3.4))
 	if "autel" in wsearch and state == "play":
 		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
 		for zi in arena.zones.size():
@@ -943,12 +964,16 @@ func _warmup() -> void:
 	PuzzleArt.build_lanterns(pz_nodes[1], {}, [Vector3(1.5, 0, 0), Vector3(0, 0, 1.5), Vector3(-1.5, 0, 0)], Vector3.ZERO)
 	PuzzleArt.build_spirit(pz_nodes[2], {})
 	var px := -3.0
-	for pkind in ["chest", "spring", "elite"]:
-		var pn := _pocket_node(String(pkind), Vector3.ZERO)
+	for pkind in ["chest", "spring", "elite", "sealed"]:
+		var pn := _pocket_node("chest" if pkind == "sealed" else String(pkind), Vector3.ZERO)
 		remove_child(pn)
 		w.add_child(pn)
 		pn.position = Vector3(px, 0, 4.0)
 		px += 2.0
+		if pkind == "sealed":
+			# coffre scellé : chaîne, ofuda, sceau, plaque et son encre, gouttes du déverrouillage
+			PuzzleArt.build_seal(pn, {}, "loop", 1.0)
+			PuzzleArt.warm_seal(pn)
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
@@ -2456,6 +2481,8 @@ func _start(hub := true, tutorial := false) -> void:
 	_pass_bonus = ""
 	puzzles_seen = 0
 	puzzles_solved = 0
+	chests_sealed = 0
+	chests_unsealed = 0
 	run_dist = 0.0
 	hud.dying = 0.0
 	hero.max_hp = 5 + meta.hp_bonus()
@@ -3473,6 +3500,9 @@ func _build_pockets() -> void:
 		if k == "puzzle":
 			spawn_puzzle("", p)
 			continue
+		if k == "chest" and stage_i >= 1 and randf() < SEAL_CHANCE:
+			_spawn_sealed_chest(p)
+			continue
 		_pockets.append({"kind": k, "pos": p, "used": false, "node": _pocket_node(k, p)})
 
 
@@ -3584,29 +3614,15 @@ func _update_pockets() -> void:
 					var gk := 0.5 + 0.5 * sin(run_time * 3.0)
 					(gl.material_override as StandardMaterial3D).albedo_color = Color(Toon.GOLD, 0.12 + 0.2 * gk)
 					gl.scale = Vector3(1.35, 1.0, 1.35) * (0.9 + 0.12 * gk)
-				if d < 1.35:
+				if bool(pk.get("sealed", false)):
+					# scellé : il ne s'ouvre qu'au trait de la figure de sa plaque (_puzzle_stroke)
+					if not bool(pk["hinted"]) and d < 4.2 and _explore:
+						pk["hinted"] = true
+						sfx.play("shrine", 1.6, -8.0)
+					PuzzleArt.update(pk, n, run_time, 0, Vector3.ZERO)
+				elif d < 1.35:
 					pk["used"] = true
-					var lid := n.get_node_or_null("Lid") as Node3D
-					if lid != null:
-						# le couvercle bascule d'un coup sec, avec un petit rebond
-						var tw := create_tween()
-						tw.tween_property(lid, "rotation:x", -1.9, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-					if gl != null:
-						gl.queue_free()
-					# colonne de lumière dorée qui jaillit et s'efface
-					var beam_m := Toon.flat(Color(Toon.GOLD.lightened(0.35), 0.55))
-					var beam := Toon.part(n, Toon.cyl(0.42, 0.3, 3.2, 16), beam_m, Vector3(0, 2.2, 0))
-					beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-					var tb := create_tween()
-					tb.tween_property(beam_m, "albedo_color:a", 0.0, 0.9).set_delay(0.15)
-					tb.tween_callback(beam.queue_free)
-					shake = maxf(shake, 0.25)
-					pickups.drop(p, "coin", randi_range(6, 9))
-					pickups.drop(p, "xp", randi_range(3, 5))
-					vfx.chest_burst(p)
-					sfx.play("coin", 0.8, -2.0)
-					sfx.play("shot", 1.6, -6.0)
-					hud.toast("COFFRE")
+					_open_chest(pk, false)
 			"spring":
 				if d < 1.1 and hero.hp < hero.max_hp:
 					pk["used"] = true
@@ -3628,6 +3644,84 @@ func _update_pockets() -> void:
 						n.queue_free()
 			"puzzle":
 				_update_puzzle(pk, n, d)
+
+
+## Coffre ouvert : le couvercle saute, colonne de lumière, butin. `rich` (coffre scellé) : plus d'or et
+## d'expérience, ou un rouleau (juste l'expérience du niveau suivant, SEAL_SCROLL des fois).
+func _open_chest(pk: Dictionary, rich: bool) -> void:
+	var nv = pk["node"]  # sans type : le nœud peut avoir été libéré (étape quittée pendant l'animation)
+	if not is_instance_valid(nv) or hero == null:
+		return
+	var n: Node3D = nv
+	var p: Vector3 = pk["pos"]
+	var lid := n.get_node_or_null("Lid") as Node3D
+	if lid != null:
+		# le couvercle bascule d'un coup sec, avec un petit rebond
+		var tw := create_tween()
+		tw.tween_property(lid, "rotation:x", -1.9, 0.32).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	var gl = pk.get("glow")
+	if gl == null:
+		gl = n.get_node_or_null("Glow")
+	if is_instance_valid(gl):
+		gl.queue_free()
+	# colonne de lumière dorée qui jaillit et s'efface
+	var beam_m := Toon.flat(Color(Toon.GOLD.lightened(0.35), 0.55))
+	var beam := Toon.part(n, Toon.cyl(0.42, 0.3, 3.2, 16), beam_m, Vector3(0, 2.2, 0))
+	beam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var tb := create_tween()
+	tb.tween_property(beam_m, "albedo_color:a", 0.0, 0.9).set_delay(0.15)
+	tb.tween_callback(beam.queue_free)
+	shake = maxf(shake, 0.25)
+	if not rich:
+		pickups.drop(p, "coin", randi_range(6, 9))
+		pickups.drop(p, "xp", randi_range(3, 5))
+	elif randf() < SEAL_SCROLL:
+		pickups.drop(p, "coin", randi_range(5, 7))
+		pickups.drop(p, "xp", 6, ceili(float(maxi(1, xp_need() - xp)) / 6.0))
+	else:
+		pickups.drop(p, "coin", randi_range(11, 15))
+		pickups.drop(p, "xp", randi_range(6, 8))
+	if rich:
+		vfx.ring(Vector3(p.x, 0.05, p.z), Toon.GOLD, 2.2)
+	vfx.chest_burst(p)
+	sfx.play("coin", 0.8, -2.0)
+	sfx.play("shot", 1.6, -6.0)
+	hud.toast("COFFRE")
+
+
+## Coffre scellé posé en `p` (recoin, ou devant le héros pour les captures) : chaîne, ofuda et sceau, plaque où
+## se peint la figure `fig` (au hasard parmi SEAL_FIGS, sans ensō ni crochet aux deux premières étapes du monde 1).
+func _spawn_sealed_chest(p: Vector3, fig := "") -> Dictionary:
+	var c := Vector3(p.x, 0, p.z)
+	var figs: Array = SEAL_FIGS_EASY if current_world == 1 and stage_i < 2 else SEAL_FIGS
+	var shape := fig if fig in SEAL_FIGS else String(figs[randi() % figs.size()])
+	var n := _pocket_node("chest", c)
+	# la plaque se dresse côté milieu de l'étape (jamais contre le bord ni dans l'eau)
+	var mid: float = arena.stage_rect.get_center().x if arena.stage else 0.0
+	var side := 1.0 if c.x <= mid else -1.0
+	var pk := {"kind": "chest", "pos": c, "used": false, "node": n, "sealed": true, "pz": "seal", "shape": shape,
+		"hinted": false, "fail_t": -9.0, "t": randf() * TAU}
+	PuzzleArt.build_seal(n, pk, shape, side)
+	_pockets.append(pk)
+	chests_sealed += 1
+	return pk
+
+
+## Bonne figure tracée près d'un coffre scellé : le sceau se brise (puzzle_art.unseal), puis le coffre s'ouvre.
+func _unseal_chest(pk: Dictionary) -> void:
+	if bool(pk["used"]):
+		return
+	pk["used"] = true
+	chests_unsealed += 1
+	var nv = pk["node"]
+	if not is_instance_valid(nv):
+		return
+	PuzzleArt.unseal(pk, nv)
+	sfx.play("strike", 1.7, -7.0)
+	sfx.play("shrine", 1.3, -5.0)
+	shake = maxf(shake, 0.12)
+	feel("clear")
+	get_tree().create_timer(PuzzleArt.UNSEAL_T, false).timeout.connect(_open_chest.bind(pk, true))
 
 
 ## Défi d'un recoin : un costaud d'élite, plus gros et plus solide, qui garde un butin.
@@ -3858,12 +3952,23 @@ func _puzzle_stroke(pts: PackedVector3Array) -> void:
 		return
 	var o := pts[0]
 	for pk in _pockets:
-		if bool(pk["used"]) or String(pk["kind"]) != "puzzle" or not is_instance_valid(pk["node"]):
+		var sealed: bool = String(pk["kind"]) == "chest" and bool(pk.get("sealed", false))
+		if bool(pk["used"]) or (String(pk["kind"]) != "puzzle" and not sealed) or not is_instance_valid(pk["node"]):
 			continue
 		var c: Vector3 = pk["pos"]
 		if Vector2(o.x - c.x, o.z - c.z).length() > 9.0:
 			continue
 		match String(pk["pz"]):
+			"seal":
+				# coffre scellé : la figure de sa plaque, tracée près de lui
+				var near_s := 1.0e9
+				for p in pts:
+					near_s = minf(near_s, Vector2(p.x - c.x, p.z - c.z).length())
+				var got_s := String(_shape.get("shape", ""))
+				if near_s <= SEAL_NEAR and got_s == String(pk["shape"]):
+					_unseal_chest(pk)
+				elif near_s <= SEAL_NEAR and got_s != "":
+					_puzzle_fail(pk, "")
 			"stele":
 				var near := 1.0e9
 				for p in pts:
@@ -3942,12 +4047,13 @@ func _solve_puzzle(pk: Dictionary) -> void:
 	feel("clear")
 
 
-## Énigme proche du robot (CI), hors combat : il la résout lui-même (bot.gd). Vide sinon.
+## Énigme (ou coffre scellé) proche du robot (CI), hors combat : il la résout lui-même (bot.gd). Vide sinon.
 func bot_puzzle() -> Dictionary:
 	if not _explore or hero == null:
 		return {}
 	for pk in _pockets:
-		if bool(pk["used"]) or String(pk["kind"]) != "puzzle" or int(pk.get("bot_try", 0)) >= 4:
+		var sealed: bool = String(pk["kind"]) == "chest" and bool(pk.get("sealed", false))
+		if bool(pk["used"]) or (String(pk["kind"]) != "puzzle" and not sealed) or int(pk.get("bot_try", 0)) >= 4:
 			continue
 		var p: Vector3 = pk["pos"]
 		if Vector2(hero.position.x - p.x, hero.position.z - p.z).length() < 2.0:
@@ -3968,8 +4074,8 @@ func bot_goal() -> Vector3:
 			continue
 		if String(pk["kind"]) == "spring" and hero.hp >= hero.max_hp:
 			continue
-		if String(pk["kind"]) == "puzzle" and int(pk.get("bot_try", 0)) >= 4:
-			continue  # énigme ratée plusieurs fois : le robot la laisse
+		if int(pk.get("bot_try", 0)) >= 4:
+			continue  # énigme (ou coffre scellé) ratée plusieurs fois : le robot la laisse
 		var p: Vector3 = pk["pos"]
 		if not arena.bounds.has_point(Vector2(p.x, p.z)) or int(pk.get("bot", 0)) > 12:
 			continue

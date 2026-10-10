@@ -79,6 +79,8 @@ var _measure_t := 0.0
 # énigmes des recoins (toutes parties confondues)
 var _pz_seen := 0
 var _pz_solved := 0
+var _seal_seen := 0  # coffres scellés posés / ouverts sur toute la campagne
+var _seal_open := 0
 
 
 func begin(m: Node) -> void:
@@ -343,6 +345,11 @@ func _over() -> void:
 	print("BOT ÉNIGMES monde %d : %d résolues sur %d posées" % [world, int(main.puzzles_solved), int(main.puzzles_seen)])
 	_pz_seen += int(main.puzzles_seen)
 	_pz_solved += int(main.puzzles_solved)
+	print("BOT COFFRES SCELLÉS monde %d : %d ouverts sur %d posés" % [world, int(main.chests_unsealed), int(main.chests_sealed)])
+	_seal_seen += int(main.chests_sealed)
+	_seal_open += int(main.chests_unsealed)
+	if mode == "campaign" and _death_test and _seal_seen >= 3 and _seal_open == 0:
+		alert("coffres scellés : aucun ouvert sur %d posés pendant la campagne" % _seal_seen)
 	if mode == "campaign" and _death_test and _pz_seen >= 4 and _pz_solved == 0:
 		alert("énigmes : aucune résolue sur %d posées pendant la campagne" % _pz_seen)
 	if _last_room >= 1 and _room_t > 0.0:
@@ -595,14 +602,16 @@ func flees() -> int:
 	return _flees
 
 
-## Énigme d'un recoin (main.spawn_puzzle) résolue d'un trait depuis le héros : la figure de la stèle,
+## Énigme d'un recoin (main.spawn_puzzle) résolue d'un trait depuis le héros : la figure de la stèle (ou de la
+## plaque d'un coffre scellé),
 ## les lanternes dans l'ordre, ou une boucle complète autour de l'esprit errant.
 func solve_puzzle(pk: Dictionary) -> void:
 	var o: Vector3 = main.hero.position
 	var c: Vector3 = pk["pos"]
 	var pts := PackedVector3Array()
 	match String(pk["pz"]):
-		"stele":
+		"stele", "seal":
+			# (coffre scellé : la figure de sa plaque, tracée de même depuis le pied du coffre)
 			# vers le sud (déjà parcouru) : la figure n'entre pas dans la zone de combat suivante
 			pts = BotShapes.plan(String(pk["shape"]), o, c + Vector3(0, 0, 2.0), Callable(main, "_clamp_point"))
 		"lanterns":
