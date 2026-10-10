@@ -243,6 +243,7 @@ var _elite_due := 0  # élites garantis restant à poser dans la salle (épreuve
 var _reinf_step := 0  # renforts du boss de fin déjà appelés (66 %, puis 33 % de ses PV)
 var game_over := false
 var _ticks := 0
+var _bot_step := 1.0 / 30.0  # pas fixe du robot : celui du moteur (--fixed-fps), retrouvé depuis delta
 var _cam_base := Transform3D()
 var _cam_full := Transform3D()
 var _cam_pad := Transform3D()  # mode pad : arène cadrée au-dessus du pad
@@ -5451,7 +5452,13 @@ func _process(_delta: float) -> void:
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
 	if _bot != null:
-		real = 1.0 / 30.0  # pas fixe : le robot joue aussi vite que la machine le permet
+		# pas fixe (--fixed-fps) : le robot joue aussi vite que la machine le permet. Le pas est celui que
+		# reçoivent les nœuds (delta rendu à l'échelle 1) : figé à 1/30, à 120 Hz main avançait 4 fois plus
+		# vite que les ennemis et le héros (combats 2,5 fois plus longs, ennemis « coincés »).
+		var ts := Engine.time_scale
+		if ts > 0.0001 and _delta > 0.0:
+			_bot_step = clampf(_delta / ts, 1.0 / 480.0, 0.05)
+		real = _bot_step
 		_bot.step(real)
 
 	# pause : tout est figé, seul l'écran de pause vit
