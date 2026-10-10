@@ -1954,8 +1954,8 @@ const FIG_ICON := {"loop": "figures/boucle", "zigzag": "figures/zigzag", "straig
 # glyphe d'un pouvoir dans son médaillon (gabarit 60, disque de rayon 28) : [tracé SVG, remplissage à la couleur
 # d'élément ?]. Pouvoirs dessinés par la maquette (Rouleaux, MesPouvoirs) ; les autres gardent glyph(icon_of(id)).
 const POWER_GLYPH := {
-	"water_tide": ["M18 32 a12 12 0 0 1 24 0 M11 32 a19 19 0 0 1 38 0 M25 32 a5 5 0 0 1 10 0 M18 40 a12 12 0 0 0 24 0", false],
-	"bolt_arc": ["M15 44 L26 30 L34 37 L45 17 M15 44 m-3 0 a3 3 0 1 0 6 0 M45 17 m-3 0 a3 3 0 1 0 6 0", false],
+	"water_tide": ["M8 43 C10 29 20 19 33 20 C45 21 51 32 45 38 C40 42 33 37 38 32 M15 39 C18 30 25 25 33 26 M8 43 C16 50 24 40 32 45 C40 50 46 43 53 46", false],
+	"bolt_arc": ["M34 7 L16 33 H28 L23 54 L44 26 H32 Z M44 38 L39 45 L45 45 L41 53", true],
 	"fire_burn": ["M15 45 L38 22 M34 18 L42 26 M40 33 C44 39 47 41 45 45 A4 4 0 0 1 37 45 C36 41 38 39 40 33 Z", true],
 	"fig_hook": ["M13 30 H45 M38 23 L46 30 L38 37 M13 25 V35", false],
 	"fig_hook_double": ["M13 24 H43 M36 18 L44 24 L36 30 M13 36 H43 M36 30 L44 36 L36 42", false],
