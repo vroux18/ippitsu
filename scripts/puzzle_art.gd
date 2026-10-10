@@ -1,7 +1,7 @@
 extends RefCounted
 const SHOW_EMA := false
 ## Décor des énigmes des recoins (appelé par main.gd : _puzzle_node, _update_puzzle, _solve_puzzle, _puzzle_fail).
-## Stèle de pierre (sekihi) et sa figure qui se trace toute seule au pinceau dans un cercle de pierres,
+## Stèle de pierre (sekihi) et sa figure peinte, fixe, dans un cercle de pierres,
 ## lanternes de pierre (tōrō) numérotées à relier dans l'ordre, esprit errant (hitodama) à entourer.
 ## Maillages et matières partagés entre recoins ; seules les matières animées (encre de la figure, papier
 ## et lueur des lanternes, flamme et cercle de l'esprit) sont propres à chaque énigme.
@@ -167,7 +167,14 @@ static func build_stele(n: Node3D, pk: Dictionary, pts: PackedVector3Array, shap
 static func _update_stele(pk: Dictionary, t: float, fk: float) -> void:
 	var gmv = pk.get("gmat")
 	if gmv is ShaderMaterial:
-		_ink_cycle(gmv, t - float(pk["cyc0"]), DRAW_PERIOD, 0.55, INK_COL)
+		# la figure de la stèle reste peinte, fixe (plus de tracé en boucle) ; seul le raté la rougit un instant
+		var age := t - float(pk["cyc0"])
+		if age < 0.0:
+			_ink_cycle(gmv, age, DRAW_PERIOD, 0.55, INK_COL)
+		else:
+			gmv.set_shader_parameter(P_INK, INK_COL)
+			gmv.set_shader_parameter(P_REVEAL, 1.0)
+			gmv.set_shader_parameter(P_FADE, 1.0)
 	var lb = pk.get("label")
 	if lb is StandardMaterial3D:
 		var em: StandardMaterial3D = lb
