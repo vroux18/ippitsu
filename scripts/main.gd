@@ -75,15 +75,47 @@ const PowersRecap = preload("res://scripts/powers_recap.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const Score = preload("res://scripts/score.gd")
 # malédictions du sanctuaire (après les salles de SANCTUARIES) : un malus pour toute la partie, une récompense tout de suite
+## Dix pactes (planche Sanctuaire, UNIVERS §4.9). Chacun : "school" (couleur d'élément de la carte), "leg"
+## (pacte légendaire : filet d'or, au plus un par offre), "malus" et "gain" (lignes de la carte :
+## [pictogramme, valeur, libellé] ; "gain2" facultatif), "line" (phrase de la bulle : déclencheur explicite).
+## Le glyphe du médaillon est UiKit.POWER_GLYPH["pact_<id>"]. Application : _take_curse (gains immédiats) et
+## les lectures de `curses` (elan_max, _spawn_list, _spawn_elite, _wave_ready, heal, curse_dmg_mult, _hurt_hero…).
 const CURSES := {
-	"dry": {"name": "Encre sèche", "text": "Trait -30 %  ·  2 rouleaux en plus", "icon": "c_dry"},
-	"oni_eye": {"name": "Œil d'oni", "text": "Ennemis +50 % de vie  ·  2 rouleaux en plus", "icon": "c_eye"},
-	"heavy": {"name": "Pas lourd", "text": "Plus de pas de côté  ·  +2 vies max, soin", "icon": "c_heavy"},
-	"haste": {"name": "Hâte des morts", "text": "Ennemis +25 % vitesse  ·  1 rouleau, soin", "icon": "c_haste"},
+	"dry": {"name": "Encre sèche", "school": "ink", "leg": false,
+		"malus": ["effets/portee", "−30 %", "encre max"], "gain": ["hud/rouleau", "+2", "rouleaux"],
+		"line": "Toute la partie, ta réserve d'encre (la longueur de tes traits) baisse de 30 %. En échange : deux rouleaux, tout de suite."},
+	"oni_eye": {"name": "Œil de l'oni", "school": "shadow", "leg": true,
+		"malus": ["hud/oni", "+50 %", "vie yōkai"], "gain": ["hud/rouleau", "+1", "rouleau épique"],
+		"line": "Toute la partie, chaque yōkai qui paraît a 50 % de vie en plus. En échange : un rouleau épique garanti, tout de suite."},
+	"heavy": {"name": "Pas lourd", "school": "ink", "leg": false,
+		"malus": ["effets/vitesse", "−20 %", "ruée"], "gain": ["effets/cur", "+1", "cœur max"], "gain2": ["hud/rouleau", "+1", "rouleau"],
+		"line": "Toute la partie, tes ruées sont 20 % plus lentes. En échange : un cœur de plus à ta jauge, et un rouleau tout de suite."},
+	"haste": {"name": "Hâte des morts", "school": "bolt", "leg": false,
+		"malus": ["effets/vitesse", "+25 %", "yōkai"], "gain": ["hud/rouleau", "+1", "rouleau"], "gain2": ["effets/cur", "", "soin complet"],
+		"line": "Toute la partie, les yōkai marchent 25 % plus vite. En échange : un rouleau tout de suite, et tous tes cœurs rendus."},
 	# mode difficile choisi : la déferlante ne vient plus que par ce pacte
-	"tide": {"name": "Déferlante", "text": "Des vagues balaient les combats  ·  2 rouleaux en plus", "icon": "tide"},
+	"tide": {"name": "Déferlante", "school": "water", "leg": true,
+		"malus": ["hud/vague", "", "vagues en combat"], "gain": ["hud/rouleau", "+2", "rouleaux"],
+		"line": "Dès le prochain combat et jusqu'au bout, des vagues balaient l'arène et te bousculent. En échange : deux rouleaux, tout de suite."},
+	"lantern": {"name": "Lanterne éteinte", "school": "fire", "leg": false,
+		"malus": ["effets/duree", "−25 %", "annonces"], "gain": ["hud/rouleau", "+1", "rouleau rare"],
+		"line": "Toute la partie, les yōkai annoncent leurs coups 25 % moins longtemps. En échange : un rouleau rare garanti, tout de suite."},
+	"cursed_ink": {"name": "Encre maudite", "school": "shadow", "leg": false,
+		"malus": ["effets/duree", "4 s", "encre figée"], "gain": ["effets/cur", "+2", "cœurs max"], "gain2": ["effets/cur", "", "soin complet"],
+		"line": "Toute la partie, chaque coup reçu fige ta recharge d'encre pendant 4 s. En échange : deux cœurs de plus à ta jauge, et tous tes cœurs rendus."},
+	"ronin": {"name": "Serment du rōnin", "school": "fig", "leg": true,
+		"malus": ["effets/cur", "", "plus aucun soin"], "gain": ["effets/degats", "+30 %", "dégâts"],
+		"line": "Jusqu'à la fin de la partie, aucune source (fontaine, rouleau, ensō) ne te soigne plus. En échange : tous tes dégâts montent de 30 %."},
+	"drum": {"name": "Tambour des morts", "school": "bolt", "leg": false,
+		"malus": ["effets/vitesse", "×2", "vagues"], "gain": ["hud/etoile", "+40 %", "score"],
+		"line": "Toute la partie, la vague suivante entre deux fois plus tôt, sans attendre la précédente. En échange : chaque point marqué vaut 40 % de plus."},
+	"mask": {"name": "Masque fendu", "school": "fire", "leg": false,
+		"malus": ["hud/oni", "×2", "élites"], "gain": ["hud/piece", "×2", "or"],
+		"line": "Toute la partie, les élites (bouclier, aura, affixes) sont deux fois plus fréquents. En échange : chaque pièce ramassée en vaut deux."},
 }
-const PASS_GOLD := 15  # « Passer » au sanctuaire : un cœur soigné, ou cet or si la vie est pleine
+const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
+const PASS_GOLD := 15  # « Refuser » au sanctuaire : un cœur soigné, ou cet or si la vie est pleine
+const INK_LOCK_T := 4.0  # Encre maudite : recharge d'encre figée après un coup reçu (s)
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
 const EXPLORE_REACH := 2.0
 const RUN_SPEED := 7.0
@@ -379,6 +411,7 @@ var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
 var _flawless_boss := false  # boss du monde vaincu sans dégât
 var _pass_bonus := ""
+var _ink_lock := 0.0  # Encre maudite : secondes restantes sans recharge d'encre (après un coup reçu)
 var _boss_scripts := {}  # chemin -> GDScript chargé (gardé : pas recompilé à chaque boss)
 var _frame_cache := {}  # cadrages calculés par taille d'écran (_frame), gardés aussi sur le disque
 var _frame_disk_key := ""  # version du jeu et réglages du cadrage : un cadrage enregistré n'est repris que s'ils sont les mêmes
@@ -552,6 +585,32 @@ func _ready() -> void:
 		var sl := wsearch.find("sel=")
 		if sl >= 0:
 			picker.set("_sel", clampi(int(wsearch.substr(sl + 4).get_slice("&", 0)), 0, 2))
+	# `?sanctuaire` (captures) : l'écran des pactes au-dessus d'une vraie salle ; `&sel=N` : la carte N levée
+	if "sanctuaire" in wsearch:
+		if rm < 0:
+			_start(false)
+			room = 5
+			_build_segment()
+			_set_state("play")
+			music.play_world(current_world)
+		_pick_context = "room"
+		_set_state("pick")
+		_open_sanctuary()
+		var sl2 := wsearch.find("sel=")
+		if sl2 >= 0:
+			picker.set("_sel", clampi(int(wsearch.substr(sl2 + 4).get_slice("&", 0)), 0, PACT_OFFER - 1))
+	# `?autel` (captures) : l'autel du sanctuaire posé dans la salle en cours (avec `room=N`)
+	if "autel" in wsearch and state == "play":
+		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
+		for zi in arena.zones.size():
+			arena.clear_zone(zi)
+		arena.open_gate()
+		_spawn_shrine()
+		# le héros est posé devant l'autel (sinon il est au départ de l'étape, l'autel hors champ)
+		hero.position = arena.clamp_walk(_shrine.position + Vector3(0, 0, 3.2), 0.5)
+		_prev_hero = hero.position
+		_cam_dz = _cam_target()
+		arena.follow_camera(_cam_dz)
 	if "atelier" in wsearch:
 		# `?atelier&tab=1` (captures) : l'onglet N ouvert ; `&fresh` : encre et rangs remis à zéro (prix visibles)
 		if "fresh" in wsearch:
@@ -2286,6 +2345,8 @@ func _start(hub := true, tutorial := false) -> void:
 	powers.reset()
 	hazards.clear()
 	curses.clear()
+	_ink_lock = 0.0
+	score.bonus_mult = 1.0
 	elan = elan_max()  # après la remise à zéro des pouvoirs et malédictions
 	_extra_picks = 0
 	picker.rerolls = meta.rerolls()
@@ -2338,7 +2399,7 @@ func _begin_room() -> void:
 	_alive_prev = 0
 	foam = powers.foam_per_room()
 	powers.on_room_start(room)
-	safety_left = 0 if "heavy" in curses else meta.safety_per_room()
+	safety_left = meta.safety_per_room()
 	if arena.stage:
 		hazards.begin_room(room, hero.position, false, arena.bounds, true)
 	else:
@@ -2506,6 +2567,9 @@ func _wave_ready(alive: int) -> bool:
 		return false
 	if _wave_cont or alive <= 1:
 		return true
+	if "drum" in curses:
+		# Tambour des morts : la suite entre deux fois plus tôt, quel que soit le monde
+		return alive <= maxi(1, ceili(float(_wave_size) * 0.6)) or _wave_t >= WAVE_OVERLAP_T * 0.5
 	if not _waves_overlap():
 		return false
 	return alive <= maxi(1, ceili(float(_wave_size) * 0.35)) or _wave_t >= WAVE_OVERLAP_T
@@ -2779,7 +2843,7 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 	var elite_at := -1
 	var elite_n := 0
 	if room >= 4 and room != MINI_ROOM and room != ROOMS and not in_hub and not list.is_empty():
-		var chance := world_diff("elite", Enemy.elite_chance(current_world))
+		var chance := world_diff("elite", Enemy.elite_chance(current_world)) * (2.0 if "mask" in curses else 1.0)  # Masque fendu
 		var rolls := 2 if room >= 10 else 1
 		for roll in rolls:
 			if randf() < chance:
@@ -2801,10 +2865,7 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 				break
 		e.position = p
 		add_child(e)
-		if "oni_eye" in curses:
-			e.hp *= 1.5
-		if "haste" in curses:
-			e.speed *= 1.25
+		_apply_curses(e)
 		if _gentle_room():
 			e._tempo *= 0.75  # premier tutoriel : plus lents (marche, annonces)
 		# plus robustes : ×2, et +4 % par combat dans le monde
@@ -2836,7 +2897,7 @@ func collect(kind: String, value: int) -> void:
 			sfx.play("levelup", 1.0, -3.0)
 			feel("level")
 	else:
-		run_gold += value
+		run_gold += value * (2 if "mask" in curses else 1)  # Masque fendu : chaque pièce en vaut deux
 		sfx.play("coin", 1.0, -8.0)
 
 
@@ -2923,39 +2984,61 @@ func _after_room_pick() -> void:
 		_set_state("play")
 
 
-## Sanctuaire facultatif (après certains combats) : un petit autel près du torii (s'il est ouvert),
-## sinon près du héros. Le toucher propose un pacte ; passer le torii l'ignore.
+## Sanctuaire facultatif (après les combats de SANCTUARIES) : un autel de pierre (PuzzleArt.build_altar) posé au
+## milieu du tronçon qui suit le combat, à SHRINE_BEFORE_GATE m au moins avant le torii de sortie, loin du héros
+## et des recoins. Le toucher (anneau d'approche au sol) propose un pacte ; passer le torii l'ignore.
 func _spawn_shrine() -> void:
-	var gp: Vector3 = arena.gate_pos if arena.gate_open else hero.position + Vector3(0, 0, -1.5)
-	var side := 1.0 if randf() < 0.5 else -1.0
-	var p: Vector3 = arena.clamp_walk(gp + Vector3(2.3 * side, 0, 2.2), 0.6)
-	if p.distance_to(gp) < 1.8 or p.distance_to(hero.position) < 1.6:
-		p = arena.clamp_walk(gp + Vector3(-2.3 * side, 0, 2.2), 0.6)
+	var p := _shrine_spot()
 	_shrine = Node3D.new()
 	add_child(_shrine)
 	_shrine.position = Vector3(p.x, 0, p.z)
-	var stone := Toon.mat_shared(Color("#8C8A86"))
-	var red := Toon.mat_shared(Color("#7A1F1A"))
-	var roof := Toon.mat_shared(Toon.SUMI)
-	Toon.part(_shrine, Toon.box(Vector3(0.8, 0.18, 0.7)), stone, Vector3(0, 0.09, 0))
-	Toon.part(_shrine, Toon.box(Vector3(0.56, 0.5, 0.46)), red, Vector3(0, 0.43, 0))
-	Toon.part(_shrine, Toon.box(Vector3(0.82, 0.08, 0.7)), roof, Vector3(0, 0.72, 0))
-	var top := Toon.part(_shrine, Toon.box(Vector3(0.5, 0.08, 0.5)), roof, Vector3(0, 0.8, 0))
-	top.rotation.y = PI / 4.0
-	_disc(_shrine, 1.1, Toon.flat(Color(Toon.GOLD, 0.35)), 0.02)
-	var l := Label3D.new()
-	l.font = KANJI_FONT
-	l.text = "鬼"
-	l.font_size = 110
-	l.pixel_size = 0.005
-	l.modulate = Toon.VERMILION
-	l.outline_modulate = Toon.SUMI
-	l.outline_size = 18
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.position = Vector3(0, 1.45, 0)
-	_shrine.add_child(l)
+	PuzzleArt.build_altar(_shrine, current_world)
 	hud.banner("SANCTUAIRE", "UN PACTE ?", Color("#7A1F1A"), 2.6)
 	sfx.play("shrine", 1.0, -4.0)
+
+
+const SHRINE_BEFORE_GATE := 6.5  # autel : au moins cette distance (m) avant le torii de sortie
+const SHRINE_CLEAR := 2.6  # … et loin du héros et des recoins
+
+
+## Place de l'autel : milieu du dernier tronçon de l'étape (entre la fin du combat et le torii), décalé vers
+## un côté libre ; à défaut (salle unique) près du torii ou du héros.
+func _shrine_spot() -> Vector3:
+	var gp: Vector3 = arena.gate_pos
+	var cands: Array = []
+	if arena.stage and not arena.zones.is_empty():
+		var z: Rect2 = arena.zones[arena.zones.size() - 1]
+		# le tronçon est traversé du sud (z grand) au nord (torii) : milieu du tronçon, jamais plus près du torii
+		var zc := maxf(z.get_center().y, gp.z + SHRINE_BEFORE_GATE)
+		for dx in [0.0, 1.8, -1.8, 3.0, -3.0]:
+			for dz in [0.0, 1.5, -1.5, 3.0]:
+				cands.append(Vector3(gp.x + float(dx), 0, zc + float(dz)))
+	else:
+		var base: Vector3 = gp if arena.gate_open else hero.position + Vector3(0, 0, -1.5)
+		for dx in [2.3, -2.3, 3.2, -3.2]:
+			cands.append(base + Vector3(float(dx), 0, 2.2))
+	var best := Vector3.INF
+	var best_score := -1.0e9
+	for c in cands:
+		var q: Vector3 = arena.clamp_walk(c, 0.9)
+		var dh := Vector2(q.x - hero.position.x, q.z - hero.position.z).length()
+		var dg := Vector2(q.x - gp.x, q.z - gp.z).length()
+		var dp := 1.0e9
+		for pk in _pockets:
+			var pp: Vector3 = pk["pos"]
+			dp = minf(dp, Vector2(q.x - pp.x, q.z - pp.z).length())
+		var sc := minf(dh, 6.0) + minf(dp, 4.0) + minf(dg, SHRINE_BEFORE_GATE + 2.0)
+		if dh < SHRINE_CLEAR or dp < SHRINE_CLEAR:
+			sc -= 50.0
+		if dg < SHRINE_BEFORE_GATE and arena.stage:
+			sc -= 20.0
+		sc -= 0.3 * Vector2(q.x - c.x, q.z - c.z).length()  # un candidat déplacé par clamp_walk vaut moins
+		if sc > best_score:
+			best_score = sc
+			best = q
+	if best == Vector3.INF:
+		best = arena.clamp_walk(hero.position + Vector3(0, 0, -3.0), 0.9)
+	return best
 
 
 func _open_upgrades() -> void:
@@ -2969,27 +3052,54 @@ func _open_upgrades() -> void:
 	sfx.play("shot", 0.6)
 
 
+## Sanctuaire : PACT_OFFER pactes (au plus un légendaire) en cartes v2, et « refuser » (un cœur, sinon de l'or).
+## La carte reçoit : name, school, leg, fx (lignes [picto, valeur, libellé, malus ?]), line, pact = true.
 func _open_sanctuary() -> void:
 	_pick_mode = "curse"
 	var pool: Array = []
 	for id in CURSES.keys():
-		if not id in curses:
-			pool.append(id)
+		if id in curses:
+			continue
+		if "ronin" in curses and (id == "haste" or id == "cursed_ink"):
+			continue  # le serment interdit tout soin : les pactes qui en promettent un ne sont plus proposés
+		pool.append(id)
 	pool.shuffle()
-	var ids: Array = pool.slice(0, 2)
+	var ids: Array = []
+	var leg_done := false
+	for id in pool:
+		if ids.size() >= PACT_OFFER:
+			break
+		var is_leg := bool(CURSES[id].get("leg", false))
+		if is_leg and leg_done:
+			continue
+		leg_done = leg_done or is_leg
+		ids.append(id)
 	var infos: Array = []
 	for id in ids:
-		var cd: Dictionary = CURSES[id]
-		infos.append({"name": String(cd["name"]), "text": String(cd["text"]), "level": -1, "kanji": "鬼", "color": Color("#7A1F1A"), "icon": String(cd.get("icon", "oni"))})
+		infos.append(pact_info(String(id)))
 	ids.append("refuse")
 	_last_offer = ids
 	# refuser rapporte un peu : un cœur s'il en manque, sinon de l'or
-	_pass_bonus = "heal" if hero.hp < hero.max_hp else "gold"
-	var bonus := "1 cœur soigné" if _pass_bonus == "heal" else ("%d pièces d'or" % PASS_GOLD)
-	infos.append({"name": "Passer", "text": "Sans pacte  ·  " + bonus, "level": -1, "kanji": "道", "color": Color("#8C8FA8")})
+	_pass_bonus = "heal" if hero.hp < hero.max_hp and not "ronin" in curses else "gold"
+	infos.append({"name": "Refuser", "pact": false, "refuse": true, "bonus": _pass_bonus, "gold": PASS_GOLD, "level": -1})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
 	sfx.play("pact", 1.0, -4.0)
+
+
+## Fiche d'un pacte pour la carte v2 du sanctuaire (picker._pact_face) : lignes MALUS puis GAIN(S).
+func pact_info(id: String) -> Dictionary:
+	var cd: Dictionary = CURSES[id]
+	var fx: Array = []
+	var m: Array = cd["malus"]
+	fx.append([String(m[0]), String(m[1]), String(m[2]), true])
+	var g: Array = cd["gain"]
+	fx.append([String(g[0]), String(g[1]), String(g[2]), false])
+	if cd.has("gain2"):
+		var g2: Array = cd["gain2"]
+		fx.append([String(g2[0]), String(g2[1]), String(g2[2]), false])
+	return {"name": String(cd["name"]), "pact": true, "school": String(cd.get("school", "ink")), "leg": bool(cd.get("leg", false)),
+		"fx": fx, "line": String(cd.get("line", "")), "glyph": "pact_" + id, "level": -1}
 
 
 ## Gardien vaincu sans un coup reçu : trois rouleaux épiques ou légendaires (verrous et plafond respectés).
@@ -3008,7 +3118,7 @@ func _open_flawless() -> void:
 	sfx.play("shot", 0.6)
 
 
-## « Passer » au sanctuaire : le petit bonus annoncé sur la carte.
+## « Refuser » au sanctuaire : le petit bonus annoncé sur le bouton (un cœur, sinon de l'or).
 func _pass_reward() -> void:
 	if _pass_bonus == "heal" and hero.hp < hero.max_hp:
 		heal(1)
@@ -3447,10 +3557,7 @@ func _spawn_elite(p: Vector3) -> void:
 	e.position = arena.clamp_walk(p, 0.8)
 	add_child(e)
 	e.hp *= float(Worlds.world(current_world).hp_mult)
-	if "oni_eye" in curses:
-		e.hp *= 1.5
-	if "haste" in curses:
-		e.speed *= 1.25
+	_apply_curses(e)
 	# système d'élite commun : ×2.5 PV, ×1.25, bouclier, aura, affixes
 	e.promote(Enemy.roll_affixes(current_world))
 	e.set_meta("max_hp", e.hp)
@@ -3863,19 +3970,38 @@ func _award(victory: bool) -> void:
 
 func _take_curse(id: String) -> void:
 	curses.append(id)
+	if _bot != null:
+		print("BOT PACTE scellé : %s (salle %d)" % [id, room])
 	shake = 0.55
 	sfx.play("strike", 0.5)
 	sfx.play("pact", 0.8, -2.0)
 	feel("heavy")
+	# gains immédiats (les malus sont lus sur `curses` là où ils agissent)
 	match id:
-		"dry", "oni_eye", "tide":
+		"dry", "tide":
 			_extra_picks += 2
+		"oni_eye":
+			powers.force_rank = 2  # un rouleau épique garanti dans la prochaine offre
+			_extra_picks += 1
 		"heavy":
-			hero.max_hp += 2
-			hero.hp = hero.max_hp
+			hero.max_hp += 1
+			hero.hp += 1
+			_extra_picks += 1
 		"haste":
 			_extra_picks += 1
 			hero.hp = hero.max_hp
+		"lantern":
+			powers.force_rank = 1  # un rouleau rare garanti
+			_extra_picks += 1
+		"cursed_ink":
+			hero.max_hp += 2
+			hero.hp = hero.max_hp
+		"drum":
+			score.bonus_mult = 1.4
+		"ronin", "mask":
+			pass  # gains permanents : curse_dmg_mult, or ×2
+	if hero.hp > hero.max_hp:
+		hero.hp = hero.max_hp
 
 
 ## Pas de choix de rouleau pendant l'entrée d'un boss (caméra de présentation).
@@ -3991,9 +4117,10 @@ func _award_score() -> void:
 
 # ------------------------------------------------------------------ aides pour les pouvoirs
 
-func damage_enemy(e: Node3D, dmg: float, fx := true) -> void:
+func damage_enemy(e: Node3D, dmg_in: float, fx := true) -> void:
 	if not is_instance_valid(e) or e.dead:
 		return
+	var dmg := dmg_in * curse_dmg_mult()
 	var killed: bool = e.hurt_dot(dmg)
 	if fx and not killed:
 		_splash(e.position, Toon.SUMI, 3)
@@ -4024,8 +4151,9 @@ func nearest_enemies(pos: Vector3, r: float, n: int, exclude: Node3D) -> Array:
 
 
 ## Dégâts de zone sur les boss (techniques, pouvoirs). Renvoie les points touchés.
-func damage_bosses(center: Vector3, r: float, dmg: float, fx := true) -> Array:
+func damage_bosses(center: Vector3, r: float, dmg_in: float, fx := true) -> Array:
 	var hits: Array = []
+	var dmg := dmg_in * curse_dmg_mult()
 	for bo in bosses:
 		if not is_instance_valid(bo) or bo.dead:
 			continue
@@ -4040,7 +4168,8 @@ func damage_bosses(center: Vector3, r: float, dmg: float, fx := true) -> Array:
 
 
 ## Dégâts le long d'un trait sur les boss : chacun n'est touché qu'une fois.
-func damage_bosses_line(pts: PackedVector3Array, r: float, dmg: float, fx := true) -> void:
+func damage_bosses_line(pts: PackedVector3Array, r: float, dmg_in: float, fx := true) -> void:
+	var dmg := dmg_in * curse_dmg_mult()
 	for bo in bosses:
 		if not is_instance_valid(bo) or bo.dead:
 			continue
@@ -4054,8 +4183,27 @@ func damage_bosses_line(pts: PackedVector3Array, r: float, dmg: float, fx := tru
 
 
 func heal(n: int) -> void:
+	if "ronin" in curses:
+		# Serment du rōnin : plus aucun soin de la partie
+		float_text(hero.position, "SERMENT", Toon.VERMILION)
+		return
 	hero.hp = mini(hero.max_hp, hero.hp + n)
 	float_text(hero.position, "+%d" % n, Toon.VERMILION)
+
+
+## Dégâts du héros multipliés par les pactes (Serment du rōnin : +30 %).
+func curse_dmg_mult() -> float:
+	return 1.3 if "ronin" in curses else 1.0
+
+
+## Malus permanents d'un yōkai qui paraît (pactes) : vie, vitesse, annonces plus courtes.
+func _apply_curses(e: Node3D) -> void:
+	if "oni_eye" in curses:
+		e.hp *= 1.5
+	if "haste" in curses:
+		e.speed *= 1.25
+	if "lantern" in curses:
+		e._windup *= 0.75  # Lanterne éteinte (plancher Enemy.WINDUP_MIN respecté par l'ennemi)
 
 
 ## Éclair (雷) : zigzag jaune cerné d'encre, de a à b (à hauteur de torse).
@@ -4625,7 +4773,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_stroke_stop = 0.0
 	_stroke_hit = false
 	_prev_hero = hero.position
-	hero.speed_mult = powers.dash_mult() * _world_dash_mult()
+	hero.speed_mult = powers.dash_mult() * _world_dash_mult() * (0.8 if "heavy" in curses else 1.0)  # Pas lourd
 	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
@@ -4806,6 +4954,8 @@ func _hurt_hero(n := 1) -> void:
 	if powers.on_hurt(n):
 		return
 	hero.hurt(n, _hurt_iframes())
+	if "cursed_ink" in curses:
+		_ink_lock = INK_LOCK_T  # Encre maudite : la recharge d'encre se fige
 	_scratched = true
 	_break_chain()
 	score.on_hurt()
@@ -4876,7 +5026,7 @@ func _check_slashes() -> void:
 				_prev_hero = hero.position
 				continue
 			dmg *= float(_fig_mods.get("dmg", 1.0))
-			dmg *= chain_mult()
+			dmg *= chain_mult() * curse_dmg_mult()
 			dmg = powers.on_hit(e, dmg, dir)
 			_stroke_hit = true
 			_chain_t = 0.0
@@ -4916,7 +5066,7 @@ func _check_slashes() -> void:
 			continue
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
-			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0))
+			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0)) * curse_dmg_mult()
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
@@ -5215,7 +5365,8 @@ func _process(_delta: float) -> void:
 	if ult != _ult_sent:  # jauge d'ultime (dessinée par le HUD si elle existe) : reposée seulement si elle a bougé
 		_ult_sent = ult
 		hud.set(&"ult", ult)
-	if not touching and not hero.dashing:
+	_ink_lock = maxf(0.0, _ink_lock - real)
+	if not touching and not hero.dashing and _ink_lock <= 0.0:
 		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real)
 	# hors combat : l'encre se recharge aussitôt, et le doigt posé fait courir
 	_explore = exploring()

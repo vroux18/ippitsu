@@ -50,6 +50,9 @@ const FLIP_AFTER := 0.08  # le légendaire se retourne juste après son déroul�
 const REVEAL_DUR := 0.3
 const CONFIRM := 100  # cible « bouton CHOISIR »
 const TIP := 101  # cible « explication des rouleaux » (COMPRIS)
+const REFUSE := 102  # cible « bouton REFUSER » du sanctuaire (= la carte « refuse » des ids)
+const PACT_BODY := Color("#1C1A21")  # corps sombre d'une carte de pacte (planche Sanctuaire)
+const PACT_VEIL := Color("#140F12")  # fond du sanctuaire
 const UNROLL_AT := 0.05  # premier rouleau qui arrive (s, temps réel)
 const UNROLL_GAP := 0.13  # décalage d'une carte à la suivante
 const UNROLL_DUR := 0.64  # chute du rouleau fermé, déroulé et rebond compris
@@ -100,6 +103,7 @@ var _chosen := -1
 var _rects: Array = []  # rectangles de toucher des cartes (fixes : la carte levée garde le sien)
 var _confirm_rect := Rect2()
 var _reroll_rect := Rect2()
+var _refuse_rect := Rect2()  # sanctuaire : bouton REFUSER
 var _curse_mode := false
 var _leg_index := -1  # première carte légendaire (pour le retournement), -1 sinon
 var _leg_last := -1  # dernière carte légendaire
@@ -166,9 +170,9 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_leg_last = -1
 	for i in infos.size():
 		var info: Dictionary = infos[i]
-		if String(info.get("kanji", "")) == "鬼":
-			_curse_mode = true
-		if int(info.get("rarity_rank", -1)) < 0:
+		if bool(info.get("pact", false)) or bool(info.get("refuse", false)):
+			_curse_mode = true  # sanctuaire : pactes en cartes v2 (_pact_face), REFUSER en bouton
+		elif int(info.get("rarity_rank", -1)) < 0:
 			_no_v2 = true
 		if String(info.get("rarity", "")) == "legendary":
 			if _leg_index < 0:
@@ -429,6 +433,8 @@ func _gui_input(event: InputEvent) -> void:
 				_tip_close()
 			elif i == CONFIRM:
 				_choose(_sel)
+			elif i == REFUSE:
+				_choose(_refuse_index())
 			elif i == _sel:
 				_choose(i)
 			else:
@@ -439,6 +445,19 @@ func _gui_input(event: InputEvent) -> void:
 		else:
 			_down = -1
 		accept_event()
+
+
+## Index de la carte « refuse » du sanctuaire (-1 sinon).
+func _refuse_index() -> int:
+	for i in _infos.size():
+		if bool(_infos[i].get("refuse", false)):
+			return i
+	return -1
+
+
+## Carte dessinée ? (la carte « refuse » du sanctuaire est un bouton, pas une carte)
+func _is_card(i: int) -> bool:
+	return i >= 0 and i < _infos.size() and not bool(_infos[i].get("refuse", false))
 
 
 func _choose(i: int) -> void:
@@ -453,6 +472,8 @@ func _choose(i: int) -> void:
 func _hit(p: Vector2) -> int:
 	if _sel >= 0 and _confirm_rect.has_point(p):
 		return CONFIRM
+	if _curse_mode and _refuse_rect.has_point(p):
+		return REFUSE
 	if _tip_on and not _tip_gone and _tip_a > 0.3 and _tip_rect.has_point(p):
 		return TIP
 	for i in _rects.size():
@@ -923,11 +944,11 @@ func _draw_links(u: float, a: float) -> void:
 
 # ------------------------------------------------------------------ cartes
 
-## Style des cartes ; le sanctuaire (pactes) garde toujours le kakemono ; une carte sans rareté passe la carte v2
-## en estampe.
+## Style des cartes ; le sanctuaire (pactes) est toujours en carte v2 (_pact_face) ; une carte sans rareté passe la
+## carte v2 en estampe.
 func _sty() -> int:
 	if _curse_mode:
-		return 0
+		return STYLE_V2
 	var st := clampi(style, 0, STYLE_V2)
 	if st == STYLE_V2 and _no_v2:
 		return 2
@@ -2435,21 +2456,28 @@ func _draw_v2() -> void:
 	var u := w / 400.0
 	var fade := UiKit.ease_out(_t / 0.3) if _chosen < 0 else 1.0 - UiKit.ease_out((_t - 0.25) / 0.3)
 	var n := _infos.size()
+	# cartes dessinées (le sanctuaire ne dessine pas la carte « refuse » : c'est un bouton)
+	var slots: Array = []
+	for i in n:
+		if _is_card(i):
+			slots.append(i)
+	var nc := slots.size()
 	var leg := _leg_index >= 0
 	var revealed := 0.0
 	if leg:
 		revealed = 1.0 if _chosen >= 0 else clampf((_t - _reveal_start(_leg_index) - REVEAL_DUR * 0.5) / 0.4, 0.0, 1.0)
 	var ins := UiKit.safe_insets(size)
 	# cartes : trois cartes de 116 u tiennent dans la largeur ; plus (Atelier : un choix de plus), elles rétrécissent
-	var k := minf(1.0, (w - 24.0 * u) / maxf(1.0, (V2_W * float(n) + V2_GAP * float(maxi(n - 1, 0))) * u))
+	var k := minf(1.0, (w - 24.0 * u) / maxf(1.0, (V2_W * float(nc) + V2_GAP * float(maxi(nc - 1, 0))) * u))
 	var bub_w := minf(w - 28.0 * u, 340.0 * u)
 	var bub_h := 60.0 * u  # place réservée à la bulle (la plus haute des cartes : rien ne saute au toucher)
-	for i in n:
+	for i in slots:
 		bub_h = maxf(bub_h, _v2_bubble(Rect2(Vector2.ZERO, Vector2(bub_w, 4000.0)), _infos[i], _id(i), u, 0.0, false))
 	var sub_h := 18.0 * u if _title_text != "" and _sub_text != "" else 0.0
-	var strip_h := 46.0 * u if not _owned.is_empty() else 0.0
+	var strip_h := 46.0 * u if not _owned.is_empty() and not _curse_mode else 0.0
 	var tip_h := _tip_h(u) + 14.0 * u if _tip_on else 0.0
-	var fixed := 44.0 * u + sub_h + strip_h + tip_h + bub_h + V2_BTN_H * u
+	var refuse_h := 62.0 * u if _curse_mode else 0.0  # pilule REFUSER sous SCELLER
+	var fixed := 44.0 * u + sub_h + strip_h + tip_h + bub_h + V2_BTN_H * u + refuse_h
 	var gsum := (18.0 + 32.0 + 22.0 + 24.0) * u
 	var avail := h - ins.x - ins.y - 24.0 * u
 	var gk := 1.0
@@ -2471,7 +2499,9 @@ func _draw_v2() -> void:
 	var btn_y := by + bub_h + 24.0 * u * gk  # haut de la rangée relance / CHOISIR
 
 	# voile d'encre ; lueur d'or (cercles, sans flou) et poussière quand un légendaire est là
-	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.88 * fade))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(PACT_VEIL if _curse_mode else Toon.VEIL, 0.9 * fade))
+	if _curse_mode:
+		_pact_backdrop(w, h, top, ch, u, fade)
 	if leg:
 		var pulse := 0.5 + 0.5 * sin(_t * 2.2)
 		var gcen := Vector2(w / 2.0, top + ch * 0.5)
@@ -2480,7 +2510,7 @@ func _draw_v2() -> void:
 		_draw_motes(w, h, u, revealed * fade)
 
 	# titre (Shippori espacée), trait vermillon qui se pose dessous
-	var title := "UN ROULEAU"
+	var title := "PACTE" if _curse_mode else "UN ROULEAU"
 	var title_col: Color = Toon.WASHI
 	if leg:
 		title_col = Toon.WASHI.lerp(GOLD_HI, revealed)
@@ -2511,15 +2541,17 @@ func _draw_v2() -> void:
 
 	# cartes côte à côte (rectangles de toucher fixes) ; chaque carte est donnée face cachée, monte et se retourne ;
 	# la carte touchée se soulève (14 u) et se dessine en dernier
-	var x0 := (w - (cw * float(n) + gap * float(maxi(n - 1, 0)))) / 2.0
+	var x0 := (w - (cw * float(nc) + gap * float(maxi(nc - 1, 0)))) / 2.0
 	_rects.clear()
 	for i in n:
-		_rects.append(Rect2(Vector2(x0 + float(i) * (cw + gap), top), Vector2(cw, ch)))
+		_rects.append(Rect2())  # (la carte « refuse » garde un rectangle vide : jamais touchée comme une carte)
+	for j in nc:
+		_rects[int(slots[j])] = Rect2(Vector2(x0 + float(j) * (cw + gap), top), Vector2(cw, ch))
 	var order: Array = []
-	for i in n:
-		if i != _sel:
+	for i in slots:
+		if int(i) != _sel:
 			order.append(i)
-	if _sel >= 0 and _sel < n:
+	if _sel >= 0 and _sel < n and _is_card(_sel):
 		order.append(_sel)
 	var lift := V2_LIFT * k * u
 	for oi in order:
@@ -2573,7 +2605,7 @@ func _draw_v2() -> void:
 
 	# bulle d'encre de la carte touchée, pointe vers elle
 	var ba := fade * (UiKit.ease_out(_sel_t / 0.2) if _chosen < 0 else 1.0)
-	if _sel >= 0 and _sel < n and ba > 0.01:
+	if _sel >= 0 and _sel < n and _is_card(_sel) and ba > 0.01:
 		var bh := _v2_bubble(Rect2(Vector2.ZERO, Vector2(bub_w, 4000.0)), _infos[_sel], _id(_sel), u, 0.0, false)
 		var box := Rect2(Vector2(w / 2.0 - bub_w / 2.0, by + 6.0 * u * (1.0 - ba)), Vector2(bub_w, bh))
 		var sr: Rect2 = _rects[_sel]
@@ -2586,7 +2618,7 @@ func _draw_v2() -> void:
 		_v2_bubble(box, _infos[_sel], _id(_sel), u, ba, true)
 
 	# relance (bouton rond, compteur) et CHOISIR au pinceau (pâle tant qu'aucune carte n'est touchée)
-	var has_rr := rerolls > 0 and _chosen < 0 and n > 0
+	var has_rr := rerolls > 0 and _chosen < 0 and n > 0 and not _curse_mode
 	var bw := V2_BTN_W * u
 	var bh2 := V2_BTN_H * u
 	var rrd := V2_REROLL * u
@@ -2597,8 +2629,15 @@ func _draw_v2() -> void:
 	if has_rr:
 		_reroll_rect = Rect2(Vector2(row_x, btn_y + (bh2 - rrd) / 2.0), Vector2(rrd, rrd))
 		_v2_reroll(_reroll_rect, u, fade)
-	var ck := UiKit.ease_out(_sel_t / 0.2) if _sel >= 0 else 0.0
-	_v2_choose(_confirm_rect, u, fade * lerpf(0.35, 1.0, ck))
+	var ck := UiKit.ease_out(_sel_t / 0.2) if _sel >= 0 and _is_card(_sel) else 0.0
+	if _curse_mode:
+		# SCELLER (pinceau vermillon une fois une carte levée) puis REFUSER (étiquette légère)
+		_v2_choose(_confirm_rect, u, fade * lerpf(0.35, 1.0, ck), "SCELLER", ck)
+		_refuse_rect = Rect2(Vector2(w / 2.0 - 90.0 * u, btn_y + bh2 + 16.0 * u), Vector2(180.0 * u, 46.0 * u))
+		_pact_refuse(_refuse_rect, u, fade)
+	else:
+		_refuse_rect = Rect2()
+		_v2_choose(_confirm_rect, u, fade * lerpf(0.35, 1.0, ck))
 
 
 ## Bande des pouvoirs pris (planche Rouleaux) : médaillons entre deux filets ; ceux que la carte en vue améliore,
@@ -2672,12 +2711,13 @@ func _spaced(font: Font, txt: String, pos: Vector2, fs: int, sp: float, c: Color
 
 
 ## CHOISIR au pinceau (planche Rouleaux, gabarit 210 × 64) : trait de papier, filet vermillon dessous, mot en
-## Shippori espacée ; à l'appui, le pinceau vire au vermillon.
-func _v2_choose(r0: Rect2, u: float, a: float) -> void:
+## Shippori espacée ; à l'appui, le pinceau vire au vermillon. `armed` (SCELLER du sanctuaire, planche Sanctuaire) :
+## une carte levée arme le bouton, qui passe au vermillon plein, mot papier, et se cerne d'un contour vermillon.
+func _v2_choose(r0: Rect2, u: float, a: float, label := "CHOISIR", armed := 0.0) -> void:
 	if a <= 0.01:
 		return
 	var r := r0
-	var pressed := _down == CONFIRM
+	var pressed := _down == CONFIRM or armed > 0.5
 	if pressed:
 		r = r.grow(-3.0 * u)
 	var k := Vector2(r.size.x / V2_BTN_W, r.size.y / V2_BTN_H)
@@ -2688,6 +2728,15 @@ func _v2_choose(r0: Rect2, u: float, a: float) -> void:
 	pts.append(o + Vector2(206, 50) * k)
 	pts.append_array(_cubic_pts(o, k, Vector2(206, 50), Vector2(140, 62), Vector2(60, 62), Vector2(4, 54)))
 	pts.append(o + Vector2(12, 34) * k)
+	if armed > 0.5:
+		# contour vermillon du bouton armé (planche Boutons : « bouton armé = contour vermillon »)
+		var rc := r.get_center()
+		var ring := PackedVector2Array()
+		for q in pts:
+			var qv: Vector2 = q
+			ring.append(rc + (qv - rc) * Vector2(1.0 + 8.0 * u / r.size.x, 1.0 + 8.0 * u / r.size.y))
+		ring.append(ring[0])
+		draw_polyline(ring, Color(Toon.VERMILION, 0.6 * a), maxf(1.0, 2.0 * u), true)
 	draw_colored_polygon(pts, Color(Toon.VERMILION if pressed else UIColors.WASHI, a))
 	if not pressed:
 		var line := PackedVector2Array([o + Vector2(30, 56) * k])
@@ -2697,7 +2746,7 @@ func _v2_choose(r0: Rect2, u: float, a: float) -> void:
 	if _v2_btn.spacing_glyph != sp:
 		_v2_btn.spacing_glyph = sp
 	var fs := int(20 * u)
-	UiKit.text(self, _v2_btn, "CHOISIR", Vector2(r.get_center().x + float(sp) * 0.5, r.get_center().y + float(fs) * 0.36),
+	UiKit.text(self, _v2_btn, label, Vector2(r.get_center().x + float(sp) * 0.5, r.get_center().y + float(fs) * 0.36),
 		fs, Color(UIColors.WASHI if pressed else UIColors.SUMI, a))
 
 
@@ -2735,6 +2784,9 @@ func _back_v2(r: Rect2, a: float) -> void:
 ## scène peinte de l'élément, médaillon et glyphe, pastille nouveau (étoile) ou montée de niveau (↑N), déclencheur,
 ## cartouche du nom, lignes d'effet (variante C), crans de niveau, anneau d'harmonie. Dessinée sous _xf.
 func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int) -> void:
+	if bool(info.get("pact", false)):
+		_pact_face(r, info, u, a, i)
+		return
 	var s := r.size.x / V2_W
 	var rank := clampi(int(info.get("rarity_rank", 0)), 0, 3)
 	var school := String(info.get("school", UiKit.power_school(id)))
@@ -2899,10 +2951,14 @@ func _v2_fx_row(rw: Array, x0: float, x1: float, ym: float, s: float, el: Color,
 
 ## Scène peinte d'une carte v2 (gabarit 116 × 104, origine o, échelle s), découpée au polygone clip : fond de
 ## l'élément et son motif (flammes, vagues, éclairs, vent, rayons d'ombre, lavis, boucle de figure).
-func _v2_scene(clip: PackedVector2Array, o: Vector2, school: String, s: float, a: float) -> void:
+func _v2_scene(clip: PackedVector2Array, o: Vector2, school: String, s: float, a: float, dark := false) -> void:
 	var sc := UIColors.card_scene(school)
 	var bg: Color = sc["bg"]
 	var deco: Color = sc["deco"]
+	if dark:
+		# scène « pacte » : le fond s'enfonce dans l'encre, le motif garde la couleur de nuit de l'élément
+		bg = bg.lerp(PACT_BODY, 0.62)
+		deco = UIColors.element(school, true)
 	draw_colored_polygon(clip, Color(bg, a))
 	var lines: Array = []  # polylignes à l'écran, découpées ensuite à la scène
 	match UIColors.element_of(school):
@@ -2989,6 +3045,8 @@ func _aff_bonus(info: Dictionary) -> String:
 ## phrase courte ; puis l'harmonie (anneau -> pastille HARMONIE quand le palier tombe, sinon le compte et le bonus visé)
 ## et la synergie. Renvoie la hauteur ; really = false : mesure seulement.
 func _v2_bubble(box: Rect2, info: Dictionary, id: String, u: float, a: float, really: bool) -> float:
+	if bool(info.get("pact", false)):
+		return _pact_bubble(box, info, u, a, really)
 	var px := 16.0 * u
 	var py := 12.0 * u
 	var x := box.position.x + px
@@ -3073,3 +3131,223 @@ func _v2_bubble(box: Rect2, info: Dictionary, id: String, u: float, a: float, re
 			var scol: Color = GOLD_HI if syn_on else Color(UIColors.WASHI, 0.55)
 			_line_fit(syn_line, Vector2(x, y), tw, cap, Color(scol, scol.a * a))
 	return y - box.position.y + py
+
+
+# ------------------------------------------------------------------ sanctuaire : pactes (planche Sanctuaire)
+
+## Décor du sanctuaire derrière les cartes : disque vermillon pâle, torii en silhouette (traverses au-dessus des
+## cartes, piliers derrière elles), deux lignes de vagues en bas. Tout en aplats, sans flou.
+func _pact_backdrop(w: float, h: float, top: float, ch: float, u: float, a: float) -> void:
+	var cx := w / 2.0
+	draw_circle(Vector2(cx, top + 6.0 * u), 150.0 * u, Color(Toon.VERMILION, 0.12 * a))
+	var red := Color(Toon.VERMILION, 0.55 * a)
+	var ly := top - 78.0 * u
+	draw_style_box(UiKit.box(_sb, red, int(3.0 * u)), Rect2(Vector2(cx - 130.0 * u, ly), Vector2(260.0 * u, 14.0 * u)))
+	draw_rect(Rect2(Vector2(cx - 112.0 * u, ly + 28.0 * u), Vector2(224.0 * u, 9.0 * u)), red)
+	for sx in [-1.0, 1.0]:
+		draw_rect(Rect2(Vector2(cx + float(sx) * 81.0 * u - 7.0 * u, ly), Vector2(14.0 * u, ch + 78.0 * u + 16.0 * u)), red)
+	for yy in [h - 100.0 * u, h - 60.0 * u]:
+		var pl := PackedVector2Array()
+		var xx := 0.0
+		while xx <= w + 1.0:
+			var t := fmod(xx / (100.0 * u), 1.0)
+			pl.append(Vector2(xx, float(yy) - 18.0 * u * 2.0 * t * (1.0 - t)))
+			xx += 6.0 * u
+		draw_polyline(pl, Color(Toon.VERMILION, 0.3 * a), maxf(1.0, 2.0 * u), true)
+
+
+## Pictogramme « permanent » (astérisque à six branches), couleur col, taille sz.
+func _permanent_icon(c: Vector2, sz: float, col: Color) -> void:
+	var r := sz * 0.5
+	for k in 3:
+		var ang := PI / 6.0 + PI * float(k) / 3.0
+		var d := Vector2(cos(ang), sin(ang)) * r
+		draw_line(c - d, c + d, col, maxf(1.0, sz * 0.16), true)
+	draw_circle(c, sz * 0.16, col)
+
+
+## Carte d'un pacte (planche Sanctuaire : même gabarit 116 × 250 que le rouleau, corps sombre, bordure vermillon
+## « pacte », filet d'or pour un pacte légendaire) : scène sombre de l'élément, médaillon d'encre au glyphe du pacte
+## (UiKit.POWER_GLYPH), pictogramme « permanent », cartouche sombre du nom, lignes MALUS (bande sumi, chiffre
+## #FF8A7A) puis GAIN (chiffre or), picto d'élément en pied. Pas de crans, pas d'anneau d'harmonie, pas de texte.
+func _pact_face(r: Rect2, info: Dictionary, u: float, a: float, i: int) -> void:
+	var s := r.size.x / V2_W
+	var school := String(info.get("school", "ink"))
+	var leg := bool(info.get("leg", false))
+	var el := UIColors.element(school, true)
+	var bc: Color = UIColors.PACT_BORDER
+	var bw := 3.0 * s
+	var rad := 12.0 * s
+	var ta := a * UiKit.ease_out((_ct - TXT_AT) / TXT_DUR)
+	var pk := (_ct - POP_AT) / POP_DUR
+	var ma := a * UiKit.ease_out(pk / 0.4)
+	var body := UiKit.rrect_points(r, rad)
+	var drop := (3.0 + 7.0 * _raise) * s
+	draw_colored_polygon(Transform2D(0.0, Vector2(0.0, drop + 3.0 * s)) * body, Color(0, 0, 0, (0.18 + 0.12 * _raise) * a))
+	draw_colored_polygon(Transform2D(0.0, Vector2(0.0, drop)) * body, Color(0, 0, 0, (0.26 + 0.1 * _raise) * a))
+	if leg:
+		draw_colored_polygon(UiKit.rrect_points(r.grow(2.0 * s), rad + 2.0 * s), Color(UIColors.GOLD, a))
+	draw_colored_polygon(body, Color(bc, a))
+	var inner := r.grow(-bw)
+	var irad := maxf(rad - bw, 1.0)
+	draw_colored_polygon(UiKit.rrect_points(inner, irad), Color(PACT_BODY, a))
+	var o := inner.position
+	var cx := r.get_center().x
+	var scene_r := Rect2(o, Vector2(inner.size.x, 104.0 * s - bw))
+	_v2_scene(UiKit.rrect_points(scene_r, irad, true), o, school, s, a, true)
+	if leg:
+		var fl := UiKit.rrect_points(inner.grow(-2.75 * s), maxf(irad - 2.75 * s, 1.0))
+		fl.append(fl[0])
+		draw_polyline(fl, Color(UIColors.GOLD, 0.9 * a), maxf(1.0, 1.5 * s), true)
+	# médaillon : disque d'encre cerné de l'élément, glyphe du pacte en papier (rempli de l'élément) ; il « pope »
+	var mc := Vector2(cx, o.y + 48.0 * s)
+	draw_set_transform_matrix(_xf * _about(mc, 0.6 + 0.4 * _settle(pk, 1.7)))
+	draw_circle(mc, 28.0 * s, Color(PACT_BODY, ma))
+	draw_arc(mc, 23.0 * s, 0.0, TAU, 48, Color(el, 0.35 * ma), maxf(1.0, 1.5 * s), true)
+	var gp: Array = UiKit.POWER_GLYPH.get(String(info.get("glyph", "")), [])
+	if gp.size() >= 2:
+		UiKit.draw_path(self, String(gp[0]), 60, mc, 60.0 * s, UIColors.WASHI, 3.0, el.darkened(0.25) if bool(gp[1]) else UiKit.NONE, ma,
+			String(gp[2]) if gp.size() >= 3 else "")
+	draw_arc(mc, 28.0 * s, 0.0, TAU, 56, Color(el, ma), maxf(1.0, 2.5 * s), true)
+	draw_set_transform_matrix(_xf)
+	# déclencheur : permanent (astérisque papier sur rond d'encre)
+	var tc := Vector2(inner.end.x - 18.0 * s, o.y + 18.0 * s)
+	draw_circle(tc, 12.0 * s, Color(UIColors.SUMI, ma))
+	draw_arc(tc, 11.25 * s, 0.0, TAU, 32, Color(UIColors.WASHI, ma), maxf(1.0, 1.5 * s), true)
+	_permanent_icon(tc, 14.0 * s, Color(UIColors.WASHI, ma))
+	# cartouche sombre du nom, cerné de vermillon
+	var nm := _p(String(info.get("name", "")))
+	var nfs := maxi(1, int(15.0 * s))
+	var maxw := inner.size.x - 24.0 * s
+	while nfs > 8 and UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x > maxw:
+		nfs -= 1
+	var nw := UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	var cart := Rect2(Vector2(cx - (nw + 20.0 * s) / 2.0, o.y + 90.0 * s), Vector2(nw + 20.0 * s, 28.0 * s))
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.35 * a), int(3.0 * s)), Rect2(cart.position + Vector2(0, 2.0 * s), cart.size))
+	draw_style_box(UiKit.box(_sb, Color(PACT_BODY.lightened(0.06), a), int(3.0 * s), Color(bc, a), maxi(1, int(1.5 * s))), cart)
+	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(cx, cart.get_center().y + float(nfs) * 0.36), nfs, Color(UIColors.WASHI, ta))
+	# lignes d'effet : MALUS (bande sumi, chiffre #FF8A7A) puis GAIN(S) (chiffre or), 24 u chacune dès 128 u
+	var rows: Array = info.get("fx", [])
+	var fx_y := o.y + 132.0 * s
+	for k in mini(rows.size(), 3):
+		var rw: Array = rows[k]
+		var ym := fx_y + 24.0 * s * float(k) + 12.0 * s
+		var neg := rw.size() >= 4 and bool(rw[3])
+		if neg:
+			draw_style_box(UiKit.box(_sb, Color(UIColors.SUMI, 0.75 * ta), int(4.0 * s)), Rect2(Vector2(o.x + 4.0 * s, ym - 11.0 * s), Vector2(inner.size.x - 8.0 * s, 22.0 * s)))
+		_pact_fx_row(rw, o.x + 8.0 * s, inner.end.x - 8.0 * s, ym, s, el, neg, ta)
+	# pied : picto d'élément ; losange d'or sous lui pour un pacte légendaire
+	var fy := inner.end.y - 8.0 * s - 19.0 * s
+	UiKit.element_icon(self, school, Vector2(cx, fy - 2.0 * s), 16.0 * s, ta, el)
+	if leg:
+		UiKit.diamond(self, Vector2(cx, fy + 15.0 * s), 3.5 * s, Color(UIColors.GOLD, ta))
+	_sheen_pass(r, u, a, 3 if leg else 1)
+
+
+## Ligne d'effet d'un pacte (variante C sur fond sombre) : pictogramme 12 (clé SVG « hud/… », « effets/… », sinon
+## glyphe), LIBELLÉ en capitales papier pâle, points de conduite, chiffre en Zen Kaku (malus : #FF8A7A, gain : or).
+func _pact_fx_row(rw: Array, x0: float, x1: float, ym: float, s: float, el: Color, neg: bool, a: float) -> void:
+	if a <= 0.01 or rw.size() < 3:
+		return
+	var icon := String(rw[0])
+	var icol: Color = RED_TXT if neg else UIColors.GOLD
+	if not UiKit.draw_icon(self, icon, Vector2(x0 + 6.0 * s, ym), 12.0 * s, a, icol):
+		UiKit.fx_icon(self, icon, Vector2(x0 + 6.0 * s, ym), 12.0 * s, icol, a)
+	var lx := x0 + 15.0 * s
+	var lab := UiKit.caps(String(rw[2]))
+	var v := String(rw[1])
+	var font: Font = UiKit.UI_FONT
+	var lfs := maxi(1, int(8.5 * s))
+	var muted := Color(UIColors.WASHI, 0.6 * a)
+	if v == "":
+		while lfs > 5 and font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x > x1 - lx:
+			lfs -= 1
+		draw_string(font, Vector2(lx, ym + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(icol, 0.9 * a))
+		return
+	var parts := UiKit.split_value(v)
+	var num := String(parts[1])
+	var unit := String(parts[2])
+	var nf := UiKit.num_font()
+	var vfs := maxi(1, int(12.0 * s))
+	var ufs := maxi(1, int(8.0 * s))
+	var nw := nf.get_string_size(num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs).x
+	var uw := font.get_string_size(unit, HORIZONTAL_ALIGNMENT_LEFT, -1, ufs).x + 1.5 * s if unit != "" else 0.0
+	var vx := x1 - (nw + uw)
+	while lfs > 5 and lx + font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x + 6.0 * s > vx:
+		lfs -= 1
+	var lw := font.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
+	draw_string(font, Vector2(lx, ym + float(lfs) * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, muted)
+	var dx := lx + lw + 3.0 * s
+	var dot := maxf(1.0, s)
+	var dc := Color(UIColors.WASHI, 0.25 * a)
+	while dx < vx - 3.0 * s:
+		draw_rect(Rect2(Vector2(dx, ym + 4.0 * s), Vector2(dot, dot)), dc)
+		dx += 2.0 * dot
+	var bl := ym + float(vfs) * 0.36
+	draw_string(nf, Vector2(vx, bl), num, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(icol, a))
+	if unit != "":
+		draw_string(font, Vector2(vx + nw + 1.5 * s, bl), unit, HORIZONTAL_ALIGNMENT_LEFT, -1, ufs, Color(icol, 0.7 * a))
+
+
+## Bulle d'encre d'un pacte levé : nom en capitales d'or, pictogramme « permanent », puis la phrase explicite
+## (déclencheur, malus, gain). Renvoie la hauteur ; really = false : mesure seulement.
+func _pact_bubble(box: Rect2, info: Dictionary, u: float, a: float, really: bool) -> float:
+	var px := 16.0 * u
+	var py := 12.0 * u
+	var x := box.position.x + px
+	var tw := box.size.x - 2.0 * px
+	var y := box.position.y + py + 13.0 * u
+	if really:
+		var sp := maxi(1, int(2.0 * u))
+		if _v2_caps.spacing_glyph != sp:
+			_v2_caps.spacing_glyph = sp
+		var nm := UiKit.caps(_p(String(info.get("name", ""))), UiKit.TITLE_FONT)
+		var f := int(12 * u)
+		while f > 8 and _v2_caps.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > tw - 32.0 * u:
+			f -= 1
+		draw_string(_v2_caps, Vector2(x, y), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f, Color(GOLD_HI, a))
+		_permanent_icon(Vector2(x + tw - 9.0 * u, y - 4.5 * u), 16.0 * u, Color(UIColors.WASHI, a))
+	var bfs := int(13.5 * u)
+	var lh := float(bfs) * 1.35
+	var lines := _wrap(_ui, _p(String(info.get("line", ""))), bfs, tw)
+	y += 4.0 * u
+	for k in mini(lines.size(), 4):
+		y += lh
+		if really:
+			draw_string(_ui, Vector2(x, y), lines[k], HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(UIColors.WASHI, a))
+	return y - box.position.y + py
+
+
+## REFUSER (planche Sanctuaire) : pilule transparente cernée de papier, croix et mot en Shippori espacée ; à droite,
+## ce que rapporte le refus (un cœur, sinon des pièces), en pictogramme et chiffre, sans légende.
+func _pact_refuse(r: Rect2, u: float, a: float) -> void:
+	if a <= 0.01:
+		return
+	var pressed := _down == REFUSE
+	var rr := r.grow(-2.0 * u) if pressed else r
+	draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI, (0.16 if pressed else 0.0) * a), int(rr.size.y * 0.5), Color(UIColors.WASHI, 0.6 * a), maxi(1, int(1.5 * u))), rr)
+	var ri := _refuse_index()
+	var info: Dictionary = _infos[ri] if ri >= 0 else {}
+	var heal := String(info.get("bonus", "gold")) == "heal"
+	var txt := "+1" if heal else "+%d" % int(info.get("gold", 15))
+	var sp := maxi(1, int(4.0 * u))
+	var fs := int(15 * u)
+	var ww := _spaced(UiKit.TITLE_FONT, "REFUSER", Vector2.ZERO, fs, float(sp), Color.WHITE, false)
+	var nf := UiKit.num_font()
+	var nfs := int(12 * u)
+	var bw := nf.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+	var total := 18.0 * u + 10.0 * u + ww + 14.0 * u + 14.0 * u + 3.0 * u + bw
+	var x := rr.get_center().x - total / 2.0
+	var cy := rr.get_center().y
+	var cross := Color(UIColors.WASHI, a)
+	draw_line(Vector2(x + 4.0 * u, cy - 5.0 * u), Vector2(x + 14.0 * u, cy + 5.0 * u), cross, maxf(1.0, 2.0 * u), true)
+	draw_line(Vector2(x + 14.0 * u, cy - 5.0 * u), Vector2(x + 4.0 * u, cy + 5.0 * u), cross, maxf(1.0, 2.0 * u), true)
+	x += 18.0 * u + 10.0 * u
+	_spaced(UiKit.TITLE_FONT, "REFUSER", Vector2(x, cy + float(fs) * 0.36), fs, float(sp), Color(UIColors.WASHI, a))
+	x += ww + 14.0 * u
+	var ic := Vector2(x + 7.0 * u, cy)
+	if heal:
+		UiKit.draw_icon(self, "effets/cur", ic, 14.0 * u, 0.85 * a, Toon.VERMILION.lightened(0.25))
+	else:
+		UiKit.draw_icon(self, "hud/piece", ic, 14.0 * u, 0.85 * a, UIColors.GOLD)
+	draw_string(nf, Vector2(x + 17.0 * u, cy + float(nfs) * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(UIColors.WASHI, 0.8 * a))

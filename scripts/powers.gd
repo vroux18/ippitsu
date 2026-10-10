@@ -80,6 +80,7 @@ const FIG_PLAIN := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOU
 	"enso": "ENSŌ", "hook": "CROCHET"}
 var demo := false  # tutoriel : toutes les techniques prêtées (niveau 1)
 var _offer_n := 0  # offres de rouleaux depuis le début de la partie
+var force_rank := 0  # pacte du sanctuaire (Lanterne éteinte, Œil de l'oni) : la prochaine offre garantit ce rang (1 rare, 2 épique), puis 0
 var _relax := false  # offre de secours : paliers de progression ignorés (sceaux de l'Atelier toujours respectés)
 var _fig_spin_tick := 0.0
 var _fig_spin_dmg := 0.0
@@ -96,6 +97,7 @@ var _fig_countered := {}
 
 func reset() -> void:
 	levels.clear()
+	force_rank = 0
 	_tiers.clear()
 	_burn.clear()
 	_clear_burn_fx()
@@ -317,6 +319,17 @@ func offer(room_n: int = -1) -> Array:
 			break
 		out.append(id)
 	_offer_n += 1
+	if force_rank > 0:
+		# rang garanti par un pacte : la première carte sous ce rang est remplacée (rang voulu, sinon le plus proche au-dessus)
+		if not _has_rank(out, force_rank) and not out.is_empty():
+			for rk in range(force_rank, Data.RARITY_ORDER.size()):
+				if rk == 3 and not leg_ok:
+					break
+				var fid := _pick(pools, String(Data.RARITY_ORDER[rk]), out)
+				if fid != "":
+					out[0] = fid
+					break
+		force_rank = 0
 	if _want_fig(out):
 		_force_fig(out, r, lv)
 	if _has_rank(out, 2):
