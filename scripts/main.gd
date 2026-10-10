@@ -4963,6 +4963,36 @@ func bot_goal() -> Vector3:
 	return arena.next_goal()
 
 
+## Flèche de sortie posée sur les dalles, entre le héros et le but (centre des portes, torii, zone suivante),
+## à 2,2 m devant le but, et orientée vers lui à l'écran.
+func _place_gate_hint() -> void:
+	var goal := Vector3.INF
+	if arena.gate_open:
+		if arena.gate_spots.size() >= 2:
+			goal = Vector3.ZERO
+			for g in arena.gate_spots:
+				goal += g
+			goal /= float(arena.gate_spots.size())
+		else:
+			goal = arena.gate_pos
+	else:
+		goal = arena.next_goal()
+	if goal == Vector3.INF:
+		return
+	var to_hero := Vector3(hero.position.x - goal.x, 0, hero.position.z - goal.z)
+	var d := to_hero.length()
+	if d < 3.0:
+		return  # déjà devant : plus besoin de flèche
+	var at := goal + to_hero / d * 2.2
+	at.y = 0.1
+	if cam.is_position_behind(at) or cam.is_position_behind(goal):
+		return
+	var sa := cam.unproject_position(at)
+	var sg := cam.unproject_position(goal)
+	hud.gate_hint_at = sa
+	hud.gate_hint_dir = (sg - sa).normalized() if sa.distance_to(sg) > 1.0 else Vector2.UP
+
+
 ## Ralenti cinématographique sur le dernier ennemi d'un combat (jamais pour le robot).
 func _start_slowmo(pos: Vector3) -> void:
 	if _bot != null or in_hub:
@@ -7174,6 +7204,9 @@ func _process(_delta: float) -> void:
 	hud.wave = stage_i + 1
 	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
 	hud.gate_hint = state == "play" and (arena.gate_open or (arena.stage and _enc < 0 and arena.zones_left() > 0))
+	hud.gate_hint_at = Vector2.INF
+	if hud.gate_hint:
+		_place_gate_hint()
 	# compte des combats de l'étape (crans de la pilule d'étape)
 	if arena.stage and not in_hub:
 		hud.enc_done = arena.zones_done()

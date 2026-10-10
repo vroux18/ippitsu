@@ -28,6 +28,8 @@ var elan_empty := false
 var wave := 1  # étape en cours (1..rooms_total)
 var rooms_total := 8
 var gate_hint := false
+var gate_hint_at := Vector2.INF  # point d'ancrage à l'écran (sur les dalles, devant les portes) ; INF : en haut, au centre
+var gate_hint_dir := Vector2.UP
 var boss_name := ""
 var boss_hint := ""  # point faible du boss affiché sous sa barre
 var boss_ratio := 1.0
@@ -1529,10 +1531,20 @@ func _maki_fill(k: float, col: Color) -> void:
 
 func _draw_gate_hint(sz: Vector2, u: float) -> void:
 	var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-	var ax := sz.x / 2.0
-	var ay := top_off + (_band_k + 62.0) * u - 8.0 * u * pulse
-	var arrow := PackedVector2Array([Vector2(ax, ay - 16 * u), Vector2(ax + 16 * u, ay + 6 * u), Vector2(ax + 6 * u, ay + 6 * u),
-		Vector2(ax + 6 * u, ay + 22 * u), Vector2(ax - 6 * u, ay + 22 * u), Vector2(ax - 6 * u, ay + 6 * u), Vector2(ax - 16 * u, ay + 6 * u)])
+	var c := Vector2(sz.x / 2.0, top_off + (_band_k + 62.0) * u)
+	var dir := Vector2.UP
+	if gate_hint_at != Vector2.INF:
+		# sur les dalles, gardée dans l'écran (sous le bandeau du haut, au-dessus des jauges)
+		c = Vector2(clampf(gate_hint_at.x, 60.0 * u, sz.x - 60.0 * u),
+			clampf(gate_hint_at.y, top_off + (_band_k + 40.0) * u, sz.y * 0.72))
+		dir = gate_hint_dir
+	# va-et-vient vers le but
+	c += dir * 8.0 * u * pulse
+	var side := Vector2(-dir.y, dir.x)
+	var pts: Array[Vector2] = [Vector2(0, -16), Vector2(16, 6), Vector2(6, 6), Vector2(6, 22), Vector2(-6, 22), Vector2(-6, 6), Vector2(-16, 6)]
+	var arrow := PackedVector2Array()
+	for p in pts:
+		arrow.append(c + (side * p.x - dir * p.y) * u)
 	_ci.draw_colored_polygon(arrow, Color(UIColors.GOLD, 0.55 + 0.4 * pulse))
 	_outline(arrow, Color(UiKit.GOLD_INK, 0.6 + 0.4 * pulse), 2.0 * u)
 
