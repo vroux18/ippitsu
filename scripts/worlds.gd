@@ -1794,7 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid <= 6:
+	if wid <= 7:
 		_landscape(wid, ctx, rng)
 	else:
 		_ls_legacy(wid, ctx, rng)
@@ -2267,6 +2267,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 			return ["hills", "boat", "shoji", "pine", "seal", "hills"]
 		6:
 			return ["cedars", "stairs", "lanterns", "rope", "rocks", "cedars"]
+		7:
+			return ["reef", "kelp", "columns", "clams", "weed", "reef"]
 		_:
 			return ["piles"]
 
@@ -2284,6 +2286,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 			_ls_near_ink(ctx, p, s, k, rng)
 		6:
 			_ls_near_kurama(ctx, p, s, k, rng)
+		7:
+			_ls_near_ryugu(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2301,6 +2305,8 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 			_ls_mid_ink(ctx, kind, a, b, s, rng)
 		6:
 			_ls_mid_kurama(ctx, kind, a, b, s, rng)
+		7:
+			_ls_mid_ryugu(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2333,6 +2339,11 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 				_ls_kurama_temple(ctx, c, s, rng)
 			else:
 				_ls_cedar_grove(ctx, c, s, rng)
+		7:
+			if main:
+				_ls_palace_ruin(ctx, c, s, rng)
+			else:
+				_ls_coral_massif(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2353,6 +2364,8 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 			_ls_north_ink(ctx, frame, rng)
 		6:
 			_ls_north_kurama(ctx, frame, rng)
+		7:
+			_ls_north_ryugu(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -3287,6 +3300,174 @@ static func _ls_north_kurama(ctx: Dictionary, frame: Rect2, rng: RandomNumberGen
 		_cedar_into(bs, _at(Vector3(c.x, mt - 0.05, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
 		_cedar_into(bs, _at(Vector3(c.x - sx * 0.9, mt - 0.1, c.y + 1.1), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng)
 		avoid.append(Vector3(c.x, c.y, 2.0))
+
+
+# --- monde 7 : fond marin devant Ryūgū-jō (massifs de coraux, ruines du palais, varech)
+
+const SAND_BANK := Color("#C4B094")  # buttes de sable nacré
+const SEA_WEED := Color("#3E6650")  # herbes marines
+const RUIN_TILE := Color("#2E4A66")  # tuiles indigo des toits effondrés
+
+
+## Colonne laquée du palais englouti : fût sombre, chapiteau de nacre si elle est entière ; `h` depuis le
+## fond. Une colonne brisée (`broken`) s'arrête net, biseau de nacre cassé.
+static func _ls_column_into(bs: Dictionary, p: Vector3, h: float, broken: bool, rng: RandomNumberGenerator) -> void:
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
+	var nacre := _toon(NACRE, true, 0.02)
+	var lean := Vector3(rng.randf_range(-0.06, 0.06), 0, rng.randf_range(-0.06, 0.06))
+	_add(bs, nacre, _cyl(0.3, 0.32, 0.12, 10), _at(p + Vector3(0, 0.06, 0)))
+	_add(bs, lac, _cyl(0.2, 0.23, h, 10), _at(p + Vector3(0, 0.12 + h * 0.5, 0), lean))
+	if broken:
+		_add(bs, nacre, _cyl(0.2, 0.16, 0.1, 10), _at(p + Vector3(0, 0.12 + h, 0), lean + Vector3(0.3, 0, 0)))
+	else:
+		_add(bs, nacre, _box(Vector3(0.62, 0.14, 0.62)), _at(p + Vector3(0, 0.12 + h + 0.07, 0), lean))
+
+
+## Massif de corail : rocher du récif allongé, coraux des quatre couleurs dessus, herbes au pied.
+static func _ls_reef(ctx: Dictionary, c: Vector2, ln: float, s: float, n: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var sc := clampf(ln * 0.3, 0.9, 1.5)
+	Decor.rock_into(bs, _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, PI * 0.5, 0), Vector3(sc * 1.4, sc * 0.7, sc)), rng.randi() % 100000, REEF_ROCK)
+	_contact(ctx, c, sc * 0.9)
+	for k in n:
+		var q := Vector3(c.x + rng.randf_range(-0.4, 0.4) * sc, VOID_Y + 0.22 * sc, c.y + (float(k) - (n - 1) * 0.5) * sc * 0.55)
+		_coral_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.3)), rng, CORAL[(k + rng.randi_range(0, 1)) % CORAL.size()])
+	var weed := _toon_ds(SEA_WEED)
+	for k in 3:
+		var q := Vector2(c.x - s * sc * 0.75, c.y + (float(k) - 1.0) * sc * 0.6)
+		_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(1.0, 1.4, 1.0)))
+
+
+## Bande proche : herbes marines, galets du récif, petits coraux, rides d'écume.
+static func _ls_near_ryugu(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var dens: float = ctx["ls_dens"]
+	if k % 4 == 1:
+		var sc := rng.randf_range(0.3, 0.7)
+		_inst(ctx, "pebble", _ball(0.5, 0.5, 6, 3), _toon(REEF_ROCK, true, 0.02), _at(Vector3(p.x, VOID_Y - 0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.6, sc)))
+		return
+	if k % 6 == 4:
+		var ci := k % CORAL.size()
+		var sc := rng.randf_range(0.5, 0.9)
+		_inst(ctx, "coral%d" % ci, _ball(0.5, 0.6, 7, 3), _toon(CORAL[ci], true, 0.018), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.8, sc)))
+		return
+	if k % 9 == 7:
+		var sc := rng.randf_range(0.7, 1.3)
+		_inst(ctx, "foam", _crescent_mesh(), _flat(Color(0.85, 0.94, 1.0, 0.7)), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, 1, sc)))
+		return
+	var weed := _toon_ds(SEA_WEED)
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.8, 1.5)
+		_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.5, sc)))
+
+
+## Bande moyenne : massif de corail, forêt de varech, colonnade en ruine, bénitiers sur le sable, banc
+## de sable aux herbes.
+static func _ls_mid_ryugu(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"reef":
+			_ls_reef(ctx, Vector2(x + s * 0.3, zc), ln, s, 3 if Toon.lite else 4, rng)
+		"kelp":
+			var n := 2 if ln < 3.6 or Toon.lite else 3
+			for k in n:
+				var q := Vector3(x + s * rng.randf_range(-0.2, 0.4), VOID_Y, a.y + 0.5 + k * ((ln - 1.0) / maxf(float(n - 1), 1.0)))
+				_kelp_into(bs, _at(q), rng, rng.randf_range(2.4, 3.4))
+			_inst(ctx, "pebble", _ball(0.5, 0.5, 6, 3), _toon(REEF_ROCK, true, 0.02), _at(Vector3(x - s * 0.3, VOID_Y - 0.05, zc), Vector3.ZERO, Vector3(0.6, 0.35, 0.6)))
+		"columns":
+			var hs: Array = [2.2, 1.0, 1.7]
+			var bi := rng.randi_range(0, 2)
+			for k in 3:
+				var q := Vector3(x + s * 0.1, VOID_Y - 0.05, a.y + 0.45 + k * ((ln - 0.9) / 2.0))
+				_ls_column_into(bs, q, float(hs[(k + bi) % 3]) if (k + bi) % 3 != 1 else 1.0, (k + bi) % 3 == 1, rng)
+			# tambour de colonne tombé, à demi enfoui, corail qui y pousse
+			var lac := _toon(PALACE_LACQUER, true, 0.025)
+			_add(bs, lac, _cyl(0.2, 0.2, 1.3, 10), _at(Vector3(x + s * 0.8, VOID_Y + 0.02, zc), Vector3(0, rng.randf_range(-0.3, 0.3), PI * 0.5)))
+			_coral_into(bs, _at(Vector3(x + s * 0.8, VOID_Y + 0.1, zc + 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.9), rng, CORAL[2])
+			_contact(ctx, Vector2(x, zc), 1.0)
+		"clams":
+			_add(bs, _toon(SAND_BANK, true, 0.02), _ball(0.5, 1.0, 12, 4), _at(Vector3(x + s * 0.2, VOID_Y, zc), Vector3(0, rng.randf_range(-0.2, 0.2), 0), Vector3(1.6, 0.3, minf(ln - 0.6, 2.8))))
+			for k in 2:
+				var xf := _at(Vector3(x + s * (0.1 + k * 0.3), VOID_Y + 0.1, zc + (k - 0.5) * 1.2), Vector3(0, _face(Vector2(x, zc), x - s * 5.0, zc) + rng.randf_range(-0.5, 0.5), 0), Vector3.ONE * rng.randf_range(0.8, 1.1))
+				_clam_into(bs, bn, xf)
+				if k == 0:
+					_light(ctx, xf * Vector3(0, 0.4, 0.1), CAUSTIC, 0.6, 3.5)
+		_:
+			_add(bs, _toon(SAND_BANK, true, 0.02), _ball(0.5, 1.0, 12, 4), _at(Vector3(x + s * 0.3, VOID_Y, zc), Vector3(0, rng.randf_range(-0.2, 0.2), 0), Vector3(1.8, 0.3, minf(ln - 0.4, 3.2))))
+			var weed := _toon_ds(SEA_WEED)
+			for k in (3 if Toon.lite else 5):
+				var q := Vector2(x + s * rng.randf_range(-0.2, 0.7), a.y + 0.4 + rng.randf() * (ln - 0.8))
+				_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(q.x, VOID_Y + 0.1, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(1.0, rng.randf_range(1.3, 1.8), 1.0)))
+			_coral_into(bs, _at(Vector3(x + s * 0.5, VOID_Y + 0.12, zc), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng, CORAL[3])
+
+
+## Ruines du palais (rive principale) : socle du récif, pan de mur laqué à fenêtre de nacre, colonnes
+## debout et brisée, toit de tuiles effondré, bénitier à la perle, coraux et varech.
+static func _ls_palace_ruin(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var rock := _toon(REEF_ROCK, true, 0.025)
+	_add(bs, rock, _ball(1.0, 0.5, 12, 4), _at(Vector3(c.x + s * 0.4, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(1.9, 0.5, 1.6)))
+	_contact(ctx, c, 1.7)
+	var top := VOID_Y + 0.12
+	# pan de mur en retrait, parallèle à la rive, fenêtre ronde de nacre
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
+	var nacre := _toon(NACRE, true, 0.02)
+	var wx := _at(Vector3(c.x + s * 1.2, top, c.y - 0.3), Vector3(0, face + rng.randf_range(-0.15, 0.15), 0))
+	_add(bs, lac, _box(Vector3(2.0, 1.7, 0.2)), wx * _at(Vector3(0, 0.85, 0)))
+	_add(bn, nacre, _box(Vector3(2.1, 0.1, 0.24)), wx * _at(Vector3(0, 0.5, 0)))
+	_add(bn, nacre, _cyl(0.3, 0.3, 0.24, 12), wx * _at(Vector3(0.35, 1.15, 0), Vector3(PI * 0.5, 0, 0)))
+	_add(bn, _toon(Color("#0C1A3E"), false), _cyl(0.22, 0.22, 0.26, 12), wx * _at(Vector3(0.35, 1.15, 0), Vector3(PI * 0.5, 0, 0)))
+	# colonnes : une entière devant le mur, une brisée, un toit tombé de biais entre les deux
+	_ls_column_into(bs, Vector3(c.x - s * 0.2, top, c.y - 1.1), 2.0, false, rng)
+	_ls_column_into(bs, Vector3(c.x - s * 0.1, top, c.y + 1.1), 0.9, true, rng)
+	var tile := _toon(RUIN_TILE, true, 0.025)
+	var ridge := _toon(NACRE, false)
+	Decor.roof_into(bs, bn, tile, ridge, _at(Vector3(c.x + s * 0.3, top + 0.35, c.y + 0.9), Vector3(0.18, face + 0.4, -0.22)), 1.8, 1.4, 0.5, 0.0, 0.4)
+	# bénitier à la perle sous la colonne, coraux au pied du mur, varech derrière
+	var cx := _at(Vector3(c.x - s * 0.7, top, c.y + 0.1), Vector3(0, face, 0), Vector3.ONE * 0.95)
+	_clam_into(bs, bn, cx)
+	_light(ctx, cx * Vector3(0, 0.4, 0.1), CAUSTIC, 0.6, 3.5)
+	for k in (2 if Toon.lite else 3):
+		_coral_into(bs, _at(Vector3(c.x + s * (0.5 + k * 0.35), top, c.y - 1.3 + k * 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.2)), rng, CORAL[k % CORAL.size()])
+	_kelp_into(bs, _at(Vector3(c.x + s * 2.2, VOID_Y, c.y + 0.6)), rng, 3.2)
+
+
+## Rive mineure : grand massif de corail, bénitier, varech derrière.
+static func _ls_coral_massif(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	_ls_reef(ctx, c, 4.2, s, 4 if Toon.lite else 6, rng)
+	_clam_into(bs, bn, _at(Vector3(c.x - s * 0.5, VOID_Y, c.y + 1.5), Vector3(0, _face(c, c.x - s * 6.0, c.y) + 0.3, 0), Vector3.ONE * 0.85))
+	_kelp_into(bs, _at(Vector3(c.x + s * 1.4, VOID_Y, c.y - 0.8)), rng, 2.8)
+	for k in 2:
+		_coral_into(bs, _at(Vector3(c.x + s * 1.3, VOID_Y, c.y + 0.6 + k * 0.7), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng, CORAL[(k + 1) % CORAL.size()])
+
+
+## Fond : porte effondrée du palais (deux colonnes et leur linteau tombé) de part et d'autre du torii,
+## rideau de varech derrière, massifs de corail aux coins.
+static func _ls_north_ryugu(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
+	for sx: float in [-1.0, 1.0]:
+		var px := sx * 2.6
+		_ls_column_into(bs, Vector3(px, VOID_Y - 0.05, top - 2.4), 2.4 if sx < 0.0 else 1.3, sx > 0.0, rng)
+		_ls_column_into(bs, Vector3(px + sx * 1.3, VOID_Y - 0.05, top - 2.6), 1.9, false, rng)
+		avoid.append(Vector3(px + sx * 0.6, top - 2.5, 1.5))
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.4), top - 3.6)
+		_ls_reef(ctx, c, 3.6, sx, 3 if Toon.lite else 5, rng)
+		avoid.append(Vector3(c.x, c.y, 2.0))
+		for k in (2 if Toon.lite else 3):
+			_kelp_into(bs, _at(Vector3(sx * (1.6 + k * 1.1), VOID_Y, top - 4.2 - rng.randf_range(0.0, 0.5))), rng, rng.randf_range(2.6, 3.6))
+	# linteau tombé en travers, devant la colonne brisée
+	_add(bs, lac, _box(Vector3(2.2, 0.3, 0.3)), _at(Vector3(3.0, VOID_Y + 0.15, top - 3.4), Vector3(0, 0.5, 0.12)))
 
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
