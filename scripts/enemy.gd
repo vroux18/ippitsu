@@ -74,6 +74,11 @@ var kind := "oni"
 var hp := 1.0
 var speed := 2.0
 var radius := 0.45
+## Empreinte au sol pour la marche (bords du vide, passages entre pièces de décor) : le rayon du corps, mais au plus
+## FOOT_MAX. Les gros corps (brute 0,75, geôlier 0,7, massue 0,8) ont un rayon de coups plus large que leurs pieds ;
+## jugés à ce rayon, un passage de 1,6 m entre une pièce de décor et le vide (PIECE_GAP) ne leur laissait que
+## quelques centimètres et ils restaient plaqués au coin, loin du héros.
+const FOOT_MAX := 0.6
 var hero: Node3D
 var main: Node
 
@@ -1748,7 +1753,7 @@ func _process(delta: float) -> void:
 
 	position += _knock * delta
 	_knock = _knock.lerp(Vector3.ZERO, minf(1.0, delta * 9.0))
-	main.clamp_to_arena(self, radius)
+	main.clamp_to_arena(self, _foot())
 	if _pt != 0:
 		Perf.add(&"enemy", _pt)
 
@@ -1787,7 +1792,7 @@ func _melee(delta: float, dir: Vector3, dist: float) -> void:
 				_steer_t -= delta
 				if _steer_t <= 0.0:
 					_steer_t = 0.2
-					_steer = main.steer_dir(position, hero.position)
+					_steer = main.steer_dir(position, hero.position, _foot())
 				var sd := _steer
 				position += sd * speed * delta
 				if sd != Vector3.ZERO:
@@ -1880,11 +1885,15 @@ func _walk_to_hero(delta: float, spd: float) -> void:
 	_steer_t -= delta
 	if _steer_t <= 0.0:
 		_steer_t = 0.2
-		_steer = main.steer_dir(position, hero.position)
+		_steer = main.steer_dir(position, hero.position, _foot())
 	position += _steer * spd * delta
 	if _steer != Vector3.ZERO:
 		_face(_steer, delta)
 	ch.play(_walk, maxf(spd / 1.6, 0.6))
+
+
+func _foot() -> float:
+	return minf(radius, FOOT_MAX)
 
 
 ## Garde une distance entre `near` et `far` en glissant sur le côté.
@@ -1901,7 +1910,7 @@ func _drift(delta: float, dir: Vector3, dist: float, near: float, far: float) ->
 		_steer_t -= delta
 		if _steer_t <= 0.0:
 			_steer_t = 0.2
-			_steer = main.steer_dir(position, hero.position)
+			_steer = main.steer_dir(position, hero.position, _foot())
 		fwd = _steer
 	var v := (fwd * want + side * 0.6) * speed
 	position += v * delta

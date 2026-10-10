@@ -186,6 +186,8 @@ var _nav_ok := PackedByteArray()  # 1 : un disque de rayon NAV_M tient sur la te
 var _nav_dist := PackedInt32Array()  # pas jusqu'au héros (-1 : hors d'atteinte)
 var _nav_goal := -1  # case du héros des distances (-1 : à calculer)
 var _nav_at := -100.0  # moment (_t) du dernier calcul de distances
+var _nav_m := NAV_M  # marge de la grille en place (une grille par gabarit de corps, voir _nav_use)
+var _nav_kept := {}  # marge -> grille mise de côté (même cadre), reprise sans être refaite
 var _used := {}  # forme -> nombre d'utilisations pendant la partie
 var _last := ""  # dernière forme hors boss
 var start := Vector3(0, 0, 6.1)
@@ -375,6 +377,7 @@ func _set_bounds(b: Rect2) -> void:
 	_adj = []
 	_nav_n = 0
 	_nav_goal = -1
+	_nav_kept.clear()
 	for r in rects:
 		var rr: Rect2 = r
 		var ri := rr.intersection(b)
@@ -3277,6 +3280,12 @@ func _in_union(x: float, z: float) -> bool:
 func clamp_walk(p: Vector3, rad: float) -> Vector3:
 	if walkable(p, rad):
 		return p
+	# d'abord tout près, sur l'union des plateformes : un corps poussé hors de la terre ferme glisse le long du
+	# bord. Ramené dans UNE plateforme rétrécie (repli plus bas), un ennemi engagé dans une jonction (couloir qui
+	# débouche sur une place, coin rentrant) retombait au bout du couloir à chaque image : il piétinait sur place.
+	var near := _near_walkable(p, rad)
+	if near != Vector3.INF:
+		return near
 	var best := p
 	var best_d := INF
 	for r in _act:
@@ -3293,6 +3302,35 @@ func clamp_walk(p: Vector3, rad: float) -> Vector3:
 	if best_d == INF:
 		best = Vector3(clampf(p.x, bounds.position.x + rad, bounds.end.x - rad), p.y, clampf(p.z, bounds.position.y + rad, bounds.end.y - rad))
 	return best
+
+
+const NEAR_RINGS := [0.04, 0.08, 0.14, 0.22, 0.32, 0.45, 0.6]
+const NEAR_DIRS := 16
+
+
+## Point le plus proche de `p` (à 0,6 m au plus) où un disque de rayon `rad` tient sur l'union des plateformes,
+## Vector3.INF sinon. Premier anneau qui en contient : la moyenne des directions praticables (le bord le plus
+## proche est en face), sinon la première trouvée.
+func _near_walkable(p: Vector3, rad: float) -> Vector3:
+	for rr in NEAR_RINGS:
+		var r: float = rr
+		var sum := Vector3.ZERO
+		var first := Vector3.INF
+		for k in NEAR_DIRS:
+			var a := TAU * float(k) / float(NEAR_DIRS)
+			var d := Vector3(cos(a), 0.0, sin(a))
+			if walkable(p + d * r, rad):
+				sum += d
+				if first == Vector3.INF:
+					first = p + d * r
+		if first == Vector3.INF:
+			continue
+		if sum.length_squared() > 0.01:
+			var q := p + sum.normalized() * r
+			if walkable(q, rad):
+				return q
+		return first
+	return Vector3.INF
 
 
 ## Point jouable au hasard, loin de `avoid` (dans le cadre courant : la zone de combat en cours).
@@ -3332,14 +3370,16 @@ func random_point(avoid: Vector3, min_dist: float, margin := 0.8) -> Vector3:
 
 # ------------------------------------------------------------------ chemin des ennemis
 
-## Où un ennemi doit aller pour rejoindre `to` : tout droit si la ligne reste sur la terre ferme,
-## sinon la passerelle (zone commune entre deux plateformes) la plus utile vers sa cible.
-func steer(from: Vector3, to: Vector3) -> Vector3:
-	if _act.size() <= 1 or _line_walkable(from, to, 0.3):
+## Où un ennemi (de rayon `rad`) doit aller pour rejoindre `to` : tout droit si la ligne reste sur la terre ferme
+## pour tout son corps, sinon la passerelle (zone commune entre deux plateformes) la plus utile vers sa cible.
+## La ligne droite se juge au rayon du corps (plus 5 cm) : jugée plus étroite (0,3 m), elle frôlait un coin ou une
+## pièce de décor que le corps ne passe pas, et l'ennemi restait plaqué dessus, à pousser vers sa cible.
+func steer(from: Vector3, to: Vector3, rad := 0.3) -> Vector3:
+	if _act.size() <= 1 or _line_walkable(from, to, maxf(0.3, rad + 0.05)):
 		return to
 	# grille avec marge : contourne les coins rentrants (le milieu d'une jonction peut être trop près du vide
 	# pour le corps de l'ennemi, qui restait collé au coin) ; repli sur les plateformes si la grille ne sait pas
-	var wp := next_waypoint(from, to)
+	var wp := next_waypoint(from, to, rad)
 	if wp != Vector3.INF:
 		return wp
 	var a := _rect_of(from)
@@ -3390,7 +3430,52 @@ func steer(from: Vector3, to: Vector3) -> Vector3:
 ## Prochain point de passage d'un ennemi en `from` vers `to` : le point le plus avancé, visible en ligne droite
 ## (marge NAV_M), du plus court chemin sur la grille. `to` s'il est déjà tout près ; Vector3.INF si la grille
 ## ne relie pas les deux (héros au-dessus du vide, ennemi hors de la terre ferme…).
-func next_waypoint(from: Vector3, to: Vector3) -> Vector3:
+func next_waypoint(from: Vector3, to: Vector3, rad := NAV_M) -> Vector3:
+	# gros corps (crabe, brute, geôlier, massue…) : grille à leur mesure, sinon le chemin longe le vide de trop
+	# près pour eux (case à 0,45 m du bord) et ils restaient plaqués au coin d'une jonction ou d'une pièce de
+	# décor ; si leur grille ne relie pas (passage trop étroit pour eux), celle des corps courants
+	var big := _nav_class(rad)
+	if big > NAV_M:
+		_nav_use(big)
+		var w := _nav_next(from, to, big)
+		_nav_use(NAV_M)
+		if w != Vector3.INF:
+			return w
+	return _nav_next(from, to, rad)
+
+
+## Gabarit de grille pour un corps de rayon `rad` : NAV_M pour les corps courants, sinon arrondi au dixième
+## au-dessus (0,6 / 0,7 / 0,8…) : peu de grilles différentes.
+static func _nav_class(rad: float) -> float:
+	if rad <= NAV_M + 0.06:
+		return NAV_M
+	return ceilf(rad * 10.0 - 0.001) / 10.0
+
+
+## Met en place la grille de marge `m` (celle d'avant est gardée pour ce cadre).
+func _nav_use(m: float) -> void:
+	if is_equal_approx(m, _nav_m):
+		return
+	_nav_kept[_nav_m] = [_nav_n, _nav_nx, _nav_nz, _nav_org, _nav_cw, _nav_cz, _nav_ok, _nav_dist, _nav_goal, _nav_at]
+	var st: Array = _nav_kept.get(m, [])
+	_nav_m = m
+	if st.is_empty():
+		_nav_n = 0
+		_nav_goal = -1
+		return
+	_nav_n = st[0]
+	_nav_nx = st[1]
+	_nav_nz = st[2]
+	_nav_org = st[3]
+	_nav_cw = st[4]
+	_nav_cz = st[5]
+	_nav_ok = st[6]
+	_nav_dist = st[7]
+	_nav_goal = st[8]
+	_nav_at = st[9]
+
+
+func _nav_next(from: Vector3, to: Vector3, rad: float) -> Vector3:
 	if _nav_n == 0:
 		_nav_build()
 	if _nav_n == 0:
@@ -3439,7 +3524,7 @@ func next_waypoint(from: Vector3, to: Vector3) -> Vector3:
 			continue
 		tried[ki] = true
 		var c := _nav_center(path[ki])
-		if _line_walkable(from, c, NAV_M):
+		if _line_walkable(from, c, maxf(_nav_m, rad)):
 			return c
 	return _nav_center(path[0])
 
@@ -3465,7 +3550,7 @@ func _nav_build() -> void:
 	_nav_dist.resize(n)
 	_nav_dist.fill(-1)
 	_nav_goal = -1
-	var m := NAV_M
+	var m := _nav_m
 	var d := m * 0.7071
 	for j in _nav_nz:
 		var z := _nav_org.y + (float(j) + 0.5) * _nav_cz
