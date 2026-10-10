@@ -783,6 +783,7 @@ const WARM_KINDS := ["oni", "kappa", "brute", "tate", "funa", "umibozu", "kitsun
 	"hinotama", "teppo", "tengu", "kanabo", "sumidama", "kasa", "moryo",
 	"karasu", "yamabushi", "konoha", "kani", "ningyo", "fugu", "gaki", "gokusotsu", "shiryo",
 	"shinobi", "shuriken", "kemuri", "kunoichi"]
+var _warm_hide := Vector3(0, -6.0, 0)  # cachette sous le sol des pièces face caméra du préchauffage
 const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins un ennemi
 
 
@@ -794,14 +795,45 @@ const WARM_BUDGET_US := 8000  # temps de préchauffage par image (µs), au moins
 ## Même chose pour les nœuds « top_level » (zones d'attaque, bulles, nuages, étoiles) : hors de la hiérarchie,
 ## ils ignoraient l'échelle et se posaient à l'origine du monde, plein cadre (goutte noire au centre de l'arène
 ## quand un combat commençait avant la fin du préchauffage).
+## Les pièces face caméra (billboard sans « keep scale » : particules de fumée et de braises, étoiles du butin,
+## papiers des énigmes) perdent toute échelle dans le shader : dessinées en taille réelle à 2 m devant l'objectif
+## (losange noir plein cadre pendant l'entrée d'un boss quand le préchauffage n'était pas fini). Elles sortent
+## de la miniature et vont dans la cachette sous le sol (_warm_hide), avec les effets de vfx.warm.
 func _warm_shrink(n: Node) -> void:
 	if n is GPUParticles3D or n is CPUParticles3D:
 		n.set("local_coords", true)
 	if n is Node3D and n.top_level:
 		n.top_level = false
 		n.position = Vector3.ZERO
+	if n is GeometryInstance3D and _bill_unscaled(n as GeometryInstance3D):
+		var g := n as Node3D
+		g.top_level = true
+		g.global_position = _warm_hide
 	for c in n.get_children():
 		_warm_shrink(c)
+
+
+## Vrai si une matière de `g` est tournée face caméra sans garder l'échelle du nœud.
+func _bill_unscaled(g: GeometryInstance3D) -> bool:
+	var mats: Array = [g.material_override]
+	var mesh: Mesh = null
+	if g is MeshInstance3D:
+		var mi := g as MeshInstance3D
+		mesh = mi.mesh
+		for i in mi.get_surface_override_material_count():
+			mats.append(mi.get_surface_override_material(i))
+	elif g is CPUParticles3D:
+		mesh = (g as CPUParticles3D).mesh
+	elif g is GPUParticles3D:
+		mesh = (g as GPUParticles3D).draw_pass_1
+	if mesh != null:
+		for i in mesh.get_surface_count():
+			mats.append(mesh.surface_get_material(i))
+	for m in mats:
+		var bm := m as BaseMaterial3D
+		if bm != null and bm.billboard_mode != BaseMaterial3D.BILLBOARD_DISABLED and not bm.billboard_keep_scale:
+			return true
+	return false
 
 
 func _warmup() -> void:
@@ -816,6 +848,7 @@ func _warmup() -> void:
 	w.position = Vector3(0, 0, -2.0)
 	w.scale = Vector3.ONE * 0.002
 	var fxp: Vector3 = hero.position + Vector3(0, -3.0, 0)  # effets sous l'eau opaque
+	_warm_hide = fxp + Vector3(0, -3.0, 0)
 	var x := -3.0
 	for k in WARM_KINDS:
 		var e := Enemy.new()
