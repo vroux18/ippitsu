@@ -2823,7 +2823,7 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		var fc := Vector2(o.x + 18.0 * s, o.y + 18.0 * s)
 		draw_circle(fc, 13.0 * s, Color(UIColors.WASHI_LIGHT, 0.95 * ma))
 		draw_arc(fc, 12.0 * s, 0.0, TAU, 32, Color(UIColors.SUMI, ma), maxf(1.0, 1.5 * s), true)
-		UiKit.figure_icon(self, fig, fc, 18.0 * s, ma)
+		UiKit.figure_icon(self, fig, fc, 18.0 * s, ma, UIColors.SUMI)
 	# lignes d'effet (variante C) : jusqu'à trois, 24 u chacune, panneau à 128 u
 	var rows := _fx_of(id, info)
 	for k in mini(rows.size(), max_rows):

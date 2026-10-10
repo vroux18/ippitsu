@@ -957,10 +957,11 @@ func _draw_shape_pop(sz: Vector2, u: float) -> void:
 		if i > 0:
 			# trait d'encre qui relie les figures enchaînées
 			draw_line(Vector2(x0 + (i - 1) * gap + r, y), c - Vector2(rr, 0), Color(Toon.SUMI, 0.6 * a), 2.0 * u)
-		# sceau rond papier cerné d'encre, picto v2 de la figure à son encre
+		# sceau rond papier cerné d'encre, picto de la figure en sumi (en couleur, le trait droit vermillon dans
+		# son rond se lisait comme un panneau « interdit »)
 		draw_circle(c, rr + 2.0 * u, Color(UIColors.SUMI, 0.9 * a))
 		draw_circle(c, rr, Color(UIColors.WASHI_LIGHT, 0.95 * a))
-		UiKit.figure_icon(self, String(sh[0]), c, rr * 1.5, a)
+		UiKit.figure_icon(self, String(sh[0]), c, rr * 1.5, a, UIColors.SUMI)
 
 
 ## Sceau du pouvoir qui vient d'agir, au-dessus de `wpos` (monde) : on voit d'un coup QUEL pouvoir a fait QUOI.
