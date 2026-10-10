@@ -343,14 +343,14 @@ func end_stroke(_stroke_id: int) -> void:
 	if loop.size() < 3:
 		return
 	if _gale_t > 0.0:
-		main.float_text(position + Vector3(0, 2.2, 0), "円", Toon.GOLD)
+		main.float_icon(position + Vector3(0, 2.2, 0), "figures/enso", Toon.GOLD)
 		main.big_hit(position + Vector3(0, 1.6, 0))
 		main.splash(position + Vector3(0, 2.0, 0), FEATHER, 26)
 		_shield_dmg(shield_max)
 	else:
 		# le vent le protège encore : la boucle n'effleure que sa garde
 		main.clang(position + Vector3(0, 1.6, 0))
-		main.float_text(position + Vector3(0, 2.4, 0), "風", SHIELD_C)
+		main.float_icon(position + Vector3(0, 2.4, 0), "elements/vent", SHIELD_C)
 		_shield_dmg(1.2)
 
 
@@ -445,7 +445,7 @@ func _step(delta: float) -> void:
 			if _gale_t > 0.0:
 				_gale_t -= delta
 				if _gale_t <= 0.0:
-					main.float_text(position + Vector3(0, 2.4, 0), "風", SHIELD_C)
+					main.float_icon(position + Vector3(0, 2.4, 0), "elements/vent", SHIELD_C)
 					_torn_t = 1.5
 			elif _tornado.is_empty():
 				_torn_t -= delta
@@ -551,7 +551,7 @@ func _cut_tornado() -> void:
 	var tp: Vector3 = _tornado["pos"]
 	_free_tornado(true)
 	_gale_t = GALE_OPEN if hp > max_hp * 0.5 else GALE_OPEN - 1.0
-	main.float_text(tp + Vector3(0, 1.2, 0), "風", Toon.GOLD)
+	main.float_icon(tp + Vector3(0, 1.2, 0), "elements/vent", Toon.GOLD)
 	main.small_hit(tp + Vector3(0, 1.0, 0))
 	main.float_text(position + Vector3(0, 2.6, 0), "GARDE OUVERTE", Toon.GOLD)
 	main.sfx.play("strike", 1.3, -4.0)

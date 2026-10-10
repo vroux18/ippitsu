@@ -472,7 +472,7 @@ func _on_shield_break() -> void:
 	_volley_t = -1.0
 	_state = "open"
 	var last := _head_ground()
-	main.float_text(last + Vector3(0, 2.0, 0), "龍", Toon.GOLD)
+	main.float_icon(last + Vector3(0, 2.0, 0), "hud/vague", Toon.GOLD)
 
 
 ## Fin de la fenêtre : la cuirasse se referme, phase suivante, nouvelles perles.

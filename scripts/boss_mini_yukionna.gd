@@ -412,7 +412,7 @@ func _start_volley() -> void:
 
 ## Le sentier pris dans l'ordre brise tout le voile.
 func _shatter() -> void:
-	main.float_text(position + Vector3(0, 1.6, 0), "雪", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 1.6, 0), "hud/neige", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.0, 0))
 	main.splash(position + Vector3(0, 1.4, 0), ICE, 30)
 	main.shake = maxf(float(main.shake), 0.69)

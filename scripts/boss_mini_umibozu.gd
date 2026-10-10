@@ -436,7 +436,7 @@ func _surfaced() -> bool:
 
 ## Toutes les bulles dans l'ordre : la peau d'encre cède d'un coup.
 func _burst_all() -> void:
-	main.float_text(position + Vector3(0, 2.4, 0), "泡", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 2.4, 0), "elements/eau", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.6, 0))
 	main.splash(position + Vector3(0, 2.0, 0), FOAM_C, 30)
 	main.shake = maxf(float(main.shake), 0.86)

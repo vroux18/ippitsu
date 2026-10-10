@@ -418,7 +418,7 @@ func _hittable() -> bool:
 
 ## La boucle arrache tout le manteau : le bouclier tombe d'un coup.
 func _tear() -> void:
-	main.float_text(position + Vector3(0, 1.6, 0), "円", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 1.6, 0), "figures/enso", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.0, 0))
 	main.splash(position + Vector3(0, 1.4, 0), FEATHER, 26)
 	main.shake = maxf(float(main.shake), 0.55)

@@ -302,8 +302,8 @@ func _step_first_intro() -> bool:
 	_check(int(intro.page) == 1, "intro : toucher pour avancer", "planche %d" % int(intro.page))
 	if not await _intro_to_last():
 		return false
-	_check(String(intro._next.text) == "C'EST PARTI" and not bool(intro._tuto.visible), "intro : dernière planche du premier lancement (C'EST PARTI)", "bouton « %s »" % String(intro._next.text))
-	await _press(intro._next, "C'EST PARTI")
+	_check(String(intro._next.text) == "JOUER" and not bool(intro._tuto.visible), "intro : dernière planche du premier lancement (JOUER)", "bouton « %s »" % String(intro._next.text))
+	await _press(intro._next, "JOUER")
 	if not await _until(func(): return String(main.state) in ["intro", "play"] and bool(main.meta.intro_done) and bool(main.in_hub), "fin de l'intro -> monde 1 (sanctuaire)"):
 		return false
 	_check(int(main.current_world) == 1 and bool(main.gentle) and not bool(main.meta.tuto_done), "intro du premier lancement -> monde 1, tutoriel en jeu", "monde %d, adouci %s" % [int(main.current_world), str(main.gentle)])

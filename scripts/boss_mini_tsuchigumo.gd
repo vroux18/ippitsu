@@ -380,7 +380,7 @@ func _wrapped() -> bool:
 
 ## La boucle déchire tout le cocon : le bouclier tombe d'un coup.
 func _tear() -> void:
-	main.float_text(position + Vector3(0, 1.4, 0), "円", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 1.4, 0), "figures/enso", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 0.8, 0))
 	main.splash(position + Vector3(0, 1.2, 0), SILK, 26)
 	main.shake = maxf(float(main.shake), 0.55)

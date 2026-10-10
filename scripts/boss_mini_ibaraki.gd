@@ -499,7 +499,7 @@ func _start_charge(dir: Vector3) -> void:
 
 ## Tous les sceaux dans l'ordre : l'anneau de forge cède d'un coup.
 func _break_bind() -> void:
-	main.float_text(position + Vector3(0, 1.8, 0), "鬼", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 1.8, 0), "hud/oni", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.2, 0))
 	main.splash(position + Vector3(0, 1.6, 0), FLAME, 30)
 	main.shake = maxf(float(main.shake), 0.86)

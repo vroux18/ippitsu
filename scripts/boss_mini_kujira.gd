@@ -415,7 +415,7 @@ func _check_kaeshi() -> void:
 ## Renvoyée : le bouclier d'os tombe d'un coup, elle s'échoue bien dans l'arène (_on_shield_break).
 func _kaeshi() -> void:
 	var head := _head()
-	main.float_text(head + Vector3(0, 0.6, 0), "返", Toon.VERMILION)
+	main.float_icon(head + Vector3(0, 0.6, 0), "figures/aller_retour", Toon.VERMILION)
 	main.big_hit(head + Vector3(0, 0.4, 0))
 	main.splash(head + Vector3(0, 0.6, 0), FOAM, 22)
 	main.shake = maxf(float(main.shake), 0.86)

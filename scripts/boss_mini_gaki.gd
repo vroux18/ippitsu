@@ -301,7 +301,7 @@ func _step(delta: float) -> void:
 		_cut_t -= delta
 		if _cut_t <= 0.0:
 			_resolder()
-			main.float_text(position + Vector3(0, 2.6, 0), "鎖", SHIELD_C)
+			main.float_icon(position + Vector3(0, 2.6, 0), "hud/chaine", SHIELD_C)
 	match _state:
 		"spawn":
 			_timer -= delta
@@ -415,7 +415,7 @@ func _cut_chains(a: Vector3, b: Vector3) -> void:
 			if n_cut < _chains.size():
 				_shield_dmg(CHAIN_CHIP)
 	if n_cut >= _chains.size() and vulnerable_t <= 0.0 and not dead:
-		main.float_text(position + Vector3(0, 2.4, 0), "断", Toon.GOLD)
+		main.float_icon(position + Vector3(0, 2.4, 0), "hud/slash", Toon.GOLD)
 		main.big_hit(position + Vector3(0, 1.4, 0))
 		main.shake = maxf(float(main.shake), 0.69)
 		_shield_dmg(shield_max)

@@ -339,7 +339,7 @@ func end_stroke(stroke_id: int) -> void:
 	var loop := Loop.find_loop(pts, Vector2(position.x, position.z))
 	if loop.size() < 3:
 		return
-	main.float_text(position + Vector3(0, 2.6, 0), "円", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 2.6, 0), "figures/enso", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.8, 0))
 	main.splash(position + Vector3(0, 2.2, 0), BOLT, 26)
 	main.shake = maxf(float(main.shake), 0.86)
@@ -501,7 +501,7 @@ func _cut_threads(a: Vector3, b: Vector3, stroke_id: int) -> void:
 	if _bound_count() == 0:
 		_unbound_t = UNBOUND
 		_freed_stroke = stroke_id
-		main.float_text(position + Vector3(0, 3.0, 0), "雷", Toon.GOLD)
+		main.float_icon(position + Vector3(0, 3.0, 0), "elements/foudre", Toon.GOLD)
 		main.float_text(position + Vector3(0, 2.2, 0), "DÉLIÉE", Toon.GOLD)
 	else:
 		_shield_dmg(THREAD_CHIP * float(cut_now))

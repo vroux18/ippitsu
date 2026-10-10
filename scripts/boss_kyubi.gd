@@ -385,7 +385,7 @@ func check_dash(a: Vector3, b: Vector3, stroke_id: int) -> bool:
 					_trip()
 					return false
 				_cut = true
-				main.float_text(_route_point_ahead(), "✕", Toon.GOLD)
+				main.float_icon(_route_point_ahead(), "hud/slash", Toon.GOLD)
 			return _hit_real(a, b, stroke_id)
 		"p3_rest", "p3_stun":
 			return _hit_real(a, b, stroke_id)
@@ -406,7 +406,7 @@ func take_hit(dmg: float, _dir: Vector3) -> void:
 		_fakes_gone = 6.0
 		_fade = 1.0
 		_shuffle_dir = 0
-		main.float_text(position + Vector3(0, 0.4, 0), "真", Toon.GOLD)
+		main.float_icon(position + Vector3(0, 0.4, 0), "hud/etoile", Toon.GOLD)
 		_shield_dmg(UNMASK_SH)
 	_hit(dmg, _figure_hit())
 
@@ -435,9 +435,9 @@ func end_stroke(_stroke_id: int) -> void:
 			_extinguish(t)
 			n += 1
 	if n == 0:
-		main.float_text(position, "○", Toon.FOAM)
+		main.float_icon(position, "figures/enso", Toon.FOAM)
 		return
-	main.float_text(position + Vector3(0, 0.4, 0), "円 ×%d" % n, Toon.GOLD)
+	main.float_icon(position + Vector3(0, 0.4, 0), "figures/enso", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 0.6, 0))
 	_relight = 12.0
 	# chaque queue éteinte arrache un pan du voile ; toutes (ou presque) d'un coup : il cède
@@ -548,7 +548,7 @@ func _burst_fake(f: Dictionary) -> void:
 	var p := fn.global_position
 	f["alive"] = false
 	fn.visible = false
-	main.float_text(p, "幻", Toon.FOAM)
+	main.float_icon(p, "elements/ombre", Toon.FOAM)
 	main.splash(p + Vector3(0, 0.8, 0), Toon.GOLD, 14)
 	main.clang(p)
 	# six feux follets lents
@@ -984,7 +984,7 @@ func _start_phase2() -> void:
 		var hn: Node3D = f["node"]
 		hn.visible = false
 	_shift_from = position
-	main.float_text(position + Vector3(0, 0.4, 0), "九尾", Toon.GOLD)
+	main.float_icon(position + Vector3(0, 0.4, 0), "hud/oni", Toon.GOLD)
 	main.set("shake", maxf(float(main.get("shake")), 0.55))
 	_spawn_ground_tails()
 
@@ -999,7 +999,7 @@ func _start_phase3() -> void:
 	_shield_refill()
 	_clear_ground_tails()
 	_sync_body_tails()
-	main.float_text(position + Vector3(0, 0.4, 0), "逃", Toon.VERMILION)
+	main.float_icon(position + Vector3(0, 0.4, 0), "elements/ombre", Toon.VERMILION)
 	main.set("shake", maxf(float(main.get("shake")), 0.55))
 
 
@@ -1108,7 +1108,7 @@ func _process(delta: float) -> void:
 			if _timer <= 0.0:
 				_tail_rise = 1.0
 				_state = "p2"
-				main.float_text(CENTER + Vector3(0, 0.4, 0), "○ Ensō", Toon.GOLD)
+				main.float_icon(CENTER + Vector3(0, 0.4, 0), "figures/enso", Toon.GOLD)
 		"p2":
 			_phase2(delta)
 		"shift3":
