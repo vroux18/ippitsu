@@ -17,7 +17,6 @@ const VOID_Y := -0.55
 ## Zone des particules d'ambiance (couvre l'arène et un peu au-delà).
 const PART_AREA := AABB(Vector3(-6, 0, -11), Vector3(12, 5, 22))
 const NONE2 := Vector2(9999.0, 9999.0)
-const NONE4 := Vector4(9999.0, 9999.0, 0.0, 0.0)
 const MAX_LIGHTS := 3  # OmniLight3D de props par salle (mobile)
 ## Distance des props de bord au bord de la plateforme (empreinte toujours à plus de 0.3).
 const EDGE_OFF := 0.55
@@ -497,23 +496,10 @@ static func _add(b: Dictionary, m: Material, mesh: Mesh, xf: Transform3D) -> voi
 	Decor.merge_into(st, mesh, xf)  # copie CPU : pas de relecture GPU par pièce
 
 
-# Rendu allégé : les grands props du fond (z < NO_INK_Z, loin de la caméra) perdent leur contour
-# d'encre, soit une passe de dessin de moins par matériau ; un trait d'un demi-pixel à cette distance.
+# Rendu allégé : un lot (bs/bn) marqué NO_INK reçoit ses pièces sans contour d'encre, soit une passe de
+# dessin de moins par matériau (réservé aux props très loin de la caméra : un trait d'un demi-pixel).
 const NO_INK := "_no_ink"  # drapeau posé dans les lots bs/bn le temps de bâtir un prop
-const NO_INK_Z := -10.0
 static var _no_ink_mats := {}  # matériau à contour -> même matériau sans contour
-
-
-## Marque (ou non) les lots du contexte : les pièces ajoutées ensuite seront sans contour d'encre.
-static func _no_ink(ctx: Dictionary, on: bool) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	if on:
-		bs[NO_INK] = true
-		bn[NO_INK] = true
-	else:  # clé retirée : hors rendu allégé, les lots ne contiennent que des matériaux
-		bs.erase(NO_INK)
-		bn.erase(NO_INK)
 
 
 static func _without_ink(m: Material) -> Material:
@@ -1794,10 +1780,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid == 1:
-		_landscape(wid, ctx, rng)
-	else:
-		_ls_legacy(wid, ctx, rng)
+	_landscape(wid, ctx, rng)
 	# pièces de décor sur la terre ferme (tirages à part : le décor autour ne change pas)
 	if not pieces.is_empty():
 		_set_pieces(wid, ctx, pieces, _rng(rng_seed * 13 + 7))
@@ -1822,14 +1805,6 @@ static func _reserve_gate(ctx: Dictionary) -> void:
 	var gx := clampf(0.0, high.position.x + 1.2, high.end.x - 1.2)
 	var avoid: Array = ctx["avoid"]
 	avoid.append(Vector3(gx, high.position.y, 2.3))
-
-
-## Vrai si `p` est dans la tranche de z du tronçon (toujours vrai pour une salle unique).
-static func _in_zone(ctx: Dictionary, p: Vector2) -> bool:
-	var zone: Rect2 = ctx.get("zone", Rect2())
-	if not zone.has_area():
-		return true
-	return p.y >= zone.position.y - 0.6 and p.y <= zone.end.y + 0.6
 
 
 ## Ombre de contact douce dans l'eau au pied d'un prop (instances : un seul draw call par salle).
@@ -1887,124 +1862,6 @@ static func _ok(ctx: Dictionary, p: Vector2, margin: float, spacing: float) -> b
 		if Vector2(av.x, av.y).distance_to(p) < av.z:
 			return false
 	return true
-
-
-## Emplacement d'un grand prop : sur les côtés ou au fond, jamais au bas de l'écran.
-static func _spot_outer(ctx: Dictionary, rng: RandomNumberGenerator) -> Vector2:
-	for attempt in 40:
-		var p := Vector2.ZERO
-		if rng.randf() < 0.62:
-			var sx: float = -1.0 if rng.randf() < 0.5 else 1.0
-			p = Vector2(sx * rng.randf_range(5.7, 9.0), rng.randf_range(-12.5, 6.0))
-		else:
-			p = Vector2(rng.randf_range(-8.5, 8.5), rng.randf_range(-13.8, -10.0))
-		if _ok(ctx, p, 1.1, 1.9):
-			return p
-	return NONE2
-
-
-## Emplacement d'un petit prop dans un vide intérieur de l'arène.
-static func _spot_gap(ctx: Dictionary, rng: RandomNumberGenerator) -> Vector2:
-	for attempt in 40:
-		var p := Vector2(rng.randf_range(-4.2, 4.2), rng.randf_range(-8.2, 6.8))
-		if _ok(ctx, p, 0.9, 1.3):
-			return p
-	return NONE2
-
-
-## Emplacement de bord : (x, z, normale sortante x, normale sortante z), à EDGE_OFF du bord ouest,
-## est ou nord d'une plateforme (jamais au sud : un prop y masquerait la plateforme vue d'en haut).
-static func _spot_edge(ctx: Dictionary, rng: RandomNumberGenerator) -> Vector4:
-	var rects: Array = ctx["rects"]
-	if rects.is_empty():
-		return NONE4
-	for attempt in 30:
-		var r: Rect2 = rects[rng.randi_range(0, rects.size() - 1)]
-		var t := rng.randf_range(0.12, 0.88)
-		var n := Vector2.ZERO
-		var p := Vector2.ZERO
-		var side := rng.randi_range(0, 2)
-		if side == 0:
-			n = Vector2(-1, 0)
-			p = Vector2(r.position.x, lerpf(r.position.y, r.end.y, t))
-		elif side == 1:
-			n = Vector2(1, 0)
-			p = Vector2(r.end.x, lerpf(r.position.y, r.end.y, t))
-		else:
-			n = Vector2(0, -1)
-			p = Vector2(lerpf(r.position.x, r.end.x, t), r.position.y)
-		p += n * EDGE_OFF
-		if p.y > 6.8 or not _in_zone(ctx, p):
-			continue
-		if _ok(ctx, p, 0.5, 1.2):
-			return Vector4(p.x, p.y, n.x, n.y)
-	return NONE4
-
-
-## Alignement le long d'un bord ouest, est ou nord : [a, b, normale sortante] (Vector2), ou [] si rien.
-static func _spot_run(ctx: Dictionary, rng: RandomNumberGenerator) -> Array:
-	var rects: Array = ctx["rects"]
-	if rects.is_empty():
-		return []
-	for attempt in 20:
-		var r: Rect2 = rects[rng.randi_range(0, rects.size() - 1)]
-		var side := rng.randi_range(0, 2)
-		var span := rng.randf_range(1.6, 3.2)
-		var n := Vector2.ZERO
-		var a := Vector2.ZERO
-		var b := Vector2.ZERO
-		if side < 2:
-			var x: float = r.position.x if side == 0 else r.end.x
-			n = Vector2(-1, 0) if side == 0 else Vector2(1, 0)
-			var z0 := rng.randf_range(r.position.y + 0.2, maxf(r.end.y - span - 0.2, r.position.y + 0.2))
-			a = Vector2(x, z0)
-			b = Vector2(x, minf(z0 + span, r.end.y - 0.2))
-		else:
-			n = Vector2(0, -1)
-			var x0 := rng.randf_range(r.position.x + 0.2, maxf(r.end.x - span - 0.2, r.position.x + 0.2))
-			a = Vector2(x0, r.position.y)
-			b = Vector2(minf(x0 + span, r.end.x - 0.2), r.position.y)
-		a += n * 0.42
-		b += n * 0.42
-		if a.distance_to(b) < 1.0 or maxf(a.y, b.y) > 6.8 or not _in_zone(ctx, a) or not _in_zone(ctx, b):
-			continue
-		var good := true
-		var steps := int(ceil(a.distance_to(b) / 0.3))
-		for i in steps + 1:
-			if not _ok(ctx, a.lerp(b, float(i) / steps), 0.3, 0.7):
-				good = false
-				break
-		if good:
-			return [a, b, n]
-	return []
-
-
-## Point au hasard dans le vide autour de l'arène (côtés, fond) ou dans ses trous.
-## `reach` : distance max au-delà des bords ; `low` : autorise le bas de l'écran (éléments plats).
-static func _ring_pt(ctx: Dictionary, rng: RandomNumberGenerator, margin: float, spacing: float, reach: float, low: bool) -> Vector2:
-	var zmax: float = 9.6 if low else 6.5
-	for attempt in 12:
-		var p := Vector2.ZERO
-		var u := rng.randf()
-		if u < 0.55:
-			var sx: float = -1.0 if rng.randf() < 0.5 else 1.0
-			p = Vector2(sx * (4.7 + margin + pow(rng.randf(), 1.4) * reach), rng.randf_range(-14.0, zmax))
-		elif u < 0.88:
-			p = Vector2(rng.randf_range(-5.0 - reach, 5.0 + reach), -8.7 - margin - pow(rng.randf(), 1.4) * reach)
-		else:
-			p = Vector2(rng.randf_range(-4.4, 4.4), rng.randf_range(-8.4, minf(8.4, zmax)))
-		if p.y > zmax:
-			continue
-		if _ok(ctx, p, margin, spacing):
-			return p
-	return NONE2
-
-
-## Pilier qui sort du vide jusqu'au niveau du sol (support des props de bord).
-static func _pillar(ctx: Dictionary, p: Vector2, r: float, color: Color) -> void:
-	var bn: Dictionary = ctx["bn"]
-	var h := 0.0 - (VOID_Y - 0.35)
-	_add(bn, _toon(color, true, 0.02), _cyl(r * 0.9, r, h, 6), _at(Vector3(p.x, -h * 0.5, p.y)))
 
 
 ## Angle (rotation.y) pour que le +Z local regarde le point (tx, tz) depuis p.
@@ -2076,46 +1933,6 @@ static func _foam_ring(ctx: Dictionary, p: Vector2, r: float, rng: RandomNumberG
 		var yaw := a0 + TAU * k / n + rng.randf_range(-0.3, 0.3)
 		var s := r / 0.5 * rng.randf_range(1.05, 1.3)
 		_inst(ctx, "foam", _crescent_mesh(), _flat(Color(Toon.FOAM, 0.5)), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, yaw, 0), Vector3(s, 1, s)))
-
-
-static func _prop_big(wid: int, ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	match wid:
-		1:
-			_big_wave(ctx, p, rng)
-		2:
-			_big_tanabata(ctx, p, rng)
-		3:
-			_big_contes(ctx, p, rng)
-		4:
-			_big_fuji(ctx, p, rng)
-		6:
-			_big_kurama(ctx, p, rng)
-		7:
-			_big_ryugu(ctx, p, rng)
-		8:
-			_big_yomi(ctx, p, rng)
-		_:
-			_big_ink(ctx, p, rng)
-
-
-static func _fill(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	match wid:
-		1:
-			_fill_wave(ctx, rng)
-		2:
-			_fill_tanabata(ctx, rng)
-		3:
-			_fill_contes(ctx, rng)
-		4:
-			_fill_fuji(ctx, rng)
-		6:
-			_fill_kurama(ctx, rng)
-		7:
-			_fill_ryugu(ctx, rng)
-		8:
-			_fill_yomi(ctx, rng)
-		_:
-			_fill_ink(ctx, rng)
 
 
 # --- paysage des abords (couches 3 à 6 : vide, repères, fond lointain, props)
@@ -2257,6 +2074,20 @@ static func _ls_mid_kinds(wid: int) -> Array:
 	match wid:
 		1:
 			return ["piles", "boat", "pier", "nets", "piles", "lantern"]
+		2:
+			return ["bamboo", "garland", "fence", "torii", "tanzaku", "bamboo"]
+		3:
+			return ["fence", "pines", "toro", "steles", "jizo", "pines"]
+		4:
+			return ["strata", "chain", "braziers", "spikes", "torii", "strata"]
+		5:
+			return ["hills", "boat", "shoji", "pine", "seal", "hills"]
+		6:
+			return ["cedars", "stairs", "lanterns", "rope", "rocks", "cedars"]
+		7:
+			return ["reef", "kelp", "columns", "clams", "weed", "reef"]
+		8:
+			return ["jizo", "graves", "toro", "dead_trees", "sotoba", "graves"]
 		_:
 			return ["piles"]
 
@@ -2264,6 +2095,20 @@ static func _ls_mid_kinds(wid: int) -> Array:
 ## Petit élément bas de la bande proche en `p` (`s` : côté, 0 au sud ; `k` : rang le long du bord).
 static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			_ls_near_tanabata(ctx, p, s, k, rng)
+		3:
+			_ls_near_contes(ctx, p, s, k, rng)
+		4:
+			_ls_near_fuji(ctx, p, s, k, rng)
+		5:
+			_ls_near_ink(ctx, p, s, k, rng)
+		6:
+			_ls_near_kurama(ctx, p, s, k, rng)
+		7:
+			_ls_near_ryugu(ctx, p, s, k, rng)
+		8:
+			_ls_near_yomi(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2271,6 +2116,20 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 ## Tronçon de la bande moyenne de `a` à `b` (même x), `s` : côté.
 static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			_ls_mid_tanabata(ctx, kind, a, b, s, rng)
+		3:
+			_ls_mid_contes(ctx, kind, a, b, s, rng)
+		4:
+			_ls_mid_fuji(ctx, kind, a, b, s, rng)
+		5:
+			_ls_mid_ink(ctx, kind, a, b, s, rng)
+		6:
+			_ls_mid_kurama(ctx, kind, a, b, s, rng)
+		7:
+			_ls_mid_ryugu(ctx, kind, a, b, s, rng)
+		8:
+			_ls_mid_yomi(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2278,6 +2137,41 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 ## Groupe lointain centré en `c` : le riche (`main`) ou le mineur.
 static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: bool, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			if main:
+				_ls_tanabata_shrine(ctx, c, s, rng)
+			else:
+				_ls_tanabata_bridge(ctx, c, s, rng)
+		3:
+			if main:
+				_ls_snow_cabin(ctx, c, s, rng)
+			else:
+				_ls_snow_grove(ctx, c, s, rng)
+		4:
+			if main:
+				_ls_forge_yard(ctx, c, s, rng)
+			else:
+				_ls_burnt_shrine(ctx, c, s, rng)
+		5:
+			if main:
+				_ls_paper_house(ctx, c, s, rng)
+			else:
+				_ls_ink_pine(ctx, c, s, rng)
+		6:
+			if main:
+				_ls_kurama_temple(ctx, c, s, rng)
+			else:
+				_ls_cedar_grove(ctx, c, s, rng)
+		7:
+			if main:
+				_ls_palace_ruin(ctx, c, s, rng)
+			else:
+				_ls_coral_massif(ctx, c, s, rng)
+		8:
+			if main:
+				_ls_graveyard(ctx, c, s, rng)
+			else:
+				_ls_dead_grove(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2288,6 +2182,20 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 ## Fond de l'étape (au nord du cadre, derrière le torii de sortie).
 static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
 	match wid:
+		2:
+			_ls_north_tanabata(ctx, frame, rng)
+		3:
+			_ls_north_contes(ctx, frame, rng)
+		4:
+			_ls_north_fuji(ctx, frame, rng)
+		5:
+			_ls_north_ink(ctx, frame, rng)
+		6:
+			_ls_north_kurama(ctx, frame, rng)
+		7:
+			_ls_north_ryugu(ctx, frame, rng)
+		8:
+			_ls_north_yomi(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -2398,16 +2306,17 @@ static func _ls_mid_wave(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, 
 				_rope(bn, rope, tops[k], tops[k + 1], 0.16, 0.018)
 
 
-## Maison de pêcheur sur pilotis (la porte regarde +Z local) : pieux jusqu'à `low_y`, plancher débordant,
-## murs de planches d'hinoki pâle, bandeau sombre, porte, fenêtre de papier, toit de chaume à quatre pans,
-## lanterne de papier accrochée près de la porte si `lit`.
-static func _stilt_house_into(b: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float, low_y: float, lit: bool) -> void:
+## Maison sur pilotis (la porte regarde +Z local) : pieux jusqu'à `low_y`, plancher débordant, murs
+## (`wall_c`, hinoki pâle du port par défaut), bandeau sombre, porte, fenêtre de papier, toit à quatre pans
+## (`roof_c`, chaume par défaut), lanterne de papier accrochée près de la porte si `lit`. Sert aussi de
+## cabane de montagne (rondins, toit de neige) et de maison de papier (murs washi, toit d'encre).
+static func _stilt_house_into(b: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float, low_y: float, lit: bool, wall_c := HINOKI, roof_c := THATCH, ridge_c := Color("#3A3028")) -> void:
 	var pile := _toon(Decor.PILE, true, 0.02)
-	var wall := _toon(HINOKI, true, 0.025)
-	var band := _toon(Color("#5A4A3A"), false)
+	var wall := _toon(wall_c, true, 0.025)
+	var band := _toon(wall_c.darkened(0.45), false)
 	var deck := _toon(Decor.PLANK, true, 0.02)
-	var thatch := _toon(THATCH, true, 0.025)
-	var ridge := _toon(Color("#3A3028"), false)
+	var thatch := _toon(roof_c, true, 0.025)
+	var ridge := _toon(ridge_c, false)
 	var door := _toon(Color("#2A221C"), false)
 	var paper := _toon(Toon.WASHI, false)
 	var ink := _toon(Toon.SUMI, false)
@@ -2541,42 +2450,1006 @@ static func _ls_north_wave(ctx: Dictionary, frame: Rect2, rng: RandomNumberGener
 	_contact(ctx, hc, 1.8)
 	avoid.append(Vector3(hc.x, hc.y, 2.4))
 
-## Ancien remplissage au hasard des abords (mondes pas encore composés).
-static func _ls_legacy(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	# grands props dans le vide autour de l'arène
-	for i in rng.randi_range(13, 17):
-		var p := _spot_outer(ctx, rng)
-		if p == NONE2:
+
+# --- monde 2 : nuit de Tanabata, berges de l'étang entre les bambous
+
+const NIGHT_STONE := Color("#6E746A")  # pierre des pas et des rochers sous la lune (jamais la pierre claire du jour)
+const NIGHT_STONE_DARK := Color("#4E5650")
+
+## Bosquet de bambous instanciés sur un îlot de mousse (tiges à nœuds, panaches de feuilles) : rayon `mr`,
+## `n` tiges. Les tiges qui tomberaient dans l'arène sont sautées.
+static func _ls_bamboo_clump(ctx: Dictionary, c: Vector2, mr: float, n: int, rng: RandomNumberGenerator) -> void:
+	var stem_a := _toon(Decor.BAMBOO, true, 0.018)
+	var stem_b := _toon(Color("#6F8F4C"), true, 0.018)
+	var node_m := _toon(Decor.BAMBOO_NODE, false)
+	var leaf := _toon_ds(Decor.BAMBOO_LEAF)
+	var moss := _toon(MOSS_K, true, 0.02)
+	var stem_mesh := _cyl(0.05, 0.06, 1.0, 6)
+	var node_mesh := _cyl(0.068, 0.068, 0.035, 6)
+	var spray := _spray_mesh()
+	_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), moss, _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.8, mr)))
+	for k in n:
+		var a := rng.randf() * TAU
+		var d := sqrt(rng.randf()) * mr * 0.7
+		var base := Vector3(c.x + cos(a) * d, VOID_Y + 0.1, c.y + sin(a) * d)
+		if not _ok(ctx, Vector2(base.x, base.z), 0.45, 0.0):
 			continue
-		_take(ctx, p)
-		_no_ink(ctx, Toon.lite and p.y < NO_INK_Z)
-		_prop_big(wid, ctx, p, rng)
-		_no_ink(ctx, false)
-		_contact(ctx, p, 1.5)
-	# alignements de bord : clôtures, cordes sacrées, fanions…
-	for i in rng.randi_range(2, 4):
-		var run := _spot_run(ctx, rng)
-		if run.is_empty():
-			continue
-		_prop_run(wid, ctx, run, rng)
-	# petits props de bord, juste à côté d'une plateforme
-	for i in rng.randi_range(5, 8):
-		var e := _spot_edge(ctx, rng)
-		if e == NONE4:
-			continue
-		_take(ctx, Vector2(e.x, e.y))
-		_prop_edge(wid, ctx, e, rng)
-		_contact(ctx, Vector2(e.x, e.y), 0.7)
-	# petits props dans les vides entre plateformes
-	for i in rng.randi_range(3, 7):
-		var p := _spot_gap(ctx, rng)
-		if p == NONE2:
-			continue
-		_take(ctx, p)
-		_prop_small(wid, ctx, p, rng)
-		_contact(ctx, p, 0.8)
-	# tapis d'éléments répétés
-	_fill(wid, ctx, rng)
+		var h := rng.randf_range(3.2, 6.0)
+		var bas := Basis.from_euler(Vector3(rng.randf_range(-0.06, 0.06), 0, rng.randf_range(-0.06, 0.06)))
+		var sxf := Transform3D(bas * Basis.from_scale(Vector3(1, h, 1)), base + bas * Vector3(0, h * 0.5, 0))
+		var first := rng.randf() < 0.6
+		_inst(ctx, "stem_a" if first else "stem_b", stem_mesh, stem_a if first else stem_b, sxf)
+		var seg := rng.randf_range(0.5, 0.65)
+		var t := seg
+		while t < h - 0.2:
+			_inst(ctx, "node", node_mesh, node_m, Transform3D(bas, base + bas * Vector3(0, t, 0)))
+			t += seg
+		var ss := rng.randf_range(0.9, 1.4)
+		_inst(ctx, "spray", spray, leaf, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * ss), base + bas * Vector3(0, h, 0)))
+		if h > 4.2:
+			_inst(ctx, "spray", spray, leaf, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * ss * 0.7), base + bas * Vector3(0, h * 0.72, 0)))
+
+
+## Guirlande de lanternes de papier entre deux poteaux (de a à b), lueur or pâle, jamais de vermillon.
+static func _ls_garland(ctx: Dictionary, a: Vector3, b: Vector3, col: Color, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var post := _toon(Color("#3B2E25"), true, 0.02)
+	var rope := _toon(Decor.ROPE_DARK, false)
+	var cap := _toon(Toon.SUMI, false)
+	var glow := _glow(col, 1.0)
+	var h := 1.7
+	var hh := h - (VOID_Y - 0.3)
+	for q: Vector3 in [a, b]:
+		_add(bs, post, _cyl(0.05, 0.06, hh, 6), _at(Vector3(q.x, VOID_Y - 0.3 + hh * 0.5, q.z)))
+	var ta := Vector3(a.x, h, a.z)
+	var tb := Vector3(b.x, h, b.z)
+	_rope(bn, rope, ta, tb, 0.22, 0.012)
+	var n := clampi(int(ta.distance_to(tb) / 0.7), 2, 5)
+	for k in n:
+		var t := (float(k) + 0.5) / n
+		var q := ta.lerp(tb, t) + Vector3(0, -0.22 * 4.0 * t * (1.0 - t) - 0.16, 0)
+		_add(bn, glow, _ball(0.09, 0.2, 7, 4), _at(q, Vector3(0, rng.randf() * TAU, 0)))
+		_add(bn, cap, _cyl(0.05, 0.05, 0.02, 6), _at(q + Vector3(0, 0.11, 0)))
+		_add(bn, cap, _cyl(0.05, 0.05, 0.02, 6), _at(q + Vector3(0, -0.11, 0)))
+	_light(ctx, ta.lerp(tb, 0.5) + Vector3(0, -0.3, 0), col, 0.5, 3.0)
+
+
+## Pont de pierre arqué le long de la berge (de `a` à `b`), lanternes de pierre à ses pieds.
+static func _ls_stone_bridge(ctx: Dictionary, c: Vector2, ln: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var xf := _at(Vector3(c.x, VOID_Y + 0.25, c.y), Vector3(0, PI * 0.5, 0))
+	Decor.arched_bridge_into(bs, xf, ln, 0.9, NIGHT_STONE_DARK, NIGHT_STONE, -0.6)
+	for sz: float in [-1.0, 1.0]:
+		var e := Vector2(c.x, c.y + sz * (ln * 0.5 + 0.55))
+		Decor.rock_into(bs, _at(Vector3(e.x, VOID_Y, e.y), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000, NIGHT_STONE_DARK)
+		_stone_lantern(ctx, Vector3(e.x, VOID_Y + 0.26, e.y), 0.5, sz < 0.0)
+	_contact(ctx, c, ln * 0.5)
+
+
+## Bande proche : roseaux sombres, pas japonais, touffes de mousse.
+static func _ls_near_tanabata(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var dens: float = ctx["ls_dens"]
+	if k % 5 == 3:
+		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), _toon(NIGHT_STONE, true, 0.02), _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.2)))
+		return
+	if k % 7 == 6:
+		var mr := rng.randf_range(0.35, 0.55)
+		_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), _toon(MOSS_K, true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.7, mr)))
+		return
+	var reed := _toon_ds(Color("#4F6E3E"))
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.9, 1.5)
+		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * rng.randf_range(1.2, 1.8), sc)))
+
+
+## Bande moyenne : bosquet de bambous, guirlande de lanternes, clôture de bambou, allée de petits torii
+## (laque braise : le vermillon reste au fond), bambous à tanzaku sur des rochers.
+static func _ls_mid_tanabata(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"bamboo":
+			_ls_bamboo_clump(ctx, Vector2(x + s * 0.3, zc), minf(ln * 0.36, 1.3), 6 if Toon.lite else rng.randi_range(9, 13), rng)
+		"garland":
+			_ls_garland(ctx, Vector3(x, 0, a.y + 0.3), Vector3(x, 0, b.y - 0.3), Color("#F1E3A6"), rng)
+			_ls_bamboo_clump(ctx, Vector2(x + s * 1.2, zc), 0.8, 3 if Toon.lite else 5, rng)
+		"fence":
+			Decor.fence_into(bs, bn, Vector3(x, 0, a.y + 0.2), Vector3(x, 0, b.y - 0.2), 0.62, VOID_Y - 0.3, false)
+			Decor.rock_into(bs, _at(Vector3(x + s * 0.5, VOID_Y, zc), Vector3.ZERO, Vector3.ONE * 0.7), rng.randi() % 100000, NIGHT_STONE_DARK)
+			_ls_bamboo_clump(ctx, Vector2(x + s * 1.1, zc + rng.randf_range(-0.8, 0.8)), 0.8, 3 if Toon.lite else 5, rng)
+		"torii":
+			var n := clampi(int(ln / 0.75), 3, 5)
+			for k in n:
+				var q := Vector2(x, a.y + 0.4 + k * 0.75)
+				_ls_mini_torii(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.85), Color("#6E2420"), -0.35)
+		_:
+			for k in 2:
+				var q := Vector2(x + s * rng.randf_range(-0.2, 0.2), a.y + ln * (0.3 + k * 0.4))
+				Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000, NIGHT_STONE_DARK)
+				_tanzaku_into(bn, _at(Vector3(q.x, VOID_Y + 0.26, q.y), Vector3.ZERO, Vector3.ONE * 0.85), rng)
+			_ls_bamboo_clump(ctx, Vector2(x + s * 1.1, zc), 0.8, 3 if Toon.lite else 5, rng)
+
+
+## Hameau des vœux (rive principale) : sanctuaire aux renards, bambous à tanzaku, bosquet derrière,
+## lanterne de pierre et pas japonais devant.
+static func _ls_tanabata_shrine(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	_fox_shrine(ctx, c, rng)
+	_contact(ctx, c, 1.2)
+	_ls_bamboo_clump(ctx, c + Vector2(s * 1.5, -0.4), 1.3, 6 if Toon.lite else 11, rng)
+	var q := c + Vector2(-s * 0.3, 1.5)
+	Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.9), rng.randi() % 100000, NIGHT_STONE_DARK)
+	_tanzaku_into(bn, _at(Vector3(q.x, VOID_Y + 0.3, q.y), Vector3.ZERO, Vector3.ONE * 1.1), rng)
+	var l := c + Vector2(-s * 0.2, -1.6)
+	Decor.rock_into(bs, _at(Vector3(l.x, VOID_Y, l.y), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000, NIGHT_STONE_DARK)
+	_stone_lantern(ctx, Vector3(l.x, VOID_Y + 0.26, l.y), 0.6, true)
+	var stone := _toon(NIGHT_STONE, true, 0.02)
+	for k in 3:
+		var st := c + Vector2(-s * (0.9 + k * 0.1), -0.6 + k * 0.55)
+		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), stone, _at(Vector3(st.x, VOID_Y + 0.03, st.y), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Rive mineure : pont de pierre arqué et bosquet de bambous derrière ; parfois une allée de torii.
+static func _ls_tanabata_bridge(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	_ls_stone_bridge(ctx, c + Vector2(-s * 0.3, 0.0), 2.8, rng)
+	_ls_bamboo_clump(ctx, c + Vector2(s * 1.2, rng.randf_range(-0.6, 0.6)), 1.1, 5 if Toon.lite else 9, rng)
+
+
+## Fond : bosquets aux deux coins, guirlandes de lanternes de part et d'autre du torii.
+static func _ls_north_tanabata(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.2), top - 3.0)
+		_ls_bamboo_clump(ctx, c, 1.4, 6 if Toon.lite else 11, rng)
+		avoid.append(Vector3(c.x, c.y, 1.8))
+		_ls_garland(ctx, Vector3(sx * 2.5, 0, top - 2.0), Vector3(sx * 5.2, 0, top - 2.2), Color("#F1E3A6"), rng)
+
+
+## Petit torii de bois peint (couleur `col`, laque sombre ou braise, jamais le vermillon des annonces) :
+## deux piliers jusqu'à `low_y`, nuki et kasagi ; face à +Z local.
+static func _ls_mini_torii(b: Dictionary, xf: Transform3D, col: Color, low_y: float) -> void:
+	var m := _toon(col, true, 0.02)
+	var ink := _toon(Toon.SUMI, false)
+	var hh := 1.5 - low_y
+	for sx: float in [-1.0, 1.0]:
+		_add(b, m, _cyl(0.06, 0.07, hh, 6), xf * _at(Vector3(sx * 0.55, low_y + hh * 0.5, 0)))
+		_add(b, ink, _cyl(0.085, 0.085, 0.08, 6), xf * _at(Vector3(sx * 0.55, low_y + 0.04, 0)))
+	_add(b, m, _box(Vector3(1.3, 0.08, 0.07)), xf * _at(Vector3(0, 1.24, 0)))
+	_add(b, m, _box(Vector3(1.5, 0.1, 0.12)), xf * _at(Vector3(0, 1.5, 0)))
+	_add(b, ink, _box(Vector3(1.6, 0.06, 0.16)), xf * _at(Vector3(0, 1.58, 0)))
+
+
+# --- monde 3 : berges de l'étang gelé du temple sous la neige
+
+## Bande proche : bosses de neige, roseaux secs, glaçons, une lanterne d'Obon de loin en loin.
+static func _ls_near_contes(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bn: Dictionary = ctx["bn"]
+	var dens: float = ctx["ls_dens"]
+	if k % 9 == 7:
+		_toro_into(bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0)))
+		return
+	if k % 6 == 2:
+		var sc := rng.randf_range(0.6, 1.2)
+		_inst(ctx, "floe", _cyl(0.6, 0.62, 0.06, 6), _toon(ICE, false), _at(Vector3(p.x, VOID_Y + 0.02, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, 1, sc * 0.7)))
+		return
+	if k % 3 == 1:
+		var sc := rng.randf_range(0.5, 1.1)
+		_inst(ctx, "lump", _ball(0.5, 0.36, 9, 4), _toon(SNOW, false), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.9, sc * 1.1)))
+		return
+	var reed := _toon_ds(Color("#9C9480"))
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.2, 0.2), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.9, 1.4)
+		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.4, sc)))
+
+
+## Bande moyenne : clôture enneigée, pins sur une congère, lanternes de pierre, stèles, jizō.
+static func _ls_mid_contes(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	var face := _face(Vector2(x, zc), x - s * 5.0, zc)
+	match kind:
+		"fence":
+			Decor.fence_into(bs, bn, Vector3(x, 0, a.y + 0.2), Vector3(x, 0, b.y - 0.2), 0.62, VOID_Y - 0.3, true)
+			_inst(ctx, "lump", _ball(0.5, 0.36, 9, 4), _toon(SNOW, false), _at(Vector3(x + s * 0.5, VOID_Y, zc), Vector3.ZERO, Vector3(0.9, 0.7, 1.4)))
+		"pines":
+			var top := _mound_into(bs, bn, Vector2(x + s * 0.3, zc), minf(ln * 0.3, 1.2), rng)
+			_snow_pine_into(bs, _at(Vector3(x + s * 0.2, top - 0.1, zc - 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.3))
+			_snow_pine_into(bs, _at(Vector3(x + s * 0.6, top - 0.12, zc + 0.6), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.95))
+		"toro":
+			var top := _mound_into(bs, bn, Vector2(x, zc), minf(ln * 0.3, 1.1), rng)
+			for k in 2:
+				_stone_lantern(ctx, Vector3(x, top - 0.08, zc + (k - 0.5) * 1.3), 0.62, k == 0)
+		"steles":
+			var top := _mound_into(bs, bn, Vector2(x + s * 0.2, zc), minf(ln * 0.3, 1.2), rng)
+			var gm := _toon(GRAVE, true, 0.02)
+			var cap := _toon(SNOW, false)
+			for k in 3:
+				_stele_into(bs, gm, cap, _at(Vector3(x + s * 0.2, top - 0.12, zc + (k - 1) * 0.6), Vector3(0, face + rng.randf_range(-0.2, 0.2), 0), Vector3.ONE * rng.randf_range(0.75, 0.95)))
+			_sotoba_into(bs, _at(Vector3(x + s * 0.7, top - 0.12, zc - 0.3), Vector3(0, face, 0)), rng)
+		_:
+			var top := _mound_into(bs, bn, Vector2(x + s * 0.2, zc), minf(ln * 0.3, 1.2), rng)
+			for k in 3:
+				_jizo_into(bs, _at(Vector3(x + s * 0.2, top - 0.1, zc + (k - 1) * 0.5), Vector3(0, face, 0), Vector3.ONE * 0.9))
+			_offering_into(bs, bn, _at(Vector3(x - s * 0.3, top - 0.1, zc), Vector3(0, face, 0)))
+
+
+## Cabane de montagne (rive principale) : congère, cabane de rondins au toit chargé de neige, deux pins
+## derrière, lanterne de pierre allumée devant, ombrelle fermée contre le mur, bout de clôture.
+static func _ls_snow_cabin(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _mound_into(bs, bn, c, 1.7, rng)
+	_contact(ctx, c, 1.6)
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var hx := _at(Vector3(c.x + s * 0.2, top - 0.1, c.y + 0.2), Vector3(0, face + rng.randf_range(-0.15, 0.15), 0))
+	_stilt_house_into(bs, bn, hx, 1.5, 1.3, 1.0, VOID_Y - 0.3 - top, true, Decor.BARK_PINE, SNOW, Color("#3A3A48"))
+	_light(ctx, Vector3(c.x - s * 0.9, top + 0.8, c.y + 0.6), Color(1.0, 0.8, 0.5), 0.55, 3.0)
+	_snow_pine_into(bs, _at(Vector3(c.x + s * 1.4, top - 0.3, c.y - 0.9), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.35))
+	if not Toon.lite:
+		_snow_pine_into(bs, _at(Vector3(c.x + s * 1.1, top - 0.35, c.y + 1.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.0))
+	_stone_lantern(ctx, Vector3(c.x - s * 0.9, top - 0.15, c.y - 0.8), 0.6, true)
+	_wagasa_into(bs, _at(Vector3(c.x - s * 0.5, top - 0.1, c.y + 1.0), Vector3(0, face, 0)), false, BONNET)
+	Decor.fence_into(bs, bn, Vector3(c.x - s * 0.9, top - 0.1, c.y + 1.5), Vector3(c.x + s * 0.9, top - 0.1, c.y + 1.8), 0.5, top - 0.5, true)
+
+
+## Rive mineure : bosquet de pins enneigés sur une congère, lanternes d'Obon à la dérive au pied.
+static func _ls_snow_grove(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _mound_into(bs, bn, c, 1.4, rng)
+	_contact(ctx, c, 1.3)
+	for k in (2 if Toon.lite else 3):
+		var q := Vector3(c.x + s * (0.1 + k * 0.4), top - 0.1 - k * 0.08, c.y + (k - 1) * 0.8)
+		_snow_pine_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(1.0, 1.4)))
+	for k in 2:
+		_toro_into(bn, _at(Vector3(c.x - s * 1.4, VOID_Y, c.y + (k - 0.5) * 1.1), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Fond : beffroi de la cloche dans un coin, torii enneigé de profil dans l'autre, lanternes d'Obon
+## qui dérivent devant.
+static func _ls_north_contes(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var side: float = -1.0 if rng.randf() < 0.5 else 1.0
+	var bc := Vector2(side * (frame.size.x * 0.5 + 1.0), top - 3.2)
+	var bt := _mound_into(bs, bn, bc, 1.6, rng)
+	Decor.bell_tower_into(bs, bn, _at(Vector3(bc.x, bt - 0.1, bc.y), Vector3(0, _face(bc, 0.0, top), 0), Vector3.ONE * 0.62), true)
+	avoid.append(Vector3(bc.x, bc.y, 2.0))
+	var tc := Vector2(-side * (frame.size.x * 0.5 + 0.8), top - 3.0)
+	var tt := _mound_into(bs, bn, tc, 1.3, rng)
+	_snow_torii(bs, bn, _at(Vector3(tc.x, tt - 0.12, tc.y), Vector3(0, PI * 0.5, 0), Vector3.ONE * 0.4))
+	_snow_pine_into(bs, _at(Vector3(tc.x - side * 0.2, tt - 0.2, tc.y - 1.0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.2))
+	avoid.append(Vector3(tc.x, tc.y, 1.8))
+	for k in (3 if Toon.lite else 5):
+		var q := Vector2(rng.randf_range(-5.0, 5.0), top - rng.randf_range(1.2, 2.4))
+		if _ok(ctx, q, 0.4, 0.0):
+			_toro_into(bn, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0)))
+
+
+# --- monde 4 : lèvres de la faille du Fuji rouge
+
+## Strates de basalte : dalles empilées en gradins qui montent vers l'extérieur, le long de z.
+static func _ls_strata(bs: Dictionary, c: Vector2, ln: float, s: float, rng: RandomNumberGenerator) -> void:
+	var m := _toon(BASALT, true, 0.025)
+	var y := VOID_Y - 0.1
+	var n := 3 if Toon.lite else 4
+	for k in n:
+		var l := ln - 0.3 * k
+		var w := 1.0 + 0.15 * k
+		var h := rng.randf_range(0.18, 0.26)
+		var xk := c.x + s * (0.22 * k)
+		_add(bs, m, _box(Vector3(w, h, l)), _at(Vector3(xk, y + h * 0.5, c.y + rng.randf_range(-0.15, 0.15)), Vector3(0, rng.randf_range(-0.03, 0.03), 0)))
+		y += h
+
+
+## Bande proche : blocs de basalte, fissures d'or, piques.
+static func _ls_near_fuji(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	if k % 5 == 2:
+		_inst(ctx, "crack", _box(Vector3(1.0, 0.02, 0.06)), _glow(LAVA_GOLD, 1.2), _at(Vector3(p.x, VOID_Y + 0.01, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.5, 1.2), 1, 1)))
+		return
+	if k % 8 == 5:
+		_spikes_into(bs, bn, p, 0.4, rng)
+		return
+	var sc := rng.randf_range(0.3, 0.7)
+	_inst(ctx, "chunk", _ball(0.5, 0.55, 6, 3), _toon(BASALT, true, 0.025), _at(Vector3(p.x, VOID_Y - 0.05, p.y), Vector3(rng.randf_range(-0.4, 0.4), rng.randf() * TAU, rng.randf_range(-0.4, 0.4)), Vector3.ONE * sc))
+
+
+## Bande moyenne : strates, garde-fou de chaînes, braseros, piques, torii calcinés.
+static func _ls_mid_fuji(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"strata":
+			_ls_strata(bs, Vector2(x + s * 0.2, zc), ln - 0.4, s, rng)
+		"chain":
+			_chain_rail(ctx, Vector3(x, 0, a.y + 0.2), Vector3(x, 0, b.y - 0.2))
+		"braziers":
+			for k in 2:
+				var q := Vector2(x, a.y + 0.7 + k * (ln - 1.4))
+				_basalt_into(bs, q, 0.4, VOID_Y + 0.3, rng)
+				_brazier_into(bs, bn, _at(Vector3(q.x, VOID_Y + 0.3, q.y), Vector3.ZERO, Vector3.ONE * 0.6))
+			_light(ctx, Vector3(x, VOID_Y + 1.1, zc), Color(1.0, 0.82, 0.5), 0.5, 3.5)
+		"spikes":
+			_spikes_into(bs, bn, Vector2(x + s * 0.2, zc), 0.9, rng)
+		_:
+			var n := 2 if ln < 3.6 else 3
+			for k in n:
+				var q := Vector2(x, a.y + 0.5 + k * ((ln - 1.0) / maxf(float(n - 1), 1.0)))
+				_ls_mini_torii(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3.ZERO, Vector3.ONE * 0.8), Color("#2A2220"), -0.4)
+			_add(bn, _toon(Color("#4A4440"), true, 0.02), _ball(0.5, 0.3, 9, 4), _at(Vector3(x + s * 0.3, VOID_Y, zc), Vector3.ZERO, Vector3(1.0, 0.4, ln * 0.5)))
+
+
+## Forge des oni (rive principale) : socle de basalte, four tatara, enclume et lingots, chaîne tendue,
+## brasero allumé.
+static func _ls_forge_yard(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	_basalt_into(bs, c, 0.9, -0.05, rng)
+	_contact(ctx, c, 1.6)
+	var xf := _at(Vector3(c.x + s * 0.3, -0.05, c.y - 0.2), Vector3(0, face, 0), Vector3.ONE * 0.8)
+	_forge_into(bs, bn, xf)
+	_light(ctx, xf * Vector3(-0.35, 0.5, 0.5), Color(1.0, 0.8, 0.45), 0.6, 3.5)
+	_anvil_into(bs, bn, _at(Vector3(c.x - s * 0.5, -0.05, c.y + 1.0), Vector3(0, face + 0.4, 0), Vector3.ONE * 0.9))
+	_ingots_into(bs, bn, _at(Vector3(c.x + s * 0.5, -0.05, c.y + 1.3), Vector3(0, rng.randf() * TAU, 0)))
+	_brazier_into(bs, bn, _at(Vector3(c.x - s * 0.6, -0.05, c.y - 1.2), Vector3.ZERO, Vector3.ONE * 0.6))
+	if not Toon.lite:
+		_chain_into(bs, c + Vector2(s * 1.6, 0.6), rng)
+
+
+## Rive mineure : sanctuaire calciné, deux torii brûlés, masque d'oni, cendres et katanas plantés.
+static func _ls_burnt_shrine(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var ash := _toon(Color("#4A4440"), true, 0.02)
+	_add(bs, ash, _ball(0.5, 0.3, 10, 4), _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(3.2, 0.7, 2.6)))
+	_contact(ctx, c, 1.4)
+	var top := VOID_Y + 0.12
+	Decor.hokora_into(bs, bn, _at(Vector3(c.x + s * 0.4, top, c.y), Vector3(0, face, 0), Vector3.ONE * 0.85), Color("#2A2220"), Color("#141215"))
+	for k in 2:
+		_ls_mini_torii(bs, _at(Vector3(c.x - s * (0.5 + k * 0.6), top, c.y - 0.1), Vector3(0, face, 0), Vector3.ONE * 0.75), Color("#2A2220"), 0.0)
+	var post := Vector3(c.x + s * 0.2, top, c.y + 1.0)
+	_add(bs, _toon(Color("#2A2220")), _box(Vector3(0.1, 1.3, 0.1)), _at(post + Vector3(0, 0.65, 0)))
+	_oni_mask_into(bs, bn, _at(post + Vector3(0, 1.15, 0), Vector3(0, face, 0), Vector3.ONE * 0.6))
+	for k in (2 if Toon.lite else 4):
+		var q := Vector3(c.x + s * rng.randf_range(-0.2, 1.0), top, c.y - 0.9 - rng.randf_range(0.0, 0.3))
+		Decor.katana_into(bs, _at(q + Vector3(k * 0.25, 0, 0), Vector3(rng.randf_range(-0.25, 0.25), rng.randf() * TAU, rng.randf_range(-0.25, 0.25)), Vector3.ONE * 0.85))
+
+
+## Fond : murailles de strates de part et d'autre, torches de Yoshida, mare d'or.
+static func _ls_north_fuji(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.3), top - 2.4)
+		_ls_strata(bs, c, 3.6, sx, rng)
+		avoid.append(Vector3(c.x, c.y, 2.0))
+		var t := Vector2(sx * 2.8, top - 2.2)
+		_basalt_into(bs, t, 0.45, VOID_Y + 0.3, rng)
+		_yoshida_into(bs, bn, _at(Vector3(t.x, VOID_Y + 0.25, t.y), Vector3.ZERO, Vector3.ONE * 0.5))
+		avoid.append(Vector3(t.x, t.y, 1.2))
+	_light(ctx, Vector3(0, VOID_Y + 2.4, top - 2.2), Color(1.0, 0.82, 0.5), 0.55, 5.0)
+	_add(bn, _glow(HALO, 0.7), _cyl(0.6, 0.6, 0.02, 10), _at(Vector3(rng.randf_range(-1.5, 1.5), VOID_Y + 0.005, top - 3.8), Vector3.ZERO, Vector3(2.0, 1, 1.2)))
+
+
+# --- monde 5 : rives de la mer d'encre (lavis, papier, Fuji)
+
+## Collines d'encre en lavis : ellipsoïdes aplatis, deux valeurs d'encre, posés sur la mer.
+static func _ls_ink_hills(ctx: Dictionary, c: Vector2, ln: float, n: int, rng: RandomNumberGenerator) -> float:
+	var ha := _toon(Color("#3E4A5E"), false)
+	var hb := _toon(Color("#5A6678"), false)
+	var top := VOID_Y
+	for k in n:
+		var w := ln * rng.randf_range(0.35, 0.55)
+		var h := rng.randf_range(0.5, 1.0)
+		var q := Vector3(c.x + rng.randf_range(-0.5, 0.5), VOID_Y, c.y + (float(k) - (n - 1) * 0.5) * ln * 0.3)
+		_inst(ctx, "hill_a" if k % 2 == 0 else "hill_b", _ball(1.0, 1.0, 10, 5), ha if k % 2 == 0 else hb, _at(q, Vector3(0, rng.randf_range(-0.2, 0.2), 0), Vector3(w, h, w * 0.8)))
+		top = maxf(top, VOID_Y + h * 0.45)
+	return top
+
+
+## Bande proche : rides d'encre en lavis, îlots d'encre bas, une feuille de papier ou un pinceau tombé de
+## loin en loin (le papier reste rare : c'est la mer d'encre qu'on doit lire, pas une corbeille).
+static func _ls_near_ink(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	if k % 9 == 7:
+		_brush_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(rng.randf_range(-0.2, 0.2), rng.randf() * TAU, rng.randf_range(-0.2, 0.2)), Vector3.ONE * 0.45))
+		return
+	if k % 5 == 3:
+		var sheet := _box(Vector3(0.4, 0.008, 0.3))
+		var xf := _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.8, 1.4), 1, rng.randf_range(0.8, 1.3)))
+		_inst(ctx, "paper_a" if k % 2 == 0 else "paper_b", sheet, _toon(Color("#F1E8D6") if k % 2 == 0 else Color("#E2D6BD"), false), xf)
+		return
+	if k % 4 == 0:
+		# îlot d'encre en lavis : large, très bas, allongé le long du bord (une tache, pas un rocher)
+		var w := rng.randf_range(0.9, 1.5)
+		_inst(ctx, "hill_a", _ball(1.0, 1.0, 10, 5), _toon(Color("#3E4A5E"), false), _at(Vector3(p.x, VOID_Y - 0.08, p.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3(w * 0.5, rng.randf_range(0.14, 0.22), w)))
+		return
+	var sc := rng.randf_range(0.7, 1.4)
+	_inst(ctx, "foam", _crescent_mesh(), _flat(Color("#CFC6B2", 0.75)), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, 1, sc)))
+
+
+## Bande moyenne : collines d'encre, barque, paravents shōji, pin solitaire, sceau du peintre.
+static func _ls_mid_ink(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"hills":
+			_ls_ink_hills(ctx, Vector2(x + s * 0.4, zc), ln, 2 if Toon.lite else 3, rng)
+		"boat":
+			_boat_into(bs, _at(Vector3(x, VOID_Y, zc), Vector3(0, PI * 0.5 + rng.randf_range(-0.15, 0.15), 0), Vector3.ONE * 0.7), 1)
+			_contact(ctx, Vector2(x, zc), 1.3)
+		"shoji":
+			_shoji_run(ctx, Vector3(x, 0, a.y + 0.3), Vector3(x, 0, b.y - 0.3))
+		"pine":
+			var top := _ls_ink_hills(ctx, Vector2(x + s * 0.3, zc), ln * 0.7, 1, rng)
+			Decor.pine_into(bs, _at(Vector3(x + s * 0.3, top - 0.05, zc), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng.randi() % 100000)
+		_:
+			var xf := _at(Vector3(x, VOID_Y, zc), Vector3(0, rng.randf() * TAU, 0))
+			_add(bs, _toon(Color("#5B4630"), true, 0.02), _box(Vector3(1.2, 0.2, 1.2)), xf * _at(Vector3(0, 0.05, 0)))
+			_seal_into(bs, xf * _at(Vector3(0, 0.15, 0), Vector3.ZERO, Vector3.ONE * 0.9))
+			_papers_into(bn, Vector2(x, zc + 1.0), rng, 2, VOID_Y + 0.02, 0.5)
+
+
+## Maison de papier (rive principale) : colline d'encre, maison aux murs de papier et toit d'encre,
+## pin solitaire, paravent byōbu, feuilles envolées.
+static func _ls_paper_house(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var top := _ls_ink_hills(ctx, c + Vector2(s * 0.3, 0.0), 4.4, 3, rng)
+	_contact(ctx, c, 1.6)
+	var hx := _at(Vector3(c.x + s * 0.2, top, c.y + 0.3), Vector3(0, face + rng.randf_range(-0.15, 0.15), 0))
+	_stilt_house_into(bs, bn, hx, 1.5, 1.3, 1.0, VOID_Y - 0.3 - top, false, Color("#F1E8D6"), Color("#2E2C33"), Toon.SUMI)
+	Decor.pine_into(bs, _at(Vector3(c.x + s * 1.4, top - 0.2, c.y - 1.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.2), rng.randi() % 100000)
+	if not Toon.lite:
+		_byobu_into(bs, _at(Vector3(c.x - s * 0.6, top - 0.1, c.y - 1.3), Vector3(0, face + 0.5, 0), Vector3.ONE * 0.8))
+	_papers_into(bn, c + Vector2(-s * 1.2, 1.2), rng, 3, VOID_Y + 0.02, 0.7)
+
+
+## Rive mineure : deux collines d'encre, pin solitaire, pinceau planté.
+static func _ls_ink_pine(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var top := _ls_ink_hills(ctx, c, 3.2, 2, rng)
+	_contact(ctx, c, 1.2)
+	Decor.pine_into(bs, _at(Vector3(c.x + s * 0.2, top - 0.1, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.3), rng.randi() % 100000)
+	_brush_into(bs, _at(Vector3(c.x - s * 1.1, VOID_Y, c.y + 1.2), Vector3(rng.randf_range(-0.25, 0.25), 0, s * 0.3), Vector3.ONE * 0.9))
+
+
+## Fond : chaîne de collines d'encre, deux pins, la barrique géante du tonnelier dans un coin.
+static func _ls_north_ink(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	for sx: float in [-1.0, 1.0]:
+		var c := Vector2(sx * (frame.size.x * 0.5 + 0.6), top - 3.2)
+		var t := _ls_ink_hills(ctx, c, 4.0, 2 if Toon.lite else 3, rng)
+		Decor.pine_into(bs, _at(Vector3(c.x + sx * 0.4, t - 0.1, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.2), rng.randi() % 100000)
+		avoid.append(Vector3(c.x, c.y, 2.2))
+	var side: float = -1.0 if rng.randf() < 0.5 else 1.0
+	var bc := Vector2(side * 2.9, top - 3.0)
+	_barrel_giant_into(bs, bn, _at(Vector3(bc.x, VOID_Y, bc.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3.ONE * 0.65))
+	avoid.append(Vector3(bc.x, bc.y, 1.6))
+
+# --- monde 6 : versant de Kurama au crépuscule (cèdres géants, escaliers, lanternes, petit temple)
+
+const KURAMA_STEP := Color("#7A6E74")  # granit des marches
+const FERN_RUST := Color("#8A6236")  # fougères rousses de l'automne
+const LACQUER_DARK := Color("#2A1F1A")  # poteaux laqués des temples
+
+
+## Volée de marches de granit : `n` marches de `w` de large qui montent depuis `base` (au ras du vide)
+## dans la direction horizontale `dir` ; chaque marche descend jusque sous le vide (bloc plein, lisible
+## de haut). Renvoie le milieu de la dernière marche, à hauteur de son dessus.
+static func _ls_stairs(bs: Dictionary, base: Vector3, dir: Vector3, w: float, n: int, rise: float, run: float, col: Color) -> Vector3:
+	var m := _toon(col, true, 0.02)
+	var yaw := atan2(dir.x, dir.z)
+	var low := VOID_Y - 0.25
+	for k in n:
+		var h := (base.y - low) + rise * float(k + 1)
+		var c := base + dir * (run * (float(k) + 0.5))
+		_add(bs, m, _box(Vector3(w, h, run + 0.02)), Transform3D(Basis(Vector3.UP, yaw), Vector3(c.x, low + h * 0.5, c.z)))
+	var top := base + dir * (run * (float(n) - 0.5))
+	return Vector3(top.x, base.y + rise * float(n), top.z)
+
+
+## Petit hall de temple de montagne (face à +Z local) : quatre poteaux laqués, murs de plâtre au fond et
+## sur les côtés, porte sombre, toit de tuiles en pavillon, deux lanternes de papier braise aux poteaux
+## de façade (jamais le vermillon des annonces : la laque vive reste au fond lointain).
+static func _ls_small_hall_into(bs: Dictionary, bn: Dictionary, xf: Transform3D, w: float, d: float, h: float) -> void:
+	var lac := _toon(LACQUER_DARK, true, 0.02)
+	var plaster := _toon(SHIKKUI, true, 0.02)
+	var tile := _toon(KAWARA, true, 0.025)
+	var ridge := _toon(KAWARA_DARK, false)
+	var door := _toon(Color("#1E1A1C"), false)
+	for k in 4:
+		var px: float = (w * 0.5 - 0.06) * (1.0 if k % 2 == 0 else -1.0)
+		var pz: float = (d * 0.5 - 0.06) * (1.0 if k < 2 else -1.0)
+		_add(bs, lac, _box(Vector3(0.11, h, 0.11)), xf * _at(Vector3(px, h * 0.5, pz)))
+	_add(bs, lac, _box(Vector3(w + 0.3, 0.08, d + 0.3)), xf * _at(Vector3(0, 0.04, 0)))
+	_add(bs, plaster, _box(Vector3(w - 0.2, h - 0.2, 0.06)), xf * _at(Vector3(0, h * 0.5, -d * 0.5 + 0.04)))
+	for sx: float in [-1.0, 1.0]:
+		_add(bs, plaster, _box(Vector3(0.06, h - 0.2, d - 0.2)), xf * _at(Vector3(sx * (w * 0.5 - 0.04), h * 0.5, 0)))
+	_add(bs, plaster, _box(Vector3(w - 0.2, h - 0.2, 0.06)), xf * _at(Vector3(0, h * 0.5, d * 0.5 - 0.04)))
+	_add(bn, door, _box(Vector3(0.5, h * 0.62, 0.03)), xf * _at(Vector3(0, h * 0.35, d * 0.5 + 0.0)))
+	_add(bn, lac, _box(Vector3(w + 0.1, 0.08, 0.06)), xf * _at(Vector3(0, h - 0.1, d * 0.5 + 0.02)))
+	Decor.roof_into(bs, bn, tile, ridge, xf * _at(Vector3(0, h, 0)), w + 0.9, d + 0.9, h * 0.5, 0.0, 0.42)
+	for sx: float in [-1.0, 1.0]:
+		var q := Vector3(sx * (w * 0.5 - 0.06), h - 0.38, d * 0.5 + 0.16)
+		_add(bn, _toon(Toon.SUMI, false), _box(Vector3(0.02, 0.12, 0.02)), xf * _at(q + Vector3(0, 0.2, 0)))
+		_add(bn, _glow(BRAISE.lightened(0.25), 0.9), _ball(0.1, 0.2, 7, 4), xf * _at(q))
+
+
+## Bande proche : fougères rousses, litière d'aiguilles, pas de granit, rocher à corbeau.
+static func _ls_near_kurama(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var dens: float = ctx["ls_dens"]
+	if k % 7 == 5:
+		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), _toon(KURAMA_ROCK, true, 0.02), _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.2)))
+		return
+	if k % 5 == 3:
+		var mr := rng.randf_range(0.35, 0.6)
+		_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), _toon(NEEDLES, true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.6, mr)))
+		return
+	if k % 11 == 9:
+		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * 0.5), rng.randi() % 100000, KURAMA_ROCK)
+		_crow_into(bs, _at(Vector3(p.x, VOID_Y + 0.16, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+		return
+	var fern := _toon_ds(FERN_RUST)
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.8, 1.4)
+		_inst(ctx, "reed", _tuft_mesh(), fern, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.1, sc)))
+
+
+## Bande moyenne : cèdres géants sur leur îlot, volée de marches qui grimpe le versant, lanternes de pierre,
+## corde sacrée entre deux poteaux, rochers de granit et jeunes cèdres.
+static func _ls_mid_kurama(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"cedars":
+			var top := _moss_mound_into(bs, Vector2(x + s * 0.4, zc), minf(ln * 0.36, 1.4), rng)
+			_cedar_into(bs, _at(Vector3(x + s * 0.5, top - 0.05, zc - ln * 0.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.1)), rng)
+			_cedar_into(bs, _at(Vector3(x + s * 0.2, top - 0.08, zc + ln * 0.22), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.65, 0.8)), rng)
+			if not Toon.lite:
+				_sapling_into(bs, _at(Vector3(x - s * 0.2, top - 0.1, zc), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1))
+		"stairs":
+			var w := minf(ln - 0.8, 2.2)
+			var top := _ls_stairs(bs, Vector3(x - s * 0.3, VOID_Y + 0.05, zc), Vector3(s, 0, 0), w, 6, 0.13, 0.4, KURAMA_STEP)
+			_stone_lantern(ctx, Vector3(x - s * 0.1, VOID_Y + 0.02, zc + w * 0.5 + 0.35), 0.6, false)
+			Decor.paper_lantern_into(bs, ctx["bn"], _at(top + Vector3(0, 0, -w * 0.5 - 0.3), Vector3(0, PI * 0.5 * s, 0)), BRAISE, top.y - 0.3)
+		"lanterns":
+			var top := _moss_mound_into(bs, Vector2(x + s * 0.2, zc), minf(ln * 0.32, 1.2), rng)
+			var n := 2 if ln < 3.8 else 3
+			for k in n:
+				var q := Vector3(x + s * 0.2, top - 0.08, zc + (float(k) - (n - 1) * 0.5) * 1.1)
+				_stone_lantern(ctx, q, 0.7, k == 0)
+				if k == n - 1 and rng.randf() < 0.6:
+					_crow_into(bs, _at(q + Vector3(0, 1.43 * 0.7, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+		"rope":
+			_shime_run(ctx, Vector3(x, 0, a.y + 0.3), Vector3(x, 0, b.y - 0.3))
+			Decor.rock_into(bs, _at(Vector3(x + s * 0.6, VOID_Y, zc), Vector3.ZERO, Vector3.ONE * 0.9), rng.randi() % 100000, KURAMA_ROCK)
+		_:
+			_moss_mound_into(bs, Vector2(x + s * 0.3, zc), minf(ln * 0.3, 1.1), rng)
+			for k in 2:
+				var q := Vector2(x + s * rng.randf_range(0.0, 0.5), a.y + ln * (0.3 + k * 0.4))
+				Decor.rock_into(bs, _at(Vector3(q.x, VOID_Y + 0.1, q.y), Vector3.ZERO, Vector3.ONE * rng.randf_range(0.7, 1.1)), rng.randi() % 100000, KURAMA_ROCK)
+			for k in (1 if Toon.lite else 2):
+				_sapling_into(bs, _at(Vector3(x - s * 0.1 + k * 0.4, VOID_Y + 0.15, zc + (k - 0.5) * 0.9), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.3)))
+
+
+## Petit temple (rive principale) : terrasse de granit, hall de montagne tourné vers l'arène, trois
+## marches qui en descendent, lanternes de pierre au pied, cèdre géant derrière, corbeau.
+static func _ls_kurama_temple(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var tc := c + Vector2(s * 0.6, 0.0)
+	var th := 0.0 - (VOID_Y - 0.3)
+	_add(bs, _toon(KURAMA_ROCK, true, 0.025), _box(Vector3(3.0, th, 2.8)), _at(Vector3(tc.x, VOID_Y - 0.3 + th * 0.5, tc.y)))
+	_contact(ctx, tc, 1.7)
+	_ls_small_hall_into(bs, bn, _at(Vector3(tc.x + s * 0.3, 0.0, tc.y), Vector3(0, face, 0)), 1.7, 1.5, 1.25)
+	_light(ctx, Vector3(tc.x - s * 0.9, 0.9, tc.y), Color(1.0, 0.72, 0.5), 0.6, 3.5)
+	# marches le long de la rive : trois degrés qui montent du sud (face à la caméra) jusqu'à la terrasse
+	var sb := Vector3(tc.x - s * 0.7, VOID_Y + 0.05, tc.y + 1.4 + 1.02)
+	_ls_stairs(bs, sb, Vector3(0, 0, -1), 1.4, 3, 0.17, 0.34, KURAMA_STEP)
+	_contact(ctx, Vector2(sb.x, sb.z - 0.5), 0.9)
+	for sx: float in [-1.0, 1.0]:
+		var q := Vector3(sb.x + sx * 1.0, VOID_Y + 0.02, sb.z + 0.1)
+		Decor.rock_into(bs, _at(q - Vector3(0, 0.02, 0), Vector3.ZERO, Vector3.ONE * 0.55), rng.randi() % 100000, KURAMA_ROCK)
+		_stone_lantern(ctx, q + Vector3(0, 0.16, 0), 0.6, false)
+	# cèdre géant derrière la terrasse, jeune cèdre au coin
+	var mc := tc + Vector2(s * 2.0, rng.randf_range(-0.6, 0.6))
+	var top := _moss_mound_into(bs, mc, 1.1, rng)
+	_cedar_into(bs, _at(Vector3(mc.x, top - 0.05, mc.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
+	if not Toon.lite:
+		_sapling_into(bs, _at(Vector3(tc.x + s * 1.2, 0.0, tc.y + 1.15), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.0))
+	_crow_into(bs, _at(Vector3(sb.x - s * 1.0, VOID_Y + 0.18 + 1.43 * 0.6, sb.z + 0.1), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+
+
+## Rive mineure : bosquet de cèdres géants sur un îlot d'aiguilles, rocher sacré ceint de sa corde.
+static func _ls_cedar_grove(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _moss_mound_into(bs, c, 1.6, rng)
+	_contact(ctx, c, 1.5)
+	var n := 2 if Toon.lite else 3
+	for k in n:
+		var q := Vector3(c.x + s * (0.2 + k * 0.5) - 0.3, top - 0.05 - k * 0.04, c.y + (float(k) - (n - 1) * 0.5) * 1.1)
+		_cedar_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.15)), rng)
+	_sp_sacred_rock(bs, bn, _at(Vector3(c.x - s * 0.9, VOID_Y + 0.08, c.y + 1.4)), 1.1, 0.9, rng)
+	if rng.randf() < 0.6:
+		_crow_into(bs, _at(Vector3(c.x - s * 0.9, VOID_Y + 0.08 + 0.5, c.y + 1.4), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
+
+
+## Fond : le grand escalier de Kurama monte derrière le torii, lanternes de pierre à chaque palier,
+## bosquets de cèdres aux deux coins.
+static func _ls_north_kurama(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var gx := clampf(0.0, frame.position.x + 1.2, frame.end.x - 1.2)
+	var base := Vector3(gx, VOID_Y + 0.05, top - 2.4)
+	var n := 6 if Toon.lite else 8
+	var head := _ls_stairs(bs, base, Vector3(0, 0, -1), 2.4, n, 0.14, 0.42, KURAMA_STEP)
+	avoid.append(Vector3(gx, top - 2.4 - 0.42 * n * 0.5, 0.42 * n * 0.5 + 0.6))
+	for sx: float in [-1.0, 1.0]:
+		_stone_lantern(ctx, Vector3(gx + sx * 1.5, VOID_Y + 0.05, top - 2.6), 0.7, sx < 0.0)
+		Decor.paper_lantern_into(bs, bn, _at(head + Vector3(sx * 1.45, 0, -0.1)), BRAISE, head.y - 0.3)
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.5), top - 3.4)
+		var mt := _moss_mound_into(bs, c, 1.4, rng)
+		_cedar_into(bs, _at(Vector3(c.x, mt - 0.05, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
+		_cedar_into(bs, _at(Vector3(c.x - sx * 0.9, mt - 0.1, c.y + 1.1), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng)
+		avoid.append(Vector3(c.x, c.y, 2.0))
+
+
+# --- monde 7 : fond marin devant Ryūgū-jō (massifs de coraux, ruines du palais, varech)
+
+const SAND_BANK := Color("#C4B094")  # buttes de sable nacré
+const SEA_WEED := Color("#3E6650")  # herbes marines
+const RUIN_TILE := Color("#2E4A66")  # tuiles indigo des toits effondrés
+
+
+## Colonne laquée du palais englouti : fût sombre, chapiteau de nacre si elle est entière ; `h` depuis le
+## fond. Une colonne brisée (`broken`) s'arrête net, biseau de nacre cassé.
+static func _ls_column_into(bs: Dictionary, p: Vector3, h: float, broken: bool, rng: RandomNumberGenerator) -> void:
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
+	var nacre := _toon(NACRE, true, 0.02)
+	var lean := Vector3(rng.randf_range(-0.06, 0.06), 0, rng.randf_range(-0.06, 0.06))
+	_add(bs, nacre, _cyl(0.3, 0.32, 0.12, 10), _at(p + Vector3(0, 0.06, 0)))
+	_add(bs, lac, _cyl(0.2, 0.23, h, 10), _at(p + Vector3(0, 0.12 + h * 0.5, 0), lean))
+	if broken:
+		_add(bs, nacre, _cyl(0.2, 0.16, 0.1, 10), _at(p + Vector3(0, 0.12 + h, 0), lean + Vector3(0.3, 0, 0)))
+	else:
+		_add(bs, nacre, _box(Vector3(0.62, 0.14, 0.62)), _at(p + Vector3(0, 0.12 + h + 0.07, 0), lean))
+
+
+## Massif de corail : rocher du récif allongé, coraux des quatre couleurs dessus, herbes au pied.
+static func _ls_reef(ctx: Dictionary, c: Vector2, ln: float, s: float, n: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var sc := clampf(ln * 0.3, 0.9, 1.5)
+	Decor.rock_into(bs, _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, PI * 0.5, 0), Vector3(sc * 1.4, sc * 0.7, sc)), rng.randi() % 100000, REEF_ROCK)
+	_contact(ctx, c, sc * 0.9)
+	for k in n:
+		var q := Vector3(c.x + rng.randf_range(-0.4, 0.4) * sc, VOID_Y + 0.22 * sc, c.y + (float(k) - (n - 1) * 0.5) * sc * 0.55)
+		_coral_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.3)), rng, CORAL[(k + rng.randi_range(0, 1)) % CORAL.size()])
+	var weed := _toon_ds(SEA_WEED)
+	for k in 3:
+		var q := Vector2(c.x - s * sc * 0.75, c.y + (float(k) - 1.0) * sc * 0.6)
+		_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(1.0, 1.4, 1.0)))
+
+
+## Bande proche : herbes marines, galets du récif, petits coraux, rides d'écume.
+static func _ls_near_ryugu(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var dens: float = ctx["ls_dens"]
+	if k % 4 == 1:
+		var sc := rng.randf_range(0.3, 0.7)
+		_inst(ctx, "pebble", _ball(0.5, 0.5, 6, 3), _toon(REEF_ROCK, true, 0.02), _at(Vector3(p.x, VOID_Y - 0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.6, sc)))
+		return
+	if k % 6 == 4:
+		var ci := k % CORAL.size()
+		var sc := rng.randf_range(0.5, 0.9)
+		_inst(ctx, "coral%d" % ci, _ball(0.5, 0.6, 7, 3), _toon(CORAL[ci], true, 0.018), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.8, sc)))
+		return
+	if k % 9 == 7:
+		var sc := rng.randf_range(0.7, 1.3)
+		_inst(ctx, "foam", _crescent_mesh(), _flat(Color(0.85, 0.94, 1.0, 0.7)), _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, 1, sc)))
+		return
+	var weed := _toon_ds(SEA_WEED)
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.8, 1.5)
+		_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.5, sc)))
+
+
+## Bande moyenne : massif de corail, forêt de varech, colonnade en ruine, bénitiers sur le sable, banc
+## de sable aux herbes.
+static func _ls_mid_ryugu(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	match kind:
+		"reef":
+			_ls_reef(ctx, Vector2(x + s * 0.3, zc), ln, s, 3 if Toon.lite else 4, rng)
+		"kelp":
+			var n := 2 if ln < 3.6 or Toon.lite else 3
+			for k in n:
+				var q := Vector3(x + s * rng.randf_range(-0.2, 0.4), VOID_Y, a.y + 0.5 + k * ((ln - 1.0) / maxf(float(n - 1), 1.0)))
+				_kelp_into(bs, _at(q), rng, rng.randf_range(2.4, 3.4))
+			_inst(ctx, "pebble", _ball(0.5, 0.5, 6, 3), _toon(REEF_ROCK, true, 0.02), _at(Vector3(x - s * 0.3, VOID_Y - 0.05, zc), Vector3.ZERO, Vector3(0.6, 0.35, 0.6)))
+		"columns":
+			var hs: Array = [2.2, 1.0, 1.7]
+			var bi := rng.randi_range(0, 2)
+			for k in 3:
+				var q := Vector3(x + s * 0.1, VOID_Y - 0.05, a.y + 0.45 + k * ((ln - 0.9) / 2.0))
+				_ls_column_into(bs, q, float(hs[(k + bi) % 3]) if (k + bi) % 3 != 1 else 1.0, (k + bi) % 3 == 1, rng)
+			# tambour de colonne tombé, à demi enfoui, corail qui y pousse
+			var lac := _toon(PALACE_LACQUER, true, 0.025)
+			_add(bs, lac, _cyl(0.2, 0.2, 1.3, 10), _at(Vector3(x + s * 0.8, VOID_Y + 0.02, zc), Vector3(0, rng.randf_range(-0.3, 0.3), PI * 0.5)))
+			_coral_into(bs, _at(Vector3(x + s * 0.8, VOID_Y + 0.1, zc + 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.9), rng, CORAL[2])
+			_contact(ctx, Vector2(x, zc), 1.0)
+		"clams":
+			_add(bs, _toon(SAND_BANK, true, 0.02), _ball(0.5, 1.0, 12, 4), _at(Vector3(x + s * 0.2, VOID_Y, zc), Vector3(0, rng.randf_range(-0.2, 0.2), 0), Vector3(1.6, 0.3, minf(ln - 0.6, 2.8))))
+			for k in 2:
+				var xf := _at(Vector3(x + s * (0.1 + k * 0.3), VOID_Y + 0.1, zc + (k - 0.5) * 1.2), Vector3(0, _face(Vector2(x, zc), x - s * 5.0, zc) + rng.randf_range(-0.5, 0.5), 0), Vector3.ONE * rng.randf_range(0.8, 1.1))
+				_clam_into(bs, bn, xf)
+				if k == 0:
+					_light(ctx, xf * Vector3(0, 0.4, 0.1), CAUSTIC, 0.6, 3.5)
+		_:
+			_add(bs, _toon(SAND_BANK, true, 0.02), _ball(0.5, 1.0, 12, 4), _at(Vector3(x + s * 0.3, VOID_Y, zc), Vector3(0, rng.randf_range(-0.2, 0.2), 0), Vector3(1.8, 0.3, minf(ln - 0.4, 3.2))))
+			var weed := _toon_ds(SEA_WEED)
+			for k in (3 if Toon.lite else 5):
+				var q := Vector2(x + s * rng.randf_range(-0.2, 0.7), a.y + 0.4 + rng.randf() * (ln - 0.8))
+				_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(q.x, VOID_Y + 0.1, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(1.0, rng.randf_range(1.3, 1.8), 1.0)))
+			_coral_into(bs, _at(Vector3(x + s * 0.5, VOID_Y + 0.12, zc), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng, CORAL[3])
+
+
+## Ruines du palais (rive principale) : socle du récif, pan de mur laqué à fenêtre de nacre, colonnes
+## debout et brisée, toit de tuiles effondré, bénitier à la perle, coraux et varech.
+static func _ls_palace_ruin(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var rock := _toon(REEF_ROCK, true, 0.025)
+	_add(bs, rock, _ball(1.0, 0.5, 12, 4), _at(Vector3(c.x + s * 0.4, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(1.9, 0.5, 1.6)))
+	_contact(ctx, c, 1.7)
+	var top := VOID_Y + 0.12
+	# pan de mur en retrait, parallèle à la rive, fenêtre ronde de nacre
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
+	var nacre := _toon(NACRE, true, 0.02)
+	var wx := _at(Vector3(c.x + s * 1.2, top, c.y - 0.3), Vector3(0, face + rng.randf_range(-0.15, 0.15), 0))
+	_add(bs, lac, _box(Vector3(2.0, 1.7, 0.2)), wx * _at(Vector3(0, 0.85, 0)))
+	_add(bn, nacre, _box(Vector3(2.1, 0.1, 0.24)), wx * _at(Vector3(0, 0.5, 0)))
+	_add(bn, nacre, _cyl(0.3, 0.3, 0.24, 12), wx * _at(Vector3(0.35, 1.15, 0), Vector3(PI * 0.5, 0, 0)))
+	_add(bn, _toon(Color("#0C1A3E"), false), _cyl(0.22, 0.22, 0.26, 12), wx * _at(Vector3(0.35, 1.15, 0), Vector3(PI * 0.5, 0, 0)))
+	# colonnes : une entière devant le mur, une brisée, un toit tombé de biais entre les deux
+	_ls_column_into(bs, Vector3(c.x - s * 0.2, top, c.y - 1.1), 2.0, false, rng)
+	_ls_column_into(bs, Vector3(c.x - s * 0.1, top, c.y + 1.1), 0.9, true, rng)
+	var tile := _toon(RUIN_TILE, true, 0.025)
+	var ridge := _toon(NACRE, false)
+	Decor.roof_into(bs, bn, tile, ridge, _at(Vector3(c.x + s * 0.3, top + 0.35, c.y + 0.9), Vector3(0.18, face + 0.4, -0.22)), 1.8, 1.4, 0.5, 0.0, 0.4)
+	# bénitier à la perle sous la colonne, coraux au pied du mur, varech derrière
+	var cx := _at(Vector3(c.x - s * 0.7, top, c.y + 0.1), Vector3(0, face, 0), Vector3.ONE * 0.95)
+	_clam_into(bs, bn, cx)
+	_light(ctx, cx * Vector3(0, 0.4, 0.1), CAUSTIC, 0.6, 3.5)
+	for k in (2 if Toon.lite else 3):
+		_coral_into(bs, _at(Vector3(c.x + s * (0.5 + k * 0.35), top, c.y - 1.3 + k * 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.2)), rng, CORAL[k % CORAL.size()])
+	_kelp_into(bs, _at(Vector3(c.x + s * 2.2, VOID_Y, c.y + 0.6)), rng, 3.2)
+
+
+## Rive mineure : grand massif de corail, bénitier, varech derrière.
+static func _ls_coral_massif(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	_ls_reef(ctx, c, 4.2, s, 4 if Toon.lite else 6, rng)
+	_clam_into(bs, bn, _at(Vector3(c.x - s * 0.5, VOID_Y, c.y + 1.5), Vector3(0, _face(c, c.x - s * 6.0, c.y) + 0.3, 0), Vector3.ONE * 0.85))
+	_kelp_into(bs, _at(Vector3(c.x + s * 1.4, VOID_Y, c.y - 0.8)), rng, 2.8)
+	for k in 2:
+		_coral_into(bs, _at(Vector3(c.x + s * 1.3, VOID_Y, c.y + 0.6 + k * 0.7), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8), rng, CORAL[(k + 1) % CORAL.size()])
+
+
+## Fond : porte effondrée du palais (deux colonnes et leur linteau tombé) de part et d'autre du torii,
+## rideau de varech derrière, massifs de corail aux coins.
+static func _ls_north_ryugu(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var lac := _toon(PALACE_LACQUER, true, 0.025)
+	for sx: float in [-1.0, 1.0]:
+		var px := sx * 2.6
+		_ls_column_into(bs, Vector3(px, VOID_Y - 0.05, top - 2.4), 2.4 if sx < 0.0 else 1.3, sx > 0.0, rng)
+		_ls_column_into(bs, Vector3(px + sx * 1.3, VOID_Y - 0.05, top - 2.6), 1.9, false, rng)
+		avoid.append(Vector3(px + sx * 0.6, top - 2.5, 1.5))
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.4), top - 3.6)
+		_ls_reef(ctx, c, 3.6, sx, 3 if Toon.lite else 5, rng)
+		avoid.append(Vector3(c.x, c.y, 2.0))
+		for k in (2 if Toon.lite else 3):
+			_kelp_into(bs, _at(Vector3(sx * (1.6 + k * 1.1), VOID_Y, top - 4.2 - rng.randf_range(0.0, 0.5))), rng, rng.randf_range(2.6, 3.6))
+	# linteau tombé en travers, devant la colonne brisée
+	_add(bs, lac, _box(Vector3(2.2, 0.3, 0.3)), _at(Vector3(3.0, VOID_Y + 0.15, top - 3.4), Vector3(0, 0.5, 0.12)))
+
+
+# --- monde 8 : rive du fleuve de Yomi (cimetière, jizō alignés, lanternes de pierre, arbres morts)
+
+const YOMI_GRAVE := Color("#7A7680")
+const YOMI_GRAVE_CAP := Color("#5E5A64")
+const YOMI_REED := Color("#5A5660")
+const YOMI_PAPER := Color("#D9D0E6")  # lanternes de papier pâles
+const YOMI_LIGHT := Color(0.75, 0.6, 1.0)
+
+
+## Rangée de jizō alignés le long de z (face à `face`), sur une butte de cendre allongée.
+static func _ls_jizo_row(ctx: Dictionary, c: Vector2, ln: float, face: float, n: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var ash := _toon(ASH, true, 0.02)
+	_add(bs, ash, _ball(0.5, 1.0, 12, 4), _at(Vector3(c.x, VOID_Y, c.y), Vector3.ZERO, Vector3(1.3, 0.3, ln)))
+	for k in n:
+		var q := Vector3(c.x + rng.randf_range(-0.05, 0.05), VOID_Y + 0.12, c.y + (float(k) - (n - 1) * 0.5) * (ln - 0.6) / maxf(float(n - 1), 1.0))
+		_jizo_into(bs, _at(q, Vector3(0, face + rng.randf_range(-0.15, 0.15), 0), Vector3.ONE * rng.randf_range(0.85, 1.0)))
+
+
+## Bande proche : roseaux gris, mottes de cendre, feux follets, ossements.
+static func _ls_near_yomi(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var dens: float = ctx["ls_dens"]
+	if k % 4 == 2:
+		var sc := rng.randf_range(0.4, 1.0)
+		_inst(ctx, "ash", _ball(0.5, 0.36, 9, 4), _toon(ASH, true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.7, sc * 1.1)))
+		return
+	if k % 7 == 5:
+		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), _glow(YOMI_GLOW, 1.4), _at(Vector3(p.x, VOID_Y + rng.randf_range(0.6, 1.4), p.y)))
+		return
+	if k % 10 == 8:
+		var top := _ash_mound_into(bs, p, 0.5, rng)
+		_bones_into(bs, p, rng, top - 0.08, 0.6)
+		return
+	var reed := _toon_ds(YOMI_REED)
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.8, 1.4)
+		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.3, sc)))
+
+
+## Bande moyenne : jizō alignés, rangée de tombes, lanternes de pierre, arbres morts, sotoba et
+## lanternes de papier pâles.
+static func _ls_mid_yomi(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	var face := _face(Vector2(x, zc), x - s * 5.0, zc)
+	match kind:
+		"jizo":
+			_ls_jizo_row(ctx, Vector2(x + s * 0.1, zc), ln - 0.2, face, clampi(int(ln / 0.6), 3, 6), rng)
+		"graves":
+			var top := _ash_mound_into(bs, Vector2(x + s * 0.3, zc), minf(ln * 0.32, 1.3), rng)
+			var gm := _toon(YOMI_GRAVE, true, 0.02)
+			var cap := _toon(YOMI_GRAVE_CAP, false)
+			var n := 3 if ln < 4.0 else 4
+			for k in n:
+				var q := Vector3(x + s * (0.2 + 0.15 * (k % 2)), top - 0.1, zc + (float(k) - (n - 1) * 0.5) * 0.62)
+				_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.08, 0.08), face + rng.randf_range(-0.25, 0.25), rng.randf_range(-0.1, 0.1)), Vector3.ONE * rng.randf_range(0.75, 0.95)))
+			_sotoba_into(bs, _at(Vector3(x + s * 0.8, top - 0.1, zc - 0.2), Vector3(0, face, 0)), rng)
+		"toro":
+			for k in 2:
+				var q := Vector2(x + s * 0.1, zc + (k - 0.5) * minf(ln - 1.2, 2.4))
+				var top := _ash_mound_into(bs, q, 0.7, rng)
+				Decor.stone_lantern_into(bs, bn, _at(Vector3(q.x, top - 0.06, q.y), Vector3.ZERO, Vector3.ONE * 0.85))
+				if k == 0:
+					_light(ctx, Vector3(q.x, top + 0.7, q.y), YOMI_LIGHT, 0.6, 3.4)
+		"dead_trees":
+			var top := _ash_mound_into(bs, Vector2(x + s * 0.4, zc), minf(ln * 0.32, 1.3), rng)
+			_dead_pine_into(bs, _at(Vector3(x + s * 0.5, top - 0.06, zc - ln * 0.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.1)), rng)
+			_dead_pine_into(bs, _at(Vector3(x + s * 0.2, top - 0.08, zc + ln * 0.22), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.6, 0.75)), rng)
+		_:
+			var top := _ash_mound_into(bs, Vector2(x + s * 0.2, zc), minf(ln * 0.3, 1.1), rng)
+			for k in 2:
+				_sotoba_into(bs, _at(Vector3(x + s * 0.2, top - 0.08, zc + (k - 0.5) * 1.0), Vector3(0, face + rng.randf_range(-0.2, 0.2), 0)), rng)
+			_bones_into(bs, Vector2(x - s * 0.2, zc), rng, top - 0.1, 0.6)
+			Decor.paper_lantern_into(bs, bn, _at(Vector3(x + s * 0.7, top - 0.08, zc + 0.9), Vector3(0, face + PI * 0.5, 0)), YOMI_PAPER, top - 0.4)
+
+
+## Cimetière (rive principale) : grande butte de cendre, deux rangs de tombes, sotoba, grande lanterne
+## de pierre allumée au milieu, arbre mort derrière, jizō et lanternes de papier pâles à l'entrée.
+static func _ls_graveyard(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var top := _ash_mound_into(bs, c + Vector2(s * 0.4, 0.0), 2.0, rng)
+	_contact(ctx, c, 1.8)
+	var gm := _toon(YOMI_GRAVE, true, 0.02)
+	var cap := _toon(YOMI_GRAVE_CAP, false)
+	# deux rangs : trois tombes devant, deux (plus hautes) derrière en quinconce
+	for k in 3:
+		var q := Vector3(c.x + s * 0.1, top - 0.1, c.y + (k - 1) * 0.7)
+		_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.06, 0.06), face + rng.randf_range(-0.2, 0.2), rng.randf_range(-0.08, 0.08)), Vector3.ONE * rng.randf_range(0.8, 0.95)))
+	for k in 2:
+		var q := Vector3(c.x + s * 0.9, top - 0.14, c.y + (k - 0.5) * 0.8)
+		_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.06, 0.06), face + rng.randf_range(-0.2, 0.2), rng.randf_range(-0.08, 0.08)), Vector3.ONE * rng.randf_range(1.0, 1.15)))
+	_sotoba_into(bs, _at(Vector3(c.x + s * 1.0, top - 0.14, c.y + 1.4), Vector3(0, face, 0)), rng)
+	# lanterne de pierre allumée au bout du rang, arbre mort derrière
+	Decor.stone_lantern_into(bs, bn, _at(Vector3(c.x + s * 0.5, top - 0.1, c.y - 1.5), Vector3.ZERO, Vector3.ONE * 1.0))
+	_light(ctx, Vector3(c.x + s * 0.5, top + 0.75, c.y - 1.5), YOMI_LIGHT, 0.6, 3.6)
+	_dead_pine_into(bs, _at(Vector3(c.x + s * 1.9, top - 0.3, c.y - 0.4), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.05), rng)
+	_bones_into(bs, c + Vector2(s * 1.5, 0.9), rng, top - 0.25, 0.7)
+	# entrée côté arène : deux jizō et deux lanternes de papier pâles sur leurs perches
+	for sz: float in [-1.0, 1.0]:
+		_jizo_into(bs, _at(Vector3(c.x - s * 0.7, top - 0.2, c.y + sz * 0.45), Vector3(0, face, 0)))
+		if not Toon.lite or sz < 0.0:
+			Decor.paper_lantern_into(bs, bn, _at(Vector3(c.x - s * 0.9, top - 0.22, c.y + sz * 1.5), Vector3(0, face + PI * 0.5, 0)), YOMI_PAPER, top - 0.5)
+
+
+## Rive mineure : bosquet d'arbres morts sur une butte de cendre, ossements, feux follets, lanterne
+## d'Obon à la dérive.
+static func _ls_dead_grove(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _ash_mound_into(bs, c, 1.5, rng)
+	_contact(ctx, c, 1.4)
+	for k in (2 if Toon.lite else 3):
+		var q := Vector3(c.x + s * (0.1 + k * 0.4) - 0.3, top - 0.08 - k * 0.05, c.y + (float(k) - 1.0) * 0.9)
+		_dead_pine_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.7, 1.05)), rng)
+	_bones_into(bs, c + Vector2(-s * 0.6, 0.3), rng, top - 0.15, 0.8)
+	for k in 2:
+		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), _glow(YOMI_GLOW, 1.4), _at(Vector3(c.x + rng.randf_range(-0.8, 0.8), VOID_Y + rng.randf_range(0.8, 1.5), c.y + rng.randf_range(-0.8, 0.8))))
+	_toro_into(bn, _at(Vector3(c.x - s * 1.5, VOID_Y, c.y + 1.2), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Fond : allées de jizō de part et d'autre du chemin de sortie, arbres morts aux coins, lanternes de
+## papier pâles en rang, feux follets.
+static func _ls_north_yomi(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var gx := clampf(0.0, frame.position.x + 1.2, frame.end.x - 1.2)
+	for sx: float in [-1.0, 1.0]:
+		# jizō alignés le long du chemin qui s'enfonce dans Yomi, tournés vers lui
+		var jc := Vector2(gx + sx * 1.9, top - 3.6)
+		_ls_jizo_row(ctx, jc, 2.6, -sx * PI * 0.5, 4 if Toon.lite else 5, rng)
+		avoid.append(Vector3(jc.x, jc.y, 1.5))
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.4), top - 3.0)
+		var mt := _ash_mound_into(bs, c, 1.4, rng)
+		_dead_pine_into(bs, _at(Vector3(c.x, mt - 0.06, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
+		avoid.append(Vector3(c.x, c.y, 1.8))
+		for k in 2:
+			var q := Vector2(sx * (2.6 + k * 1.2), top - 1.9)
+			if _ok(ctx, q, 0.4, 0.0):
+				Decor.paper_lantern_into(bs, bn, _at(Vector3(q.x, VOID_Y + 0.1, q.y)), YOMI_PAPER, VOID_Y - 0.3)
+	for k in (3 if Toon.lite else 5):
+		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), _glow(YOMI_GLOW, 1.4), _at(Vector3(rng.randf_range(-5.0, 5.0), VOID_Y + rng.randf_range(0.7, 1.6), top - rng.randf_range(1.5, 4.5))))
 
 
 # --- pièces de décor sur la terre ferme (étapes)
@@ -2942,136 +3815,6 @@ static func _sp_lantern_row(bs: Dictionary, bn: Dictionary, xf: Transform3D, ln:
 
 # --- alignements de bord
 
-static func _prop_run(wid: int, ctx: Dictionary, run: Array, rng: RandomNumberGenerator) -> void:
-	var a2: Vector2 = run[0]
-	var b2: Vector2 = run[1]
-	var n2: Vector2 = run[2]
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var a := Vector3(a2.x, 0.0, a2.y)
-	var c := Vector3(b2.x, 0.0, b2.y)
-	var roll := rng.randf()
-	var kind := "fence"
-	if wid == 1:
-		if roll < 0.4:
-			kind = "rope"
-		elif roll < 0.65:
-			kind = "nobori"
-		elif roll < 0.82:
-			kind = "maku"
-		else:
-			kind = "shime"
-	elif wid == 2:
-		if roll < 0.45:
-			kind = "fence"
-		elif roll < 0.65:
-			kind = "shime"
-		elif roll < 0.82:
-			kind = "maku"
-		else:
-			kind = "nobori"
-	elif wid == 3:
-		if roll < 0.45:
-			kind = "fence"
-		elif roll < 0.75:
-			kind = "shime"
-		else:
-			kind = "jizo"
-	elif wid == 4:
-		if roll < 0.4:
-			kind = "chain"
-		elif roll < 0.6:
-			kind = "shime"
-		elif roll < 0.82:
-			kind = "maku"
-		else:
-			kind = "nobori"
-	elif wid == 6:
-		if roll < 0.35:
-			kind = "shime"
-		elif roll < 0.58:
-			kind = "fence"
-		elif roll < 0.8:
-			kind = "maku"
-		else:
-			kind = "nobori"
-	elif wid == 7:
-		if roll < 0.45:
-			kind = "rope"
-		elif roll < 0.75:
-			kind = "nobori"
-		else:
-			kind = "shime"
-	elif wid == 8:
-		if roll < 0.4:
-			kind = "chain"
-		elif roll < 0.65:
-			kind = "shime"
-		elif roll < 0.8:
-			kind = "maku"
-		else:
-			kind = "fence"
-	else:
-		if roll < 0.3:
-			kind = "shime"
-		elif roll < 0.5:
-			kind = "fence"
-		elif roll < 0.75:
-			kind = "shoji"
-		else:
-			kind = "nobori"
-	if kind == "fence":
-		Decor.fence_into(bs, bn, a, c, 0.62, VOID_Y - 0.3, wid == 3)
-	elif kind == "rope":
-		_rope_rail(ctx, a, c)
-	elif kind == "nobori":
-		_nobori_line(ctx, a, c, n2, wid)
-	elif kind == "shime":
-		_shime_run(ctx, a, c)
-	elif kind == "chain":
-		_chain_rail(ctx, a, c)
-	elif kind == "maku":
-		_maku_run(ctx, a, c, n2, wid)
-	elif kind == "shoji":
-		_shoji_run(ctx, a, c)
-	else:
-		_jizo_ledge(ctx, a, c, n2)
-	var steps := maxi(int(a2.distance_to(b2) / 0.7), 1)
-	for i in steps + 1:
-		_take(ctx, a2.lerp(b2, float(i) / steps))
-
-
-## Garde-corps de port : pieux et gros cordage qui pend entre eux.
-static func _rope_rail(ctx: Dictionary, a: Vector3, c: Vector3) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var pile := _toon(Decor.PILE, true, 0.02)
-	var rope := _toon(Color("#B9A57E"), true, 0.012)
-	var n := maxi(int(ceil(a.distance_to(c) / 1.1)), 1)
-	var hh := 0.75 - (VOID_Y - 0.3)
-	var prev := Vector3.ZERO
-	for i in n + 1:
-		var q := a.lerp(c, float(i) / n)
-		_add(bs, pile, _cyl(0.06, 0.07, hh, 6), _at(Vector3(q.x, VOID_Y - 0.3 + hh * 0.5, q.z)))
-		_add(bs, pile, _ball(0.07, 0.08, 6, 3), _at(Vector3(q.x, 0.77, q.z)))
-		var top := Vector3(q.x, 0.62, q.z)
-		if i > 0:
-			_rope(bs, rope, prev, top, 0.16, 0.022)
-		prev = top
-
-
-## Rangée de fanions nobori, bannières tournées vers l'extérieur.
-static func _nobori_line(ctx: Dictionary, a: Vector3, c: Vector3, n2: Vector2, wid: int) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var cols := _nobori_colors(wid)
-	var cloth: Color = cols[0]
-	var ink: Color = cols[1]
-	var n := clampi(int(a.distance_to(c) / 1.1) + 1, 2, 4)
-	var rot: float = PI if n2.x < -0.5 else 0.0
-	for i in n:
-		var q := a.lerp(c, float(i) / (n - 1))
-		Decor.nobori_into(bs, bn, _at(q, Vector3(0, rot, 0)), cloth, ink, VOID_Y - 0.3, _mon_kind(wid))
-
 
 ## Shimenawa tendue entre deux poteaux de bois sombre.
 static func _shime_run(ctx: Dictionary, a: Vector3, c: Vector3) -> void:
@@ -3100,49 +3843,6 @@ static func _chain_rail(ctx: Dictionary, a: Vector3, c: Vector3) -> void:
 		if i > 0:
 			_links(bs, iron, prev, top, 0.2)
 		prev = top
-
-
-## Mon du clan d'un monde (Decor.mon_into), sur ses bannières, rideaux et entrepôts.
-static func _mon_kind(wid: int) -> int:
-	match wid:
-		1, 5, 7:
-			return 0  # trois tomoe
-		3:
-			return 1  # deux barres
-		2, 8:
-			return 2  # losange
-		_:
-			return 3  # étoile de shuriken (forges du Fuji, tengu de Kurama)
-
-
-## Jinmaku : rideau de camp tendu entre des perches, rayé d'encre, mon du clan répété face à l'arène.
-static func _maku_run(ctx: Dictionary, a: Vector3, c: Vector3, n2: Vector2, wid: int) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var cols := _nobori_colors(wid)
-	var cloth: Color = cols[0]
-	var ink: Color = cols[1]
-	var pole := Decor._toon("pole", Decor.POLE, true, 0.02)
-	var cm := Decor._toon("nobori_" + cloth.to_html(false), cloth, true, 0.012)
-	var im := Decor._toon("nobori_ink_" + ink.to_html(false), ink, false)
-	var d := c - a
-	var l := d.length()
-	var n := maxi(int(ceil(l / 1.3)), 1)
-	var hh := 1.05 - (VOID_Y - 0.3)
-	for i in n + 1:
-		var q := a.lerp(c, float(i) / n)
-		_add(bs, pole, _cyl(0.03, 0.04, hh, 6), _at(Vector3(q.x, VOID_Y - 0.3 + hh * 0.5, q.z)))
-		_add(bs, pole, _ball(0.045, 0.09, 6, 3), _at(Vector3(q.x, 1.08, q.z)))
-	var mid := (a + c) * 0.5
-	var yaw := atan2(d.x, d.z)
-	_add(bs, cm, _box(Vector3(0.012, 0.5, l)), _at(Vector3(mid.x, 0.72, mid.z), Vector3(0, yaw, 0)))
-	for y: float in [0.52, 0.9]:
-		_add(bn, im, _box(Vector3(0.016, 0.06, l + 0.004)), _at(Vector3(mid.x, y, mid.z), Vector3(0, yaw, 0)))
-	var inward := atan2(-n2.x, -n2.y)
-	var fwd := Vector3(-n2.x, 0, -n2.y) * 0.009
-	for i in n:
-		var q := a.lerp(c, (float(i) + 0.5) / n)
-		Decor.mon_into(bn, im, _at(Vector3(q.x, 0.71, q.z) + fwd, Vector3(0, inward, 0)), 0.15, _mon_kind(wid))
 
 
 ## Rangée de shōji : panneaux de washi à croisillons (kumiko) sur une planche d'engawa, le long du bord.
@@ -3183,307 +3883,13 @@ static func _shoji_run(ctx: Dictionary, a: Vector3, c: Vector3) -> void:
 			_add(bn, frame, _box(Vector3(0.03, 0.012, pw - 0.04)), px * _at(Vector3(0, y, 0)))
 
 
-## Rebord de pierre enneigé et rangée de jizō tournés vers l'arène.
-static func _jizo_ledge(ctx: Dictionary, a: Vector3, c: Vector3, n2: Vector2) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var stone := _toon(Color("#6E6C72"), true, 0.02)
-	var off := Vector3(n2.x, 0, n2.y) * 0.13
-	var a2 := a + off
-	var c2 := c + off
-	var mid := (a2 + c2) * 0.5
-	var l := a2.distance_to(c2)
-	var yaw := atan2(c2.x - a2.x, c2.z - a2.z)
-	var hh := 0.05 - (VOID_Y - 0.3)
-	_add(bs, stone, _box(Vector3(0.5, hh, l + 0.4)), _at(Vector3(mid.x, 0.05 - hh * 0.5, mid.z), Vector3(0, yaw, 0)))
-	_add(bn, _toon(SNOW, false), _box(Vector3(0.52, 0.05, l + 0.42)), _at(Vector3(mid.x, 0.06, mid.z), Vector3(0, yaw, 0)))
-	var face := atan2(-n2.x, -n2.y)
-	var n := maxi(int(l / 0.55), 1)
-	for i in n + 1:
-		var q := a2.lerp(c2, float(i) / n)
-		_jizo_into(bs, _at(Vector3(q.x, 0.075, q.z), Vector3(0, face, 0), Vector3.ONE * 0.75))
-
 # --- petits props de bord
-
-static func _prop_edge(wid: int, ctx: Dictionary, e: Vector4, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var p := Vector2(e.x, e.y)
-	var out := Vector2(e.z, e.w)
-	var pos := Vector3(p.x, 0.0, p.y)
-	# regarde vers la plateforme / bras de potence et bannière vers l'extérieur
-	var to_arena := _face(p, p.x - out.x, p.y - out.y)
-	var arm_out := atan2(-out.y, out.x)
-	var flag_rot: float = PI if out.x < -0.5 else 0.0
-	var cols := _nobori_colors(wid)
-	var cloth: Color = cols[0]
-	var ink: Color = cols[1]
-	# rare : poteau d'entraînement des ninjas criblé de kunai (pas sous la mer de Ryūgū)
-	if wid != 7 and rng.randf() < 0.07:
-		_pillar(ctx, p, 0.22, Decor.PILE)
-		_kunai_post_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.85), rng)
-		return
-	var roll := rng.randf()
-	match wid:
-		1:
-			if roll < 0.2:
-				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), Toon.WASHI, VOID_Y - 0.35)
-			elif roll < 0.34 and _light_ok(ctx):
-				_pillar(ctx, p, 0.22, STONE_DARK)
-				_stone_lantern(ctx, pos, 0.62, true)
-			elif roll < 0.5:
-				_pillar(ctx, p, 0.22, Decor.PILE)
-				Decor.sake_barrel_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.62))
-				if rng.randf() < 0.5:
-					Decor.sake_barrel_into(bn, bn, _at(pos + Vector3(0, 0.35, 0), Vector3(0, to_arena + 0.4, 0), Vector3.ONE * 0.5))
-			elif roll < 0.64:
-				var top := _bitt_into(bs, bn, Vector3(p.x, VOID_Y - 0.3, p.y), 1.75)
-				if rng.randf() < 0.6:
-					Decor.gull_into(bn, _at(top, Vector3(0, rng.randf() * TAU, 0)))
-			elif roll < 0.76:
-				_pillar(ctx, p, 0.22, Decor.PILE)
-				for k in 3:
-					Decor.glass_float_into(bn, _at(pos + Vector3(rng.randf_range(-0.08, 0.08), k * 0.12, rng.randf_range(-0.08, 0.08)), Vector3.ZERO, Vector3.ONE * 0.6), k)
-			elif roll < 0.88:
-				Decor.nobori_into(bs, bn, _at(pos, Vector3(0, flag_rot, 0)), cloth, ink, VOID_Y - 0.35)
-			else:
-				_pillar(ctx, p, 0.22, Decor.PILE)
-				Decor.hokora_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.72), Color("#B98E52"), Color("#3A3530"))
-		2:
-			if roll < 0.22:
-				_pillar(ctx, p, 0.22, STONE_DARK)
-				_tanzaku_into(bn, _at(pos, Vector3.ZERO, Vector3.ONE * 0.8), rng)
-			elif roll < 0.42:
-				_pillar(ctx, p, 0.22, STONE_DARK)
-				_kitsune_into(bs, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.62))
-			elif roll < 0.56 and _light_ok(ctx):
-				_pillar(ctx, p, 0.22, STONE_DARK)
-				_stone_lantern(ctx, pos, 0.6, true)
-			elif roll < 0.72:
-				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), Color("#F1E3A6"), VOID_Y - 0.35)
-			elif roll < 0.86:
-				Decor.nobori_into(bs, bn, _at(pos, Vector3(0, flag_rot, 0)), cloth, ink, VOID_Y - 0.35)
-			else:
-				_pillar(ctx, p, 0.22, STONE_DARK)
-				Decor.hokora_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.72), Color("#7A5A3E"), Color("#2E2C33"))
-		3:
-			if roll < 0.2:
-				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), Toon.WASHI, VOID_Y - 0.35)
-				return
-			if roll > 0.9:
-				# lanternes flottantes au pied du bord, sur l'eau
-				for k in 2:
-					_toro_into(bn, _at(Vector3(p.x + out.x * 0.15 * k, VOID_Y, p.y + out.y * 0.15 * k - 0.2 * k), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
-				return
-			_pillar(ctx, p, 0.22, Color("#6E6C72"))
-			_add(bn, _toon(SNOW, false), _cyl(0.2, 0.235, 0.05, 8), _at(Vector3(p.x, -0.01, p.y)))
-			if roll < 0.38:
-				_jizo_into(bs, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.82))
-			elif roll < 0.52:
-				_stele_into(bs, _toon(GRAVE, true, 0.02), _toon(SNOW, false), _at(pos, Vector3(0, to_arena, 0.05), Vector3.ONE * 0.62))
-			elif roll < 0.64:
-				_offering_into(bs, bn, _at(pos, Vector3(0, to_arena, 0)))
-			elif roll < 0.76:
-				_wagasa_into(bs, _at(pos, Vector3(0, to_arena, 0)), false, BONNET)
-			elif _light_ok(ctx):
-				_stone_lantern(ctx, pos, 0.6, true)
-			else:
-				_jizo_into(bs, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.82))
-		4:
-			if roll > 0.9:
-				Decor.nobori_into(bs, bn, _at(pos, Vector3(0, flag_rot, 0)), cloth, ink, VOID_Y - 0.35)
-				return
-			_pillar(ctx, p, 0.22, BASALT)
-			if roll < 0.28 and _light_ok(ctx):
-				_brazier_into(bs, bn, _at(pos, Vector3.ZERO, Vector3.ONE * 0.6))
-				_light(ctx, pos + Vector3(0, 0.8, 0), Color(1.0, 0.82, 0.5), 0.5, 3.5)
-			elif roll < 0.46:
-				_oni_mask_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.7))
-			elif roll < 0.58:
-				_brazier_into(bs, bn, _at(pos, Vector3.ZERO, Vector3.ONE * 0.55))
-			elif roll < 0.7:
-				for k in 2:
-					Decor.katana_into(bs, _at(pos + Vector3((k - 0.5) * 0.14, 0, 0), Vector3(rng.randf_range(-0.2, 0.2), rng.randf() * TAU, rng.randf_range(-0.2, 0.2)), Vector3.ONE * 0.85))
-			elif roll < 0.8:
-				_ingots_into(bs, bn, _at(pos, Vector3(0, rng.randf() * TAU, 0)))
-			else:
-				_yoshida_into(bs, bn, _at(pos, Vector3.ZERO, Vector3.ONE * 0.3))
-		6, 7, 8:
-			_edge_new(wid, ctx, p, out, rng, to_arena, arm_out, flag_rot, cloth, ink)
-		_:
-			if roll < 0.25:
-				_brush_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(out.y * 0.15, 0, -out.x * 0.15), Vector3.ONE * 0.45))
-			elif roll < 0.45:
-				_papers_into(bn, p, rng, 2, VOID_Y + 0.02, 0.2)
-			elif roll < 0.6:
-				_pillar(ctx, p, 0.22, Color("#3A3530"))
-				_seal_into(bs, _at(pos, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.42))
-			elif roll < 0.74:
-				_pillar(ctx, p, 0.22, Color("#3A3530"))
-				Decor.kadomatsu_into(bs, bn, _at(pos, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.62))
-			elif roll < 0.88:
-				Decor.nobori_into(bs, bn, _at(pos, Vector3(0, flag_rot, 0)), cloth, ink, VOID_Y - 0.35)
-			else:
-				_pillar(ctx, p, 0.22, Color("#3A3530"))
-				_kagami_into(bs, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.8))
 
 
 # --- petits props dans les vides entre plateformes (bas)
 
-static func _prop_small(wid: int, ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var sd := rng.randi() % 100000
-	var roll := rng.randf()
-	match wid:
-		1:
-			if roll < 0.5:
-				var s := rng.randf_range(0.45, 0.75)
-				Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * s), sd)
-				_foam_ring(ctx, p, s * 0.7, rng)
-				if rng.randf() < 0.35:
-					Decor.gull_into(bn, _at(Vector3(p.x, VOID_Y + 0.33 * s, p.y), Vector3(0, rng.randf() * TAU, 0)))
-			elif roll < 0.75:
-				for k in rng.randi_range(2, 3):
-					Decor.glass_float_into(bn, _at(Vector3(p.x + rng.randf_range(-0.4, 0.4), VOID_Y - 0.06, p.y + rng.randf_range(-0.4, 0.4))), k)
-				_foam_ring(ctx, p, 0.4, rng)
-			else:
-				var top := _bitt_into(bs, bn, Vector3(p.x, VOID_Y - 0.3, p.y), 1.1)
-				Decor.gull_into(bn, _at(top, Vector3(0, rng.randf() * TAU, 0)))
-				_foam_ring(ctx, p, 0.3, rng)
-		2:
-			if roll < 0.7:
-				Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * rng.randf_range(0.6, 0.8)), sd)
-				var top := Vector3(p.x, VOID_Y + 0.22, p.y)
-				if rng.randf() < 0.5:
-					_tanzaku_into(bn, _at(top, Vector3.ZERO, Vector3.ONE * 0.75), rng)
-				else:
-					_kitsune_into(bs, _at(top, Vector3(0, _face(p, 0.0, p.y + 3.0), 0), Vector3.ONE * 0.6))
-			else:
-				var stone := _toon(STONE, true, 0.02)
-				for k in 4:
-					_add(bs, stone, _cyl(0.3, 0.34, 0.14, 7), _at(Vector3(p.x + (k - 1.5) * 0.45, VOID_Y + 0.03, p.y + rng.randf_range(-0.2, 0.2)), Vector3(0, rng.randf() * TAU, 0)))
-				_stone_lantern(ctx, Vector3(p.x, VOID_Y + 0.1, p.y - 0.5), 0.45, false)
-		3:
-			if roll < 0.35:
-				var top := _mound_into(bn, bn, p, rng.randf_range(0.45, 0.7), rng)
-				if rng.randf() < 0.5:
-					_wagasa_into(bn, _at(Vector3(p.x, top, p.y), Vector3(0, rng.randf() * TAU, 0)), true, Color("#5B6C8F"))
-			elif roll < 0.7:
-				for k in rng.randi_range(2, 3):
-					_toro_into(bn, _at(Vector3(p.x + rng.randf_range(-0.5, 0.5), VOID_Y, p.y + rng.randf_range(-0.5, 0.5)), Vector3(0, rng.randf() * TAU, 0)))
-			else:
-				var top := _mound_into(bn, bn, p, 0.6, rng)
-				_stele_into(bn, _toon(GRAVE, true, 0.02), _toon(SNOW, false), _at(Vector3(p.x, top - 0.04, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7))
-		4:
-			if roll < 0.45:
-				_spikes_into(bs, bn, p, 0.55, rng)
-			elif roll < 0.75:
-				_basalt_into(bs, p, 0.3, VOID_Y + 0.3, rng)
-				_anvil_into(bs, bn, _at(Vector3(p.x, VOID_Y + 0.3, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.6))
-			else:
-				_basalt_into(bs, p, 0.3, VOID_Y + 0.25, rng)
-				for k in 2:
-					Decor.katana_into(bs, _at(Vector3(p.x + (k - 0.5) * 0.2, VOID_Y + 0.25, p.y), Vector3(rng.randf_range(-0.25, 0.25), rng.randf() * TAU, rng.randf_range(-0.25, 0.25)), Vector3.ONE * 0.8))
-		6, 7, 8:
-			_small_new(wid, ctx, p, rng, sd)
-		_:
-			if roll < 0.4:
-				_papers_into(bn, p, rng, rng.randi_range(2, 3), VOID_Y + 0.02, 0.5)
-			elif roll < 0.6:
-				_seal_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.6))
-			elif roll < 0.8:
-				_brush_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(rng.randf_range(-0.2, 0.2), 0, rng.randf_range(-0.2, 0.2)), Vector3.ONE * 0.5))
-			else:
-				_ink_claw_into(bs, bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, _face(p, 0.0, p.y), 0), Vector3.ONE * 0.45), rng)
 
-
-# --- monde 1 : port de Kanagawa
-
-static func _big_wave(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var sd := rng.randi() % 100000
-	var roll := rng.randf()
-	if roll < 0.22:
-		# rocher et son écume, couronné d'un cerisier, d'un pin, d'une lanterne ou de mouettes
-		var s := rng.randf_range(1.3, 2.0)
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * s), sd)
-		_foam_ring(ctx, p, s * 0.72, rng)
-		var at := Vector3(p.x, VOID_Y + 0.33 * s, p.y)
-		var r2 := rng.randf()
-		if r2 < 0.3:
-			Decor.sakura_into(bs, bn, _at(at, Vector3.ZERO, Vector3.ONE * rng.randf_range(0.9, 1.3)), sd)
-		elif r2 < 0.55:
-			Decor.pine_into(bs, _at(at, Vector3.ZERO, Vector3.ONE * rng.randf_range(0.9, 1.2)), sd)
-		elif r2 < 0.7 and _light_ok(ctx):
-			_stone_lantern(ctx, at, 0.8, true)
-		else:
-			for k in rng.randi_range(1, 2):
-				Decor.gull_into(bn, _at(at + Vector3(rng.randf_range(-0.3, 0.3), -0.05, rng.randf_range(-0.3, 0.3)), Vector3(0, rng.randf() * TAU, 0)))
-	elif roll < 0.4:
-		_moored_boat(ctx, p, rng)
-	elif roll < 0.55:
-		_side_pier(ctx, p, rng)
-	elif roll < 0.66:
-		var s := rng.randf_range(0.85, 1.1)
-		var xf := _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3.ONE * s)
-		_port_lantern_into(bs, bn, xf)
-		_light(ctx, xf * Vector3(0, 2.46, 0), Color(1.0, 0.78, 0.5), 0.7, 3.5)
-		_foam_ring(ctx, p, 0.75 * s, rng)
-		if rng.randf() < 0.4:
-			Decor.gull_into(bn, xf * _at(Vector3(0.38, 0.8, 0.38), Vector3(0, rng.randf() * TAU, 0)))
-	elif roll < 0.77:
-		_floating_shrine(ctx, p, rng)
-	elif roll < 0.89:
-		_piles(ctx, p, rng)
-	else:
-		Decor.net_rack_into(bs, bn, _at(Vector3(p.x, 0.0, p.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0)), VOID_Y - 0.3)
-		for k in rng.randi_range(2, 4):
-			Decor.glass_float_into(bn, _at(Vector3(p.x + rng.randf_range(-1.0, 1.0), VOID_Y - 0.06, p.y + rng.randf_range(0.4, 0.9))), k)
-
-
-## Barque oshiokuri amarrée à un pieu, cargaison, mouette sur la proue.
-static func _moored_boat(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var rot: float = PI * 0.5 if absf(p.x) > 5.0 else 0.0
-	rot += rng.randf_range(-0.25, 0.25)
-	if rng.randf() < 0.5:
-		rot += PI
-	var s := rng.randf_range(0.65, 0.8)
-	var xf := _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rot, 0), Vector3.ONE * s)
-	_boat_into(bs, xf, rng.randi_range(0, 1))
-	Decor.sake_barrel_into(bn, bn, xf * _at(Vector3(0.1, 0.24, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.75))
-	_add(bn, _toon(Color("#4A4438"), false), _ball(0.32, 0.22, 8, 3), xf * _at(Vector3(0.9, 0.3, 0)))
-	var post := xf * Vector3(-2.0, 0.0, 0.7)
-	var top := _bitt_into(bs, bn, Vector3(post.x, VOID_Y - 0.3, post.z), 1.5)
-	_rope(bn, _toon(Decor.KOMO, false), xf * Vector3(-1.6, 0.3, 0.15), top - Vector3(0, 0.3, 0), 0.25, 0.018)
-	if rng.randf() < 0.6:
-		Decor.gull_into(bn, xf * _at(Vector3(2.2, 0.56, 0), Vector3(0, PI * 0.5, 0)))
-
-
-## Ponton secondaire : tonneaux de saké, flotteurs de verre ou lanterne, mouette.
-static func _side_pier(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var rot: float = 0.0 if absf(p.x) > 5.0 else PI * 0.5
-	rot += rng.randf_range(-0.08, 0.08)
-	var l := rng.randf_range(2.2, 3.0)
-	var xf := _at(Vector3(p.x, 0.0, p.y), Vector3(0, rot, 0))
-	Decor.pier_into(bs, xf, 1.3, l, -0.08, VOID_Y - 0.3)
-	var labels: Array[Color] = [Color("#2E3446"), Toon.PRUSSIAN, Color("#5B4630")]
-	for k in rng.randi_range(2, 4):
-		var q := Vector3(rng.randf_range(-0.35, 0.35), -0.08, -l * 0.35 + k * 0.42)
-		Decor.sake_barrel_into(bs, bn, xf * _at(q, Vector3(0, rng.randf_range(-0.5, 0.5), 0), Vector3.ONE * 0.8), labels[k % labels.size()])
-	if rng.randf() < 0.5:
-		for k in 3:
-			Decor.glass_float_into(bn, xf * _at(Vector3(rng.randf_range(-0.4, 0.4), -0.08, l * 0.3 + rng.randf_range(-0.2, 0.2))), k)
-	else:
-		var arm: float = PI if p.x < 0.0 else 0.0
-		Decor.paper_lantern_into(bs, bn, xf * _at(Vector3(0.55, -0.08, l * 0.42), Vector3(0, arm, 0)), Toon.WASHI)
-	if rng.randf() < 0.4:
-		Decor.gull_into(bn, xf * _at(Vector3(-0.68, 0.15, -l * 0.45), Vector3(0, rng.randf() * TAU, 0)))
+# --- monde 1 : port de Kanagawa (modèles encore posés par le paysage des abords)
 
 
 ## Petit sanctuaire flottant : radeau, hokora, torii dans l'eau, deux lanternes.
@@ -3499,80 +3905,7 @@ static func _floating_shrine(ctx: Dictionary, p: Vector2, rng: RandomNumberGener
 	_foam_ring(ctx, p, 0.8, rng)
 
 
-## Pieux d'amarrage en ligne, reliés par une corde, mouettes perchées.
-static func _piles(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var rope := _toon(Decor.KOMO, false)
-	var dir := Vector2.from_angle(rng.randf() * TAU)
-	var n := rng.randi_range(3, 5)
-	var tops: Array[Vector3] = []
-	for k in n:
-		var q := p + dir * (float(k) - (n - 1) * 0.5) * 0.8
-		if not _ok(ctx, q, 0.5, 0.0):
-			continue
-		var top := _bitt_into(bs, bn, Vector3(q.x, VOID_Y - 0.3, q.y), rng.randf_range(1.2, 1.8))
-		tops.append(top - Vector3(0, 0.2, 0))
-		if rng.randf() < 0.35:
-			Decor.gull_into(bn, _at(top, Vector3(0, rng.randf() * TAU, 0)))
-		_foam_ring(ctx, q, 0.22, rng)
-	for k in tops.size() - 1:
-		_rope(bn, rope, tops[k], tops[k + 1], 0.18, 0.018)
-
-
-static func _fill_wave(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var fm := _flat(Color(Toon.FOAM, 0.5))  # écume en lavis (plus de taches blanches franches)
-	var cm := _crescent_mesh()
-	for i in 46:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.6, 1.5)
-		_inst(ctx, "foam", cm, fm, _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, 1, s)))
-	for i in rng.randi_range(4, 7):
-		var p := _ring_pt(ctx, rng, 0.4, 0.8, 4.0, true)
-		if p == NONE2:
-			continue
-		Decor.glass_float_into(bn, _at(Vector3(p.x, VOID_Y - 0.06, p.y), Vector3(0, rng.randf() * TAU, 0)), rng.randi_range(0, 2))
-	for i in rng.randi_range(3, 5):
-		var p := _ring_pt(ctx, rng, 0.6, 1.2, 4.5, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.4, 0.7)
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * s), rng.randi() % 100000)
-		_foam_ring(ctx, p, s * 0.7, rng)
-
-
-# --- monde 2 : bambouseraie de Tanabata
-
-static func _big_tanabata(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var sd := rng.randi() % 100000
-	var roll := rng.randf()
-	if roll < 0.2:
-		var s := rng.randf_range(1.2, 1.6)
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * s), sd)
-		var at := Vector3(p.x, VOID_Y + 0.33 * s, p.y)
-		Decor.bamboo_into(bs, bn, _at(at, Vector3.ZERO, Vector3.ONE * rng.randf_range(1.0, 1.3)), sd)
-		if rng.randf() < 0.6:
-			_tanzaku_into(bn, _at(at + Vector3(rng.randf_range(-0.4, 0.4), 0, rng.randf_range(-0.4, 0.4))), rng)
-	elif roll < 0.34:
-		_fox_shrine(ctx, p, rng)
-	elif roll < 0.48:
-		_torii_alley(ctx, p, rng)
-	elif roll < 0.6:
-		var s := rng.randf_range(1.1, 1.4)
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * s), sd)
-		_stone_lantern(ctx, Vector3(p.x, VOID_Y + 0.33 * s, p.y), 0.85, true)
-	elif roll < 0.72 and absf(p.x) > 5.5 and _ok(ctx, p + Vector2(0, 2.0), 1.0, 0.0) and _ok(ctx, p - Vector2(0, 2.0), 1.0, 0.0):
-		_vermilion_bridge(ctx, p, rng)
-	elif roll < 0.86:
-		_sasa(ctx, p, rng)
-	else:
-		_moss_shrine(ctx, p, rng)
+# --- monde 2 : bambouseraie de Tanabata (modèles encore posés par le paysage des abords)
 
 
 ## Deux renards de pierre gardant un hokora, sur un socle qui sort de l'eau.
@@ -3593,355 +3926,6 @@ static func _fox_shrine(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator)
 			var rot: float = PI if sx < 0.0 else 0.0
 			Decor.nobori_into(bs, bn, xf * _at(Vector3(sx * 0.95, 0.0, 0.45), Vector3(0, rot, 0)), cloth, ink, VOID_Y - 0.3)
 
-
-## Allée de petits torii (Fushimi Inari) qui s'enfonce le long de l'arène.
-static func _torii_alley(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var side := absf(p.x) > 5.0
-	var dir: Vector2 = Vector2(0, -1) if side else Vector2(1, 0)
-	var yaw: float = 0.0 if side else PI * 0.5
-	var n := rng.randi_range(3, 5)
-	var s := 0.27
-	for k in n:
-		var q := p + dir * (float(k) - (n - 1) * 0.5) * 0.7
-		if not _ok(ctx, q, 1.3, 0.0):
-			continue
-		Decor.torii_into(bs, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, yaw, 0), Vector3.ONE * s), -0.6 / s)
-	var q0 := p - dir * ((n - 1) * 0.5 * 0.7 + 0.7)
-	if _ok(ctx, q0, 0.6, 0.0):
-		Decor.rock_into(bs, _at(Vector3(q0.x, VOID_Y, q0.y), Vector3.ZERO, Vector3.ONE * 0.9), rng.randi() % 100000)
-		_stone_lantern(ctx, Vector3(q0.x, VOID_Y + 0.3, q0.y), 0.6, false)
-
-
-## Pont arqué vermillon le long de l'arène, rochers et lanternes à ses pieds.
-static func _vermilion_bridge(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var xf := _at(Vector3(p.x, VOID_Y + 0.25, p.y), Vector3(0, PI * 0.5, 0))
-	Decor.arched_bridge_into(bs, xf, 3.4, 0.9, Color("#6E2A24"), Color("#3B2E25"), -0.6)  # laque braise sombre près de l'arène
-	for sx: float in [-1.0, 1.0]:
-		var e := xf * Vector3(sx * 1.95, -0.25, 0)
-		Decor.rock_into(bs, _at(Vector3(e.x, VOID_Y, e.z), Vector3.ZERO, Vector3.ONE * 0.8), rng.randi() % 100000)
-		_stone_lantern(ctx, Vector3(e.x, VOID_Y + 0.26, e.z), 0.5, false)
-
-
-## Grand bambou de Tanabata : tanzaku, banderoles fukinagashi et kusudama.
-static func _sasa(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var s := rng.randf_range(1.2, 1.5)
-	Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * s), rng.randi() % 100000)
-	var at := Vector3(p.x, VOID_Y + 0.3 * s, p.y)
-	_tanzaku_into(bs, _at(at, Vector3.ZERO, Vector3.ONE * 1.6), rng)
-	var top := at + Vector3(0, 2.6, 0)
-	for k in 4:
-		var a := TAU * k / 4.0 + rng.randf() * 0.5
-		var q := top + Vector3(cos(a) * 0.45, -0.3 - k * 0.1, sin(a) * 0.45)
-		var col: Color = TANZAKU[rng.randi_range(0, TANZAKU.size() - 1)]
-		_add(bn, _toon(col, false), _ball(0.09, 0.16, 7, 3), _at(q))
-		for j in 5:
-			var c2: Color = TANZAKU[(k + j) % TANZAKU.size()]
-			var aj := TAU * j / 5.0
-			_add(bn, _toon(c2, false), _box(Vector3(0.035, 0.85, 0.006)), _at(q + Vector3(cos(aj) * 0.06, -0.5, sin(aj) * 0.06), Vector3(0, aj, 0)))
-
-
-## Îlot de mousse avec hokora, renard et petite lanterne.
-static func _moss_shrine(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var r := rng.randf_range(1.0, 1.3)
-	_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), _toon(Color("#3E5A3A"), true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(r, r * 0.8, r)))
-	var top := VOID_Y + 0.2 * r - 0.03
-	var face := _face(p, 0.0, p.y)
-	var fwd := Vector3(sin(face), 0, cos(face))
-	Decor.hokora_into(bs, bn, _at(Vector3(p.x, top, p.y) - fwd * 0.2, Vector3(0, face, 0), Vector3.ONE * 0.8), Color("#7A5A3E"), Color("#2E2C33"))
-	_kitsune_into(bs, _at(Vector3(p.x, top, p.y) + fwd * 0.45 + Vector3(fwd.z, 0, -fwd.x) * 0.35, Vector3(0, face, 0), Vector3.ONE * 0.55))
-	_stone_lantern(ctx, Vector3(p.x, top, p.y) + fwd * 0.45 - Vector3(fwd.z, 0, -fwd.x) * 0.4, 0.45, false)
-
-
-## Bambouseraie dense (instances) sur des îlots de mousse, roseaux et pas japonais.
-static func _fill_tanabata(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var stem_a := _toon(Decor.BAMBOO, true, 0.018)
-	var stem_b := _toon(Color("#6F8F4C"), true, 0.018)
-	var node_m := _toon(Decor.BAMBOO_NODE, false)
-	var leaf := _toon_ds(Decor.BAMBOO_LEAF)
-	var moss := _toon(Color("#3E5A3A"), true, 0.02)
-	var stem_mesh := _cyl(0.05, 0.06, 1.0, 6)
-	var node_mesh := _cyl(0.068, 0.068, 0.035, 6)
-	var spray := _spray_mesh()
-	var clumps := 0
-	for i in 40:
-		if clumps >= 16:
-			break
-		var c := _ring_pt(ctx, rng, 0.9, 1.3, 6.5, false)
-		if c == NONE2:
-			continue
-		clumps += 1
-		var mr := rng.randf_range(0.7, 1.2)
-		_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), moss, _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3(mr, mr * 0.8, mr)))
-		for k in rng.randi_range(3, 7):
-			var a := rng.randf() * TAU
-			var d := sqrt(rng.randf()) * mr * 0.7
-			var base := Vector3(c.x + cos(a) * d, VOID_Y + 0.1, c.y + sin(a) * d)
-			if not _ok(ctx, Vector2(base.x, base.z), 0.45, 0.0):
-				continue
-			var h := rng.randf_range(3.2, 6.5)
-			var bas := Basis.from_euler(Vector3(rng.randf_range(-0.06, 0.06), 0, rng.randf_range(-0.06, 0.06)))
-			var sxf := Transform3D(bas * Basis.from_scale(Vector3(1, h, 1)), base + bas * Vector3(0, h * 0.5, 0))
-			if rng.randf() < 0.6:
-				_inst(ctx, "stem_a", stem_mesh, stem_a, sxf)
-			else:
-				_inst(ctx, "stem_b", stem_mesh, stem_b, sxf)
-			var seg := rng.randf_range(0.5, 0.65)
-			var t := seg
-			while t < h - 0.2:
-				_inst(ctx, "node", node_mesh, node_m, Transform3D(bas, base + bas * Vector3(0, t, 0)))
-				t += seg
-			var ss := rng.randf_range(0.9, 1.4)
-			_inst(ctx, "spray", spray, leaf, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * ss), base + bas * Vector3(0, h, 0)))
-			if h > 4.2:
-				_inst(ctx, "spray", spray, leaf, Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * ss * 0.7), base + bas * Vector3(0, h * 0.72, 0)))
-	var reed := _toon_ds(Color("#4F6E3E"))
-	for i in 34:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 3.0, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.8, 1.6)
-		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * rng.randf_range(0.9, 1.4), s)))
-	var stone := _toon(STONE, true, 0.02)
-	for i in 14:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 2.5, true)
-		if p == NONE2:
-			continue
-		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), stone, _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.7, 1.2)))
-
-# --- monde 3 : temple sous la neige
-
-static func _big_contes(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var roll := rng.randf()
-	var face := _face(p, 0.0, p.y)
-	if roll < 0.12 and _ok(ctx, p, 1.6, 0.0):
-		# beffroi et sa cloche bonshō
-		var top := _mound_into(bs, bn, p, 1.5, rng)
-		Decor.bell_tower_into(bs, bn, _at(Vector3(p.x, top - 0.1, p.y), Vector3(0, face, 0), Vector3.ONE * 0.62), true)
-		return
-	if roll < 0.22:
-		# torii enneigé (de profil sur les côtés pour ne pas déborder sur l'arène)
-		var top := _mound_into(bs, bn, p, 1.3, rng)
-		var yaw: float = PI * 0.5 if absf(p.x) > 5.0 else 0.0
-		_snow_torii(bs, bn, _at(Vector3(p.x, top - 0.12, p.y), Vector3(0, yaw, 0), Vector3.ONE * 0.4))
-		return
-	if roll < 0.32:
-		# lanternes flottantes d'Obon parmi les glaçons
-		for k in rng.randi_range(4, 6):
-			_toro_into(bn, _at(Vector3(p.x + rng.randf_range(-1.0, 1.0), VOID_Y, p.y + rng.randf_range(-1.0, 1.0)), Vector3(0, rng.randf() * TAU, 0)))
-		for k in 3:
-			var q := p + Vector2(rng.randf_range(-1.2, 1.2), rng.randf_range(-1.2, 1.2))
-			_inst(ctx, "floe", _cyl(0.6, 0.62, 0.06, 6), _toon(ICE, false), _at(Vector3(q.x, VOID_Y + 0.02, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.6, 1.2), 1, rng.randf_range(0.5, 1.0))))
-		return
-	var r := rng.randf_range(1.1, 1.6)
-	var top := _mound_into(bs, bn, p, r, rng)
-	var r2 := rng.randf()
-	if r2 < 0.3:
-		for k in rng.randi_range(1, 2):
-			var q := Vector3(p.x + rng.randf_range(-0.5, 0.5), top - 0.1, p.y + rng.randf_range(-0.5, 0.5))
-			_snow_pine_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(1.0, 1.5)))
-	elif r2 < 0.55:
-		var gm := _toon(GRAVE, true, 0.02)
-		var cap := _toon(SNOW, false)
-		for k in rng.randi_range(2, 3):
-			var q := Vector3(p.x + (k - 1) * 0.55 + rng.randf_range(-0.1, 0.1), top - 0.12, p.y + rng.randf_range(-0.3, 0.3))
-			_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.08, 0.08), face + rng.randf_range(-0.3, 0.3), rng.randf_range(-0.1, 0.1)),
-				Vector3.ONE * rng.randf_range(0.8, 1.05)))
-		var back := Vector3(-sin(face), 0, -cos(face)) * 0.5
-		_sotoba_into(bs, _at(Vector3(p.x, top - 0.12, p.y) + back, Vector3(0, face, 0)), rng)
-	elif r2 < 0.75:
-		var side := Vector3(cos(face), 0, -sin(face))
-		var n := rng.randi_range(2, 4)
-		for k in n:
-			var q := Vector3(p.x, top - 0.1, p.y) + side * (k - (n - 1) * 0.5) * 0.5
-			_jizo_into(bs, _at(q, Vector3(0, face, 0)))
-		_offering_into(bs, bn, _at(Vector3(p.x, top - 0.1, p.y) + Vector3(sin(face), 0, cos(face)) * 0.5, Vector3(0, face, 0)))
-	elif r2 < 0.87 and _light_ok(ctx):
-		_stone_lantern(ctx, Vector3(p.x, top - 0.08, p.y), 0.85, true)
-	elif r2 < 0.94:
-		var cols: Array[Color] = [BONNET, Color("#5B6C8F"), Toon.WASHI]
-		_wagasa_into(bs, _at(Vector3(p.x - 0.3, top - 0.05, p.y), Vector3(0, rng.randf() * TAU, 0)), true, cols[rng.randi_range(0, 2)])
-		_wagasa_into(bs, _at(Vector3(p.x + 0.4, top - 0.05, p.y + 0.2), Vector3(0, face, 0)), false, cols[rng.randi_range(0, 2)])
-	else:
-		for k in 2:
-			var a := rng.randf() * TAU
-			_mound_into(bs, bn, p + Vector2(cos(a), sin(a)) * r * 0.9, r * 0.55, rng)
-
-
-static func _fill_contes(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var bn: Dictionary = ctx["bn"]
-	var lump := _toon(SNOW, false)
-	for i in 40:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.4, 1.5)
-		if p.y > 6.5:
-			s *= 0.6
-		_inst(ctx, "lump", _ball(0.5, 0.36, 9, 4), lump, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * rng.randf_range(0.7, 1.1), s * rng.randf_range(0.8, 1.2))))
-	var ice := _toon(ICE, false)
-	for i in 16:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 5.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.6, 1.6)
-		_inst(ctx, "floe", _cyl(0.6, 0.62, 0.06, 6), ice, _at(Vector3(p.x, VOID_Y + 0.02, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, 1, s * rng.randf_range(0.6, 1.0))))
-	var reed := _toon_ds(Color("#9C9480"))
-	for i in 26:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 3.5, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.8, 1.5)
-		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 1.3, s)))
-	for i in rng.randi_range(6, 10):
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 4.0, true)
-		if p == NONE2:
-			continue
-		_toro_into(bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0)))
-
-
-# --- monde 4 : forges du Fuji rouge
-
-static func _big_fuji(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var roll := rng.randf()
-	if roll < 0.16:
-		_spikes_into(bs, bn, p, rng.randf_range(0.9, 1.3), rng)
-	elif roll < 0.29:
-		_basalt_into(bs, p, 0.5, 0.05, rng)
-		var s := rng.randf_range(0.9, 1.1)
-		_brazier_into(bs, bn, _at(Vector3(p.x, 0.05, p.y), Vector3.ZERO, Vector3.ONE * s))
-		_light(ctx, Vector3(p.x, 0.05 + 1.3 * s, p.y), Color(1.0, 0.82, 0.5), 0.5, 3.5)
-	elif roll < 0.4:
-		_basalt_into(bs, p, 0.5, -0.05, rng)
-		_anvil_into(bs, bn, _at(Vector3(p.x, -0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.1)))
-		_ingots_into(bs, bn, _at(Vector3(p.x + 0.75, VOID_Y + 0.05, p.y + 0.3), Vector3(0, rng.randf() * TAU, 0)))
-	elif roll < 0.49:
-		_chain_into(bs, p, rng)
-	elif roll < 0.58:
-		_basalt_into(bs, p, 0.45, -0.1, rng)
-		_oni_mask_into(bs, bn, _at(Vector3(p.x, -0.1, p.y), Vector3(0, _face(p, 0.0, p.y), 0), Vector3.ONE * rng.randf_range(1.0, 1.2)))
-	elif roll < 0.7 and _ok(ctx, p, 1.9, 0.0):
-		var xf := _at(Vector3(p.x, 0.0, p.y), Vector3(0, rng.randf_range(-0.25, 0.25), 0), Vector3.ONE * 0.8)
-		_forge_into(bs, bn, xf)
-		_light(ctx, xf * Vector3(-0.35, 0.5, 0.5), Color(1.0, 0.8, 0.45), 0.6, 3.5)
-	elif roll < 0.84:
-		_katanas(ctx, p, rng)
-	else:
-		_basalt_into(bs, p, 0.55, VOID_Y + 0.3, rng)
-		_yoshida_into(bs, bn, _at(Vector3(p.x, VOID_Y + 0.25, p.y), Vector3.ZERO, Vector3.ONE * 0.55))
-		_light(ctx, Vector3(p.x, VOID_Y + 2.6, p.y), Color(1.0, 0.82, 0.5), 0.55, 4.0)
-
-
-## Cimetière de katanas plantés dans une butte de basalte, auréole de braise.
-static func _katanas(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	_basalt_into(bs, p, 0.45, VOID_Y + 0.35, rng)
-	for k in rng.randi_range(5, 8):
-		var a := rng.randf() * TAU
-		var d := rng.randf_range(0.0, 0.85)
-		var y: float = VOID_Y + 0.35 if d < 0.45 else VOID_Y + 0.02
-		var tilt := Vector3(rng.randf_range(-0.3, 0.3), rng.randf() * TAU, rng.randf_range(-0.3, 0.3))
-		Decor.katana_into(bs, _at(Vector3(p.x + cos(a) * d, y, p.y + sin(a) * d), tilt, Vector3.ONE * rng.randf_range(0.8, 1.05)))
-	_add(bn, _glow(HALO, 0.7), _cyl(1.1, 1.1, 0.02, 12), _at(Vector3(p.x, VOID_Y + 0.01, p.y)))
-
-
-static func _fill_fuji(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var bm := _toon(BASALT, true, 0.025)
-	var chunk := _ball(0.5, 0.55, 6, 3)
-	for i in 42:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.25, 0.8)
-		if p.y > 6.5:
-			s *= 0.5
-		_inst(ctx, "chunk", chunk, bm, _at(Vector3(p.x, VOID_Y - 0.05, p.y), Vector3(rng.randf_range(-0.4, 0.4), rng.randf() * TAU, rng.randf_range(-0.4, 0.4)), Vector3.ONE * s))
-	var gm := _glow(LAVA_GOLD, 1.2)
-	for i in 26:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		_inst(ctx, "crack", _box(Vector3(1.0, 0.02, 0.06)), gm, _at(Vector3(p.x, VOID_Y + 0.01, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.4, 1.4), 1, 1)))
-	var pool := _glow(HALO, 0.7)
-	for i in 6:
-		var p := _ring_pt(ctx, rng, 0.6, 0.0, 5.0, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.6, 1.3)
-		_inst(ctx, "pool", _cyl(0.6, 0.6, 0.02, 10), pool, _at(Vector3(p.x, VOID_Y + 0.005, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, 1, s * rng.randf_range(0.6, 1.0))))
-
-
-# --- monde 5 : mer d'encre et Trente-six vues
-
-static func _big_ink(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var face := _face(p, 0.0, p.y)
-	var roll := rng.randf()
-	if roll < 0.18:
-		# barque dans le sens de la longueur de l'arène (côtés) ou de sa largeur (fond)
-		var rot: float = PI * 0.5 if absf(p.x) > 5.0 else 0.0
-		_boat_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rot + rng.randf_range(-0.2, 0.2), 0), Vector3.ONE * rng.randf_range(0.6, 0.8)), rng.randi_range(0, 2))
-	elif roll < 0.31:
-		_brush_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3(rng.randf_range(-0.25, 0.25), 0, rng.randf_range(-0.25, 0.25)), Vector3.ONE * rng.randf_range(0.8, 1.2)))
-	elif roll < 0.4:
-		_papers_into(bn, p, rng, 2, VOID_Y + 0.02, 0.4)
-		_seal_into(bs, _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.2)))
-	elif roll < 0.48:
-		_papers_into(bn, p, rng, rng.randi_range(3, 5), VOID_Y + 0.02, 1.0)
-	elif roll < 0.6:
-		# porte du Nouvel An : deux kadomatsu et une shimenawa sur un radeau
-		var xf := _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, face, 0))
-		_add(bs, _toon(Color("#5B4630"), true, 0.02), _box(Vector3(1.9, 0.2, 0.9)), xf * _at(Vector3(0, 0.05, 0)))
-		_sheet_into(bn, _toon(Toon.WASHI, false), xf * _at(Vector3(0, 0.16, 0)), 1.6, 0.7)
-		for sx: float in [-1.0, 1.0]:
-			Decor.kadomatsu_into(bs, bn, xf * _at(Vector3(sx * 0.62, 0.15, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
-		Decor.shimenawa_into(bs, bn, xf * Vector3(-0.62, 1.05, 0.0), xf * Vector3(0.62, 1.05, 0.0))
-	elif roll < 0.7 and _ok(ctx, p, 1.6, 0.0):
-		_barrel_giant_into(bs, bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0), Vector3.ONE * 0.7))
-	elif roll < 0.84:
-		_ink_claw_into(bs, bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, face, 0), Vector3.ONE * rng.randf_range(0.8, 1.1)), rng)
-	elif roll < 0.92:
-		var xf := _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf_range(-0.3, 0.3), 0))
-		_add(bs, _toon(Color("#5B4630"), true, 0.02), _box(Vector3(1.8, 0.2, 0.7)), xf * _at(Vector3(0, 0.05, 0)))
-		_byobu_into(bs, xf * _at(Vector3(0, 0.15, 0), Vector3.ZERO, Vector3.ONE * 0.9))
-	else:
-		var xf := _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, face, 0))
-		_add(bs, _toon(Color("#5B4630"), true, 0.02), _box(Vector3(0.9, 0.2, 0.9)), xf * _at(Vector3(0, 0.05, 0)))
-		_kagami_into(bs, xf * _at(Vector3(0, 0.15, 0), Vector3.ZERO, Vector3.ONE * 1.2))
-		_papers_into(bn, p, rng, 2, VOID_Y + 0.02, 0.9)
-
-
-static func _fill_ink(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var pa := _toon(Color("#F1E8D6"), false)
-	var pb := _toon(Color("#E2D6BD"), false)
-	var sheet := _box(Vector3(0.4, 0.008, 0.3))
-	for i in 40:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var xf := _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.6, 2.0), 1, rng.randf_range(0.6, 1.8)))
-		if rng.randf() < 0.6:
-			_inst(ctx, "paper_a", sheet, pa, xf)
-		else:
-			_inst(ctx, "paper_b", sheet, pb, xf)
-	var fm := _flat(Toon.FOAM)
-	for i in 22:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.6, 1.4)
-		_inst(ctx, "foam", _crescent_mesh(), fm, _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, 1, s)))
 
 # ------------------------------------------------------------------ modèles (ajoutés aux lots, placés par `xf`)
 
@@ -4515,30 +4499,6 @@ static func _barrel_giant_into(b: Dictionary, bn: Dictionary, xf: Transform3D) -
 	_limb(bn, _toon(Color("#5A4434"), true, 0.012), foot + Vector3(0.35, 0.55, 0.15), foot + Vector3(0.5, 0.78, 0.15), 0.025, 0.025, 5, xf)
 
 
-## Vague noire : bosse d'encre et doigts recourbés vers +Z local, griffes d'écume au bout.
-static func _ink_claw_into(b: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
-	var ink := _toon(INK_SEA, true, 0.02)
-	var foam := _toon(Toon.FOAM, true, 0.012)
-	_add(b, ink, _ball(1.0, 0.8, 10, 4), xf * _at(Vector3(0, 0.0, -0.2)))
-	var n := rng.randi_range(3, 5)
-	for k in n:
-		var x := (float(k) - (n - 1) * 0.5) * 0.42
-		var h := rng.randf_range(1.0, 1.5) * (1.0 - absf(x) * 0.35)
-		var a := Vector3(x, 0.2, -0.25)
-		var p1 := Vector3(x * 1.05, h * 0.7, -0.1)
-		var p2 := Vector3(x * 1.1, h, 0.3)
-		var p3 := Vector3(x * 1.1, h * 0.78, 0.7)
-		_limb(b, ink, a, p1, 0.24, 0.17, 6, xf)
-		_limb(b, ink, p1, p2, 0.17, 0.1, 6, xf)
-		_limb(b, ink, p2, p3, 0.1, 0.03, 5, xf)
-		_add(bn, foam, _ball(0.08, 0.11, 6, 3), xf * _at(p2 + Vector3(0, 0.07, 0)))
-		for j in 3:
-			var dir := Vector3(rng.randf_range(-0.5, 0.5), rng.randf_range(-0.7, -0.1), 1.0).normalized()
-			_limb(bn, foam, p3, p3 + dir * rng.randf_range(0.12, 0.24), 0.035, 0.0, 4, xf)
-	for j in 4:
-		_add(bn, foam, _ball(rng.randf_range(0.18, 0.3), 0.08, 7, 3), xf * _at(Vector3(rng.randf_range(-0.9, 0.9), 0.02, rng.randf_range(0.4, 0.9))))
-
-
 ## Paravent byōbu à quatre feuilles en zigzag : washi, cadre laqué, nuage d'or, Fuji d'encre.
 static func _byobu_into(b: Dictionary, xf: Transform3D) -> void:
 	var paper := _toon(Toon.WASHI, true, 0.015)
@@ -4558,20 +4518,6 @@ static func _byobu_into(b: Dictionary, xf: Transform3D) -> void:
 		if k == 1 or k == 2:
 			_add(b, ink, _cyl(0.05, 0.22, 0.26, 3), px * _at(Vector3(0, 0.6, 0.012), Vector3.ZERO, Vector3(1, 1, 0.05)))
 		start += dir * pw
-
-
-## Kagami-mochi : support sanbō, deux mochi superposés, bigarade et feuille.
-static func _kagami_into(b: Dictionary, xf: Transform3D) -> void:
-	var wood := _toon(Toon.WOOD, true, 0.015)
-	var mochi := _toon(Color("#F6F1E6"), true, 0.015)
-	var orange := _toon(Color("#E08A2E"), true, 0.012)
-	_add(b, wood, _box(Vector3(0.34, 0.18, 0.34)), xf * _at(Vector3(0, 0.09, 0)))
-	_add(b, wood, _box(Vector3(0.46, 0.04, 0.46)), xf * _at(Vector3(0, 0.2, 0)))
-	_add(b, _toon(Toon.WASHI, false), _box(Vector3(0.36, 0.01, 0.36)), xf * _at(Vector3(0, 0.225, 0), Vector3(0, PI * 0.25, 0)))
-	_add(b, mochi, _ball(0.17, 0.15, 10, 4), xf * _at(Vector3(0, 0.29, 0)))
-	_add(b, mochi, _ball(0.13, 0.12, 10, 4), xf * _at(Vector3(0, 0.39, 0)))
-	_add(b, orange, _ball(0.075, 0.13, 8, 4), xf * _at(Vector3(0, 0.5, 0)))
-	_add(b, _toon(Decor.PINE_A, false), _box(Vector3(0.12, 0.012, 0.05)), xf * _at(Vector3(0.04, 0.565, 0), Vector3(0, 0.5, 0.3)))
 
 
 ## Kunai de fer noirci : lame en feuille, poignée entourée de corde, anneau ; pointe vers +Z local.
@@ -6060,318 +6006,6 @@ static func _bones_into(b: Dictionary, p: Vector2, rng: RandomNumberGenerator, y
 		var q := Vector3(p.x + cos(a) * 0.4 * spread, y + 0.04, p.y + sin(a) * 0.4 * spread)
 		var d := Vector3(cos(a + 1.3), 0, sin(a + 1.3)) * 0.2 * spread
 		_limb(b, bone, q - d, q + d, 0.03, 0.03, 4)
-
-
-# --- props autour de l'arène
-
-static func _big_kurama(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var face := _face(p, 0.0, p.y)
-	var roll := rng.randf()
-	if roll < 0.3:
-		# cèdre sur son îlot de mousse, parfois un corbeau au pied
-		var top := _moss_mound_into(bs, p, rng.randf_range(0.9, 1.3), rng)
-		_cedar_into(bs, _at(Vector3(p.x, top - 0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.75, 1.0)), rng)
-		if rng.randf() < 0.4:
-			_crow_into(bs, _at(Vector3(p.x + 0.6, top - 0.03, p.y + 0.4), Vector3(0, rng.randf() * TAU, 0)))
-	elif roll < 0.44:
-		# masque de tengu sur un poteau, devant un rocher moussu
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * rng.randf_range(1.2, 1.6)), rng.randi() % 100000, KURAMA_ROCK)
-		var xf := _at(Vector3(p.x, VOID_Y + 0.3, p.y), Vector3(0, face, 0))
-		_add(bs, _toon(Color("#3B2E25")), _box(Vector3(0.12, 1.9, 0.12)), xf * _at(Vector3(0, 0.95, 0)))
-		_tengu_mask_into(bs, bn, xf * _at(Vector3(0, 1.75, 0.12), Vector3.ZERO, Vector3.ONE * 0.55))
-	elif roll < 0.56 and _light_ok(ctx):
-		var top := _moss_mound_into(bs, p, 0.9, rng)
-		_stone_lantern(ctx, Vector3(p.x, top - 0.05, p.y), 0.85, true)
-	elif roll < 0.68:
-		# petit sanctuaire vermillon et son torii miniature
-		var top := _moss_mound_into(bs, p, 1.1, rng)
-		var fwd := Vector3(sin(face), 0, cos(face))
-		Decor.hokora_into(bs, bn, _at(Vector3(p.x, top, p.y) - fwd * 0.3, Vector3(0, face, 0), Vector3.ONE * 0.85), Color("#9A3324"), Color("#2E2C33"))
-		Decor.torii_into(bs, _at(Vector3(p.x, top, p.y) + fwd * 0.55, Vector3(0, face, 0), Vector3.ONE * 0.22), 0.0)
-	elif roll < 0.8:
-		# grand éventail de plumes planté dans un rocher, corbeaux autour
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * 1.1), rng.randi() % 100000, KURAMA_ROCK)
-		_hauchiwa_into(bs, _at(Vector3(p.x, VOID_Y + 0.3, p.y), Vector3(rng.randf_range(-0.2, 0.2), face, rng.randf_range(-0.25, 0.25)), Vector3.ONE * 1.6))
-		for k in rng.randi_range(1, 2):
-			_crow_into(bs, _at(Vector3(p.x + rng.randf_range(-0.5, 0.5), VOID_Y + 0.42, p.y + rng.randf_range(-0.5, 0.5)), Vector3(0, rng.randf() * TAU, 0)))
-	else:
-		# bosquet de jeunes cèdres et rochers moussus
-		_moss_mound_into(bs, p, rng.randf_range(1.0, 1.4), rng)
-		for k in rng.randi_range(2, 4):
-			var q := Vector3(p.x + rng.randf_range(-0.7, 0.7), VOID_Y + 0.15, p.y + rng.randf_range(-0.7, 0.7))
-			_sapling_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.4)))
-
-
-static func _fill_kurama(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var moss := _toon(NEEDLES, true, 0.02)
-	for i in 30:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.35, 1.0)
-		if p.y > 6.5:
-			s *= 0.6
-		_inst(ctx, "moss", _ball(1.0, 0.5, 10, 4), moss, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 0.7, s * rng.randf_range(0.8, 1.2))))
-	var fern := _toon_ds(Color("#8A6236"))  # fougères rousses de l'automne
-	for i in 34:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 3.5, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.8, 1.5)
-		_inst(ctx, "reed", _tuft_mesh(), fern, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 1.1, s)))
-	var stem := _toon(CEDAR_BARK, true, 0.018)
-	var cone := _toon(CEDAR_A, true, 0.02)
-	for i in 14:
-		var p := _ring_pt(ctx, rng, 0.9, 1.2, 6.5, false)
-		if p == NONE2:
-			continue
-		var h := rng.randf_range(2.6, 4.2)
-		_inst(ctx, "sugi_t", _cyl(0.07, 0.12, 1.0, 6), stem, _at(Vector3(p.x, VOID_Y + h * 0.5, p.y), Vector3.ZERO, Vector3(1, h, 1)))
-		for k in 3:
-			var r := 0.8 - k * 0.2
-			_inst(ctx, "sugi_c", _cyl(0.0, 1.0, 1.0, 7), cone, _at(Vector3(p.x, VOID_Y + h * (0.55 + k * 0.2), p.y), Vector3(0, k * 0.6, 0), Vector3(r, 0.9 - k * 0.1, r)))
-	var stone := _toon(STONE, true, 0.02)
-	for i in 10:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 2.5, true)
-		if p == NONE2:
-			continue
-		_inst(ctx, "step", _cyl(0.3, 0.34, 0.14, 7), stone, _at(Vector3(p.x, VOID_Y + 0.03, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.7, 1.2)))
-
-
-static func _big_ryugu(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var face := _face(p, 0.0, p.y)
-	var roll := rng.randf()
-	var rock := REEF_ROCK
-	if roll < 0.3:
-		# récif : rocher et coraux
-		var s := rng.randf_range(1.0, 1.5)
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3(s, s * 0.7, s)), rng.randi() % 100000, rock)
-		for k in rng.randi_range(2, 4):
-			var col: Color = CORAL[rng.randi_range(0, CORAL.size() - 1)]
-			var q := Vector3(p.x + rng.randf_range(-0.5, 0.5) * s, VOID_Y + 0.25 * s, p.y + rng.randf_range(-0.5, 0.5) * s)
-			_coral_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.3)), rng, col)
-	elif roll < 0.44:
-		# bénitier et sa perle (lumière bleu-vert si le budget le permet)
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3(1.2, 0.5, 1.2)), rng.randi() % 100000, rock)
-		var xf := _at(Vector3(p.x, VOID_Y + 0.18, p.y), Vector3(0, face, 0), Vector3.ONE * rng.randf_range(0.9, 1.2))
-		_clam_into(bs, bn, xf)
-		_light(ctx, xf * Vector3(0, 0.4, 0.1), CAUSTIC, 0.6, 3.5)
-	elif roll < 0.58:
-		_kelp_into(bs, _at(Vector3(p.x, VOID_Y, p.y)), rng, rng.randf_range(2.6, 4.0))
-		_coral_into(bs, _at(Vector3(p.x + 0.5, VOID_Y, p.y + 0.3)), rng, CORAL[rng.randi_range(0, CORAL.size() - 1)])
-	elif roll < 0.7 and _ok(ctx, p, 1.4, 0.0):
-		# tortue de pierre à stèle d'or
-		_kame_into(bs, bn, _at(Vector3(p.x, VOID_Y + 0.1, p.y), Vector3(0, face, 0), Vector3.ONE * rng.randf_range(0.7, 0.9)))
-	elif roll < 0.82:
-		# lanterne du palais sur un socle de corail
-		Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3(1.0, 0.6, 1.0)), rng.randi() % 100000, rock)
-		if _light_ok(ctx):
-			Decor.stone_lantern_into(bs, bn, _at(Vector3(p.x, VOID_Y + 0.25, p.y), Vector3.ZERO, Vector3.ONE * 0.85))
-			_light(ctx, Vector3(p.x, VOID_Y + 0.95, p.y), CAUSTIC, 0.6, 3.2)
-		else:
-			_coral_into(bs, _at(Vector3(p.x, VOID_Y + 0.25, p.y)), rng, CORAL[0])
-	else:
-		# colonnes du palais englouti, vermillon et or
-		var red := _toon(PALACE_LACQUER, true, 0.025)
-		var gold := _toon(NACRE, true, 0.02)
-		for k in rng.randi_range(1, 2):
-			var q := Vector3(p.x + (k - 0.5) * 1.2, VOID_Y, p.y + rng.randf_range(-0.3, 0.3))
-			var h := rng.randf_range(1.6, 2.8)
-			_add(bs, red, _cyl(0.24, 0.26, h, 10), _at(q + Vector3(0, h * 0.5, 0), Vector3(rng.randf_range(-0.08, 0.08), 0, rng.randf_range(-0.08, 0.08))))
-			_add(bs, gold, _cyl(0.32, 0.32, 0.12, 10), _at(q + Vector3(0, h, 0)))
-		_coral_into(bs, _at(Vector3(p.x, VOID_Y, p.y + 0.6)), rng, CORAL[rng.randi_range(0, CORAL.size() - 1)])
-
-
-static func _fill_ryugu(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var weed := _toon_ds(Color("#3E6650"))
-	for i in 34:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 4.0, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.8, 1.6)
-		_inst(ctx, "weed", _tuft_mesh(), weed, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 1.5, s)))
-	var rock := _toon(REEF_ROCK, true, 0.02)
-	for i in 26:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.25, 0.7)
-		_inst(ctx, "pebble", _ball(0.5, 0.5, 6, 3), rock, _at(Vector3(p.x, VOID_Y - 0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 0.6, s)))
-	for k in CORAL.size():
-		var cm := _toon(CORAL[k], true, 0.018)
-		for i in 5:
-			var p := _ring_pt(ctx, rng, 0.45, 0.0, 5.0, true)
-			if p == NONE2:
-				continue
-			var s := rng.randf_range(0.5, 0.9)
-			_inst(ctx, "coral%d" % k, _ball(0.5, 0.6, 7, 3), cm, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 0.8, s)))
-	var foam := _flat(Color(0.85, 0.94, 1.0, 0.7))
-	for i in 18:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.6, 1.3)
-		_inst(ctx, "foam", _crescent_mesh(), foam, _at(Vector3(p.x, VOID_Y + 0.012, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, 1, s)))
-
-
-static func _big_yomi(ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var face := _face(p, 0.0, p.y)
-	var roll := rng.randf()
-	var r := rng.randf_range(1.0, 1.4)
-	var top := _ash_mound_into(bs, p, r, rng)
-	var c := Vector3(p.x, top - 0.06, p.y)
-	if roll < 0.28:
-		_dead_pine_into(bs, _at(c, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.1)), rng)
-	elif roll < 0.48:
-		# stèles et planchettes sotoba
-		var gm := _toon(Color("#7A7680"), true, 0.02)
-		var cap := _toon(Color("#5E5A64"), false)
-		for k in rng.randi_range(2, 3):
-			var q := c + Vector3((k - 1) * 0.55 + rng.randf_range(-0.1, 0.1), 0, rng.randf_range(-0.3, 0.3))
-			_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.1, 0.1), face + rng.randf_range(-0.3, 0.3), rng.randf_range(-0.12, 0.12)), Vector3.ONE * rng.randf_range(0.8, 1.0)))
-		_sotoba_into(bs, _at(c + Vector3(-sin(face), 0, -cos(face)) * 0.5, Vector3(0, face, 0)), rng)
-	elif roll < 0.62 and _light_ok(ctx):
-		Decor.stone_lantern_into(bs, bn, _at(c, Vector3.ZERO, Vector3.ONE * 0.9))
-		_light(ctx, c + Vector3(0, 0.75, 0), Color(0.75, 0.6, 1.0), 0.6, 3.4)
-	elif roll < 0.76:
-		_bones_into(bs, p, rng, top - 0.08)
-		_dead_pine_into(bs, _at(c + Vector3(0.4, 0, 0.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.6), rng)
-	elif roll < 0.88:
-		# lanternes de papier pâles sur des perches
-		for k in 2:
-			var q := c + Vector3((k - 0.5) * 0.8, 0, 0)
-			Decor.paper_lantern_into(bs, bn, _at(q, Vector3(0, face + PI * 0.5, 0)), Color("#D9D0E6"), 0.0)
-	else:
-		# jizō veilleurs aux bonnets sombres
-		var side := Vector3(cos(face), 0, -sin(face))
-		for k in 3:
-			_jizo_into(bs, _at(c + side * (k - 1) * 0.5, Vector3(0, face, 0)))
-
-
-static func _fill_yomi(ctx: Dictionary, rng: RandomNumberGenerator) -> void:
-	var bn: Dictionary = ctx["bn"]
-	var ash := _toon(ASH, true, 0.02)
-	for i in 36:
-		var p := _ring_pt(ctx, rng, 0.35, 0.0, 6.0, true)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.35, 1.2)
-		if p.y > 6.5:
-			s *= 0.6
-		_inst(ctx, "ash", _ball(0.5, 0.36, 9, 4), ash, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * rng.randf_range(0.6, 1.0), s * rng.randf_range(0.8, 1.2))))
-	var reed := _toon_ds(Color("#5A5660"))
-	for i in 24:
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 3.5, false)
-		if p == NONE2:
-			continue
-		var s := rng.randf_range(0.8, 1.4)
-		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(s, s * 1.3, s)))
-	var wisp := _glow(YOMI_GLOW, 1.4)
-	for i in 10:
-		var p := _ring_pt(ctx, rng, 0.5, 0.0, 5.0, false)
-		if p == NONE2:
-			continue
-		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), wisp, _at(Vector3(p.x, VOID_Y + rng.randf_range(0.6, 1.6), p.y)))
-	for i in rng.randi_range(6, 10):
-		var p := _ring_pt(ctx, rng, 0.4, 0.0, 4.0, true)
-		if p == NONE2:
-			continue
-		_toro_into(bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0)))
-
-
-## Petits props de bord des mondes 6 à 8 (même règles que _prop_edge).
-static func _edge_new(wid: int, ctx: Dictionary, p: Vector2, _out: Vector2, rng: RandomNumberGenerator, to_arena: float, arm_out: float, flag_rot: float, cloth: Color, ink: Color) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var pos := Vector3(p.x, 0.0, p.y)
-	var roll := rng.randf()
-	if roll > 0.88:
-		Decor.nobori_into(bs, bn, _at(pos, Vector3(0, flag_rot, 0)), cloth, ink, VOID_Y - 0.35)
-		return
-	match wid:
-		6:
-			if roll < 0.2:
-				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), BRAISE, VOID_Y - 0.35)
-				return
-			_pillar(ctx, p, 0.22, Color("#4A3E48"))
-			_add(bn, _toon(NEEDLES, false), _cyl(0.2, 0.235, 0.05, 8), _at(Vector3(p.x, -0.01, p.y)))
-			if roll < 0.36 and _light_ok(ctx):
-				_stone_lantern(ctx, pos, 0.6, true)
-			elif roll < 0.52:
-				_add(bs, _toon(Color("#3B2E25")), _box(Vector3(0.08, 1.0, 0.08)), _at(pos + Vector3(0, 0.5, 0)))
-				_tengu_mask_into(bs, bn, _at(pos + Vector3(0, 0.9, 0), Vector3(0, to_arena, 0), Vector3.ONE * 0.4) * _at(Vector3(0, 0, 0.08)))
-			elif roll < 0.66:
-				_crow_into(bs, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 1.2))
-			elif roll < 0.78:
-				Decor.hokora_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.72), Color("#9A3324"), Color("#2E2C33"))
-			else:
-				_sapling_into(bs, _at(pos, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.8))
-		7:
-			_pillar(ctx, p, 0.22, REEF_ROCK)
-			if roll < 0.24:
-				_coral_into(bs, _at(pos, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7), rng, CORAL[rng.randi_range(0, CORAL.size() - 1)])
-			elif roll < 0.4 and _light_ok(ctx):
-				Decor.stone_lantern_into(bs, bn, _at(pos, Vector3.ZERO, Vector3.ONE * 0.6))
-				_light(ctx, pos + Vector3(0, 0.5, 0), CAUSTIC, 0.55, 3.0)
-			elif roll < 0.56:
-				_clam_into(bs, bn, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.55))
-			elif roll < 0.72:
-				var red := _toon(PALACE_LACQUER, true, 0.02)
-				_add(bs, red, _cyl(0.12, 0.13, 1.1, 8), _at(pos + Vector3(0, 0.55, 0)))
-				_add(bs, _toon(NACRE, true, 0.015), _ball(0.13, 0.2, 8, 4), _at(pos + Vector3(0, 1.15, 0)))
-			else:
-				_kelp_into(bs, _at(pos), rng, 1.6)
-		_:
-			_pillar(ctx, p, 0.22, ASH_DARK)
-			if roll < 0.22 and _light_ok(ctx):
-				_stone_lantern(ctx, pos, 0.6, false)
-				_light(ctx, pos + Vector3(0, 0.5, 0), Color(0.75, 0.6, 1.0), 0.55, 3.0)
-			elif roll < 0.4:
-				_stele_into(bs, _toon(Color("#7A7680"), true, 0.02), _toon(Color("#5E5A64"), false), _at(pos, Vector3(0, to_arena, 0.05), Vector3.ONE * 0.62))
-			elif roll < 0.55:
-				Decor.paper_lantern_into(bs, bn, _at(pos, Vector3(0, arm_out, 0)), Color("#D9D0E6"), VOID_Y - 0.35)
-			elif roll < 0.7:
-				_bones_into(bs, p, rng, 0.0, 0.4)
-			else:
-				_jizo_into(bs, _at(pos, Vector3(0, to_arena, 0), Vector3.ONE * 0.82))
-
-
-## Petits props des vides entre plateformes, mondes 6 à 8.
-static func _small_new(wid: int, ctx: Dictionary, p: Vector2, rng: RandomNumberGenerator, sd: int) -> void:
-	var bs: Dictionary = ctx["bs"]
-	var bn: Dictionary = ctx["bn"]
-	var roll := rng.randf()
-	match wid:
-		6:
-			if roll < 0.5:
-				Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * rng.randf_range(0.55, 0.8)), sd, KURAMA_ROCK)
-				_add(bn, _toon(NEEDLES, false), _ball(0.3, 0.12, 7, 3), _at(Vector3(p.x, VOID_Y + 0.25, p.y)))
-				if rng.randf() < 0.4:
-					_crow_into(bs, _at(Vector3(p.x, VOID_Y + 0.3, p.y), Vector3(0, rng.randf() * TAU, 0)))
-			else:
-				var top := _moss_mound_into(bs, p, 0.6, rng)
-				_sapling_into(bs, _at(Vector3(p.x, top - 0.05, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.1)))
-		7:
-			if roll < 0.45:
-				Decor.rock_into(bs, _at(Vector3(p.x, VOID_Y, p.y), Vector3.ZERO, Vector3.ONE * rng.randf_range(0.5, 0.75)), sd, REEF_ROCK)
-				_coral_into(bs, _at(Vector3(p.x, VOID_Y + 0.2, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7), rng, CORAL[rng.randi_range(0, CORAL.size() - 1)])
-			elif roll < 0.75:
-				_clam_into(bs, bn, _at(Vector3(p.x, VOID_Y + 0.02, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.7))
-			else:
-				_kelp_into(bs, _at(Vector3(p.x, VOID_Y, p.y)), rng, 1.4)
-		_:
-			if roll < 0.45:
-				for k in rng.randi_range(2, 3):
-					_toro_into(bn, _at(Vector3(p.x + rng.randf_range(-0.5, 0.5), VOID_Y, p.y + rng.randf_range(-0.5, 0.5)), Vector3(0, rng.randf() * TAU, 0)))
-			else:
-				var top := _ash_mound_into(bs, p, 0.6, rng)
-				_bones_into(bs, p, rng, top - 0.06)
 
 
 # --- particules
