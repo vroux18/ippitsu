@@ -64,6 +64,8 @@ const Intro = preload("res://scripts/intro.gd")
 const Opening = preload("res://scripts/opening.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
+const BotShapes = preload("res://scripts/bot_shapes.gd")  # captures `?fig=` : la figure tracée par le héros
+const PowerData = preload("res://scripts/power_data.gd")
 const Hazards = preload("res://scripts/hazards.gd")
 const Arena = preload("res://scripts/arena.gd")
 const Worlds = preload("res://scripts/worlds.gd")
@@ -375,6 +377,10 @@ const LV_CELE := 0.9  # durée de la fête avant les rouleaux
 var _pick_context := "room"  # room | level
 var foam := 0  # coups bloqués restants dans la salle (Écume)
 var _bot: Node = null  # robot testeur (CI)
+var _force_fig := ""  # captures `?fig=wave` : figure tracée en boucle par le héros (_force_fig_step)
+var _force_fig_t := 1.5
+var _fig_shot := ""  # captures `&figshot=` : préfixe des images
+var _fig_shot_n := 0
 var _last_offer: Array = []  # derniers rouleaux proposés (pour le robot)
 var recap: Control
 var _recap_from := "pause"
@@ -760,6 +766,24 @@ func _ready() -> void:
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
+	# `?room=3&fig=wave` (captures) : le héros trace cette figure (bot_shapes) vers les ennemis toutes les 2,6 s,
+	# sa technique débloquée (`&figlv=2` : niveau 2, et ses améliorations rares au niveau 1)
+	var fq := wsearch.find("fig=")
+	if fq >= 0:
+		_force_fig = wsearch.substr(fq + 4).get_slice("&", 0)
+		var fl := wsearch.find("figlv=")
+		var flv := clampi(int(wsearch.substr(fl + 6).get_slice("&", 0)), 1, 3) if fl >= 0 else 1
+		# `&figshot=<chemin>` : captures pendant les deux premières techniques (<chemin>_0.png…), puis sortie
+		var fs := wsearch.find("figshot=")
+		if fs >= 0:
+			_fig_shot = wsearch.substr(fs + 8).get_slice("&", 0)
+		var fid := String(PowerData.FIG_UNLOCK.get(_force_fig, ""))
+		if fid != "":
+			powers.levels[fid] = flv
+			if flv >= 2:
+				for pid in PowerData.POWERS.keys():
+					if String(pid).begins_with(fid + "_"):
+						powers.levels[String(pid)] = 1
 	# `?bestiaire` (captures) : ouvre l'encyclopédie des yōkai depuis l'accueil (avec `unlockall` : complète)
 	if "bestiaire" in wsearch:
 		_open_bestiary()
@@ -814,6 +838,63 @@ func _ready() -> void:
 	perf_mark("boot_ready", _ticks - t_ready)
 	# la suite (squelettes, boss, préchauffage) vient après l'affichage de l'accueil
 	_boot_async(t_ready)
+
+
+## Captures `?fig=<figure>` : toutes les 2,6 s, le héros (intouchable) trace la figure vers l'ennemi le plus proche,
+## comme le robot (BotShapes.plan : une orientation qui tient dans l'arène et reste reconnue).
+func _force_fig_step(dt: float) -> void:
+	if state != "play" or game_over or not is_instance_valid(hero):
+		return
+	hero.invuln = maxf(float(hero.invuln), 1.0)
+	_force_fig_t -= dt
+	if _force_fig_t > 0.0 or hero.dashing or touching:
+		return
+	_force_fig_t = 4.2 if _force_fig == "triangle" else 2.6
+	var target: Vector3 = hero.position + Vector3(0, 0, -6)
+	var near: Array = nearest_enemies(hero.position, 40.0, 1, null)
+	if near.is_empty():
+		# pas encore de combat : le héros avance vers la zone suivante (vers le haut de l'écran)
+		hero.position = arena.clamp_walk(hero.position + Vector3(0, 0, -6), 0.5)
+		_prev_hero = hero.position
+		_force_fig_t = 0.4
+		return
+	else:
+		target = near[0].position
+		# le héros est posé à portée de la figure (sceau du triangle sur l'ennemi, kunai et vague devant lui)
+		var reach := float({"triangle": 1.6, "point": 4.5, "wave": 2.2}.get(_force_fig, 4.0))
+		var away := hero.position - target
+		away.y = 0.0
+		if away.length() > reach + 0.5:
+			hero.position = arena.clamp_walk(target + away.normalized() * reach, 0.5)
+			_prev_hero = hero.position
+	var wps := BotShapes.plan(_force_fig, hero.position, target, Callable(self, "_clamp_point"))
+	if wps.is_empty():
+		return
+	var s := InkStroke.new(hero.position, stroke_layer)
+	stroke_layer += 1
+	add_child(s)
+	for p in wps:
+		s.extend_to(_clamp_point(p), 40.0)
+	if s.length < 0.7:
+		s.queue_free()
+		return
+	_launch(s)
+
+
+## Captures `&figshot=` : la technique en action (instants propres à chaque figure), deux fois, puis sortie.
+func _fig_snap() -> void:
+	var times: Array = [0.4, 1.6, 3.05] if _force_fig == "triangle" else [0.12, 0.35]
+	var t0 := 0.0
+	for t in times:
+		await get_tree().create_timer(float(t) - t0, true, false, true).timeout
+		t0 = float(t)
+		await RenderingServer.frame_post_draw
+		var path := "%s_%d.png" % [_fig_shot, _fig_shot_n]
+		get_viewport().get_texture().get_image().save_png(path)
+		print("FIGSHOT ", path)
+		_fig_shot_n += 1
+	if _fig_shot_n >= 2 * times.size():
+		get_tree().quit()
 
 
 ## Capture d'écran (bureau, `-- --shot=fichier.png[:secondes]`) : attend, enregistre l'image, quitte.
@@ -4929,6 +5010,10 @@ func ink_wave(pos: Vector3, r: float) -> void:
 	vfx.ink_wave(pos, r, true)
 
 
+# figures de l'arbre : sons existants réutilisés (son, hauteur) ; les autres jouent « tech_<figure> »
+const TECH_SFX := {"wave": ["tech_return", 0.8], "point": ["tech_hook", 1.2], "triangle": ["tech_enso", 1.25]}
+
+
 ## Figure reconnue, à l'arrivée de la ruée : sa technique vient des rouleaux de figure (powers.figure_end).
 func _apply_shape() -> void:
 	if _shape.is_empty():
@@ -4938,8 +5023,11 @@ func _apply_shape() -> void:
 	score.figure_used()
 	shape_counts[String(sh.shape)] = int(shape_counts.get(String(sh.shape), 0)) + 1
 	var label: String = powers.figure_end(String(sh.shape), sh)
+	if _fig_shot != "" and String(sh.shape) == _force_fig:
+		_fig_snap()
 	hud.shape_pop(String(sh.shape), label)
-	sfx.play("tech_" + String(sh.shape), 1.0, -3.0)
+	var ts: Array = TECH_SFX.get(String(sh.shape), ["tech_" + String(sh.shape), 1.0])
+	sfx.play(String(ts[0]), float(ts[1]), -3.0)
 	feel("figure")
 
 
@@ -5224,6 +5312,7 @@ const FIG_CLOSED := ["loop", "enso", "return"]  # formes fermées (gardé pour l
 
 
 func _detect_fig(s: Node) -> Dictionary:
+	_sync_fig_lock()
 	var rw: PackedVector3Array = s.get("raw")
 	if rw.size() >= 3:
 		var r: Dictionary = {}
@@ -5237,6 +5326,16 @@ func _detect_fig(s: Node) -> Dictionary:
 			return r
 	var pts: PackedVector3Array = s.get("points")
 	return StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
+
+
+## Figures de l'arbre (vague, pointe, triangle) pas encore apprises (meta.fig_learned) : StrokeShapes ne les lit
+## pas (ni reconnues, ni proposées par le diagnostic du dojo), le trait garde la lecture des six autres.
+func _sync_fig_lock() -> void:
+	var lk: Array = []
+	for k in StrokeShapes.LEARNED:
+		if meta == null or not bool(meta.fig_learned(String(k))):
+			lk.append(String(k))
+	StrokeShapes.locked = lk
 
 
 ## Lecture du geste brut dans le plan de l'écran : chaque point au sol est reprojeté à l'écran, le dessin est
@@ -5563,6 +5662,11 @@ func _launch(s: MeshInstance3D) -> void:
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
 	_shape = fig
+	if not _shape.is_empty():
+		# le geste seul (trait posé, sans l'amorce depuis le héros) : la vague de Ressac le suit
+		var ln := int(s.get("lead_n"))
+		var sp: PackedVector3Array = s.points
+		_shape["path"] = sp.slice(ln) if ln > 0 and ln < sp.size() - 2 else sp
 	s.set_figure(String(_shape.get("shape", "")))
 	_fig_mods = {}
 	if not _shape.is_empty():
@@ -6141,6 +6245,8 @@ func _process(_delta: float) -> void:
 		_bot.step(real)
 		if _bt != 0:
 			Perf.add(&"bot", _bt)
+	if _force_fig != "":
+		_force_fig_step(real)
 	elif Perf.sim_dt > 0.0:
 		real = Perf.sim_dt  # relevé --perf au pas fixe : partie rejouable à l'identique (mesures et captures avant/après)
 

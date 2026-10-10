@@ -5,6 +5,9 @@ extends SceneTree
 ## de pouce fait 1 à 4 cm), tremblement, vitesse variable (points espacés de 0,05 à 0,6 m), rotation
 ## quelconque, légère anisotropie (perspective), amorce depuis le héros (lead), dépassement en fin de geste,
 ## coins arrondis ; plus des contre-exemples qui ne doivent donner aucune figure.
+## Les figures de l'arbre (vague, pointe, triangle) ont leur propre tirage (graine SEED + 1, après les six
+## premières : les gestes des six premières restent les mêmes), avec leurs quasi-confusions (S plat, V large,
+## V inégal = crochet, triangle sans son 3e côté = pointe). Le corpus se joue avec toutes les figures apprises (StrokeShapes.locked vide).
 ## Lancement : `godot --headless --path . -- --figtest` (main._figtest) ou `--script tools/fig_corpus.gd`.
 ## Imprime la matrice de confusion (attendu × détecté), le taux par figure, les ratés, la stabilité de la
 ## lecture en direct (trait sans ses 30 derniers centimètres), et la réussite des figures du robot.
@@ -12,8 +15,10 @@ extends SceneTree
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const BotShapes = preload("res://scripts/bot_shapes.gd")
 
-const FIGS := ["enso", "loop", "return", "zigzag", "straight", "hook"]
-const COLS := ["enso", "loop", "return", "zigzag", "straight", "hook", ""]
+const FIGS := ["enso", "loop", "return", "zigzag", "straight", "hook", "wave", "point", "triangle"]
+const COLS := ["enso", "loop", "return", "zigzag", "straight", "hook", "wave", "point", "triangle", ""]
+const BASE := ["enso", "loop", "return", "zigzag", "straight", "hook"]
+const TREE := ["wave", "point", "triangle"]  # figures de l'arbre (StrokeShapes.LEARNED)
 const PER_FIG := 36       # variantes par figure (3 tailles × 12)
 const SEED := 20261010
 const LAID_STEP := 0.18   # pas du trait posé (ink_stroke.gd STEP)
@@ -30,6 +35,8 @@ func _init() -> void:
 ## Joue tout le corpus (graine `seed` : une autre graine, d'autres gestes) ;
 ## renvoie {"ok": int, "n": int, "rate": {fig: float}, "fails": Array, "unstable": Array, "bot_ok": bool}.
 static func run(verbose: bool, seed: int = SEED) -> Dictionary:
+	var was_locked: Array = StrokeShapes.locked
+	StrokeShapes.locked = []
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var samples := build(rng)
@@ -43,12 +50,16 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 	var unstable: Array = []
 	var ok := 0
 	var fp := 0
+	var grp := {"base": [0, 0], "tree": [0, 0]}  # [justes, total] : six premières figures (et leurs contre-exemples), figures de l'arbre
 	for s: Dictionary in samples:
 		var pts: PackedVector3Array = s["pts"]
 		var want := String(s["want"])
 		var got := _shape(_detect(s, pts))
 		mat[want][got] = int(mat[want][got]) + 1
+		var g: Array = grp["tree" if bool(s.get("tree", false)) else "base"]
+		g[1] = int(g[1]) + 1
 		if got == want:
+			g[0] = int(g[0]) + 1
 			ok += 1
 		else:
 			var why := ""
@@ -72,6 +83,7 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 	var bot := _bot_check()
 	if verbose:
 		print("FIGTEST corpus : %d échantillons, %d justes (%.1f %%)" % [samples.size(), ok, 100.0 * float(ok) / float(maxi(samples.size(), 1))])
+		print("FIGTEST groupes : six premières figures (et contre-exemples) %d/%d ; figures de l'arbre (vague, pointe, triangle, quasi-confusions) : %d/%d" % [int(grp["base"][0]), int(grp["base"][1]), int(grp["tree"][0]), int(grp["tree"][1])])
 		var head := "FIGTEST %-10s" % "att.\\dét."
 		for b in COLS:
 			head += "%9s" % (b if b != "" else "(rien)")
@@ -99,6 +111,7 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 	for k in bot.keys():
 		if int(bot[k][0]) != int(bot[k][1]):
 			bot_ok = false
+	StrokeShapes.locked = was_locked
 	return {"ok": ok, "n": samples.size(), "rate": rate, "fails": fails, "unstable": unstable, "bot_ok": bot_ok}
 
 
@@ -162,7 +175,141 @@ static func build(rng: RandomNumberGenerator) -> Array:
 		out.append(_counter(rng, "bent", k))
 	for k in 4:
 		out.append(_counter(rng, "arc", k))
+	# figures de l'arbre : tirage à part, les gestes des six premières ne bougent pas
+	var rng2 := RandomNumberGenerator.new()
+	rng2.seed = rng.seed + 1
+	for k in PER_FIG:
+		var size := k % 3
+		for fig: String in TREE:
+			out.append(_tree_sample(rng2, fig, size, k))
+	for kind: String in ["flatS", "wideV", "lopV", "openT"]:
+		for k in 6:
+			out.append(_tree_counter(rng2, kind, k))
 	return out
+
+
+## Figures de l'arbre : vague (S de deux arcs opposés, rayons et tours inégaux, petites amorces), pointe (V aigu
+## aux branches proches, pointe arrondie), triangle (angles quelconques entre 35 et 105°, départ sur un sommet,
+## au milieu d'un côté, ou dépassé ; fermeture imprécise ; coins arrondis).
+static func _tree_sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) -> Dictionary:
+	var g := PackedVector2Array()
+	var tag := ""
+	var round_m := 0.0
+	match fig:
+		"wave":
+			var r := _pick(rng, size, [0.75, 1.1], [1.1, 1.7], [1.7, 2.6])
+			var r2 := r * rng.randf_range(0.75, 1.3)
+			var t1 := rng.randf_range(135.0, 200.0)
+			var t2 := rng.randf_range(135.0, 200.0)
+			var tin := rng.randf_range(0.0, 0.5) * r if k % 4 == 3 else 0.0
+			var tout := rng.randf_range(0.0, 0.5) * r if k % 4 == 2 else 0.0
+			g = _s_curve(r, r2, t1, t2, tin, tout)
+			tag = "r%.1f/%.1f %d°/%d°" % [r, r2, int(t1), int(t2)]
+		"point":
+			var b := _pick(rng, size, [1.5, 2.2], [2.2, 3.4], [3.4, 5.0])
+			var b2 := b * rng.randf_range(0.8, 1.0)
+			if rng.randf() < 0.5:
+				var tmp := b
+				b = b2
+				b2 = tmp
+			var ang := rng.randf_range(22.0, 56.0)  # angle intérieur de la pointe (la perspective en ajoute jusqu'à 10°)
+			var d2 := Vector2.from_angle(deg_to_rad(ang))
+			g = PackedVector2Array([Vector2(b, 0), Vector2.ZERO, d2 * b2])
+			round_m = rng.randf_range(0.0, 0.12) * minf(b, b2)
+			tag = "%.1f/%.1f à %d°" % [b, b2, int(ang)]
+		"triangle":
+			var side := _pick(rng, size, [1.6, 2.4], [2.4, 3.6], [3.6, 5.5])
+			var a1 := rng.randf_range(35.0, 105.0)
+			var a2 := rng.randf_range(maxf(35.0, 75.0 - a1), minf(105.0, 145.0 - a1))
+			var tri := _tri(side, a1, a2)
+			var mode := k % 3  # 0 : départ sur un sommet ; 1 : au milieu d'un côté ; 2 : sommet, trait qui dépasse
+			var pts := PackedVector2Array()
+			if mode == 1:
+				var m := tri[0].lerp(tri[1], rng.randf_range(0.3, 0.7))
+				pts = PackedVector2Array([m, tri[1], tri[2], tri[0], m])
+			else:
+				pts = PackedVector2Array([tri[0], tri[1], tri[2], tri[0]])
+				if mode == 2:
+					pts.append(tri[0].lerp(tri[1], rng.randf_range(0.08, 0.25)))
+			# fermeture imprécise : l'arrivée s'arrête court ou à côté du départ (jusqu'à 18 % d'un côté)
+			var e := pts[pts.size() - 1]
+			var miss := Vector2.from_angle(rng.randf_range(0.0, TAU)) * rng.randf_range(0.0, 0.18) * side
+			pts[pts.size() - 1] = e + miss
+			g = pts
+			round_m = rng.randf_range(0.0, 0.12) * side
+			tag = "côté %.1f angles %d/%d/%d %s" % [side, int(a1), int(a2), int(180.0 - a1 - a2), ["sommet", "milieu", "dépassé"][mode]]
+	var laid := k % 2 == 0
+	var pts3 := _finish(rng, g, round_m, 0.0, laid)
+	var name := "%s %s #%d (%s%s)" % [fig, ["petit", "moyen", "grand"][size], k, tag, ", posé" if laid else ", brut"]
+	var s := {"name": name, "pts": pts3, "want": fig, "lead": -1, "tree": true}
+	if k % 3 == 1:
+		_add_lead(rng, s)
+	return s
+
+
+## Quasi-confusions des figures de l'arbre : S plat (deux arcs de 45 à 85°, rien), V large (82 à 100°, rien),
+## V inégal (barbe courte : un crochet), triangle sans son troisième côté (deux côtés : un V, une pointe, jamais
+## un triangle).
+static func _tree_counter(rng: RandomNumberGenerator, kind: String, k: int) -> Dictionary:
+	var g := PackedVector2Array()
+	var tag := kind
+	var want := ""
+	match kind:
+		"flatS":
+			var r := rng.randf_range(1.2, 2.6)
+			var t1 := rng.randf_range(45.0, 85.0)
+			var t2 := rng.randf_range(45.0, 85.0)
+			g = _s_curve(r, r * rng.randf_range(0.8, 1.2), t1, t2, 0.0, 0.0)
+			tag = "S plat r%.1f %d°/%d°" % [r, int(t1), int(t2)]
+		"wideV":
+			var b := rng.randf_range(2.0, 4.0)
+			var ang := rng.randf_range(82.0, 100.0)
+			g = PackedVector2Array([Vector2(b, 0), Vector2.ZERO, Vector2.from_angle(deg_to_rad(ang)) * b * rng.randf_range(0.85, 1.0)])
+			tag = "V large %d°" % int(ang)
+		"lopV":
+			var main := rng.randf_range(3.0, 5.0)
+			var last := main * rng.randf_range(0.3, 0.55)
+			var ang := rng.randf_range(25.0, 55.0)
+			g = PackedVector2Array([Vector2(main, 0), Vector2.ZERO, Vector2.from_angle(deg_to_rad(ang)) * last])
+			tag = "V inégal %.1f/%.1f à %d°" % [main, last, int(ang)]
+			want = "hook"
+		"openT":
+			var side := rng.randf_range(2.5, 4.5)
+			var tri := _tri(side, 65.0, 50.0)
+			g = PackedVector2Array([tri[0], tri[1], tri[2]])
+			tag = "triangle sans 3e côté %.1f" % side
+			want = "point"  # deux côtés égaux à 50° : un V
+	var pts := _finish(rng, g, rng.randf_range(0.0, 0.15), 0.0, k % 2 == 0)
+	return {"name": "quasi-confusion #%d (%s)" % [k, tag], "pts": pts, "want": want, "lead": -1, "tree": true}
+
+
+## S : arc de rayon r sur t1 degrés, puis arc de l'autre sens de rayon r2 sur t2 degrés, tangents ; amorces
+## droites tin (avant) et tout (après).
+static func _s_curve(r: float, r2: float, t1: float, t2: float, tin: float, tout: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	if tin > 0.0:
+		out.append(Vector2(-tin, 0.0))
+	# départ en (0,0) vers +x, tourne à gauche : centre (0, r)
+	var a := _arc(Vector2(0.0, r), r, -PI / 2.0, -PI / 2.0 + deg_to_rad(t1))
+	out.append_array(a)
+	var e := a[a.size() - 1]
+	var dir := (e - a[a.size() - 2]).normalized()
+	var c2 := e + Vector2(dir.y, -dir.x) * r2  # centre à droite : tourne dans l'autre sens
+	var a0 := (e - c2).angle()
+	var b := _arc(c2, r2, a0, a0 - deg_to_rad(t2))
+	out.append_array(b.slice(1))
+	if tout > 0.0:
+		var e2 := b[b.size() - 1]
+		out.append(e2 + (e2 - b[b.size() - 2]).normalized() * tout)
+	return out
+
+
+## Sommets d'un triangle de base `side` (sur l'axe x) et d'angles a1, a2 (degrés) à ses deux bouts.
+static func _tri(side: float, a1: float, a2: float) -> PackedVector2Array:
+	var a3 := deg_to_rad(180.0 - a1 - a2)
+	var l1 := side * sin(deg_to_rad(a2)) / maxf(sin(a3), 0.01)  # côté opposé à l'angle a2, partant du premier sommet
+	var p2 := Vector2.from_angle(-deg_to_rad(a1)) * l1
+	return PackedVector2Array([Vector2.ZERO, Vector2(side, 0.0), p2])
 
 
 static func _sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) -> Dictionary:
@@ -266,7 +413,7 @@ static func _counter(rng: RandomNumberGenerator, kind: String, k: int) -> Dictio
 			g = _circle(rng, r, turn, 0.04)
 			tag = "C r%.1f %d°" % [r, int(turn)]
 		"S":
-			# un S : deux arcs opposés : pas un zigzag
+			# un S : deux arcs opposés : pas un zigzag, une vague (figure de l'arbre)
 			var r := rng.randf_range(1.0, 2.5)
 			var turn := rng.randf_range(140.0, 180.0)
 			var a := _arc(Vector2(0, -r), r, PI / 2.0, PI / 2.0 - deg_to_rad(turn))
@@ -297,7 +444,7 @@ static func _counter(rng: RandomNumberGenerator, kind: String, k: int) -> Dictio
 			g = _circle(rng, r, rng.randf_range(50.0, 95.0), 0.03)
 			tag = "arc r%.1f" % r
 	var pts := _finish(rng, g, rng.randf_range(0.0, 0.3), 0.0, k % 2 == 0)
-	return {"name": "contre-exemple #%d (%s)" % [k, tag], "pts": pts, "want": "", "lead": -1}
+	return {"name": "contre-exemple #%d (%s)" % [k, tag], "pts": pts, "want": "wave" if kind == "S" else "", "lead": -1}
 
 
 # ---------------------------------------------------------------- gabarits (plan 2D, mètres)

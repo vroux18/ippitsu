@@ -79,9 +79,15 @@ var _anim := 0.0
 var _cache := {}
 # figures : techniques débloquées par les rouleaux de figure
 const FIG_NAMES := {"loop": "UZU · TOUPIE", "zigzag": "INAZUMA · ÉCLAIR EN CHAÎNE", "return": "KAESHI · GARDE",
-	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · ONDE DE CHOC", "hook": "KAGI · ESTOC"}
+	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · ONDE DE CHOC", "hook": "KAGI · ESTOC",
+	"wave": "YOSENAMI · RESSAC", "point": "KUNAI", "triangle": "KEKKAI · SCEAU"}
 const FIG_PLAIN := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOUR", "straight": "TRAIT DROIT",
-	"enso": "ENSŌ", "hook": "CROCHET"}
+	"enso": "ENSŌ", "hook": "CROCHET", "wave": "VAGUE", "point": "POINTE", "triangle": "TRIANGLE"}
+# figures de l'arbre : encre des techniques (= ink_stroke.gd FIG_INK)
+const WAVE_INK := Color("#4F8A3C")
+const POINT_INK := Color("#D9772E")
+const TRI_INK := Color("#5E6E8C")
+const KEKKAI_T := 3.0  # durée du sceau triangulaire (s, temps du jeu)
 var demo := false  # tutoriel : toutes les techniques prêtées (niveau 1)
 var _offer_n := 0  # offres de rouleaux depuis le début de la partie
 var force_rank := 0  # pacte du sanctuaire (Lanterne éteinte, Œil de l'oni) : la prochaine offre garantit ce rang (1 rare, 2 épique), puis 0
@@ -97,6 +103,8 @@ var _fig_enso_r := 2.0
 var _fig_enso_pending := false
 var _fig_counter_t := 0.0
 var _fig_countered := {}
+var _fig_wave_pts := PackedVector3Array()  # chemin du S (geste seul), posé au lancement
+var _fig_seals: Array = []  # sceaux de Kekkai : {pts, c, t, dmg, node, held}
 # nouveaux rouleaux (2 par école)
 var _dusk_hit := {}  # Crépuscule : ennemis déjà touchés dans ce combat (instance_id -> true)
 var _static := 0  # Statique : traits accumulés (nova au 4e)
@@ -599,6 +607,10 @@ func _eligible(id: String, r: int, lv: int) -> bool:
 			if main.meta.power_sealed(id):
 				return false
 		elif not main.meta.power_unlocked(id):
+			return false
+		# figures de l'arbre : leurs rouleaux attendent que la figure soit apprise
+		var tf := Data.tree_figure(id)
+		if tf != "" and main.meta.has_method("fig_learned") and not bool(main.meta.fig_learned(tf)):
 			return false
 	var d: Dictionary = Data.POWERS[id]
 	if d.has("needs"):
@@ -1349,7 +1361,7 @@ func _fig_boss(c: Vector3, r: float, dmg: float) -> Array:
 
 ## Lancement d'une ruée en figure. main : `_fig_mods = powers.figure_launch(shape, info, s.points)`,
 ## puis hero.speed_mult *= speed ; pierce (ignore les gardes) et dmg (multiplicateur) servent à _check_slashes.
-func figure_launch(shape: String, _info: Dictionary, points: PackedVector3Array) -> Dictionary:
+func figure_launch(shape: String, info: Dictionary, points: PackedVector3Array) -> Dictionary:
 	var out := {"speed": 1.0, "pierce": false, "dmg": 1.15}
 	if not fig_on(shape):
 		return out
@@ -1364,6 +1376,9 @@ func figure_launch(shape: String, _info: Dictionary, points: PackedVector3Array)
 		"return":
 			if lvl("fig_return_reflect") > 0:
 				_fig_reflect(points)
+		"wave":
+			# le S seul (sans l'amorce depuis le héros) : la vague le suivra à l'arrivée
+			_fig_wave_pts = info.get("path", points)
 	return out
 
 
@@ -1401,6 +1416,12 @@ func figure_end(shape: String, info: Dictionary) -> String:
 			_fig_enso(info, hp)
 		"hook":
 			_fig_hook(info, hp)
+		"wave":
+			_fig_wave(hp)
+		"point":
+			_fig_point(info, hp)
+		"triangle":
+			_fig_triangle(info, hp)
 	var label := String(FIG_NAMES.get(shape, ""))
 	var el := _fig_elems()
 	for i in mini(el.size(), 2):
@@ -1443,6 +1464,8 @@ func figure_update(dt: float) -> void:
 	if _fig_counter_t > 0.0:
 		_fig_counter_t -= dt
 		_fig_counter(hp)
+	if not _fig_seals.is_empty():
+		_fig_seal_update(dt)
 
 
 ## Fin du bond d'ensō : onde de choc. main : `powers.figure_landed(hero.position)` dans _on_hero_landed.
@@ -1487,6 +1510,12 @@ func figure_cancel() -> void:
 	_fig_counter_t = 0.0
 	_fig_countered.clear()
 	_fig_enso_pending = false
+	_fig_wave_pts = PackedVector3Array()
+	for sl: Dictionary in _fig_seals:
+		var sn = sl.get("node")
+		if is_instance_valid(sn):
+			sn.queue_free()
+	_fig_seals.clear()
 
 
 ## Uzu : toupie (aspire et lacère) ; Tourbillon aspirant ; Kasha (roue de feu).
@@ -1692,6 +1721,162 @@ func _fig_hook(info: Dictionary, hp: Vector3) -> void:
 		main.hero.stab(bp - hp)
 		main.shadow_stab(hp, bp)
 		main.shake = maxf(float(main.shake), 0.21)
+
+
+## Ressac : une vague d'encre verte suit le S et repousse chaque ennemi proche vers l'extérieur de la courbe
+## (du côté bombé du S là où il est le plus près), petits dégâts ; Lame de fond : recul plus fort, étourdit.
+func _fig_wave(hp: Vector3) -> void:
+	var pts := _fig_wave_pts
+	_fig_wave_pts = PackedVector3Array()
+	if pts.size() < 3:
+		pts = PackedVector3Array([hp - Vector3(2, 0, 0), hp, hp + Vector3(2, 0, 0)])
+	var path := Vfx.smooth_path(pts, 28)
+	var nrm := Vfx.path_out(path)
+	main.vfx.ressac(path, nrm, WAVE_INK)
+	main.sfx.play("splash", 0.9)
+	var dmg := _fv("fig_wave")
+	var stun := lvl("fig_wave_stun") > 0
+	var push := 7.0 * (val("fig_wave_stun") if stun else 1.0)
+	var reach := _fig_r(2.3)
+	for e in main.enemies:
+		if not _alive(e):
+			continue
+		var ep: Vector3 = e.position
+		# point du S le plus proche, et la normale bombée en ce point
+		var best := -1
+		var bd := 1e9
+		for i in path.size():
+			var d := Vector2(ep.x - path[i].x, ep.z - path[i].z).length()
+			if d < bd:
+				bd = d
+				best = i
+		if best < 0 or bd > reach + float(e.radius):
+			continue
+		var out: Vector3 = nrm[best]
+		if out.length_squared() < 0.0001:
+			out = Vector3(ep.x - path[best].x, 0, ep.z - path[best].z).normalized()
+		_fig_hit(e, dmg, true, "fig_wave")
+		if _alive(e):
+			e.push(out * push)
+			if stun:
+				_stun(e)
+	main.damage_bosses_line(path, reach, dmg * _fig_mult())
+	if stun:
+		_tag("fig_wave_stun", path[path.size() / 2])
+	main.shake = maxf(float(main.shake), 0.31)
+
+
+## Kunai : trois kunai d'encre partent de la pointe du V, dans l'axe du V (en éventail serré), et percent tous
+## les ennemis de leur ligne ; Volée de kunai : plus de kunai, éventail plus large.
+func _fig_point(info: Dictionary, hp: Vector3) -> void:
+	var tip: Vector3 = info.get("tip", hp)
+	tip.y = 0.0
+	var dir: Vector3 = info.get("dir", Vector3.ZERO)
+	dir.y = 0.0
+	if dir.length_squared() < 0.0001:
+		dir = main.hero.facing if main.hero.facing.length_squared() > 0.001 else Vector3.FORWARD
+	dir = dir.normalized()
+	var n := 3 + int(val("fig_point_more"))
+	var spread := deg_to_rad(8.0 + 4.0 * float(n - 3))  # demi-éventail
+	var reach := _fig_r(11.0)
+	var dmg := _fv("fig_point")
+	var width := 0.55
+	for k in n:
+		var a := 0.0 if n == 1 else lerpf(-spread, spread, float(k) / float(n - 1))
+		var d := dir.rotated(Vector3.UP, a)
+		var end: Vector3 = main._clamp_point(tip + d * reach)
+		main.vfx.kunai(tip, end, POINT_INK, 0.03 * float(absi(k - n / 2)))
+		var line := PackedVector3Array([tip, end])
+		for e in main.enemies:
+			if _alive(e) and _near_line(e.position, line, width + float(e.radius)):
+				var ep: Vector3 = e.position
+				_fig_hit(e, dmg, true, "fig_point")
+				main._slash_mark(ep, d)
+		main.damage_bosses_line(line, width, dmg * _fig_mult())
+	if n > 3:
+		_tag("fig_point_more", tip)
+	main.sfx.play("stab", 1.25, -2.0)
+	main.shake = maxf(float(main.shake), 0.21)
+
+
+## Kekkai : un sceau triangulaire se pose sur le triangle tracé ; les ennemis dedans restent figés tant qu'il
+## tient (KEKKAI_T s), puis il se referme et les frappe ; Grand sceau : plus long, plus grand.
+func _fig_triangle(info: Dictionary, hp: Vector3) -> void:
+	var cs: Array = info.get("corners", [])
+	var tri := PackedVector3Array()
+	for c in cs:
+		var v: Vector3 = c
+		tri.append(Vector3(v.x, 0, v.z))
+	if tri.size() != 3:
+		tri = PackedVector3Array([hp + Vector3(0, 0, -2.2), hp + Vector3(1.9, 0, 1.1), hp + Vector3(-1.9, 0, 1.1)])
+	var c3 := (tri[0] + tri[1] + tri[2]) / 3.0
+	var big := lvl("fig_triangle_long") > 0
+	var k := (1.3 if big else 1.0) * (1.25 if _tier_of("wind") >= 1 else 1.0)
+	for i in 3:
+		tri[i] = c3 + (tri[i] - c3) * k
+	var dur := KEKKAI_T + val("fig_triangle_long")
+	var node: Node3D = main.vfx.kekkai(tri, c3, TRI_INK)
+	_fig_seals.append({"pts": tri, "c": c3, "t": dur, "dmg": _fv("fig_triangle"), "node": node, "held": {}})
+	if big:
+		_tag("fig_triangle_long", c3)
+	main.sfx.play("shrine", 1.3, -6.0)
+
+
+## Sceaux de Kekkai : les ennemis dedans sont figés (et leur attaque annulée en entrant) ; à la fin, le sceau se
+## referme et frappe ceux qui sont dedans.
+func _fig_seal_update(dt: float) -> void:
+	for i in range(_fig_seals.size() - 1, -1, -1):
+		var sl: Dictionary = _fig_seals[i]
+		sl["t"] = float(sl["t"]) - dt
+		var tri: PackedVector3Array = sl["pts"]
+		var held: Dictionary = sl["held"]
+		var inside: Array = []
+		for e in main.enemies:
+			if not _alive(e):
+				continue
+			if not _in_tri(e.position, tri, float(e.radius) * 0.5):
+				continue
+			inside.append(e)
+			var eid: int = e.get_instance_id()
+			if not held.has(eid):
+				held[eid] = true
+				_stun(e)
+				_flash_e(e, "fig_triangle")
+			if e.has_method("hold"):
+				e.hold(0.12)
+		if float(sl["t"]) > 0.0:
+			continue
+		_fig_seals.remove_at(i)
+		var c: Vector3 = sl["c"]
+		main.vfx.kekkai_close(sl.get("node"), c, TRI_INK)
+		var dmg: float = sl["dmg"]
+		for e in inside:
+			_fig_hit(e, dmg, true, "fig_triangle")
+		var rr := 0.0
+		for p in tri:
+			rr = maxf(rr, Vector2(p.x - c.x, p.z - c.z).length())
+		_fig_boss(c, rr * 0.6, dmg)
+		main.shake = maxf(float(main.shake), 0.55)
+		main.sfx.play("strike", 0.9, -2.0)
+		main.feel("figure")
+
+
+## Point dans le triangle (plan XZ), avec une marge (> 0 : un peu plus grand).
+func _in_tri(p: Vector3, t: PackedVector3Array, margin: float) -> bool:
+	var s := 0.0
+	for i in 3:
+		var a := t[i]
+		var b := t[(i + 1) % 3]
+		var cr := (b.x - a.x) * (p.z - a.z) - (b.z - a.z) * (p.x - a.x)
+		if s == 0.0:
+			s = signf((t[1].x - t[0].x) * (t[2].z - t[0].z) - (t[1].z - t[0].z) * (t[2].x - t[0].x))
+		# distance signée au côté (positive dedans)
+		var ln := Vector2(b.x - a.x, b.z - a.z).length()
+		if ln < 0.0001:
+			return false
+		if s * cr / ln < -margin:
+			return false
+	return true
 
 
 ## Ennemi pris de dos, ou sous la moitié de sa vie (Estoc assassin).

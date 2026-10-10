@@ -1,11 +1,11 @@
 extends RefCounted
-## Figures du robot testeur : points de passage des six formes (boucle, zigzag, trait droit, aller-retour,
-## ensō, crochet), vérifiées avec StrokeShapes.detect sur un tracé simulé (même pas que ink_stroke.gd)
+## Figures du robot testeur : points de passage des formes (boucle, zigzag, trait droit, aller-retour,
+## ensō, crochet, et celles de l'arbre : vague, pointe, triangle), vérifiées avec StrokeShapes.detect sur un tracé simulé (même pas que ink_stroke.gd)
 ## avant d'être lancées. Fonctions statiques pures, plan XZ.
 
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
 const STEP := 0.18  # = ink_stroke.gd STEP
-const SHAPES := ["loop", "zigzag", "straight", "return", "enso", "hook"]
+const SHAPES := ["loop", "zigzag", "straight", "return", "enso", "hook", "wave", "point", "triangle"]
 
 
 ## Points de passage de la figure, depuis `o`, orientée selon `f` (unitaire, XZ), côté `side` (±1).
@@ -36,6 +36,25 @@ static func waypoints(shape: String, o: Vector3, f: Vector3, side: float) -> Pac
 				out.append(o + f * c.x + s * c.y)
 			var e := Vector2(sp * PI + 1.5, 2.0 * r) - base
 			out.append(o + f * e.x + s * e.y)
+		"wave":
+			# S : demi-cercle de rayon 1,3 d'un côté, puis demi-cercle de l'autre côté (5,2 m de large)
+			var wr := 1.3
+			for k in range(1, 13):
+				var t := PI * float(k) / 12.0
+				var c := Vector2(wr * sin(t), wr - wr * cos(t))
+				out.append(o + f * c.x + s * c.y)
+			for k in range(1, 13):
+				var t := PI * float(k) / 12.0
+				var c := Vector2(-wr * sin(t), 3.0 * wr - wr * cos(t))
+				out.append(o + f * c.x + s * c.y)
+		"point":
+			# V : pointe à 3,2 m, angle de 40°, retour à la même distance
+			for c: Vector2 in [Vector2(3.0, 1.1), Vector2(0.0, 2.2)]:
+				out.append(o + f * c.x + s * c.y)
+		"triangle":
+			# triangle équilatéral de 3,6 m de côté, fermé sur le héros
+			for c: Vector2 in [Vector2(3.6, 0.0), Vector2(1.8, 3.1), Vector2(0.0, 0.0)]:
+				out.append(o + f * c.x + s * c.y)
 		"enso":
 			# cercle de rayon 2,4 qui part du héros et laisse une ouverture d'un mètre
 			var rr := 2.4

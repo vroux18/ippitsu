@@ -54,9 +54,10 @@ const CARD_SCENE := {
 	"figure": {"bg": Color("#7E3354"), "deco": Color("#D06A93")},
 }
 
-# encre des six figures (Icones : « couleur d'encre »)
+# encre des figures (Icones : « couleur d'encre ») ; vague, pointe, triangle : figures de l'arbre
 const FIGURES_INK := {"loop": Color("#3E9C8C"), "zigzag": Color("#D9A93A"), "straight": Color("#C8463A"),
-	"return": Color("#3D7EC4"), "enso": Color("#C2668F"), "hook": Color("#8A5BB0")}
+	"return": Color("#3D7EC4"), "enso": Color("#C2668F"), "hook": Color("#8A5BB0"),
+	"wave": Color("#4F8A3C"), "point": Color("#D9772E"), "triangle": Color("#5E6E8C")}
 
 # ------------------------------------------------------------------ rareté = bordure seule (jamais de mot)
 # rang (power_data.RARITIES) -> couleur, épaisseur (× u), filet intérieur 1,5 à 2 de retrait, contour sumi extérieur 2

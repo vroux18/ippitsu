@@ -553,6 +553,9 @@ func start_choices() -> Array:
 	for key in Data.POWERS.keys():
 		var d: Dictionary = Data.POWERS[key]
 		if String(d.get("rarity", "")) == "common" and not d.has("needs") and power_unlocked(String(key)):
+			var tf := Data.tree_figure(String(key))  # technique d'une figure de l'arbre : seulement si elle est apprise
+			if tf != "" and not fig_learned(tf):
+				continue
 			out.append(String(key))
 	return out
 
@@ -1072,3 +1075,4 @@ func record_score(world_id: int, pts: int, chain: int) -> bool:
 	world_chain[world_id] = maxi(world_chain_of(world_id), chain)
 	save_data()
 	return rec
+

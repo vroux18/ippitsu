@@ -6,7 +6,7 @@ extends Node
 ##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement au dernier coup encaissable :
 ##    1 cœur, 2 dès que les coups lourds en ôtent 2). Bilan par monde (BOT STATS, BOT BILAN).
 ##  powers : chaque pouvoir, à chaque niveau, actif pendant une salle de combat entière (gardien et boss
-##    compris) ; les six figures, des traits de fuite, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
+##    compris) ; les neuf figures (dont vague, pointe, triangle), des traits de fuite, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
 ##  ui : parcours scripté des écrans (bot_ui.gd), sans combat du robot.
 ##  stress : vagues doublées, 16 pouvoirs dont 6 légendaires, nœuds comptés salle après salle.
 ## Il signale les salles où il reste bloqué (« BOT ALERTE »). Fin : « BOT DONE » puis il quitte.
@@ -22,7 +22,7 @@ const MODES := ["campaign", "powers", "ui", "stress"]
 const ROOM_TIMEOUT := {"campaign": 150.0, "powers": 180.0, "stress": 260.0}  # secondes de jeu avant de déclarer un combat bloqué (marche de l'étape comprise)
 const GAME_LIMIT := {"campaign": 12000.0, "powers": 16000.0, "stress": 5200.0, "ui": 1.0e9}  # secondes de jeu
 const WALL_LIMIT := 1440.0  # secondes réelles (le CI coupe à 25 min)
-const STROKE_KINDS := ["plain", "loop", "zigzag", "straight", "return", "enso", "hook"]
+const STROKE_KINDS := ["plain", "loop", "zigzag", "straight", "return", "enso", "hook", "wave", "point", "triangle"]
 const POWER_GROUP := 8  # pouvoirs suivis par partie (mode powers) : 71 rouleaux en 9 parties, dans le budget de temps
 const MAX_POWER_RUNS := 14
 const STRESS_POWERS := ["fire_burn", "fire_trail", "fire_hearth", "water_tide", "water_foam", "bolt_arc", "bolt_storm",
@@ -597,7 +597,7 @@ func stroke_line(target: Vector3) -> bool:
 	return true
 
 
-## Figure reconnue (loop, zigzag, straight, return, enso, hook) lancée vers la cible.
+## Figure reconnue (loop, zigzag, straight, return, enso, hook, wave, point, triangle) lancée vers la cible.
 ## Faux si aucune orientation ne tient dans l'arène.
 func figure(kind: String, target: Vector3) -> bool:
 	var st: Array = _shape_stats.get(kind, [0, 0, 0])

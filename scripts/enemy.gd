@@ -1521,6 +1521,12 @@ func _seal_ricochet(dir: Vector3) -> void:
 	main.sfx.play("empty", 1.7, -6.0)
 
 
+## Figé sur place pendant `t` s (sceau de Kekkai) : ni marche, ni attaque, comme l'arrêt d'un coup reçu.
+func hold(t: float) -> void:
+	if not dead:
+		_hit_freeze = maxf(_hit_freeze, t)
+
+
 func push(v: Vector3) -> void:
 	# un mort n'est plus projeté (fin sobre) ; costauds et tourelle ne bougent pas
 	if kind != "brute" and kind != "funa" and kind != "kanabo" and kind != "tsurara" and not dead and _state != "charge" and not _air:

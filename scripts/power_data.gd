@@ -26,7 +26,20 @@ const SCHOOL_ORDER := ["fig", "fire", "water", "bolt", "wind", "shadow", "ink"]
 
 # figure -> rouleau qui débloque sa technique
 const FIG_UNLOCK := {"loop": "fig_loop", "zigzag": "fig_zigzag", "straight": "fig_straight",
-	"return": "fig_return", "enso": "fig_enso", "hook": "fig_hook"}
+	"return": "fig_return", "enso": "fig_enso", "hook": "fig_hook",
+	"wave": "fig_wave", "point": "fig_point", "triangle": "fig_triangle"}
+# figures de l'arbre (branche Voie) : leurs rouleaux (technique et améliorations) ne sortent que si la figure
+# est apprise (meta.fig_learned ; powers._eligible)
+const FIG_TREE := ["wave", "point", "triangle"]
+
+
+## Figure de l'arbre dont dépend ce rouleau (sa technique ou une amélioration), "" sinon.
+static func tree_figure(id: String) -> String:
+	for f in FIG_TREE:
+		var tid := String(FIG_UNLOCK[f])
+		if id == tid or id.begins_with(tid + "_"):
+			return String(f)
+	return ""
 # saveur d'école des techniques (2 pouvoirs d'une école suffisent) : effet en deux mots
 const FIG_ELEMENT := {"fire": "brûle", "water": "repousse", "bolt": "électrise", "wind": "portée +25 %", "shadow": "dégâts +25 %"}
 
@@ -334,7 +347,7 @@ const POWERS := {
 		"when": "À CHAQUE TECHNIQUE",
 		"text": "Chaque technique de figure lance une onde d'encre. L'onde de choc laisse un cercle d'encre.",
 		"stat": "Onde : 1,5 dégât · onde de choc : +{v}", "v": [2],
-		"needs": ["fig_loop", "fig_zigzag", "fig_straight", "fig_return", "fig_enso", "fig_hook"]},
+		"needs": ["fig_loop", "fig_zigzag", "fig_straight", "fig_return", "fig_enso", "fig_hook", "fig_wave", "fig_point", "fig_triangle"]},
 	"ink_ippitsu": {"school": "ink", "rarity": "legendary", "unlock": 4, "label": "Un seul trait", "short": "+{v} % par ennemi enchaîné", "icon": "one_stroke", "trig": "multi",
 		"name": "Ippitsu", "sub": "Un seul trait", "kanji": "筆", "max": 1,
 		"when": "À CHAQUE COUP",
@@ -412,6 +425,33 @@ const POWERS := {
 		"name": "Nidan-zuki", "sub": "Double estoc", "kanji": "鉤", "max": 2, "when": "TECHNIQUE : ESTOC",
 		"text": "Ton estoc transperce aussi les ennemis voisins de ta cible.",
 		"stat": "+{v} ennemi transpercé", "v": [1, 2], "needs": ["fig_hook"]},
+	# vague (figure de l'arbre)
+	"fig_wave": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Ressac", "short": "Vague : ressac {v}", "icon": "fig_wave", "trig": "figure",
+		"name": "Yosenami", "sub": "Ressac", "kanji": "波", "when": "FIGURE : VAGUE",
+		"text": "Nouvelle technique sur ta vague : quand tu traces un S, une vague d'encre suit la courbe et repousse les ennemis vers l'extérieur.",
+		"stat": "Ressac : {v} dégât, repousse", "v": [0.6, 0.8, 1.0]},
+	"fig_wave_stun": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Lame de fond", "short": "Ressac : recul ×{v}, étourdit", "icon": "fig_wave_stun", "trig": "figure",
+		"name": "Uneri", "sub": "Lame de fond", "kanji": "波", "max": 2, "when": "TECHNIQUE : RESSAC",
+		"text": "Ta vague repousse bien plus loin et étourdit les ennemis qu'elle emporte.",
+		"stat": "Recul ×{v} · étourdit", "v": [1.6, 2.2], "needs": ["fig_wave"]},
+	# pointe (figure de l'arbre)
+	"fig_point": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Kunai", "short": "Pointe : 3 kunai {v}", "icon": "fig_point", "trig": "figure",
+		"name": "Kunai", "sub": "Kunai d'encre", "kanji": "刃", "when": "FIGURE : POINTE",
+		"text": "Nouvelle technique sur ta pointe : quand tu traces un V, trois kunai d'encre partent de la pointe dans l'axe du V et percent toute la ligne.",
+		"stat": "3 kunai : {v} dégât chacun, percent", "v": [0.9, 1.15, 1.4]},
+	"fig_point_more": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Volée de kunai", "short": "Kunai : +{v}", "icon": "fig_point_more", "trig": "figure",
+		"name": "Senbon", "sub": "Volée de kunai", "kanji": "刃", "max": 2, "when": "TECHNIQUE : KUNAI",
+		"text": "Ta pointe lance plus de kunai, en éventail plus large.",
+		"stat": "+{v} kunai", "v": [2, 4], "needs": ["fig_point"]},
+	# triangle (figure de l'arbre)
+	"fig_triangle": {"school": "fig", "rarity": "common", "unlock": 0, "label": "Kekkai", "short": "Triangle : sceau {v}", "icon": "fig_triangle", "trig": "figure",
+		"name": "Kekkai", "sub": "Sceau triangulaire", "kanji": "結", "when": "FIGURE : TRIANGLE",
+		"text": "Nouvelle technique sur ton triangle : quand tu traces un triangle fermé, un sceau se pose au sol 3 s ; les ennemis dedans sont figés, puis frappés quand il se referme.",
+		"stat": "Sceau 3 s : fige, puis {v} dégâts", "v": [1.5, 2.0, 2.5]},
+	"fig_triangle_long": {"school": "fig", "rarity": "rare", "unlock": 1, "label": "Grand sceau", "short": "Sceau : +{v} s, plus grand", "icon": "fig_triangle_long", "trig": "figure",
+		"name": "Dai-kekkai", "sub": "Grand sceau", "kanji": "結", "max": 2, "when": "TECHNIQUE : KEKKAI",
+		"text": "Ton sceau triangulaire tient plus longtemps et déborde un peu de ton tracé.",
+		"stat": "Sceau +{v} s · taille ×1,3", "v": [1.0, 2.0], "needs": ["fig_triangle"]},
 }
 
 # Effet de chaque pouvoir en pastilles (cartes, bulle de détail, récapitulatif), sans répéter le nom du pouvoir.
@@ -569,4 +609,16 @@ const EFFECTS := {
 		"tw": "Crochet", "line": "Ton estoc (crochet) fait bien plus de dégâts sur un ennemi de dos ou déjà blessé."},
 	"fig_hook_double": {"fx": [["t_multi", "+{v}", "cibles"]],
 		"tw": "Crochet", "line": "Ton estoc (crochet) transperce aussi les ennemis voisins de ta cible."},
+	"fig_wave": {"fx": [["fx_dmg", "{v%} %", "vague"], ["push_wave", "", "repousse"]],
+		"tw": "Vague", "line": "Quand tu traces un S, une vague d'encre suit la courbe et repousse les ennemis vers l'extérieur."},
+	"fig_wave_stun": {"fx": [["push_wave", "×{v}", "recul"], ["stun", "", "étourdit"]],
+		"tw": "Ressac", "line": "Ta vague (S) repousse plus loin et étourdit les ennemis qu'elle emporte."},
+	"fig_point": {"fx": [["fx_dmg", "{v%} %", "par kunai"], ["t_multi", "3", "kunai"]],
+		"tw": "Pointe", "line": "Quand tu traces un V, trois kunai d'encre partent de la pointe et percent la ligne d'ennemis."},
+	"fig_point_more": {"fx": [["t_multi", "+{v}", "kunai"]],
+		"tw": "Kunai", "line": "Ta pointe (V) lance plus de kunai, en éventail plus large."},
+	"fig_triangle": {"fx": [["fx_dmg", "{v%} %", "fermeture"], ["hourglass", "3 s", "figés"]],
+		"tw": "Triangle", "line": "Quand tu traces un triangle fermé, un sceau fige les ennemis dedans, puis les frappe en se refermant."},
+	"fig_triangle_long": {"fx": [["hourglass", "+{v} s", "sceau"], ["fx_radius", "×1,3", "taille"]],
+		"tw": "Kekkai", "line": "Ton sceau (triangle) tient plus longtemps et déborde un peu de ton tracé."},
 }

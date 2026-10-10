@@ -54,7 +54,8 @@ const LESSON := [
 ]
 # technique de chaque figure (celle de son rouleau), en petit sous la figure ; glossaire du handoff v2 §6 :
 # l'ensō déclenche l'onde de choc (« ensō » sous ENSO ne répétait que le nom de la figure)
-const TECH := {"loop": "toupie", "zigzag": "éclair", "straight": "iaï", "return": "garde", "enso": "onde de choc", "hook": "estoc"}
+const TECH := {"loop": "toupie", "zigzag": "éclair", "straight": "iaï", "return": "garde", "enso": "onde de choc", "hook": "estoc",
+	"wave": "ressac", "point": "kunai", "triangle": "kekkai"}
 const GLUE := [":", ";", "!", "?", "%", "=", "»", "..."]
 const FIG_TEXT := {
 	"loop": "Une boucle",
@@ -63,6 +64,9 @@ const FIG_TEXT := {
 	"return": "Un aller-retour",
 	"enso": "Un grand cercle",
 	"hook": "Un crochet",
+	"wave": "Une vague",
+	"point": "Une pointe",
+	"triangle": "Un triangle",
 }
 # durée de vie (s réelles, arrêt sur image non compté) ; 0 : jusqu'au geste
 const LIFE := {"stroke": 0.0, "cut": 7.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0, "seal": 9.0}
@@ -590,7 +594,16 @@ func _draw_hint(u: float, insets: Vector2) -> void:
 	_finger(c + Vector2(0, 3.0 * u * press), u, k, 1.0 - press)
 
 
-## Leçon des figures (arrêt sur image) : planche de papier, une ligne, puis les six figures qui se
+## Figures de la planche : les six du départ, puis celles de l'arbre déjà apprises (meta.fig_learned).
+func _lesson_figs() -> Array:
+	var out: Array = []
+	for f in UiKit.FIGURES:
+		if not String(f) in UiKit.FIGURES_TREE or (main != null and main.meta != null and bool(main.meta.fig_learned(String(f)))):
+			out.append(String(f))
+	return out
+
+
+## Leçon des figures (arrêt sur image) : planche de papier, une ligne, puis les figures connues qui se
 ## tracent en boucle. Vignettes monotones : même papier assombri, liseré sumi fin, trait à l'encre sumi,
 ## point de départ vermillon (seul accent) ; nom et technique à l'encre.
 func _draw_lesson(u: float, a: float) -> void:
@@ -612,7 +625,8 @@ func _draw_lesson(u: float, a: float) -> void:
 	var tile := cell * 0.6
 	var cell_h := tile + float(lfs) * 1.5 + float(sfs) * 1.5 + 8.0 * u
 	var head_h := float(tfs) * 1.4
-	var h := pad + head_h + 6.0 * u + float(rows.size()) * lh + 12.0 * u + 2.0 * cell_h + pad
+	var figs := _lesson_figs()
+	var h := pad + head_h + 6.0 * u + float(rows.size()) * lh + 12.0 * u + ceilf(float(figs.size()) / 3.0) * cell_h + pad
 	var top_min: float = main.hud.top_clear()
 	top_min += 8.0 * u
 	var y0 := clampf(size.y * 0.44 - h * 0.5, top_min, maxf(top_min, size.y - h - 130.0 * u))
@@ -638,10 +652,10 @@ func _draw_lesson(u: float, a: float) -> void:
 		draw_string(_ui, Vector2(r.position.x + pad + 14.0 * u, by), line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Toon.ui_ink, a))
 		y += lh
 	y += 12.0 * u
-	# les six figures (trois par ligne), décalées dans le temps
+	# les figures (trois par ligne), décalées dans le temps
 	var gx := r.position.x + (w - 3.0 * cell) * 0.5
-	for i in UiKit.FIGURES.size():
-		var kind := String(UiKit.FIGURES[i])
+	for i in figs.size():
+		var kind := String(figs[i])
 		var cx := gx + cell * (float(i % 3) + 0.5)
 		var cy := y + cell_h * floorf(float(i) / 3.0)
 		var box := Rect2(Vector2(cx - tile * 0.5, cy), Vector2(tile, tile))
