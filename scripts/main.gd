@@ -149,7 +149,6 @@ const SEALED_TWO := 0.35  # ... et un deuxième (jamais plus de deux)
 const SEALED_PICK := 0.45  # chance qu'un ennemi éligible soit le scellé (pas toujours le deuxième venu)
 const SEALED_GOLD := 3  # pièces lâchées par un sceau brisé
 const SEALED_INK := 0.25  # part de la jauge d'encre rendue par un sceau brisé
-const BotShapes = preload("res://scripts/bot_shapes.gd")  # (captures : la figure tracée à travers un scellé)
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const ROOMS := 15  # combats d'un monde
 const MINI_ROOM := 8  # combat du mini-boss (son arène)
