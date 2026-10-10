@@ -140,6 +140,7 @@ const SEAL_CHANCE := 0.5  # part des coffres de recoin scellés
 const SEAL_NEAR := 3.0  # le trait passe à moins de 3 m du coffre
 const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l'expérience du niveau suivant)
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
+const OniShrine = preload("res://scripts/oni_shrine.gd")  # sanctuaire d'oni du défi d'élite (recoins)
 # yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un cadenas au-dessus de
 # la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
 # (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
@@ -451,6 +452,8 @@ var _seal_quota := 0  # scellés encore possibles dans ce combat
 var _room_spawned := 0  # ennemis posés depuis le début du combat (le premier n'est jamais scellé)
 var _cap_fige := -1.0  # captures (`fige=`) : délai entre le coup sur le sceau et l'image figée (< 0 : rien)
 var _cap_frozen := false
+var _cap_oni_fige := -1.0  # captures (`figeoni=X`) : image figée X s après le début de l'invocation du sanctuaire d'oni
+var _cap_oni_win := false  # captures (`vaincu`) : l'élite du sanctuaire d'oni meurt aussitôt parue
 # combat de boss sans dégât
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
@@ -728,6 +731,11 @@ func _ready() -> void:
 			get_tree().create_timer(float(wsearch.substr(rq + 5).get_slice("&", 0)), true, false, true).timeout.connect(_puzzle_fail.bind(cpk, ""))
 	elif pq >= 0 and state == "play":
 		spawn_puzzle(pqk, hero.position + Vector3(0, 0, -3.4))
+	# `?onisha` (captures) : un sanctuaire d'oni posé devant le héros, à la distance de jeu (`&oniseal` : celui du sceau
+	# de l'oni des portes) ; `invoque=T` : l'invocation à T s ; `figeoni=X` : image figée X s après son début ;
+	# `vaincu` : l'élite meurt aussitôt parue (sanctuaire éteint)
+	if "onisha" in wsearch and state == "play":
+		_capture_oni(wsearch)
 	# `?scelle=loop` (captures) : un yōkai scellé (figure loop ; `kind=kappa`) et deux autres, figés devant le héros ;
 	# `ricoche=1.5` : un trait droit le traverse à 1,5 s (le coup ricoche) ; `brise=2` : à 2 s, le héros trace sa
 	# figure à travers lui (le sceau se brise) ; `loin=1` : posés plus loin (distance de jeu ordinaire)
@@ -1287,6 +1295,11 @@ func _warmup() -> void:
 			# coffre scellé : chaîne, ofuda, sceau, plaque et son encre, gouttes du déverrouillage
 			PuzzleArt.build_seal(pn, {}, "loop", 1.0)
 			PuzzleArt.warm_seal(pn)
+	# sanctuaire d'oni en pleine invocation (colonne d'encre, flamme, lueurs) et fumée de l'extinction
+	var onw := Node3D.new()
+	w.add_child(onw)
+	onw.position = Vector3(3.0, 0, 5.5)
+	OniShrine.warm(onw)
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
 	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
 	# portes à deux sceaux : faces des dix sceaux rastérisées d'avance (cache de svg_tex), matières du sceau
@@ -4335,7 +4348,12 @@ func _build_pockets() -> void:
 		var pn := _pocket_node(k, p)
 		if sealed and k == "spring":
 			_seal_spring(pn)  # sceau du cœur : la source elle-même est vermillon (plus de sceau flottant)
-		_pockets.append({"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed})
+		var pk := {"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed}
+		if k == "elite":
+			pk["oni"] = pn.get_meta("oni")
+			if sealed:
+				OniShrine.mark_seal(pk["oni"])  # sceau de l'oni : le sanctuaire couve déjà (lanternes rouges, braises)
+		_pockets.append(pk)
 
 
 const SPRING_RED := Color("#C8322A")  # eau de la source du sceau du cœur
@@ -4430,22 +4448,19 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			var glint := _disc(n, 0.85, Toon.flat(Color("#9FE8C8", 0.22)), 0.02)
 			glint.name = "Glint"
 		"elite":
-			var stone2 := Toon.mat_shared(Color("#55525A"))
-			Toon.part(n, Toon.box(Vector3(0.5, 0.12, 0.4)), stone2, Vector3(0, 0.06, 0))
-			Toon.part(n, Toon.box(Vector3(0.34, 0.9, 0.16)), stone2, Vector3(0, 0.55, 0))
-			Toon.part(n, Toon.box(Vector3(0.2, 0.3, 0.02)), Toon.mat_shared(Toon.VERMILION, false), Vector3(0, 0.65, 0.09))
-			_disc(n, 1.2, Toon.flat(Color(Toon.VERMILION, 0.18)), 0.02)
-			# deux cornes d'oni en papier au sommet de la pierre (plus de kanji : UI v2), l'ofuda vermillon dessous
-			var horn := Toon.mat_shared(Toon.WASHI, true, 0.025)
-			for sx in [-1.0, 1.0]:
-				var h := Toon.part(n, Toon.cyl(0.0, 0.05, 0.22, 8), horn, Vector3(float(sx) * 0.1, 1.08, 0))
-				h.rotation = Vector3(0, 0, float(-sx) * 0.3)
+			# sanctuaire d'oni (oni_shrine.gd), tourné un peu vers le milieu de l'étape (l'élite paraît devant)
+			var mid: float = arena.stage_rect.get_center().x if arena.stage else 0.0
+			var yaw := (OniShrine.YAW * (1.0 if p.x <= mid else -1.0)) if absf(p.x - mid) > 0.3 else 0.0
+			OniShrine.build(n, current_world, yaw, Callable(arena, "walkable") if arena.stage else Callable())
 	return n
 
 
 ## Le héros touche un recoin : coffre (or, expérience), source (1 cœur), défi (un ennemi d'élite apparaît).
 func _update_pockets() -> void:
 	for pk in _pockets:
+		if String(pk["kind"]) == "elite":
+			_update_oni(pk)  # (vit aussi après l'appel : invocation, défi en cours, extinction)
+			continue
 		if bool(pk["used"]):
 			continue
 		var p: Vector3 = pk["pos"]
@@ -4496,14 +4511,76 @@ func _update_pockets() -> void:
 					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
 					sfx.play("shrine", 1.4, -4.0)
 					hud.toast("SOIN +%d" % (SEAL_HEAL if bool(pk.get("seal", false)) else 1))
-			"elite":
-				if d < 3.0 and _enc < 0:
-					pk["used"] = true
-					_spawn_elite(p, bool(pk.get("seal", false)))
-					if is_instance_valid(n):
-						n.queue_free()
 			"puzzle":
 				_update_puzzle(pk, n, d)
+
+
+## Capture `?onisha` : sanctuaire d'oni à 1,3 m à droite et 3,6 m devant le héros (hors du rayon d'appel).
+func _capture_oni(wsearch: String) -> void:
+	meta.tuto_done = true
+	for pk in _pockets:
+		if String(pk["kind"]) == "elite" and is_instance_valid(pk["node"]):
+			(pk["node"] as Node).queue_free()
+	_pockets = _pockets.filter(func(pk: Dictionary) -> bool: return String(pk["kind"]) != "elite")
+	var p: Vector3 = arena.clamp_walk(hero.position + Vector3(1.3, 0, -3.6), 1.0)
+	p.y = 0.0
+	var sealed := "oniseal" in wsearch
+	var pn := _pocket_node("elite", p)
+	var pk := {"kind": "elite", "pos": p, "used": false, "node": pn, "seal": sealed, "oni": pn.get_meta("oni")}
+	if sealed:
+		OniShrine.mark_seal(pk["oni"])
+	_pockets.append(pk)
+	_cap_oni_win = "vaincu" in wsearch
+	var fq := wsearch.find("figeoni=")
+	if fq >= 0:
+		_cap_oni_fige = float(wsearch.substr(fq + 8).get_slice("&", 0))
+	var iq := wsearch.find("invoque=")
+	if iq >= 0:
+		pk["cap_at"] = float(wsearch.substr(iq + 8).get_slice("&", 0))  # en temps de jeu (run_time)
+
+
+## Sanctuaire d'oni d'un recoin : le héros approche (hors combat) -> invocation (OniShrine, ≈ 1,2 s), l'élite paraît
+## devant à OniShrine.SPAWN_T ; tant qu'elle vit le sanctuaire brûle rouge, sa mort l'éteint (fumée, masque fendu).
+func _update_oni(pk: Dictionary) -> void:
+	var nv = pk["node"]  # sans type : peut avoir été libéré
+	if not is_instance_valid(nv) or not pk.has("oni"):
+		return
+	var n: Node3D = nv
+	var o: Dictionary = pk["oni"]
+	var st := String(o["state"])
+	if st == "idle":
+		var p: Vector3 = pk["pos"]
+		var d := Vector2(hero.position.x - p.x, hero.position.z - p.z).length()
+		if not bool(pk["used"]) and ((d < OniShrine.TRIGGER_R and _enc < 0) or run_time >= float(pk.get("cap_at", INF))):
+			_oni_summon(pk)
+	elif st == "summon":
+		if not pk.has("foe") and run_time - float(o["t0"]) >= OniShrine.SPAWN_T:
+			var e := _spawn_elite(OniShrine.front(n, o), bool(pk.get("seal", false)))
+			pk["foe"] = e
+	if (st == "summon" or st == "active") and pk.has("foe"):
+		var fv = pk["foe"]
+		if _cap_oni_win and is_instance_valid(fv) and not bool(fv.dead) and not bool(fv.is_harmless()):
+			for _i in 40:
+				damage_enemy(fv, 9999.0, false)  # capture (`vaincu`) : le défi est relevé dès que l'élite est vulnérable
+		if not is_instance_valid(fv) or bool(fv.dead):
+			OniShrine.extinguish(o, run_time)
+			sfx.play("puff", 0.7, -4.0)
+	for cue in OniShrine.update(o, run_time):
+		match String(cue):
+			"fire":
+				sfx.play("fire", 0.8, -3.0)
+			"gust":
+				sfx.play("gust", 0.75, -2.0)
+				shake = maxf(shake, 0.18)
+	if _cap_oni_fige >= 0.0 and String(o["state"]) != "idle" and run_time - float(o["t0"]) >= _cap_oni_fige:
+		_cap_oni_fige = -1.0
+		_cap_frozen = true  # capture (`figeoni=`) : image figée à cet instant de l'invocation
+
+
+func _oni_summon(pk: Dictionary) -> void:
+	pk["used"] = true
+	OniShrine.summon(pk["oni"], run_time)
+	sfx.play("shrine", 0.55, -2.0)  # cloche grave : l'appel
 
 
 ## Coffre ouvert : le couvercle saute, colonne de lumière, butin. `rich` (coffre scellé) : plus d'or et
@@ -4587,7 +4664,7 @@ func _unseal_chest(pk: Dictionary) -> void:
 
 
 ## Défi d'un recoin : un costaud d'élite, plus gros et plus solide, qui garde un butin.
-func _spawn_elite(p: Vector3, seal := false) -> void:
+func _spawn_elite(p: Vector3, seal := false) -> Enemy:
 	var e := Enemy.new()
 	e.setup("brute", hero, self)
 	_discover("brute")
@@ -4610,8 +4687,10 @@ func _spawn_elite(p: Vector3, seal := false) -> void:
 	enemies.append(e)
 	shake = maxf(shake, 0.3)
 	sfx.play("strike", 0.45)
-	_splash(p + Vector3(0, 0.4, 0), Toon.VERMILION, 20)
+	_splash(e.position + Vector3(0, 0.4, 0), Toon.VERMILION, 20)
 	hud.banner("DÉFI", "GARDIEN D'ÉLITE", Toon.VERMILION, 1.6)
+	vfx.ring(Vector3(e.position.x, 0.05, e.position.z), Toon.SUMI, 1.8)  # anneau d'encre (le vermillon au sol annonce les attaques)
+	return e
 
 
 # ------------------------------------------------------------------ énigmes des recoins
