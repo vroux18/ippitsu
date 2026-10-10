@@ -72,7 +72,7 @@ const Worlds = preload("res://scripts/worlds.gd")
 const WorldMap = preload("res://scripts/worldmap.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Refuge = preload("res://scripts/refuge.gd")
-const Bestiary = preload("res://scripts/bestiary.gd")  # bestiaire (bouton BESTIAIRE de l'accueil)
+const Bestiary = preload("res://scripts/bestiary.gd")  # base_kind : clé de comptage des ennemis (écran bestiaire retiré)
 const BOT_PATH := "res://scripts/bot.gd"  # robot du CI : chargé seulement avec `-- --bot`
 const PowersRecap = preload("res://scripts/powers_recap.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -513,7 +513,6 @@ func _ready() -> void:
 	ref_layer.add_child(refuge)
 	refuge.closed.connect(_on_refuge_closed)
 	_setup_wardrobe()
-	_setup_bestiary()
 	menu.atelier_pressed.connect(_on_atelier)
 	menu.worlds_pressed.connect(_on_home_worlds)
 	menu.world_step.connect(_on_home_world_step)
@@ -783,13 +782,6 @@ func _ready() -> void:
 				for pid in PowerData.POWERS.keys():
 					if String(pid).begins_with(fid + "_"):
 						powers.levels[String(pid)] = 1
-	# `?bestiaire` (captures) : ouvre l'encyclopédie des yōkai depuis l'accueil (avec `unlockall` : complète)
-	if "bestiaire" in wsearch:
-		_open_bestiary()
-		# `?bestiaire&fiche=kappa` (`boss_uwabami`, ou l'index N) : ce détail de l'encyclopédie ouvert
-		var bf := wsearch.find("fiche=")
-		if bf >= 0:
-			bestiary.call("open_fiche", wsearch.substr(bf + 6).get_slice("&", 0))
 	# `?carnet` (captures) : le dojo, carnet des figures ouvert
 	if "carnet" in wsearch:
 		_start_dojo()
@@ -2233,36 +2225,6 @@ func _on_wardrobe_closed() -> void:
 	menu.sumi = meta.sumi
 	if is_instance_valid(hero):
 		hero.face(Vector3(0, 0, -1))
-	if state == "menu":
-		menu.show_mode("home")
-
-
-## Bestiaire (bouton de l'accueil) : écran plein par-dessus l'accueil, portraits 3D des ennemis rencontrés.
-func _setup_bestiary() -> void:
-	var bl := CanvasLayer.new()
-	bl.layer = 4
-	add_child(bl)
-	bestiary = Bestiary.new()
-	bestiary.set("meta", meta)
-	bestiary.set("main", self)
-	bestiary.set("minis", MINI_BOSS)
-	bestiary.set("bosses", WORLD_BOSS)
-	bl.add_child(bestiary)
-	bestiary.connect("closed", _on_bestiary_closed)
-	menu.bestiary_pressed.connect(_open_bestiary)
-
-
-func _open_bestiary() -> void:
-	if state != "menu":
-		return
-	_save_bestiary()
-	sfx.play("whoosh", 0.9, -4.0)
-	menu.show_mode("hidden")
-	bestiary.call("open")
-
-
-func _on_bestiary_closed() -> void:
-	meta.save_data()  # fiches ouvertes (points vermillon)
 	if state == "menu":
 		menu.show_mode("home")
 
