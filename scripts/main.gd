@@ -4841,6 +4841,9 @@ func _launch(s: MeshInstance3D) -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = s
+	# la figure se lit sur le trait tel que tracé : l'allongement d'Oikaze (rogné aux murs) coudait le trait et
+	# lui faisait perdre sa figure (trait droit, crochet) au relâchement
+	var fig: Dictionary = _detect_fig(s) if s.length >= 2.0 else {}
 	# Oikaze (vent arrière) : un trait dans le sens du précédent est poussé plus loin, gratuitement
 	var ext: float = powers.stroke_extend(s.points)
 	if ext > 0.0:
@@ -4871,7 +4874,7 @@ func _launch(s: MeshInstance3D) -> void:
 	_auto_step = false  # un vrai trait reprend la main sur le pas de côté automatique
 	_safe_point = s.points[0]
 	powers.on_stroke_release(s.points)
-	_shape = _detect_fig(s) if s.length >= 2.0 else {}
+	_shape = fig
 	s.set_figure(String(_shape.get("shape", "")))
 	_fig_mods = {}
 	if not _shape.is_empty():
