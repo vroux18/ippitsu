@@ -26,6 +26,7 @@ const TEXTS := {
 	"ult": "Double tap : ultime",
 	"run": "Maintiens : cours",
 	"figures": "Un zigzag",
+	"seal": "Brise le sceau",
 }
 # une ligne sous le titre (comme la planche Coach : « Le ronin suit ton doigt et tranche. »)
 const SUBS := {
@@ -36,6 +37,7 @@ const SUBS := {
 	"run": "Doigt posé : le ronin court.",
 	"figures": "Une forme frappe plus fort.",
 	"figure": "Sa technique est à toi.",
+	"seal": "Trace sa figure à travers lui.",
 }
 # picto du sceau du bandeau (clé ui_icons.gd, ou glyph UiKit) ; les leçons de figure montrent la figure elle-même
 const ICONS := {"stroke": "hud/slash", "cut": "hud/slash", "ink": "water", "ult": "interface/double_tap", "run": "effets/vitesse"}
@@ -63,8 +65,11 @@ const FIG_TEXT := {
 	"hook": "Un crochet",
 }
 # durée de vie (s réelles, arrêt sur image non compté) ; 0 : jusqu'au geste
-const LIFE := {"stroke": 0.0, "cut": 7.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0}
-const ORDER := ["stroke", "cut", "figures", "ult", "figure", "ink", "run"]
+const LIFE := {"stroke": 0.0, "cut": 7.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0, "seal": 9.0}
+const ORDER := ["stroke", "cut", "figures", "seal", "ult", "figure", "ink", "run"]
+# leçons hors tutoriel (meta.COACH_EXTRA) : elles viennent une fois, même le tutoriel fini (le premier yōkai scellé
+# arrive à l'étape 2, souvent après la fin du tutoriel)
+const EXTRA := ["seal"]
 var _lesson_bottom := -1.0  # bas de la planche des figures à cette image (< 0 : pas de planche)
 const GAP := 0.8  # silence entre deux bulles
 const SLOW := 0.3  # temps ralenti tant que le premier trait n'est pas tracé
@@ -128,7 +133,14 @@ static func _cubic(out: PackedVector2Array, p0: Vector2, p1: Vector2, p2: Vector
 
 
 func active() -> bool:
-	return main != null and main.meta != null and not bool(main.meta.tuto_done)
+	if main == null or main.meta == null:
+		return false
+	return not bool(main.meta.tuto_done) or mark in EXTRA or _extra_due()
+
+
+## Leçon hors tutoriel à montrer maintenant (le tutoriel fini) : premier yōkai scellé croisé.
+func _extra_due() -> bool:
+	return not seen("seal") and _in_play() and _sealed() != null
 
 
 func _in_play() -> bool:
@@ -208,13 +220,15 @@ func on_pick(id: String) -> void:
 func on_launch(shape: String) -> void:
 	if mark == "":
 		return
-	if mark == "stroke" or (mark == "figure" and shape == _fig) or (mark == "figures" and shape != ""):
+	var se := _sealed() if mark == "seal" else null
+	if mark == "stroke" or (mark == "figure" and shape == _fig) or (mark == "figures" and shape != "") \
+			or (se != null and shape == String(se.seal_fig)):
 		_finish()
 
 
 ## Gestes signalés par main : "hit" (le trait a touché), "ult", "run".
 func on_event(ev: String) -> void:
-	if (ev == "hit" and mark == "cut") or (ev == "ult" and mark == "ult") or (ev == "run" and mark == "run"):
+	if (ev == "hit" and mark == "cut") or (ev == "ult" and mark == "ult") or (ev == "run" and mark == "run") or (ev == "seal" and mark == "seal"):
 		_finish()
 
 
@@ -289,6 +303,9 @@ func _wanted(id: String) -> bool:
 			return not bool(main._explore) and float(main.elan) < float(main.elan_max()) * 0.35
 		"figure":
 			return _fig != ""
+		"seal":
+			# premier yōkai scellé (après la leçon des figures si le tutoriel est en cours)
+			return (seen("figures") or bool(main.meta.tuto_done)) and not bool(main.hero.dashing) and _sealed() != null
 		"ult":
 			return float(main.ult) >= 1.0 and not bool(main.in_hub)
 		"run":
@@ -296,6 +313,22 @@ func _wanted(id: String) -> bool:
 			return bool(main._explore) and not bool(main.in_hub) and bool(ar.stage) and int(main._enc) < 0 \
 				and int(ar.zones_done()) >= 1 and int(ar.zones_left()) > 0
 	return false
+
+
+## Yōkai scellé vivant et visible le plus proche du héros (leçon « seal »), ou null.
+func _sealed() -> Node3D:
+	if main.get("enemies") == null or not is_instance_valid(main.hero):
+		return null
+	var best: Node3D = null
+	var bd := 1.0e9
+	for e in main.enemies:
+		if not is_instance_valid(e) or e.dead or e.is_harmless() or String(e.seal_fig) == "":
+			continue
+		var d: float = (e as Node3D).position.distance_to(main.hero.position)
+		if d < bd:
+			bd = d
+			best = e
+	return best
 
 
 ## Ennemi vivant le plus proche du héros (pour « traverse-le »).
@@ -344,6 +377,8 @@ func _process(_delta: float) -> void:
 		elif _gap <= 0.0:
 			for id in ORDER:
 				var sid := String(id)
+				if bool(main.meta.tuto_done) and not EXTRA.has(sid):
+					continue  # tutoriel fini : seules les leçons hors tutoriel
 				if not seen(sid) and _wanted(sid):
 					_show(sid)
 					break
@@ -425,6 +460,10 @@ func _draw() -> void:
 			"figure", "ult", "run":
 				sc = feet
 				sr = Vector2(120.0, 150.0) * u
+			"seal":
+				var se := _sealed()
+				sc = _screen(se.position + Vector3(0, 1.0, 0)).lerp(feet, 0.35) if se != null else feet
+				sr = Vector2(110.0, 170.0) * u
 		if sc.x < -9000.0 or mark == "" or mark == "figures":
 			draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, _veil))
 		else:
@@ -464,6 +503,11 @@ func _draw() -> void:
 		"figure":
 			txt = String(FIG_TEXT.get(_fig, "Dessine la figure"))
 			icon = "fig:" + _fig
+		"seal":
+			var se := _sealed()
+			if se != null:
+				icon = "fig:" + String(se.seal_fig)
+				_ghost_line(_screen(hp), _screen(se.position), u, a)
 		"figures":
 			icon = "fig:zigzag"
 			if _fz >= 0.0:

@@ -1,5 +1,6 @@
 extends RefCounted
-## Score d'une partie, propre au monde joué : chaque yokai abattu rapporte des points (moitié sans figure), multipliés par la chaîne
+## Score d'une partie, propre au monde joué : chaque yokai abattu rapporte des points (moitié sans figure ; un scellé
+## brisé par sa figure compte comme une figure, plus SEAL_PTS), multipliés par la chaîne
 ## (ruées réussies d'affilée sans prendre de coup, main.chain) ; primes pour les figures qui tuent, les traits
 ## qui fauchent plusieurs ennemis, les combats nets ou rapides et les boss.
 ## Fin de partie : record du monde (meta), rang (梅 竹 松 極) et un peu d'encre selon le score.
@@ -10,6 +11,7 @@ const KILL_PTS := 50  # + 50 par point d'expérience du yokai : oni 100, kappa 1
 const ELITE_PTS := 300  # défi d'un recoin
 const FIGURE_PTS := 50  # par yokai tué par une figure (pendant la ruée ou sa technique)
 const PLAIN_KILL := 0.5  # yokai tué SANS figure (trait simple, pouvoir) : moitié des points de base ; les rangs se gagnent aux figures
+const SEAL_PTS := 250  # yokai scellé abattu par la figure de son ofuda (en plus du kill compté comme figure)
 const MULTI_PTS := 150  # par yokai au-delà du premier, fauchés d'un même trait
 const CLEAN_PTS := 500  # combat sans un coup reçu
 const FAST_PTS := 400  # combat bouclé avant le temps de référence
@@ -152,6 +154,11 @@ func on_kill(xp: int, elite: bool, figure: bool, chain: int) -> void:
 		_gain(int(roundf(float(FIGURE_PTS) * fig_mult)), chain, "FIGURE")
 	if elite:
 		_gain(ELITE_PTS, chain, "DÉFI")
+
+
+## Sceau brisé par la bonne figure (main._seal_break) : le kill lui-même compte déjà comme une figure (on_kill).
+func on_seal(chain: int) -> void:
+	_gain(SEAL_PTS, chain, "SCEAU")
 
 
 ## Une figure vient de finir : ses techniques ont un court moment pour tuer.

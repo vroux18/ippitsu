@@ -82,6 +82,46 @@ static func plan(shape: String, o: Vector3, toward: Vector3, clamp_fn: Callable)
 	return PackedVector3Array()
 
 
+## Figure `shape` tracée depuis `o` qui passe à moins de `r` de `target` (yōkai scellé : sa figure doit le
+## toucher). Pour chaque côté, on repère sur la figure orientée vers +x les points à la distance de la cible, puis
+## on la tourne pour que l'un d'eux tombe sur elle (le plus tôt dans le trait d'abord) ; chaque essai est vérifié
+## (figure reconnue après le tracé simulé, passage près de la cible). Points de passage, ou vide.
+static func through(shape: String, o: Vector3, target: Vector3, r: float, clamp_fn: Callable) -> PackedVector3Array:
+	var o0 := Vector3(o.x, 0.0, o.z)
+	var to := Vector3(target.x - o.x, 0.0, target.z - o.z)
+	var d := to.length()
+	if d < 0.5:
+		return plan(shape, o0, target, clamp_fn)
+	var ang_t := atan2(to.z, to.x)
+	var free := func(p: Vector3) -> Vector3: return p
+	var cands: Array = []  # [indice dans le trait, angle, côté]
+	for side: float in [1.0, -1.0]:
+		var ref := simulate(o0, waypoints(shape, o0, Vector3(1, 0, 0), side), free)
+		var last := -9
+		for i in range(1, ref.size()):
+			var q := ref[i] - o0
+			if absf(q.length() - d) < 0.2 and i - last > 4:
+				last = i
+				cands.append([i, ang_t - atan2(q.z, q.x), side])
+	cands.sort_custom(func(a: Array, b: Array) -> bool: return int(a[0]) < int(b[0]))
+	var tries := 0
+	for c: Array in cands:
+		tries += 1
+		if tries > 10:
+			break
+		var a := float(c[1])
+		var wps := waypoints(shape, o0, Vector3(cos(a), 0.0, sin(a)), float(c[2]))
+		var sim := simulate(o0, wps, clamp_fn)
+		var near := 1.0e9
+		for q: Vector3 in sim:
+			near = minf(near, Vector2(q.x - target.x, q.z - target.z).length())
+		if near > r:
+			continue
+		if String(StrokeShapes.detect(sim).get("shape", "")) == shape:
+			return wps
+	return PackedVector3Array()
+
+
 ## Auto-contrôle : depuis quelques positions de l'arène, part de figures reconnues (forme -> [ok, essais]).
 static func self_check(clamp_fn: Callable) -> Dictionary:
 	var out := {}
