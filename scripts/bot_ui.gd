@@ -23,6 +23,8 @@ func run() -> void:
 	main.meta.coach_reset()
 	if not await _step_menu():
 		await _recover()
+	if not await _step_measure(true):
+		await _recover()
 	if not await _step_first_intro():
 		await _recover()
 	elif not await _step_coach("premier lancement"):
@@ -42,6 +44,9 @@ func run() -> void:
 	for w in range(1, Worlds.WORLDS.size() + 1):
 		if not await _step_world(w):
 			await _recover()
+	if String(main.state) != "menu" or String(main.menu.mode) != "home":
+		await _recover()
+	await _step_measure(false)
 	print("BOT UI bilan : %d étape(s) en échec" % _fails)
 	bot.finish()
 
@@ -276,6 +281,60 @@ func _intro_to_last() -> bool:
 	await _intro_ready()
 	await _frames(2)
 	return true
+
+
+## Mode mesure : appui long (1,5 s) sur le titre IPPITSU de l'accueil, qui le met en marche ou l'arrête.
+func _step_measure(on: bool) -> bool:
+	var mn = main.menu
+	if not await _until(func(): return String(main.state) == "menu" and String(mn.mode) == "home" and bool(mn.visible), "accueil (mode mesure)"):
+		return false
+	var p: Vector2 = (mn._title_rect() as Rect2).get_center()
+	var ev := InputEventMouseButton.new()
+	ev.button_index = MOUSE_BUTTON_LEFT
+	ev.pressed = true
+	ev.position = p
+	ev.global_position = p
+	mn.call("_unhandled_input", ev)
+	var ok := await _until(func(): return bool(main.measure.active) == on, "appui long sur le titre -> mode mesure %s" % ("activé" if on else "désactivé"), 4.0)
+	var up := ev.duplicate() as InputEventMouseButton
+	up.pressed = false
+	mn.call("_unhandled_input", up)
+	if not ok:
+		return false
+	await _frames(3)
+	return _check(bool(main.meta.measure_mode) == on and String(main.measure._toast) != "" and String(mn.mode) == "home"
+			and int(mn.sel_world) == int(main.current_world),
+		"mode mesure %s (appui long, sauvegardé, toast)" % ("activé" if on else "désactivé"),
+		"sauvegarde %s, toast « %s », mode %s" % [str(main.meta.measure_mode), String(main.measure._toast), String(mn.mode)])
+
+
+## Mode mesure en jeu : l'encart paraît et relève ; la pause porte COPIER LE RAPPORT et REMETTRE À ZÉRO.
+func _step_measure_pause() -> bool:
+	var ms = main.measure
+	if not bool(ms.active):
+		_ok("mode mesure inactif : pas d'encart")
+		return true
+	_check(bool(ms._shown) and int(ms.frames()) > 30, "mode mesure : encart en jeu, %d images relevées" % int(ms.frames()),
+		"encart %s, %d images" % [str(ms._shown), int(ms.frames())])
+	await _press(main.hud._pause, "pause")
+	if not await _until(func(): return String(main.state) == "paused" and String(main.menu.mode) == "pause", "pause (mode mesure)"):
+		return false
+	if not await _press(main.menu._rep_copy, "COPIER LE RAPPORT"):
+		return false
+	var rep := String(ms.last_report)
+	var rf := FileAccess.open("user://mesure_rapport.txt", FileAccess.WRITE)  # (exemple de rapport, hors presse-papiers)
+	if rf != null:
+		rf.store_string(rep + "\n")
+	var missing := ""
+	for k in ["Appareil :", "Système :", "Rendu :", "Durée mesurée :", "Global :", "Par état (ms) :\n- ", "Pires images"]:
+		if not k in rep:
+			missing += " « %s »" % k
+	_check(rep.length() > 200 and rep.length() <= 3000 and missing == "" and String(ms._toast) == "Rapport copié",
+		"mode mesure : rapport copié (%d caractères)" % rep.length(), "rubriques manquantes :%s ; toast « %s »" % [missing, String(ms._toast)])
+	await _press(main.menu._rep_reset, "REMETTRE À ZÉRO")
+	_check(int(ms.frames()) < 5, "mode mesure : remise à zéro", "%d images après la remise à zéro" % int(ms.frames()))
+	await _press(main.menu._resume, "REPRENDRE")
+	return await _until(func(): return String(main.state) == "play", "REPRENDRE (mode mesure)")
 
 
 func _step_first_intro() -> bool:
@@ -1157,6 +1216,9 @@ func _step_pause_recap() -> bool:
 	var p = main.powers
 	for id in ["fire_burn", "water_foam", "bolt_arc", "wind_long", "shadow_back", "ink_daruma", "fire_fudo", "water_kanagawa", "ink_enso"]:
 		p.add(String(id))
+	await _settle_play("avant la pause")
+	if not await _step_measure_pause():
+		return false
 	await _settle_play("avant la pause")
 	await _press(main.hud._pause, "pause")
 	if not await _until(func(): return String(main.state) == "paused" and String(main.menu.mode) == "pause", "bouton pause"):
