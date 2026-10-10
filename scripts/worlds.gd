@@ -1794,10 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid <= 7:
-		_landscape(wid, ctx, rng)
-	else:
-		_ls_legacy(wid, ctx, rng)
+	_landscape(wid, ctx, rng)
 	# pièces de décor sur la terre ferme (tirages à part : le décor autour ne change pas)
 	if not pieces.is_empty():
 		_set_pieces(wid, ctx, pieces, _rng(rng_seed * 13 + 7))
@@ -2269,6 +2266,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 			return ["cedars", "stairs", "lanterns", "rope", "rocks", "cedars"]
 		7:
 			return ["reef", "kelp", "columns", "clams", "weed", "reef"]
+		8:
+			return ["jizo", "graves", "toro", "dead_trees", "sotoba", "graves"]
 		_:
 			return ["piles"]
 
@@ -2288,6 +2287,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 			_ls_near_kurama(ctx, p, s, k, rng)
 		7:
 			_ls_near_ryugu(ctx, p, s, k, rng)
+		8:
+			_ls_near_yomi(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2307,6 +2308,8 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 			_ls_mid_kurama(ctx, kind, a, b, s, rng)
 		7:
 			_ls_mid_ryugu(ctx, kind, a, b, s, rng)
+		8:
+			_ls_mid_yomi(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2344,6 +2347,11 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 				_ls_palace_ruin(ctx, c, s, rng)
 			else:
 				_ls_coral_massif(ctx, c, s, rng)
+		8:
+			if main:
+				_ls_graveyard(ctx, c, s, rng)
+			else:
+				_ls_dead_grove(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2366,6 +2374,8 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 			_ls_north_kurama(ctx, frame, rng)
 		7:
 			_ls_north_ryugu(ctx, frame, rng)
+		8:
+			_ls_north_yomi(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -3468,6 +3478,158 @@ static func _ls_north_ryugu(ctx: Dictionary, frame: Rect2, rng: RandomNumberGene
 			_kelp_into(bs, _at(Vector3(sx * (1.6 + k * 1.1), VOID_Y, top - 4.2 - rng.randf_range(0.0, 0.5))), rng, rng.randf_range(2.6, 3.6))
 	# linteau tombé en travers, devant la colonne brisée
 	_add(bs, lac, _box(Vector3(2.2, 0.3, 0.3)), _at(Vector3(3.0, VOID_Y + 0.15, top - 3.4), Vector3(0, 0.5, 0.12)))
+
+
+# --- monde 8 : rive du fleuve de Yomi (cimetière, jizō alignés, lanternes de pierre, arbres morts)
+
+const YOMI_GRAVE := Color("#7A7680")
+const YOMI_GRAVE_CAP := Color("#5E5A64")
+const YOMI_REED := Color("#5A5660")
+const YOMI_PAPER := Color("#D9D0E6")  # lanternes de papier pâles
+const YOMI_LIGHT := Color(0.75, 0.6, 1.0)
+
+
+## Rangée de jizō alignés le long de z (face à `face`), sur une butte de cendre allongée.
+static func _ls_jizo_row(ctx: Dictionary, c: Vector2, ln: float, face: float, n: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var ash := _toon(ASH, true, 0.02)
+	_add(bs, ash, _ball(0.5, 1.0, 12, 4), _at(Vector3(c.x, VOID_Y, c.y), Vector3.ZERO, Vector3(1.3, 0.3, ln)))
+	for k in n:
+		var q := Vector3(c.x + rng.randf_range(-0.05, 0.05), VOID_Y + 0.12, c.y + (float(k) - (n - 1) * 0.5) * (ln - 0.6) / maxf(float(n - 1), 1.0))
+		_jizo_into(bs, _at(q, Vector3(0, face + rng.randf_range(-0.15, 0.15), 0), Vector3.ONE * rng.randf_range(0.85, 1.0)))
+
+
+## Bande proche : roseaux gris, mottes de cendre, feux follets, ossements.
+static func _ls_near_yomi(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var dens: float = ctx["ls_dens"]
+	if k % 4 == 2:
+		var sc := rng.randf_range(0.4, 1.0)
+		_inst(ctx, "ash", _ball(0.5, 0.36, 9, 4), _toon(ASH, true, 0.02), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.7, sc * 1.1)))
+		return
+	if k % 7 == 5:
+		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), _glow(YOMI_GLOW, 1.4), _at(Vector3(p.x, VOID_Y + rng.randf_range(0.6, 1.4), p.y)))
+		return
+	if k % 10 == 8:
+		var top := _ash_mound_into(bs, p, 0.5, rng)
+		_bones_into(bs, p, rng, top - 0.08, 0.6)
+		return
+	var reed := _toon_ds(YOMI_REED)
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.22, 0.22), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.8, 1.4)
+		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.3, sc)))
+
+
+## Bande moyenne : jizō alignés, rangée de tombes, lanternes de pierre, arbres morts, sotoba et
+## lanternes de papier pâles.
+static func _ls_mid_yomi(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	var face := _face(Vector2(x, zc), x - s * 5.0, zc)
+	match kind:
+		"jizo":
+			_ls_jizo_row(ctx, Vector2(x + s * 0.1, zc), ln - 0.2, face, clampi(int(ln / 0.6), 3, 6), rng)
+		"graves":
+			var top := _ash_mound_into(bs, Vector2(x + s * 0.3, zc), minf(ln * 0.32, 1.3), rng)
+			var gm := _toon(YOMI_GRAVE, true, 0.02)
+			var cap := _toon(YOMI_GRAVE_CAP, false)
+			var n := 3 if ln < 4.0 else 4
+			for k in n:
+				var q := Vector3(x + s * (0.2 + 0.15 * (k % 2)), top - 0.1, zc + (float(k) - (n - 1) * 0.5) * 0.62)
+				_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.08, 0.08), face + rng.randf_range(-0.25, 0.25), rng.randf_range(-0.1, 0.1)), Vector3.ONE * rng.randf_range(0.75, 0.95)))
+			_sotoba_into(bs, _at(Vector3(x + s * 0.8, top - 0.1, zc - 0.2), Vector3(0, face, 0)), rng)
+		"toro":
+			for k in 2:
+				var q := Vector2(x + s * 0.1, zc + (k - 0.5) * minf(ln - 1.2, 2.4))
+				var top := _ash_mound_into(bs, q, 0.7, rng)
+				Decor.stone_lantern_into(bs, bn, _at(Vector3(q.x, top - 0.06, q.y), Vector3.ZERO, Vector3.ONE * 0.85))
+				if k == 0:
+					_light(ctx, Vector3(q.x, top + 0.7, q.y), YOMI_LIGHT, 0.6, 3.4)
+		"dead_trees":
+			var top := _ash_mound_into(bs, Vector2(x + s * 0.4, zc), minf(ln * 0.32, 1.3), rng)
+			_dead_pine_into(bs, _at(Vector3(x + s * 0.5, top - 0.06, zc - ln * 0.2), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.9, 1.1)), rng)
+			_dead_pine_into(bs, _at(Vector3(x + s * 0.2, top - 0.08, zc + ln * 0.22), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.6, 0.75)), rng)
+		_:
+			var top := _ash_mound_into(bs, Vector2(x + s * 0.2, zc), minf(ln * 0.3, 1.1), rng)
+			for k in 2:
+				_sotoba_into(bs, _at(Vector3(x + s * 0.2, top - 0.08, zc + (k - 0.5) * 1.0), Vector3(0, face + rng.randf_range(-0.2, 0.2), 0)), rng)
+			_bones_into(bs, Vector2(x - s * 0.2, zc), rng, top - 0.1, 0.6)
+			Decor.paper_lantern_into(bs, bn, _at(Vector3(x + s * 0.7, top - 0.08, zc + 0.9), Vector3(0, face + PI * 0.5, 0)), YOMI_PAPER, top - 0.4)
+
+
+## Cimetière (rive principale) : grande butte de cendre, deux rangs de tombes, sotoba, grande lanterne
+## de pierre allumée au milieu, arbre mort derrière, jizō et lanternes de papier pâles à l'entrée.
+static func _ls_graveyard(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var top := _ash_mound_into(bs, c + Vector2(s * 0.4, 0.0), 2.0, rng)
+	_contact(ctx, c, 1.8)
+	var gm := _toon(YOMI_GRAVE, true, 0.02)
+	var cap := _toon(YOMI_GRAVE_CAP, false)
+	# deux rangs : trois tombes devant, deux (plus hautes) derrière en quinconce
+	for k in 3:
+		var q := Vector3(c.x + s * 0.1, top - 0.1, c.y + (k - 1) * 0.7)
+		_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.06, 0.06), face + rng.randf_range(-0.2, 0.2), rng.randf_range(-0.08, 0.08)), Vector3.ONE * rng.randf_range(0.8, 0.95)))
+	for k in 2:
+		var q := Vector3(c.x + s * 0.9, top - 0.14, c.y + (k - 0.5) * 0.8)
+		_stele_into(bs, gm, cap, _at(q, Vector3(rng.randf_range(-0.06, 0.06), face + rng.randf_range(-0.2, 0.2), rng.randf_range(-0.08, 0.08)), Vector3.ONE * rng.randf_range(1.0, 1.15)))
+	_sotoba_into(bs, _at(Vector3(c.x + s * 1.0, top - 0.14, c.y + 1.4), Vector3(0, face, 0)), rng)
+	# lanterne de pierre allumée au bout du rang, arbre mort derrière
+	Decor.stone_lantern_into(bs, bn, _at(Vector3(c.x + s * 0.5, top - 0.1, c.y - 1.5), Vector3.ZERO, Vector3.ONE * 1.0))
+	_light(ctx, Vector3(c.x + s * 0.5, top + 0.75, c.y - 1.5), YOMI_LIGHT, 0.6, 3.6)
+	_dead_pine_into(bs, _at(Vector3(c.x + s * 1.9, top - 0.3, c.y - 0.4), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.05), rng)
+	_bones_into(bs, c + Vector2(s * 1.5, 0.9), rng, top - 0.25, 0.7)
+	# entrée côté arène : deux jizō et deux lanternes de papier pâles sur leurs perches
+	for sz: float in [-1.0, 1.0]:
+		_jizo_into(bs, _at(Vector3(c.x - s * 0.7, top - 0.2, c.y + sz * 0.45), Vector3(0, face, 0)))
+		if not Toon.lite or sz < 0.0:
+			Decor.paper_lantern_into(bs, bn, _at(Vector3(c.x - s * 0.9, top - 0.22, c.y + sz * 1.5), Vector3(0, face + PI * 0.5, 0)), YOMI_PAPER, top - 0.5)
+
+
+## Rive mineure : bosquet d'arbres morts sur une butte de cendre, ossements, feux follets, lanterne
+## d'Obon à la dérive.
+static func _ls_dead_grove(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _ash_mound_into(bs, c, 1.5, rng)
+	_contact(ctx, c, 1.4)
+	for k in (2 if Toon.lite else 3):
+		var q := Vector3(c.x + s * (0.1 + k * 0.4) - 0.3, top - 0.08 - k * 0.05, c.y + (float(k) - 1.0) * 0.9)
+		_dead_pine_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.7, 1.05)), rng)
+	_bones_into(bs, c + Vector2(-s * 0.6, 0.3), rng, top - 0.15, 0.8)
+	for k in 2:
+		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), _glow(YOMI_GLOW, 1.4), _at(Vector3(c.x + rng.randf_range(-0.8, 0.8), VOID_Y + rng.randf_range(0.8, 1.5), c.y + rng.randf_range(-0.8, 0.8))))
+	_toro_into(bn, _at(Vector3(c.x - s * 1.5, VOID_Y, c.y + 1.2), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Fond : allées de jizō de part et d'autre du chemin de sortie, arbres morts aux coins, lanternes de
+## papier pâles en rang, feux follets.
+static func _ls_north_yomi(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var gx := clampf(0.0, frame.position.x + 1.2, frame.end.x - 1.2)
+	for sx: float in [-1.0, 1.0]:
+		# jizō alignés le long du chemin qui s'enfonce dans Yomi, tournés vers lui
+		var jc := Vector2(gx + sx * 1.9, top - 3.6)
+		_ls_jizo_row(ctx, jc, 2.6, -sx * PI * 0.5, 4 if Toon.lite else 5, rng)
+		avoid.append(Vector3(jc.x, jc.y, 1.5))
+		var c := Vector2(sx * (frame.size.x * 0.5 + 1.4), top - 3.0)
+		var mt := _ash_mound_into(bs, c, 1.4, rng)
+		_dead_pine_into(bs, _at(Vector3(c.x, mt - 0.06, c.y), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.1), rng)
+		avoid.append(Vector3(c.x, c.y, 1.8))
+		for k in 2:
+			var q := Vector2(sx * (2.6 + k * 1.2), top - 1.9)
+			if _ok(ctx, q, 0.4, 0.0):
+				Decor.paper_lantern_into(bs, bn, _at(Vector3(q.x, VOID_Y + 0.1, q.y)), YOMI_PAPER, VOID_Y - 0.3)
+	for k in (3 if Toon.lite else 5):
+		_inst(ctx, "wisp", _ball(0.12, 0.24, 6, 3), _glow(YOMI_GLOW, 1.4), _at(Vector3(rng.randf_range(-5.0, 5.0), VOID_Y + rng.randf_range(0.7, 1.6), top - rng.randf_range(1.5, 4.5))))
 
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
