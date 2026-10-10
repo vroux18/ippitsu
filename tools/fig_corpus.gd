@@ -54,12 +54,6 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 			var why := ""
 			if got == "":
 				why = " — " + StrokeShapes.describe(StrokeShapes.near_miss(pts.slice(maxi(0, int(s.get("lead", -1))))))
-			if verbose:
-				# tous les candidats du geste seul (sans amorce) : note et condition la plus manquée
-				var ff: Dictionary = StrokeShapes._features(pts.slice(maxi(0, int(s.get("lead", -1)))))
-				if not ff.is_empty():
-					for c: Dictionary in StrokeShapes._candidates(ff, 0.0):
-						why += " | %s %.2f %s" % [String(c["shape"]), float(c["score"]), String(c["reason"])]
 			fails.append("%s : attendu '%s', obtenu '%s'%s" % [String(s["name"]), want, got, why])
 			if want == "":
 				fp += 1
