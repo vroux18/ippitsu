@@ -961,7 +961,7 @@ func _transit_to_room1(w: int) -> bool:
 			_fail("monde %d : torii du sanctuaire jamais atteint" % w)
 			return false
 		if String(main.state) == "play" and _hero_still():
-			bot.stroke_line(main.arena.gate_pos)
+			bot.stroke_line(main.arena.gate_goal(main.bot_gate()))
 		await _frames(4)
 	if not await _until(func(): return String(main.state) == "play" and not bool(main.in_hub) and bool(main.arena.stage), "monde %d : transit -> étape 1" % w):
 		return false

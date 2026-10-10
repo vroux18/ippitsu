@@ -38,30 +38,43 @@ const WORLD_LUM := {1: 1.0, 2: 0.88, 3: 0.95, 4: 0.9, 5: 0.97, 6: 0.94, 7: 0.9, 
 
 var world_id := 1
 var kinds: Array = ["fire", "gold"]
-var hero: Node3D = null  # héros suivi (approche) ; null : aucune approche
-var hover_force := -1  # maquette : porte forcée en état « approché » (-1 : selon la distance du héros)
+var hero: Node3D = null  # héros suivi (approche) ; retrouvé dans la scène s'il manque
+var hover_force := -1  # captures : porte forcée en état « approché » (-1 : selon la distance du héros)
 var hover: Array = [0.0, 0.0]  # éveil de chaque porte (0..1), lissé
-var _gates: Array = []  # par porte : {root, pivot, seal, halo, halo_mat, face_mat, ofuda, rope, rays, ray_mat, ph}
+var opened := false  # étape nettoyée : les portes s'éveillent (avant : sceaux visibles mais éteints)
+var _open_t := -1.0  # depuis l'éveil (s)
+var _flash: Array = [0.0, 0.0]  # éclat au passage d'une porte
+var _gates: Array = []  # par porte : {root, pivot, seal, halo_mat, face_mat, ofuda, rope, rays, ray_mat, ph, lum}
+var _dots: Array = []  # chemin d'encre : [MeshInstance3D, délai, taille]
 var _t := 0.0
 
+# chemin d'encre : liseré clair sur les sols les plus sombres (monde 8 : dalles violettes de Yomi)
+const LIGHT_DOTS := [8]
 
-## Construit les deux portes centrées sur (0, gate_z) ; `arena` : pour le chemin d'encre qui bifurque (points
-## posés sur la terre ferme seulement) et les paliers sous les torii hors de la terre ferme.
-func build(arena: Node, gate_z: float, from: Vector3) -> void:
+
+## Construit les deux portes, à ±GATE_DX du nœud (posé par arena au centre du parvis, sur gate_pos).
+func build(_arena: Node = null) -> void:
 	for i in 2:
-		var g := _build_gate(i, String(kinds[i]), Vector3((-1.0 if i == 0 else 1.0) * GATE_DX, 0, gate_z), arena)
-		_gates.append(g)
-	_fork_path(arena, gate_z, from)
+		_gates.append(_build_gate(i, String(kinds[i]), Vector3((-1.0 if i == 0 else 1.0) * GATE_DX, 0, 0)))
 
 
-func _build_gate(i: int, kind: String, pos: Vector3, arena: Node) -> Dictionary:
+## Étape nettoyée : les sceaux s'éveillent (halo, balancement), l'approche devient possible.
+func open() -> void:
+	if not opened:
+		opened = true
+		_open_t = 0.0
+
+
+## Éclat de la porte `i` franchie (rituel du torii).
+func flash(i: int) -> void:
+	if i >= 0 and i < 2:
+		_flash[i] = 1.0
+
+
+func _build_gate(i: int, kind: String, pos: Vector3) -> Dictionary:
 	var root := Node3D.new()
 	add_child(root)
 	root.position = pos
-	# palier de pierre sous le torii s'il déborde de la terre ferme (la maquette ne change pas la forme)
-	if arena != null and arena.has_method("walkable") and not bool(arena.call("walkable", pos + Vector3(0, 0, 0.3), 0.9)):
-		var slab := Toon.part(root, Toon.box(Vector3(2.9, 0.5, 1.6)), Toon.mat_shared(Color("#5E5753")), Vector3(0, -0.23, -0.15))
-		slab.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# corps de la porte : le torii de sortie (échelle 0.55, mêmes repères que arena._build_gate), agrandi de GATE_K
 	var body := Node3D.new()
 	root.add_child(body)
@@ -179,46 +192,70 @@ func _build_gate(i: int, kind: String, pos: Vector3, arena: Node) -> Dictionary:
 	return g
 
 
-## Chemin d'encre qui bifurque : un tronc depuis le héros, puis une branche vers chaque torii.
-func _fork_path(arena: Node, gate_z: float, from: Vector3) -> void:
-	var fork := Vector3(0, 0, gate_z + 3.6)
-	var m := Toon.flat(Color(Toon.SUMI, 0.62))
+## Chemin d'encre qui bifurque (à l'éveil) : un tronc depuis le héros, puis une branche vers chaque torii ;
+## les points (sur la terre ferme seulement) apparaissent l'un après l'autre.
+func path(arena: Node, from: Vector3) -> void:
+	var org := global_position
+	var fork := Vector3(org.x, 0, org.z + 3.6)
+	var light := world_id in LIGHT_DOTS
+	var m := Toon.flat(Color(Toon.WASHI, 0.6) if light else Color(Toon.SUMI, 0.62))
 	var disc := Toon.cyl(1.0, 1.0, 0.004, 10)
 	var legs: Array = [[Vector3(from.x, 0, maxf(from.z, fork.z + 0.8)), fork]]
 	for i in 2:
-		legs.append([fork, Vector3((-1.0 if i == 0 else 1.0) * GATE_DX, 0, gate_z + 0.7)])
-	for leg in legs:
-		var a: Vector3 = leg[0]
-		var b: Vector3 = leg[1]
+		legs.append([fork, Vector3(org.x + (-1.0 if i == 0 else 1.0) * GATE_DX, 0, org.z + 0.7)])
+	# les deux branches se tracent ensemble, après le tronc
+	var trunk: float = (legs[0][1] - legs[0][0]).length()
+	var span := trunk + maxf((legs[1][1] - legs[1][0]).length(), (legs[2][1] - legs[2][0]).length())
+	for li in legs.size():
+		var a: Vector3 = legs[li][0]
+		var b: Vector3 = legs[li][1]
 		var d := b - a
 		var n := int(d.length() / 0.5)
 		if n < 1:
 			continue
 		var side := Vector3(-d.z, 0, d.x).normalized()
-		for k in range(0, n + 1):
+		for k in range(0 if li == 0 else 1, n + 1):
 			var p := a + d * (float(k) / float(n)) + side * (0.1 if k % 2 == 0 else -0.1)
-			if arena != null and arena.has_method("walkable") and not bool(arena.call("walkable", p, 0.05)):
+			if arena != null and not bool(arena.call("walkable", p, 0.05)):
 				continue
 			var mi := MeshInstance3D.new()
 			mi.mesh = disc
 			mi.material_override = m
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(mi)
-			mi.position = Vector3(p.x, 0.022, p.z)
+			mi.position = Vector3(p.x - org.x, 0.022, p.z - org.z)
 			mi.rotation.y = randf() * PI
-			var s := randf_range(0.1, 0.13)
-			mi.scale = Vector3(s, 1, s * 1.25)
+			mi.scale = Vector3(0.001, 1, 0.001)
+			var at := ((0.0 if li == 0 else trunk) + d.length() * float(k) / float(n)) / maxf(span, 0.1)
+			_dots.append([mi, 0.9 * at, randf_range(0.1, 0.13)])
 
 
 func _process(delta: float) -> void:
 	_t += delta
+	if opened:
+		_open_t += delta
+	if hero == null:
+		var sc := get_tree().current_scene
+		if sc != null and sc.get("hero") is Node3D:
+			hero = sc.get("hero")
+	# éveil : un sursaut du sceau et de son halo
+	var wake := 0.0
+	if opened and _open_t < 0.9:
+		wake = sin(PI * clampf(_open_t / 0.9, 0.0, 1.0))
+	for dt in _dots:
+		var dm: MeshInstance3D = dt[0]
+		var kk := clampf((_open_t - float(dt[1])) / 0.18, 0.0, 1.0)
+		var sz: float = float(dt[2]) * (kk + 0.35 * sin(PI * kk))
+		dm.scale = Vector3(maxf(sz, 0.001), 1, maxf(sz * 1.25, 0.001))
 	for i in _gates.size():
 		var g: Dictionary = _gates[i]
 		var root: Node3D = g["root"]
 		var want := 0.0
+		_flash[i] = maxf(0.0, float(_flash[i]) - delta * 2.0)
+		var fl: float = _flash[i]
 		if hover_force >= 0:
 			want = 1.0 if hover_force == i else 0.0
-		elif hero != null and is_instance_valid(hero):
+		elif opened and hero != null and is_instance_valid(hero):
 			var dd := Vector2(hero.global_position.x - root.global_position.x, hero.global_position.z - root.global_position.z - 0.6).length()
 			want = clampf((NEAR - dd) / (NEAR - NEAR_FULL), 0.0, 1.0)
 		var h: float = move_toward(float(hover[i]), want, delta * 3.0)
@@ -230,26 +267,27 @@ func _process(delta: float) -> void:
 		pivot.rotation.z = sin(_t * 1.25 + ph) * (0.045 + 0.03 * e)
 		pivot.rotation.x = sin(_t * 0.9 + ph * 1.3) * 0.03
 		var seal: Node3D = g["seal"]
-		seal.scale = Vector3.ONE * (1.0 + 0.22 * e + 0.02 * sin(_t * 2.2 + ph))  # approché : ×1,22
+		seal.scale = Vector3.ONE * (1.0 + 0.22 * e + 0.02 * sin(_t * 2.2 + ph) + 0.12 * wake + 0.15 * fl)  # approché : ×1,22
 		# le sceau s'avance un peu vers la caméra (il sort du linteau)
 		seal.position = Vector3(0, SEAL_Y - PIVOT_Y - 0.08 * e, 0.06 + 0.25 * e)
 		var hm: StandardMaterial3D = g["halo_mat"]
-		# lueur douce au repos (un tiers, qui respire), pleine à l'approche
-		hm.albedo_color.a = (0.3 + 0.1 * sin(_t * 1.7 + ph)) * (1.0 - e) + e
+		# lueur douce au repos (un tiers, qui respire ; rien avant l'éveil), pleine à l'approche
+		var rest := (0.3 + 0.1 * sin(_t * 1.7 + ph)) if opened else 0.0
+		hm.albedo_color.a = minf(1.0, rest * (1.0 - e) + e + wake * 0.8 + fl)
 		var fm: StandardMaterial3D = g["face_mat"]
-		var lum: float = g["lum"]
-		var l := minf(1.0, lum + (1.0 - lum) * e)
+		var lum: float = float(g["lum"]) * (1.0 if opened else 0.86)
+		var l := minf(1.0, lum + (1.0 - lum) * maxf(e, fl))
 		fm.albedo_color = Color(l, l, l)
 		var k := 0
 		for om: StandardMaterial3D in g["ofuda"]:
-			om.emission_energy_multiplier = 2.2 * clampf(e * 1.6 - 0.1 * k, 0.0, 1.0)
+			om.emission_energy_multiplier = 2.2 * clampf(maxf(e, fl) * 1.6 - 0.1 * k, 0.0, 1.0)
 			k += 1
 		var rp: StandardMaterial3D = g["rope"]
 		rp.emission_energy_multiplier = 1.1 * e
 		var rays: MeshInstance3D = g["rays"]
-		rays.visible = e > 0.02
+		rays.visible = maxf(e, fl) > 0.02
 		var rmat: StandardMaterial3D = g["ray_mat"]
-		rmat.albedo_color = Color(1, 1, 1, e * (0.8 + 0.2 * sin(_t * 1.6 + ph)))
+		rmat.albedo_color = Color(1, 1, 1, minf(1.0, e * (0.8 + 0.2 * sin(_t * 1.6 + ph)) + fl))
 
 
 # ------------------------------------------------------------------ textures (peintes une fois, en cache)
@@ -298,6 +336,28 @@ const SEAL_GLYPH := {
 }
 
 
+## Petit sceau qui flotte au-dessus d'une récompense de sceau (source du cœur, défi de l'oni) : on reconnaît
+## ce qu'on a choisi au torii. Face caméra, à l'échelle du nœud.
+static func marker(parent: Node3D, kind: String, y := 1.7, size := 0.62) -> MeshInstance3D:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	m.alpha_scissor_threshold = 0.5
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.billboard_keep_scale = true
+	m.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	m.albedo_texture = face_tex(kind, 128)
+	var q := QuadMesh.new()
+	q.size = Vector2.ONE * size * 120.0 / 46.0
+	var mi := MeshInstance3D.new()
+	mi.mesh = q
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = Vector3(0, y, 0)
+	parent.add_child(mi)
+	return mi
+
+
 ## Face d'un sceau (gabarit 120 : anneau sumi r46, disque washi r42, filet r36.5 de 3, glyphe), rastérisée
 ## par UiKit.svg_tex (cache partagé) ; la face 3D couvre le viewBox entier (le disque fait 46/60 du quad).
 static func face_tex(kind: String, px := FACE_PX) -> Texture2D:
@@ -319,35 +379,54 @@ static func glow(kind: String) -> Color:
 	return Color(String(SEAL_COL.get(k, "#1B1A1E")))
 
 
-## Maquette (captures) : `?room=N&portes=fire,gold[&proche]` remplace la sortie de l'étape en cours par
-## les deux torii à sceaux ; `&proche` pose le héros devant la porte gauche (état « approché »).
+## Captures : `?room=N&portes=fire,gold[&proche][&sceau=heart]` reconstruit l'étape en cours avec ces deux
+## portes (étape nettoyée, portes éveillées) ; `&proche` pose le héros devant la porte gauche ; `&sceau=k` :
+## l'étape est construite comme si on avait franchi une porte à ce sceau (source, défi garantis…), le héros
+## posé devant la source ou le défi ; `&rouleau=fire` (ou `oni`) : ce rouleau de sceau s'ouvre aussitôt.
 static func mock(main: Node, q: String) -> void:
 	var arena: Node = main.get("arena")
-	var zones: Array = arena.get("zones")
-	for zi in zones.size():
-		arena.call("clear_zone", zi)
-	var old: Node3D = arena.get("_gate")
-	if old != null and is_instance_valid(old):
-		old.visible = false
 	var ks: Array = ["fire", "gold"]
 	var at := q.find("portes=")
 	if at >= 0:
-		var arg := q.substr(at + 7).get_slice("&", 0)
-		var parts := arg.split(",", false)
+		var parts := q.substr(at + 7).get_slice("&", 0).split(",", false)
 		if parts.size() >= 2:
 			ks = [parts[0], parts[1]]
-	var sg: Node3D = load("res://scripts/seal_gate.gd").new()
-	sg.set("world_id", int(arena.get("world_id")))
-	sg.set("kinds", ks)
-	var holder: Node3D = arena.get("_room_root")
-	holder.add_child(sg)
-	var gp: Vector3 = arena.get("gate_pos")
+	var sq := q.find("sceau=")
+	if sq >= 0:
+		main.set("seal_reward", q.substr(sq + 6).get_slice("&", 0))
+	main.set("_gate_force", ks)
+	main.call("_build_segment")
+	main.set("_gate_force", [])
+	var zones: Array = arena.get("zones")
+	for zi in zones.size():
+		arena.call("clear_zone", zi)
+	if sq >= 0:
+		# le héros devant la source ou le défi du sceau (le défi s'éveille à son approche)
+		for pk in main.get("_pockets"):
+			if bool(pk.get("seal", false)):
+				var pp: Vector3 = pk["pos"]
+				var h0: Node3D = main.get("hero")
+				h0.position = arena.call("clamp_walk", pp + Vector3(0, 0, 2.4), 0.5)
+				main.set("_prev_hero", h0.position)
+				var dz0: float = main.call("_cam_target")
+				main.set("_cam_dz", dz0)
+				arena.call("follow_camera", dz0)
+				break
+		return
+	# `&rouleau=fire` (ou `oni`) : le rouleau de ce sceau s'ouvre tout de suite
+	var ps := q.find("rouleau=")
+	if ps >= 0:
+		var k := q.substr(ps + 8).get_slice("&", 0)
+		var picks: Array = main.get("_seal_picks")
+		picks.append({"rank": 1} if k == "oni" else {"school": k})
 	var hero: Node3D = main.get("hero")
-	var hp := Vector3(-GATE_DX, 0, gp.z + 1.9) if "proche" in q else Vector3(0, 0, gp.z + 6.5)
+	var gp: Vector3 = arena.get("gate_pos")
+	var hp := Vector3(gp.x - GATE_DX, 0, gp.z + 1.9) if "proche" in q else Vector3(gp.x, 0, gp.z + 6.5)
 	hero.position = arena.call("clamp_walk", hp, 0.5)
-	sg.call("build", arena, gp.z, hero.position)
-	sg.set("hero", hero)
+	arena.call("open_gate")
+	arena.call("gate_path", Vector3(gp.x, 0, gp.z + 6.5))
 	main.set("_prev_hero", hero.position)
 	var dz: float = main.call("_cam_target")
 	main.set("_cam_dz", dz)
 	arena.call("follow_camera", dz)
+

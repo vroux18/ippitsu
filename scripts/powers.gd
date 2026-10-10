@@ -373,6 +373,74 @@ func offer(room_n: int = -1) -> Array:
 	return out
 
 
+## Rouleau de sceau (portes à deux sceaux, main._open_seal_pick) : trois rouleaux de l'école `school` (vide :
+## toutes) d'un rang au moins `rank_min` (sceau oni : 1 = rare, avec un épique garanti si la partie en a).
+## Mêmes règles d'éligibilité que offer() ; s'il en manque, on complète d'abord hors rang, puis hors école.
+func offer_seal(school: String, rank_min := 0) -> Array:
+	var r := int(main.room) if main != null else 0
+	var lv := int(main.level) if main != null else 1
+	var w := _rarity_weights(r, lv)
+	var pools := _pools(r, lv, Data.RARITY_ORDER)
+	var out: Array = []
+	for pass_i in 3:
+		# 0 : école et rang ; 1 : école seule ; 2 : rang seul (l'école est épuisée)
+		var sp := {}
+		for rk in Data.RARITY_ORDER:
+			var keep: Array = []
+			for id in pools[rk]:
+				var d: Dictionary = Data.POWERS[String(id)]
+				if pass_i < 2 and school != "" and String(d["school"]) != school:
+					continue
+				if pass_i != 1 and _rank(String(id)) < rank_min:
+					continue
+				keep.append(id)
+			sp[rk] = keep
+		if rank_min >= 1 and pass_i == 0 and not _has_rank(out, 2):
+			var eid := _pick(sp, "epic", out)
+			if eid != "" and _rank(eid) >= 2:
+				out.append(eid)
+		var guard := 0
+		while out.size() < 3 and guard < 16:
+			guard += 1
+			var rar := _roll(w)
+			if Data.RARITY_ORDER.find(rar) < rank_min:
+				rar = String(Data.RARITY_ORDER[rank_min])
+			var id2 := _pick(sp, rar, out)
+			if id2 == "":
+				break
+			out.append(id2)
+		if out.size() >= 3:
+			break
+	_offer_n += 1
+	if _has_rank(out, 2):
+		_since_epic = 0
+	out.shuffle()
+	return out
+
+
+## Vrai si l'école peut encore offrir un rouleau (sceau d'élément au tirage des portes).
+func school_open(school: String) -> bool:
+	var r := int(main.room) if main != null else 0
+	var lv := int(main.level) if main != null else 1
+	var pools := _collect(r, lv)
+	for rk in Data.RARITY_ORDER:
+		for id in pools[rk]:
+			if String(Data.POWERS[String(id)]["school"]) == school:
+				return true
+	return false
+
+
+## Pouvoirs pris par école (tirage des sceaux d'élément : on pousse le build en cours).
+func school_counts() -> Dictionary:
+	var out := {}
+	for id in levels.keys():
+		if int(levels[id]) <= 0 or not Data.POWERS.has(String(id)):
+			continue
+		var sc := String(Data.POWERS[String(id)]["school"])
+		out[sc] = int(out.get(sc, 0)) + 1
+	return out
+
+
 ## « Sans une égratignure » (gardien vaincu sans dégât) : trois rouleaux épiques ou légendaires, dont un
 ## légendaire si la partie en permet encore un. Mêmes règles que offer() (sceaux de l'Atelier, plafond de
 ## légendaires, écoles commencées) ; la pitié repart de zéro. Moins de 3 épiques ou légendaires débloqués :

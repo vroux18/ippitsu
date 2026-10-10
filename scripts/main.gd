@@ -407,6 +407,16 @@ var puzzles_solved := 0
 # combat de boss sans dégât
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
+# portes à deux sceaux (fin d'étape, SealGate) : le sceau de la porte franchie vaut pour l'étape qui suit
+const SealGate = preload("res://scripts/seal_gate.gd")
+const SEAL_GOLD := 60  # sceau koban : or versé à la fin de l'étape (monde 1)…
+const SEAL_GOLD_STEP := 15  # … et en plus par monde
+const SEAL_HEAL := 2  # sceau du cœur : la source garantie rend deux cœurs
+const SEAL_ONI_HP := 1.35  # sceau de l'oni : PV du défi d'élite en plus
+var seal_reward := ""  # sceau de l'étape en cours : école ("fire"…), "gold", "heart", "oni" ; "" : aucun
+var _seal_picks: Array = []  # rouleaux de sceau à ouvrir hors combat : {"school": s} ou {"rank": 1}
+var _seal_cur: Dictionary = {}  # rouleau de sceau ouvert (relance)
+var _gate_force: Array = []  # captures (`?portes=a,b`) : sceaux imposés aux portes de l'étape
 var _flawless_boss := false  # boss du monde vaincu sans dégât
 
 var _ink_lock := 0.0  # Encre maudite : secondes restantes sans recharge d'encre (après un coup reçu)
@@ -958,6 +968,18 @@ func _warmup() -> void:
 		pn.position = Vector3(px, 0, 4.0)
 		px += 2.0
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
+	# portes à deux sceaux : faces des dix sceaux rastérisées d'avance (cache de svg_tex), matières du sceau
+	# (face, halo, rayons, ofuda) compilées sur une paire éveillée, porte gauche approchée
+	for sk in SealGate.SCHOOLS + ["gold", "heart", "oni"]:
+		SealGate.face_tex(String(sk))
+	var sgw: Node3D = SealGate.new()
+	sgw.set("kinds", ["fire", "oni"])
+	w.add_child(sgw)
+	sgw.position = Vector3(0, 0, 7.0)
+	sgw.call("build")
+	sgw.call("open")
+	sgw.set("hover_force", 0)
+	SealGate.marker(sgw, "heart")  # petit sceau au-dessus d'une source ou d'un défi de sceau
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(fxp, Vector3.FORWARD)
@@ -2452,6 +2474,8 @@ func _start(hub := true, tutorial := false) -> void:
 	level = 1
 	run_gold = 0
 	_pending_levels = 0
+	seal_reward = ""
+	_seal_picks.clear()
 	pickups.clear()
 	chain = 0
 	max_chain = 0
@@ -3013,6 +3037,8 @@ func _on_enemy_killed(e: Node3D) -> void:
 		pickups.drop(e.position, "xp", 6)
 		hud.toast("DÉFI RELEVÉ")
 		sfx.play("levelup", 1.2, -4.0)
+		if e.has_meta("seal_oni"):
+			_seal_picks.append({"rank": 1})  # sceau de l'oni : rouleau rare ou épique
 
 
 func _room_cleared() -> void:
@@ -3030,6 +3056,12 @@ func _room_cleared() -> void:
 		arena.clear_zone(_enc)
 		var j: int = _enc
 		_enc = -1
+		# sceau d'élément : un rouleau de cette école à la fin du premier combat de l'étape
+		if seal_reward in SealGate.SCHOOLS and arena.zones_done() == 1:
+			_seal_picks.append({"school": seal_reward})
+		# sceau koban : la grosse somme d'or à la fin de l'étape
+		if seal_reward == "gold" and arena.zones_left() == 0:
+			_seal_gold()
 		if arena.zones_left() > 0:
 			_open_passage(j + 1)
 			if room in SANCTUARIES:
@@ -3146,6 +3178,116 @@ func _open_upgrades() -> void:
 	sfx.play("shot", 0.6)
 
 
+## Rouleau de sceau : trois rouleaux de l'école du sceau ({"school": s}) ou rares / épiques ({"rank": 1}, oni).
+func _open_seal_pick(d: Dictionary) -> void:
+	_pick_mode = "seal"
+	_seal_cur = d
+	var ids: Array = powers.offer_seal(String(d.get("school", "")), int(d.get("rank", 0)))
+	if _bot != null:
+		print("BOT SCEAU rouleau %s : %s" % [str(d), str(ids)])
+	if ids.is_empty():
+		_set_state("play")
+		return
+	_last_offer = ids
+	var infos: Array = []
+	for id in ids:
+		infos.append(powers.describe(id))
+	picker.open(ids, infos)
+	vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), SealGate.glow(String(d.get("school", "oni"))), 2.6)
+	sfx.play("levelup", 1.1, -4.0)
+	sfx.play("shot", 0.6)
+
+
+## Vrai si l'étape `si` (index) finit sur deux portes : pas avant le gardien ni avant le boss, jamais au
+## sanctuaire ni au dojo.
+func gate_choice(si: int) -> bool:
+	if in_hub or state == "tuto" or si + 1 >= STAGE_PLAN.size() - 1:
+		return false
+	return si + 1 != stage_of(MINI_ROOM) - 1
+
+
+## Tirage des deux sceaux : deux différents parmi les écoles (pondérées vers celles du build, une école neuve
+## de temps en temps), l'or, le cœur (plus souvent quand la vie est basse) et l'oni.
+func _draw_seals() -> Array:
+	var cands: Array = []
+	var counts: Dictionary = powers.school_counts()
+	var ew: Array = []
+	var etot := 0.0
+	for sc in SealGate.SCHOOLS:
+		if not powers.school_open(String(sc)):
+			continue
+		var w := 0.3 + float(counts.get(sc, 0))
+		ew.append([sc, w])
+		etot += w
+	for e in ew:
+		cands.append([e[0], 1.3 * float(e[1]) / maxf(etot, 0.01)])  # les écoles pèsent 1,3 en tout
+	cands.append(["gold", 0.45])
+	cands.append(["heart", 0.3 + (0.5 if hero.hp * 2 <= hero.max_hp else 0.0)])
+	cands.append(["oni", 0.45])
+	var out: Array = []
+	for n in 2:
+		var tot := 0.0
+		for c in cands:
+			tot += float(c[1])
+		var x := randf() * tot
+		for i in cands.size():
+			x -= float(cands[i][1])
+			if x <= 0.0 or i == cands.size() - 1:
+				out.append(String(cands[i][0]))
+				cands.remove_at(i)
+				break
+	return out
+
+
+## Sceau du cœur ou de l'oni : la source (ou le défi) de l'étape est garantie ; elle prend un recoin libre,
+## sinon celui d'un coffre ou d'une source (le coffre du départ en dernier recours).
+func _seal_pocket(kinds: Array, spots: Array) -> void:
+	var want := "spring" if seal_reward == "heart" else ("elite" if seal_reward == "oni" else "")
+	if want == "" or want in kinds:
+		return
+	var best := -1
+	for pref in ["", "chest", "spring", "elite"]:
+		for i in range(1, spots.size()):
+			if spots[i] != Vector3.INF and String(kinds[i]) == pref:
+				best = i
+				break
+		if best >= 0:
+			break
+	if best < 0 and not spots.is_empty() and spots[0] != Vector3.INF:
+		best = 0
+	if best >= 0:
+		kinds[best] = want
+
+
+## Sceau koban : l'or de l'étape tombe en pluie de pièces (SEAL_GOLD, +SEAL_GOLD_STEP par monde).
+func _seal_gold() -> void:
+	var total := SEAL_GOLD + SEAL_GOLD_STEP * maxi(0, current_world - 1)
+	var n := 12
+	pickups.drop(_last_kill_pos, "coin", n, int(ceil(float(total) / float(n))))
+	vfx.ring(Vector3(_last_kill_pos.x, 0.05, _last_kill_pos.z), Toon.GOLD, 3.0)
+	sfx.play("coin", 0.7, -2.0)
+
+
+## Robot : porte choisie (0 gauche, 1 droite). Mode pouvoirs : l'école la plus prise, sinon l'oni ; sinon
+## en alternance.
+func bot_gate() -> int:
+	var ks: Array = arena.gate_seals()
+	if ks.size() < 2:
+		return 0
+	if _bot != null and String(_bot.get("mode")) == "powers":
+		var counts: Dictionary = powers.school_counts()
+		var best := 0
+		var bv := -2
+		for i in 2:
+			var k := String(ks[i])
+			var v: int = (int(counts.get(k, 0)) + 1) if k in SealGate.SCHOOLS else (0 if k == "oni" else -1)
+			if v > bv:
+				bv = v
+				best = i
+		return best
+	return (stage_i + current_world) % 2
+
+
 ## Sanctuaire : PACT_OFFER pactes (au plus un légendaire) en cartes v2, et « refuser » (un cœur, sinon de l'or).
 ## La carte reçoit : name, school, leg, fx (lignes [picto, valeur, libellé, malus ?]), line, pact = true.
 func _open_sanctuary() -> void:
@@ -3225,7 +3367,9 @@ func _pay_refuse() -> void:
 
 func _on_reroll() -> void:
 	sfx.play("whoosh", 1.2, -4.0)
-	if _pick_mode == "curse":
+	if _pick_mode == "seal":
+		_open_seal_pick(_seal_cur)
+	elif _pick_mode == "curse":
 		_open_sanctuary()
 	elif _pick_mode == "flawless":
 		_open_flawless()
@@ -3332,6 +3476,12 @@ func _update_ritual() -> void:
 
 func _rebuild_room() -> void:
 	_rebuilt = true
+	# porte franchie : son sceau vaut pour l'étape qui suit (aucun : torii unique, sanctuaire, gardien)
+	var seals: Array = arena.gate_seals()
+	var gp: int = arena.gate_pick
+	seal_reward = String(seals[gp]) if gp >= 0 and gp < seals.size() else ""
+	if _bot != null and not seals.is_empty():
+		print("BOT SCEAU monde %d étape %d : %s parmi %s" % [current_world, stage_i + 2, seal_reward, str(seals)])
 	if is_instance_valid(_shrine):
 		_shrine.queue_free()
 	_shrine = null
@@ -3364,6 +3514,8 @@ func _build_segment() -> void:
 	_clear_pockets()
 	hazards.clear()
 	var boss_seg := next == MINI_ROOM or next >= ROOMS
+	# deux portes à sceaux au bout de l'étape, sauf avant le gardien et avant le boss
+	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals() if gate_choice(stage_i) else [])
 	if boss_seg:
 		arena.build_room(next, ROOMS, randi(), MINI_ROOM)
 	else:
@@ -3477,6 +3629,7 @@ func _build_pockets() -> void:
 		kinds[int(slots.pop_back())] = "elite"
 	if not slots.is_empty() and randf() < 0.35:
 		kinds[int(slots.pop_back())] = "chest"
+	_seal_pocket(kinds, spots)  # sceau du cœur ou de l'oni : sa source ou son défi, garantis
 	for i in spots.size():
 		var p: Vector3 = spots[i]
 		var k := String(kinds[i])
@@ -3485,7 +3638,11 @@ func _build_pockets() -> void:
 		if k == "puzzle":
 			spawn_puzzle("", p)
 			continue
-		_pockets.append({"kind": k, "pos": p, "used": false, "node": _pocket_node(k, p)})
+		var sealed := (k == "spring" and seal_reward == "heart") or (k == "elite" and seal_reward == "oni")
+		var pn := _pocket_node(k, p)
+		if sealed:
+			SealGate.marker(pn, seal_reward)  # le sceau choisi au torii flotte au-dessus
+		_pockets.append({"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed})
 
 
 func _clear_pockets() -> void:
@@ -3622,7 +3779,7 @@ func _update_pockets() -> void:
 			"spring":
 				if d < 1.1 and hero.hp < hero.max_hp:
 					pk["used"] = true
-					heal(1)
+					heal(SEAL_HEAL if bool(pk.get("seal", false)) else 1)
 					var w := n.get_node_or_null("Water") as MeshInstance3D
 					if w != null:
 						w.material_override = Toon.flat(Color("#4E6E78", 0.6))
@@ -3635,7 +3792,7 @@ func _update_pockets() -> void:
 			"elite":
 				if d < 3.0 and _enc < 0:
 					pk["used"] = true
-					_spawn_elite(p)
+					_spawn_elite(p, bool(pk.get("seal", false)))
 					if is_instance_valid(n):
 						n.queue_free()
 			"puzzle":
@@ -3643,7 +3800,7 @@ func _update_pockets() -> void:
 
 
 ## Défi d'un recoin : un costaud d'élite, plus gros et plus solide, qui garde un butin.
-func _spawn_elite(p: Vector3) -> void:
+func _spawn_elite(p: Vector3, seal := false) -> void:
 	var e := Enemy.new()
 	e.setup("brute", hero, self)
 	_discover("brute")
@@ -3652,7 +3809,15 @@ func _spawn_elite(p: Vector3) -> void:
 	e.hp *= float(Worlds.world(current_world).hp_mult)
 	_apply_curses(e)
 	# système d'élite commun : ×2.5 PV, ×1.25, bouclier, aura, affixes
-	e.promote(Enemy.roll_affixes(current_world))
+	var aff: Array = Enemy.roll_affixes(current_world)
+	if seal:
+		# défi du sceau de l'oni : plus dur (deux affixes, PV ×SEAL_ONI_HP), un rouleau rare ou épique à la clé
+		for a2 in Enemy.roll_affixes(current_world + 9):
+			if not a2 in aff and aff.size() < 2:
+				aff.append(a2)
+		e.hp *= SEAL_ONI_HP
+		e.set_meta("seal_oni", true)
+	e.promote(aff)
 	e.set_meta("max_hp", e.hp)
 	e.set_meta("elite", true)
 	enemies.append(e)
@@ -3971,7 +4136,7 @@ func bot_puzzle() -> Dictionary:
 ## But du robot hors combat : recoin à fouiller (dans le cadre courant), torii ouvert, entrée de la zone suivante.
 func bot_goal() -> Vector3:
 	if not arena.stage or _enc >= 0:
-		return arena.gate_pos if arena.gate_open else Vector3.INF
+		return arena.gate_goal(bot_gate()) if arena.gate_open else Vector3.INF
 	var best := Vector3.INF
 	var bd := 1.0e9
 	var chosen: Dictionary = {}
@@ -3995,7 +4160,7 @@ func bot_goal() -> Vector3:
 		chosen["bot"] = int(chosen.get("bot", 0)) + 1
 		return best
 	if arena.gate_open:
-		return arena.gate_pos
+		return arena.gate_goal(bot_gate())
 	return arena.next_goal()
 
 
@@ -5619,6 +5784,12 @@ func _process(_delta: float) -> void:
 		vfx.ring(Vector3(hero.position.x, 0.05, hero.position.z), Toon.GOLD, 2.6)
 		_set_state("pick")
 		_open_flawless()
+	# rouleaux de sceau (élément, oni) : hors combat, après les rouleaux de niveau
+	if state == "play" and not _seal_picks.is_empty() and _pending_levels == 0 and _lv_cele < 0.0 and _enc < 0 \
+			and not game_over and not hero.dashing and not touching and bosses.is_empty():
+		_pick_context = "level"
+		_set_state("pick")
+		_open_seal_pick(_seal_picks.pop_front())
 	# rouleaux de niveau : tout de suite, même en plein combat (le jeu se fige pendant le choix),
 	# dès que le héros a fini sa ruée et que le doigt est levé
 	if state == "play" and _pending_levels > 0 and not game_over and not hero.dashing and not touching and bosses_intro_done():
