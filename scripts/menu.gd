@@ -59,7 +59,6 @@ var sumi := 0  # encre (monnaie permanente), affichée sur l'accueil
 const HOME_SETTLED := 1.4  # accueil : toutes ses arrivées (sceau 0,4 s, titre 0,6, trait 0,8, sélecteur 1,1) sont finies
 var _home_sig: Array = []  # entrées du dernier dessin de l'accueil ou de la pause posés (vide : à refaire)
 var gain_sumi := 0  # encre gagnée à la dernière partie
-var gain_seals := 0
 # résultats de la partie (écran de fin)
 var stat_room := 0
 var stat_kills := 0
@@ -1045,7 +1044,7 @@ func _draw_stats(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 			draw_string(nf, Vector2(c.x + 15.0 * u, cy + fs * 0.36), String(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, ka))
 
 
-## Gains : l'encre qui monte (goutte sur pastille indigo), les sceaux (carré vermillon), puis chaque estampe
+## Gains : l'encre qui monte (goutte sur pastille indigo ; les anciens sceaux y sont comptés), puis chaque estampe
 ## débloquée en vignette cernée d'or, son nom dessous.
 func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
@@ -1060,19 +1059,8 @@ func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -
 	var num := "+%d" % int(round(float(gain_sumi) * UiKit.ease_out(ik)))
 	draw_string(nf, Vector2(dc.x + 17.0 * u, cy + fs * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up, a))
 	var nw := nf.get_string_size("+%d" % gain_sumi, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var sk := UiKit.ease_out(clampf((_t - 1.5) / 0.25, 0.0, 1.0))
+	# (plus de sceaux : depuis l'Arbre du pinceau, ils sont payés en encre et comptés dans le chiffre ci-dessus)
 	var px := dc.x + 30.0 * u + nw
-	if sk > 0.0:
-		var sa := a * sk * (1.0 if gain_seals > 0 else 0.45)
-		var sq := Rect2(Vector2(px, cy - 10.0 * u), Vector2(20.0, 20.0) * u)
-		var ss := 1.0 + 0.5 * (1.0 - sk)
-		draw_set_transform(sq.get_center(), 0.0, Vector2(ss, ss))
-		draw_style_box(UiKit.box(_sb, Color(UIColors.VERMILION, sa), int(4 * u)), Rect2(-sq.size / 2.0, sq.size))
-		UiKit.glyph(self, "at_seal", Vector2.ZERO, 6.0 * u, UIColors.WASHI, UiKit.NONE, sa)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		var st := "+%d" % gain_seals
-		draw_string(nf, Vector2(sq.end.x + 6.0 * u, cy + fs * 0.36), st, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up if gain_seals > 0 else th_ink, sa))
-		px = sq.end.x + 6.0 * u + nf.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 16.0 * u
 	# estampes : vignette 40 × 28 cernée d'or, nom en petit dessous
 	var tw := 40.0 * u
 	var thh := 28.0 * u

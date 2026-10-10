@@ -1,21 +1,21 @@
 extends Control
-## Atelier : l'atelier du peintre, au goût des cartes de rouleaux (médaillons, cadres, effets en une ligne).
-## En-tête fin (retour, titre), jetons de monnaie, commande segmentée à trois onglets :
-## - Améliorations : six tuiles (deux colonnes) = les lignes de la Pierre à encre (encre) ;
-## - Sceaux : dons permanents et légendaires, tuiles dans une liste qui glisse au doigt ;
-## - Estampes : la collection des Vues (filtre par apparence) ; toucher ouvre la fiche de l'estampe.
-## Toucher choisit (le bouton de prix s'arme d'un contour vermillon), toucher encore confirme : un sceau
-## vermillon s'imprime. Un titre, des pictos, des chiffres : pas de paragraphe d'aide (UI v2).
+## Atelier : l'atelier du peintre. En-tête fin (retour, titre), jetons (encre, Vues), commande segmentée à deux onglets :
+## - Arbre : l'Arbre du pinceau (meta.TREE, maquette validée) sur une feuille de papier : un tronc, quatre branches
+##   (LAME, ENCRE, PAPIER, VOIE) de six nœuds et un sommet légendaire cerné d'or. Toucher un nœud le décrit dans
+##   le panneau sombre du bas (branche, nom, effet, état) ; APPRENDRE l'achète en encre si celui du dessous est appris.
+##   Hors de l'arbre, en bas à gauche de la feuille : la Bourse (pièce, cinq rangs en encre, AMÉLIORER) ;
+## - Estampes : la collection des Vues (filtre par apparence) ; toucher ouvre la fiche de l'estampe, toucher encore
+##   porte l'apparence : un sceau vermillon s'imprime.
 
 const Toon = preload("res://scripts/toon.gd")
 const Meta = preload("res://scripts/meta.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
 const Data = preload("res://scripts/power_data.gd")
 
 const BG := Color("#201814")  # bois sombre
 const GOLD_HI := Color("#E2A93B")
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
-const LEG_BODY := Color("#1C1A21")
 const LOCK_BODY := Color("#18141A")
 const BADGE_R := 16.0  # rayon (en u) de la pastille de récompense des estampes
 const C_COMMON := Color("#B9AE98")
@@ -28,27 +28,29 @@ const TABS_Y := 110.0
 const FILTERS_Y := 160.0
 const LIST_TOP := 160.0
 const LIST_TOP_PRINTS := 198.0
-const LINE_COLORS := {
-	"brush": Color("#3D6FA8"),
-	"ink": Color("#3A3852"),
-	"paper": Color("#B8443A"),
-	"breath": Color("#3F8A80"),
-	"purse": Color("#B88A2E"),
-	"choice": Color("#7A55A8"),
+const TABS := ["ARBRE", "ESTAMPES"]
+const TAB_GLYPHS := ["at_drop", "at_print"]
+const CHIP_GLYPHS := ["at_drop", "at_print"]
+const CHIP_COLORS := [Color("#2F5D8A"), Color("#C49A45")]
+const CHIP_LABELS := ["ENCRE", "VUES"]
+# arbre : abscisse de chaque branche (fraction de la feuille, maquette 52/148/242/338 sur 390), panneau du bas (× u),
+# zone tactile d'un nœud (× u, ≥ 44)
+const BRANCH_X := {"lame": 52.0 / 390.0, "encre": 148.0 / 390.0, "papier": 242.0 / 390.0, "voie": 338.0 / 390.0}
+const DETAIL_H := 168.0
+const PURSE := "purse"  # clé de la Bourse (hors de l'arbre) parmi les nœuds touchables
+const NODE_HIT := 52.0
+# glyphes des nœuds (tracés de la maquette, gabarit 60 × 60 centré en 30,30) : [tracé, épaisseur, rempli]
+# Vague (S), Pointe (V) et Triangle : dessins simples, en attendant les pictos des nouvelles figures dans UiKit
+const GLYPH_PATHS := {
+	"lame": ["M21 39 L39 21 M19 34 L26 41", 3.6, false],
+	"encre": ["M30 19 C35 27 38 30 38 34 A8 8 0 0 1 22 34 C22 30 25 27 30 19 Z", 1.0, true],
+	"papier": ["M30 19 L39 23 L39 31 C39 37 34 40 30 42 C26 40 21 37 21 31 L21 23 Z", 3.0, false],
+	"voie": ["M28 30 a2 2 0 1 1 4 0 a5 5 0 1 1 -9 -1.5 a9 9 0 1 1 16 5", 3.0, false],
+	"vague": ["M19 34 C19 24 29 24 30 30 C31 36 41 36 41 26", 3.4, false],
+	"pointe": ["M21 20 L30 40 L39 20", 3.4, false],
+	"triangle": ["M30 19 L41 38 L19 38 Z", 3.4, false],
+	"racine": ["M20 38 C26 28 32 22 40 20", 4.0, false],
 }
-const LINE_GLYPHS := {"brush": "at_brush", "ink": "at_ink", "paper": "at_heart", "breath": "at_breath", "purse": "at_purse", "choice": "at_choice"}
-const LINE_LABELS := {"brush": "Élan max", "ink": "Recharge d'encre", "paper": "PV max", "breath": "Filets par combat",
-	"purse": "Encre gagnée", "choice": "Relances par partie"}
-const LINE_UNITS := {"brush": "+%d m", "ink": "+%d %%", "paper": "+%d", "breath": "%d", "purse": "+%d %%", "choice": "+%d"}
-# pictogrammes des dons des sceaux (les légendaires prennent celui de leur pouvoir)
-const SEAL_GLYPHS := {"reroll": "reroll", "scroll": "scroll", "purse": "coin", "blessing": "cards", "hp": "kintsugi"}
-const SEAL_COLORS := {"reroll": Color("#3D78B8"), "scroll": Color("#5E7F4A"), "purse": Color("#B88A2E"),
-	"blessing": Color("#8752B5"), "hp": Color("#B8443A")}
-const TABS := ["AMÉLIORER", "SCEAUX", "ESTAMPES"]
-const TAB_GLYPHS := ["at_drop", "at_seal", "at_print"]
-const CHIP_GLYPHS := ["at_drop", "at_seal", "at_print"]
-const CHIP_COLORS := [Color("#2F5D8A"), Color("#D7372B"), Color("#C49A45")]
-const CHIP_LABELS := ["ENCRE", "SCEAUX", "VUES"]
 const FILTERS := ["TOUT", "ÉCHARPES", "SILLAGES", "ENCRES"]
 const FILTER_KINDS := ["", "cape", "trail", "ink"]
 const KIND_LABELS := {"cape": "ÉCHARPE", "trail": "SILLAGE", "ink": "ENCRE"}
@@ -65,7 +67,12 @@ var _u := 1.0
 var _tab := 0
 var _seg := 0.0  # position animée du segment actif
 var _filter := 0  # filtre des estampes (0 = tout)
-var _sel := ""  # cible choisie (« line:2 », « seal:scroll », « print:w1_room ») : le toucher suivant confirme
+var _sel := ""  # estampe choisie (« print:w1_room ») : sa fiche est ouverte, le toucher suivant porte l'apparence
+var _tree_sel := ""  # nœud de l'arbre décrit dans le panneau du bas (« root » : le tronc)
+var _tree_rect := Rect2()  # feuille de l'arbre
+var _detail_rect := Rect2()  # panneau du bas
+var _tree_step := 60.0  # écart entre deux étages (px)
+var _node_pos := {}  # id de nœud -> centre (écran)
 var _pressed := ""  # cible sous le doigt
 var _holding := false
 var _dragging := false
@@ -89,8 +96,8 @@ var _stamp := 0.0  # sceau qui s'imprime (1 -> 0)
 var _shake_key := ""
 var _shake := 0.0  # refus (1 -> 0)
 var _bump := 0.0
-var _bump_i := 0  # jeton qui s'illumine (0 encre, 1 sceaux, 2 Vues)
-var _disp := PackedFloat32Array([0.0, 0.0, 0.0])  # valeurs affichées (le compteur défile)
+var _bump_i := 0  # jeton qui s'illumine (0 encre, 1 Vues)
+var _disp := PackedFloat32Array([0.0, 0.0])  # valeurs affichées (le compteur défile)
 var _spent := ""
 var _spent_t := 0.0
 var _msg := ""
@@ -101,7 +108,6 @@ var _top := 0.0  # marge de sécurité du haut (encoche), en pixels : tout l'en-
 var _bot := 0.0  # marge de sécurité du bas (barre de geste), en pixels
 var _title := FontVariation.new()
 var _ui := FontVariation.new()
-var _tabf := FontVariation.new()
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 
 
@@ -113,8 +119,6 @@ func _ready() -> void:
 	_title.spacing_glyph = UiKit.TITLE_SPACING
 	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = UiKit.CAPS_SPACING
-	_tabf.base_font = UiKit.UI_FONT
-	_tabf.spacing_glyph = UiKit.CAPS_SPACING
 	# les listes (sceaux, estampes) se dessinent dans un enfant qui découpe ce qui dépasse
 	_list = Control.new()
 	_list.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -134,6 +138,7 @@ func open() -> void:
 	_tab_t = 0.0
 	_seg = float(_tab)
 	_sel = ""
+	_tree_sel = _default_node()
 	_pressed = ""
 	_holding = false
 	_dragging = false
@@ -148,7 +153,7 @@ func open() -> void:
 	_hits.clear()
 	_list_hits.clear()
 	if meta != null:
-		for i in 3:
+		for i in CHIP_LABELS.size():
 			_disp[i] = _counter_val(i)
 	visible = true
 
@@ -165,17 +170,14 @@ func _p(s: String) -> String:
 
 
 func _counter_val(i: int) -> float:
-	match i:
-		0:
-			return float(meta.sumi)
-		1:
-			return float(meta.seals)
+	if i == 0:
+		return float(meta.sumi)
 	return float(meta.prints)
 
 
 ## La fiche d'une estampe est ouverte (onglet Estampes, une Vue choisie).
 func _sheet_on() -> bool:
-	return _tab == 2 and _sel.begins_with("print:")
+	return _tab == 1 and _sel.begins_with("print:")
 
 
 # ------------------------------------------------------------------ entrée
@@ -220,7 +222,7 @@ func _gui_input(event: InputEvent) -> void:
 		if mb.pressed:
 			# le toucher qui a ouvert l'atelier ne doit ni le refermer ni acheter
 			_pressed = _target_at(mb.position) if _t >= 0.3 else ""
-			if _t < 0.6 and _pressed.begins_with("line:"):
+			if _t < 0.6 and _pressed == "learn":
 				_pressed = ""
 			_holding = true
 			_dragging = false
@@ -305,8 +307,12 @@ func _tap(key: String) -> void:
 		return
 	if key == "prev" or key == "next":
 		meta.cycle_start_power(-1 if key == "prev" else 1)
-		_sel = "seal:scroll"
-		_msg_t = 0.0
+		return
+	if key.begins_with("node:"):
+		_tree_sel = key.substr(5)  # un toucher : le nœud se décrit en bas ; APPRENDRE l'achète
+		return
+	if key == "learn":
+		_learn()
 		return
 	if key != _sel:
 		# premier toucher : on choisit (une estampe ouvre sa fiche) ; hors de portée, le refus se voit tout de suite
@@ -321,18 +327,11 @@ func _tap(key: String) -> void:
 	_confirm(key)
 
 
-## Vrai si un second toucher ferait quelque chose (acheter, sceller, porter).
+## Vrai si un second toucher ferait quelque chose (porter une apparence).
 func _can_confirm(key: String) -> bool:
 	var kind := key.get_slice(":", 0)
 	var id := key.get_slice(":", 1)
 	match kind:
-		"line":
-			var lid: String = Meta.ORDER[int(id)]
-			var ok: bool = meta.can_buy(lid)
-			return ok
-		"seal":
-			var ok2: bool = meta.can_buy_seal(id) or meta.owns_seal(id)
-			return ok2
 		"print":
 			var ok3: bool = meta.has_print(id)
 			return ok3
@@ -343,26 +342,6 @@ func _confirm(key: String) -> void:
 	var kind := key.get_slice(":", 0)
 	var id := key.get_slice(":", 1)
 	match kind:
-		"line":
-			var lid: String = Meta.ORDER[int(id)]
-			var c: int = meta.cost(lid)
-			if meta.buy(lid):
-				var line: Dictionary = Meta.LINES[lid]
-				var r: int = meta.rank(lid)
-				_flash(0, key, "%s · rang %d" % [String(line["name"]), r], "Acquis : %s." % String(meta.effect_text(lid, r)), "-%d" % c)
-			else:
-				_refuse(key)
-		"seal":
-			if meta.owns_seal(id):
-				_sel = ""
-				return
-			var sc: int = meta.seal_cost(id)
-			if meta.buy_seal(id):
-				var it: Dictionary = Meta.SEAL_ITEMS[id]
-				var more := " Choisis ton rouleau en haut de la liste." if id == "scroll" else ""
-				_flash(1, key, String(it["name"]), "Scellé pour toujours." + more, "-%d" % sc)
-			else:
-				_refuse(key)
 		"print":
 			if not meta.has_print(id):
 				_refuse(key)
@@ -370,9 +349,9 @@ func _confirm(key: String) -> void:
 			var p: Dictionary = Meta.PRINTS[id]
 			var look_kind := String(p["kind"])
 			if meta.toggle_look(id):
-				_flash(2, key, String(p["look"]), "Équipée dès maintenant, et à chaque partie.")
+				_flash(1, key, String(p["look"]), "Équipée dès maintenant, et à chaque partie.")
 			else:
-				_flash(2, key, "%s d'origine" % String(Meta.LOOK_NAMES[look_kind]), "Tu ne portes plus : %s." % String(p["look"]))
+				_flash(1, key, "%s d'origine" % String(Meta.LOOK_NAMES[look_kind]), "Tu ne portes plus : %s." % String(p["look"]))
 
 
 ## Achat réussi : sceau imprimé, jeton qui s'illumine (et défile), message dans la barre du bas.
@@ -410,7 +389,7 @@ func _process(_delta: float) -> void:
 	_seg = lerpf(_seg, float(_tab), 1.0 - exp(-16.0 * real))
 	if meta != null:
 		# le compteur défile vers sa nouvelle valeur
-		for i in 3:
+		for i in CHIP_LABELS.size():
 			var target := _counter_val(i)
 			var cur: float = _disp[i]
 			cur = target if absf(target - cur) < 0.5 else lerpf(cur, target, 1.0 - exp(-9.0 * real))
@@ -447,8 +426,8 @@ func _layout() -> void:
 	_bot = ins.y
 	_u = minf(w / 400.0, (h - _top - _bot) / 780.0)
 	var u := _u
-	var top := _top + (LIST_TOP_PRINTS if _tab == 2 else LIST_TOP) * u
-	var reserve := 72.0 * u if _tab == 1 else 16.0 * u  # sceaux : place pour la ligne du don choisi
+	var top := _top + (LIST_TOP_PRINTS if _tab == 1 else LIST_TOP) * u
+	var reserve := 16.0 * u
 	_view = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(10.0, h - _bot - reserve - top)))
 	_list.position = _view.position
 	_list.size = _view.size
@@ -494,41 +473,6 @@ func _fit(font: Font, txt: String, fs: int, maxw: float, lo: int) -> int:
 	return f
 
 
-## Morceaux de texte de couleurs différentes ([texte, couleur]…), centrés sur center.x.
-func _parts(ci: CanvasItem, font: Font, parts: Array, center: Vector2, fs: int) -> void:
-	var total := 0.0
-	for pt in parts:
-		total += font.get_string_size(String(pt[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var x := center.x - total / 2.0
-	for pt in parts:
-		var s := String(pt[0])
-		var c: Color = pt[1]
-		ci.draw_string(font, Vector2(x, center.y), s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, c)
-		x += font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-
-
-## Médaillon (comme sur les cartes de rouleaux) : halo, anneau de cadre, disque, reflets.
-func _medal(ci: CanvasItem, c: Vector2, rad: float, col: Color, ring: Color, u: float, a: float) -> void:
-	for k in 3:
-		ci.draw_circle(c, rad * (1.5 - 0.17 * float(k)), Color(col, (0.04 + 0.03 * float(k)) * a))
-	ci.draw_circle(c, rad + 3.5 * u, Color(ring, a))
-	ci.draw_circle(c, rad + 1.0 * u, Color(Toon.SUMI, 0.55 * a))
-	ci.draw_circle(c, rad, Color(col, a))
-	ci.draw_circle(c + Vector2(0, -rad * 0.2), rad * 0.78, Color(col.lightened(0.14), 0.55 * a))
-	ci.draw_arc(c, rad * 0.86, PI * 1.1, PI * 1.55, 12, Color(1, 1, 1, 0.22 * a), 2.0 * u, true)
-	ci.draw_arc(c + Vector2(rad * 0.1, rad * 0.05), rad * 0.72, PI * 0.15, PI * 0.5, 10, Color(0, 0, 0, 0.12 * a), 3.0 * u, true)
-
-
-## Or lisible sur le papier du thème (foncé sur papier clair, vif sur papier sombre).
-func _gold_ink() -> Color:
-	return GOLD_HI if Toon.ui_dark else GOLD_INK
-
-
-## Chiffre mis en avant sur le papier du thème.
-func _hot() -> Color:
-	return GOLD_HI if Toon.ui_dark else Toon.VERMILION.darkened(0.15)
-
-
 ## Bouton de prix (planche Boutons v2) : « buy » = coup de pinceau vermillon (picto de monnaie et montant) ;
 ## armé (label non vide : le prochain toucher achète) = contour vermillon qui pulse, sans un mot ;
 ## « lack » (grisé), « owned » (coche seule) ; « max » (MAX en liseré d'or). Jamais de phrase.
@@ -555,7 +499,7 @@ func _button(ci: CanvasItem, r: Rect2, mode: String, label: String, glyph: Strin
 			ink = Color(base, 0.4)
 		"max":
 			_panel(ci, r, Color(GOLD_HI, 0.12 * a), rad, Color(GOLD_HI, a), 1.5 * u)
-			ink = GOLD_HI if dk else GOLD_INK
+			ink = GOLD_HI if dk else GOLD_INK  # or lisible sur le papier
 			text = "MAX"
 		_:
 			_panel(ci, r, Color(0, 0, 0, 0), rad, Color(GOLD_HI if dk else Toon.VERMILION, a), 1.5 * u)
@@ -644,10 +588,10 @@ func _draw() -> void:
 	_draw_counters(w, u)
 	_draw_tabs(w, u)
 	if _tab == 0:
-		_draw_upgrades(w, h, u)
-	elif _tab == 2:
+		_draw_tree(w, h, u)
+	else:
 		_draw_filters(w, u)
-	_draw_info(w, h, u)
+		_draw_info(w, h, u)
 	if _sheet_on():
 		_hits.append([_sheet_btn, _sel])
 
@@ -683,14 +627,15 @@ func _draw_header(w: float, u: float) -> void:
 	UiKit.screen_title(self, _title, "ATELIER", Vector2(w / 2.0, ty), u, Toon.WASHI, a, "", w - 2.0 * 80.0 * u, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
 
 
-## Encre, sceaux, Vues : jetons sombres (comme le HUD), pictogramme sur pastille, chiffre en gras.
+## Encre, Vues : jetons sombres (comme le HUD), pictogramme sur pastille, chiffre en gras.
 func _draw_counters(w: float, u: float) -> void:
 	if meta == null:
 		return
 	var a := UiKit.ease_out((_t - 0.1) / 0.4)
 	var gap := 8.0 * u
-	var cw := (w - 28.0 * u - gap * 2.0) / 3.0
-	for i in 3:
+	var nc := CHIP_LABELS.size()
+	var cw := (w - 28.0 * u - gap * float(nc - 1)) / float(nc)
+	for i in nc:
 		var r := Rect2(Vector2(14 * u + float(i) * (cw + gap), _top + COUNTERS_Y * u), Vector2(cw, UiKit.CHIP_H * u))
 		var lit := _bump > 0.0 and i == _bump_i
 		var k := 1.0 + (0.07 * _bump if lit else 0.0)
@@ -701,9 +646,9 @@ func _draw_counters(w: float, u: float) -> void:
 		var ic := rr.position + Vector2(15 * u, rr.size.y / 2.0)
 		draw_circle(ic, 11.0 * u * k, Color(col, a))
 		draw_arc(ic, 11.0 * u * k, 0.0, TAU, 24, Color(1, 1, 1, 0.18 * a), 1.0 * u, true)
-		UiKit.glyph(self, String(CHIP_GLYPHS[i]), ic, 6.5 * u * k, Toon.SUMI if i == 2 else Toon.WASHI, col, a)
+		UiKit.glyph(self, String(CHIP_GLYPHS[i]), ic, 6.5 * u * k, Toon.SUMI if i == 1 else Toon.WASHI, col, a)
 		var v := int(round(_disp[i]))
-		var txt := str(v) if i < 2 else "%d/%d" % [v, Meta.MAX_PRINTS]
+		var txt := str(v) if i == 0 else "%d/%d" % [v, Meta.MAX_PRINTS]
 		var fs := int(15 * u)
 		var tc: Color = GOLD_HI if lit else Toon.WASHI
 		draw_string(UiKit.UI_FONT, Vector2(ic.x + 16 * u, rr.get_center().y + fs * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(tc, a))
@@ -734,144 +679,337 @@ func _draw_tabs(w: float, u: float) -> void:
 	var a := UiKit.ease_out((_t - 0.15) / 0.4)
 	var bar := Rect2(Vector2(14 * u, _top + TABS_Y * u), Vector2(w - 28 * u, UiKit.SEG_H * u))
 	var dots: Array = []
-	if meta.any_affordable():
+	if meta.any_learnable():
 		dots.append(0)
-	if meta.any_seal_affordable():
-		dots.append(1)
 	var trs: Array = UiKit.tabs(self, TABS, bar, _seg, Toon.WASHI, Toon.SUMI, Color(Toon.WASHI, 0.75), a, u, dots)
 	for i in trs.size():
 		_hits.append([trs[i], "tab:%d" % i])
 
 
-# ------------------------------------------------------------------ améliorations
+# ------------------------------------------------------------------ arbre du pinceau
 
-## Six tuiles sur deux colonnes (trois rangées), ajustées à la hauteur de l'écran.
-func _draw_upgrades(w: float, h: float, u: float) -> void:
+## Nœud choisi d'office à l'ouverture : le moins cher des nœuds à portée, sinon le premier disponible, sinon le tronc.
+func _default_node() -> String:
+	if meta == null:
+		return Meta.TREE_ROOT
+	var best := ""
+	for id in Meta.TREE_ORDER:
+		if meta.can_learn(String(id)) and (best == "" or int(meta.node_cost(String(id))) < int(meta.node_cost(best))):
+			best = String(id)
+	if best != "":
+		return best
+	for id in Meta.TREE_ORDER:
+		if meta.node_open(String(id)):
+			return String(id)
+	return Meta.TREE_ROOT
+
+
+## Choisit un nœud (captures `?atelier&noeud=v2`, robot) : le panneau du bas le décrit.
+func select_node(id: String) -> void:
+	if id == Meta.TREE_ROOT or id == PURSE or Meta.TREE.has(id):
+		_tree_sel = id
+		_tab = 0
+		_seg = 0.0
+
+
+## APPRENDRE : débite l'encre et apprend le nœud choisi ; refus (secousse du bouton) sinon.
+func _learn() -> void:
+	var id := _tree_sel
+	if meta != null and id == PURSE:
+		var pc: int = meta.purse_cost()
+		if meta.buy_purse():
+			_stamp_key = "node:" + PURSE
+			_stamp = 1.0
+			_bump = 1.0
+			_bump_i = 0
+			_spent = "-%d" % pc
+			_spent_t = 1.0
+		else:
+			_refuse("learn")
+		return
+	if meta == null or not Meta.TREE.has(id) or meta.learned(id):
+		return
+	var c: int = meta.node_cost(id)
+	if meta.learn(id):
+		_stamp_key = "node:" + id
+		_stamp = 1.0
+		_bump = 1.0
+		_bump_i = 0
+		_spent = "-%d" % c
+		_spent_t = 1.0
+	else:
+		_refuse("learn")
+
+
+## Géométrie de l'arbre (feuille de papier, panneau du bas, centre de chaque nœud), adaptée à la hauteur.
+func _tree_layout(w: float, h: float, u: float) -> void:
+	var top := _top + LIST_TOP * u
+	var ph := DETAIL_H * u
+	_detail_rect = Rect2(Vector2(10 * u, h - _bot - 10 * u - ph), Vector2(w - 20 * u, ph))
+	_tree_rect = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(80.0 * u, _detail_rect.position.y - 10 * u - top)))
+	var root_y := _tree_rect.end.y - 31.0 * u
+	var t1 := root_y - 50.0 * u
+	var t7 := _tree_rect.position.y + 37.0 * u
+	_tree_step = minf(66.0 * u, maxf(10.0, (t1 - t7) / 6.0))
+	_node_pos.clear()
+	_node_pos[Meta.TREE_ROOT] = Vector2(_tree_rect.get_center().x, root_y)
+	# Bourse : coin bas gauche, sous la branche LAME (la courbe du tronc passe au-dessus)
+	_node_pos[PURSE] = Vector2(_tree_rect.position.x + _tree_rect.size.x * float(BRANCH_X["lame"]), root_y + 4.0 * u)
+	for id in Meta.TREE_ORDER:
+		var n: Dictionary = Meta.TREE[id]
+		var bx: float = _tree_rect.position.x + _tree_rect.size.x * float(BRANCH_X[String(n["b"])])
+		_node_pos[String(id)] = Vector2(bx, t1 - float(int(n["t"]) - 1) * _tree_step)
+
+
+func _branch_col(id: String) -> Color:
+	if id == PURSE:
+		return UIColors.GOLD
+	if not Meta.TREE.has(id):
+		return UIColors.SUMI
+	var n: Dictionary = Meta.TREE[id]
+	var b: Dictionary = Meta.BRANCHES[String(n["b"])]
+	return b["col"]
+
+
+## Feuille de l'arbre (papier washi, comme la maquette) puis panneau de détail sombre en bas.
+func _draw_tree(w: float, h: float, u: float) -> void:
 	if meta == null:
 		return
-	var top := _top + LIST_TOP * u
-	var bottom := h - _bot - 16.0 * u
-	var gap := 10.0 * u
-	var tw := (w - 28.0 * u - gap) / 2.0
-	var th := minf(184.0 * u, (bottom - top - gap * 2.0) / 3.0)
-	var s := minf(th / 176.0, tw / 168.0)
-	for i in Meta.ORDER.size():
-		var col := i % 2
-		var row := int(i / 2.0)
-		var r := Rect2(Vector2(14 * u + float(col) * (tw + gap), top + float(row) * (th + gap)), Vector2(tw, th))
-		var key := "line:%d" % i
-		_hits.append([r, key])
-		var k := UiKit.ease_out((_tab_t - 0.05 * float(i)) / 0.35)
-		_upgrade_tile(i, Rect2(r.position + Vector2(0, (1.0 - k) * 28.0 * u), r.size), s, u, k)
+	_tree_layout(w, h, u)
+	var a := UiKit.ease_out(_tab_t / 0.3)
+	var tr := _tree_rect
+	_panel(self, tr, Color(UIColors.WASHI, a), UiKit.R_L * u, Color(UIColors.SUMI, 0.5 * a), 1.5 * u, 0.4 * a, u)
+	UiKit.fibres(self, tr.grow(-8.0 * u), UIColors.SUMI, a, u, 4.2, 10)
+	# légende en bas à droite, sous les liens
+	var cap := _p("ARBRE DU PINCEAU")
+	var cfs := int(UiKit.FS_MICRO * u)
+	var cw := _ui.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+	var cx := tr.end.x - 14 * u - cw
+	draw_string(_ui, Vector2(cx, tr.end.y - 11 * u), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(UIColors.TEXT_MUTED, 0.8 * a))
+	draw_rect(Rect2(Vector2(tr.end.x - 14 * u - minf(cw, 60.0 * u), tr.end.y - 8 * u), Vector2(minf(cw, 60.0 * u), 2.0 * u)), Color(UIColors.VERMILION, a))
+	# liens : du tronc au premier nœud (courbe), puis d'étage en étage ; couleur de la branche une fois appris
+	var root: Vector2 = _node_pos[Meta.TREE_ROOT]
+	for id in Meta.TREE_ORDER:
+		var n: Dictionary = Meta.TREE[id]
+		var p: Vector2 = _node_pos[String(id)]
+		var on: bool = meta.learned(String(id))
+		var col: Color = _branch_col(String(id)) if on else UIColors.LINE_MUTED
+		var lw := (5.0 if on else 3.0) * u
+		if int(n["t"]) == 1:
+			var pts := PackedVector2Array()
+			var c1 := root + Vector2(0, -30.0 * u)
+			var c2 := p + Vector2(0, 40.0 * u)
+			for i in 17:
+				var t := float(i) / 16.0
+				var q := 1.0 - t
+				pts.append(root * q * q * q + c1 * 3.0 * q * q * t + c2 * 3.0 * q * t * t + p * t * t * t)
+			draw_polyline(pts, Color(col, a), lw, true)
+		else:
+			var below: Vector2 = _node_pos[String(meta.node_prereq(String(id)))]
+			draw_line(below, p, Color(col, a), lw, true)
+	# nœuds (le tronc d'abord)
+	_tree_node(Meta.TREE_ROOT, u, a)
+	for id in Meta.TREE_ORDER:
+		_tree_node(String(id), u, a)
+	_purse_node(u, a)
+	_draw_detail(w, u)
 
 
-func _tier(rank: int, maxr: int) -> Color:
-	if rank >= maxr:
-		return GOLD_HI
-	if rank <= 0:
-		return C_COMMON
-	return C_RARE if float(rank) / float(maxr) < 0.5 else C_EPIC
-
-
-func _val(id: String, r: int) -> String:
-	var line: Dictionary = Meta.LINES[id]
-	var v := int(line["base"]) + int(line["step"]) * r
-	return String(LINE_UNITS[id]) % v
-
-
-func _upgrade_tile(i: int, r: Rect2, s: float, u: float, a: float) -> void:
-	if a <= 0.01:
-		return
-	var id: String = Meta.ORDER[i]
-	var key := "line:%d" % i
-	var line: Dictionary = Meta.LINES[id]
-	var col: Color = LINE_COLORS.get(id, Toon.PRUSSIAN)
-	var rank: int = meta.rank(id)
-	var maxr: int = meta.max_rank(id)
-	var cost: int = meta.cost(id)
-	var maxed := cost < 0
-	var afford: bool = meta.can_buy(id)
-	var sel := _sel == key
-	var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-	var rr := r
-	if _shake_key == key and _shake > 0.0:
-		rr.position.x += sin(_t * 60.0) * 4.0 * u * _shake
-	if sel:
-		rr.position.y -= 4.0 * u
+## Bourse (hors de l'arbre) : pièce d'or plus petite qu'un nœud, son rang dessous (« 2/5 ») ; pleine au rang max.
+func _purse_node(u: float, a: float) -> void:
+	var c: Vector2 = _node_pos[PURSE]
+	var key := "node:" + PURSE
+	var k := 40.0 / 60.0 * u
 	if _pressed == key:
-		rr = Rect2(rr.get_center() - rr.size * 0.485, rr.size * 0.97)
-	var frame := _tier(rank, maxr)
-	var radius := 14.0 * u
-	# lueur (complet), halo du choix
-	if maxed:
-		for k in 2:
-			var g := (4.0 + 4.0 * float(k)) * u
-			_panel(self, rr.grow(g), Color(0, 0, 0, 0), radius + g, Color(GOLD_HI, (0.22 - 0.08 * float(k)) * a), 2.5 * u)
-	if sel:
-		_panel(self, rr.grow(5.0 * u), Color(0, 0, 0, 0), radius + 5.0 * u, Color(GOLD_HI, (0.7 + 0.3 * pulse) * a), 3.0 * u)
-	_panel(self, rr, Color(Toon.ui_paper, a), radius, Color(frame, a), (UiKit.BW_STRONG if rank > 0 else UiKit.BW) * u, 0.42 * a, u)
-	var cx := rr.get_center().x
-	var y0 := rr.position.y
-	# papier : fibres et mon (tomoe) en filigrane dans le coin, à la couleur de la ligne
-	UiKit.fibres(self, rr.grow(-6.0 * u), Toon.ui_ink, a, u, float(i) * 3.1, 6)
-	UiKit.mon(self, rr.position + Vector2(18, 18) * s, 10.0 * s, "tomoe", Color(col, 0.22 * a))
-	# rang en haut à droite
-	var rfs := int(9 * s)
-	var rt := "%d/%d" % [rank, maxr]
-	var rtw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x
-	draw_string(_ui, Vector2(rr.end.x - 12 * s - rtw, y0 + 18 * s), rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs, Color(_gold_ink() if maxed else Toon.ui_ink, 0.55 * a))
-	# médaillon et pictogramme
-	var mr := 26.0 * s
-	var mc := Vector2(cx, y0 + 14.0 * s + mr)
-	_medal(self, mc, mr, col, GOLD_HI if maxed else frame, u, a)
-	UiKit.glyph(self, String(LINE_GLYPHS[id]), mc, mr * 0.62, Toon.WASHI, col, a)
-	# nom et ce que la ligne améliore
-	var nm := _p(String(line["name"]))
-	var nfs := _fit(UiKit.TITLE_FONT, nm, int(15 * s), rr.size.x - 16 * s, int(11 * s))
-	UiKit.text(self, UiKit.TITLE_FONT, nm, Vector2(cx, mc.y + mr + 22 * s), nfs, Color(Toon.ui_ink, a))
-	var lab := _p(String(LINE_LABELS[id]))
-	UiKit.text(self, _ui, lab, Vector2(cx, mc.y + mr + 36 * s), int(9 * s), Color(Toon.ui_ink, 0.5 * a))
-	# barre de niveau segmentée (le prochain cran pulse quand la tuile est choisie)
-	var bx := rr.position.x + 16 * s
-	var bw := rr.size.x - 32 * s
-	var by := y0 + 112 * s
-	var sg := 3.0 * s
-	var segw := (bw - sg * float(maxr - 1)) / float(maxr)
-	for k in maxr:
-		var sr := Rect2(Vector2(bx + float(k) * (segw + sg), by), Vector2(segw, 7 * s))
-		var fill := Color(Toon.ui_ink, 0.12 * a)
-		if k < rank:
-			fill = Color(GOLD_HI if maxed else col, a)
-		elif k == rank and sel and afford:
-			fill = Color(col, (0.3 + 0.45 * pulse) * a)
-		_panel(self, sr, fill, 3.5 * s)
-		if k == rank - 1 and _stamp_key == key and _stamp > 0.0:
-			_panel(self, sr.grow(1.5 * s), Color(1, 1, 1, 0.8 * _stamp * a), 4.0 * s)
-	# actuel → suivant
-	var vfs := int(13 * s)
-	var vy := y0 + 136 * s
-	if maxed:
-		_parts(self, UiKit.UI_FONT, [[_p(_val(id, rank)), Color(_gold_ink(), a)]], Vector2(cx, vy), vfs)
-	else:
-		_parts(self, UiKit.UI_FONT, [[_val(id, rank), Color(Toon.ui_ink, 0.45 * a)], ["  →  ", Color(Toon.ui_ink, 0.35 * a)],
-			[_val(id, rank + 1), Color(_hot(), a)]], Vector2(cx, vy), vfs)
-	# bouton de prix
-	var br := Rect2(Vector2(rr.position.x + 12 * s, y0 + 146 * s), Vector2(rr.size.x - 24 * s, 24 * s))
-	if maxed:
-		_button(self, br, "max", "", "", "", u, a)
-	elif afford:
-		if sel:
-			var bk := 1.0 + 0.04 * pulse
-			br = Rect2(br.get_center() - br.size * bk / 2.0, br.size * bk)
-		_button(self, br, "buy", "armé" if sel else "", "at_drop", str(cost), u, a)
-	else:
-		_button(self, br, "lack", "", "at_drop", str(cost), u, a)
-	# achat : éclair blanc, onde d'or, sceau vermillon sur le médaillon
+		k *= 0.94
+	var maxed: bool = meta.purse_cost() < 0
+	var r: int = meta.purse_rank
+	if _tree_sel == PURSE:
+		draw_circle(c, 29.0 * k, Color(UIColors.GOLD, 0.25 * a))
+	draw_circle(c, 22.0 * k, Color(UIColors.GOLD if r > 0 else UIColors.WASHI_LIGHT, a))
+	draw_arc(c, 22.0 * k, 0.0, TAU, 40, Color(UIColors.SUMI if maxed else UIColors.GOLD_DARK, a), 2.5 * k, true)
+	UiKit.koban(self, c, 11.0 * k, a)
+	var t := "%d/%d" % [r, Meta.PURSE_COSTS.size()]
+	var fs := int(UiKit.FS_MICRO * u)
+	var tw := _ui.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	draw_string(_ui, Vector2(c.x + 22.0 * k + 4.0 * u, c.y + fs * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.TEXT_MUTED, a))
 	if _stamp_key == key and _stamp > 0.0:
 		var st := _stamp
-		_panel(self, rr, Color(1, 1, 1, 0.5 * st * st * a), radius)
-		draw_arc(mc, mr + (1.0 - st) * 46.0 * s, 0.0, TAU, 40, Color(GOLD_HI, st * a), 1.0 + 3.0 * s * st, true)
-		_stamp_fx(self, mc, str(rank), s)
+		draw_arc(c, 22.0 * k + (1.0 - st) * 30.0 * u, 0.0, TAU, 40, Color(GOLD_HI, st * a), 1.0 + 3.0 * u * st, true)
+	var hw := maxf(UiKit.TOUCH_MIN * u, 22.0 * k * 2.0 + tw + 10.0 * u)
+	_hits.append([Rect2(Vector2(c.x - UiKit.TOUCH_MIN * u / 2.0, c.y - UiKit.TOUCH_MIN * u / 2.0), Vector2(hw, UiKit.TOUCH_MIN * u)), key])
+
+
+## Un nœud (maquette : disque 22 dans un gabarit 60 ; sommet en 60, nœud en 50) : appris = plein à la couleur de la
+## branche, disponible = anneau de couleur sur papier clair, verrouillé = gris et cadenas ; sommet cerné d'or.
+func _tree_node(id: String, u: float, a: float) -> void:
+	var c: Vector2 = _node_pos[id]
+	var is_root := id == Meta.TREE_ROOT
+	var cap := false
+	var glyph := "racine"
+	if not is_root:
+		var n: Dictionary = Meta.TREE[id]
+		cap = int(n["t"]) == 7
+		glyph = String(n["glyph"])
+	var owned: bool = meta.learned(id)
+	var av: bool = (not is_root) and bool(meta.node_open(id))
+	var col := _branch_col(id)
+	var k := (60.0 if cap else 50.0) / 60.0 * u  # unités de la maquette -> pixels
+	var key := "node:" + id
+	var cc := c
+	if _pressed == key:
+		k *= 0.94
+	if _tree_sel == id:
+		draw_circle(cc, 29.0 * k, Color(col, 0.22 * a))
+	if cap:
+		draw_arc(cc, 27.0 * k, 0.0, TAU, 48, Color(UIColors.GOLD_DARK, a), 2.5 * k, true)
+	var fill: Color = col if owned else (UIColors.WASHI_LIGHT if av else UIColors.WASHI_DARK)
+	var ring: Color = UIColors.SUMI if owned else (UIColors.GOLD_DARK if cap else (col if av else UIColors.LINE_MUTED))
+	var ring_w := 2.0 if owned else (3.5 if av else 2.0)
+	draw_circle(cc, 22.0 * k, Color(fill, a))
+	draw_arc(cc, 22.0 * k, 0.0, TAU, 48, Color(ring, a), ring_w * k, true)
+	var ink: Color = UIColors.WASHI_LIGHT if owned else (col if av else UIColors.DISABLED)
+	if is_root:
+		ink = UIColors.WASHI_LIGHT
+	var gd: Array = GLYPH_PATHS[glyph]
+	var gfill: Color = ink if bool(gd[2]) else UiKit.NONE
+	UiKit.draw_path(self, String(gd[0]), 60, cc, 60.0 * k, ink, float(gd[1]), gfill, a)
+	if not owned and not av and not is_root:
+		# cadenas : corps et anse
+		draw_arc(cc + Vector2(15.0, 9.5) * k, 3.6 * k, PI, TAU, 10, Color(UIColors.DISABLED, a), 1.8 * k, true)
+		_panel(self, Rect2(cc + Vector2(9.0, 9.0) * k, Vector2(12.0, 10.0) * k), Color(UIColors.DISABLED, a), 2.0 * k)
+	if _stamp_key == key and _stamp > 0.0:
+		var st := _stamp
+		draw_circle(cc, 22.0 * k, Color(1, 1, 1, 0.5 * st * st * a))
+		draw_arc(cc, 22.0 * k + (1.0 - st) * 40.0 * u, 0.0, TAU, 40, Color(GOLD_HI, st * a), 1.0 + 3.0 * u * st, true)
+	# zone tactile : 52 u de large, au moins 44 u de haut (l'étage peut être plus serré sur un petit écran)
+	var hh := clampf(_tree_step, UiKit.TOUCH_MIN * u, NODE_HIT * u)
+	_hits.append([Rect2(c - Vector2(NODE_HIT * u, hh) / 2.0, Vector2(NODE_HIT * u, hh)), key])
+
+
+## Panneau du bas (maquette) : pastille et nom de la branche, nom du nœud, effet, état et bouton APPRENDRE.
+## « Rouleau de départ » appris : son état laisse place au choix du rouleau (flèches).
+func _draw_detail(w: float, u: float) -> void:
+	var a := UiKit.ease_out(_tab_t / 0.3)
+	var r := _detail_rect
+	_panel(self, r, Color(UIColors.SUMI, a), UiKit.R_L * u, Color(UIColors.WASHI, 0.14 * a), 1.5 * u, 0.4 * a, u)
+	var id := _tree_sel
+	var is_root := not Meta.TREE.has(id)
+	var col := _branch_col(id)
+	var bname := "TRONC"
+	var nm := "Le premier trait"
+	var fx := "Le point de départ de toutes les branches."
+	var cost := 0
+	var owned := true
+	var av := false
+	if id == PURSE:
+		# Bourse : rang actuel -> suivant, AMÉLIORER (ou MAX)
+		is_root = false
+		var pr: int = meta.purse_rank
+		var pmax := Meta.PURSE_COSTS.size()
+		bname = "HORS DE L'ARBRE · %d/%d" % [pr, pmax]
+		nm = "Bourse"
+		cost = meta.purse_cost()
+		owned = cost < 0
+		av = not owned
+		if owned:
+			fx = "Encre gagnée en fin de partie +%d %% (rang max)." % (Meta.PURSE_STEP * pr)
+		else:
+			fx = "Encre gagnée en fin de partie +%d %%, puis +%d %% au rang suivant." % [Meta.PURSE_STEP * pr, Meta.PURSE_STEP * (pr + 1)]
+	elif not is_root:
+		var n: Dictionary = Meta.TREE[id]
+		var b: Dictionary = Meta.BRANCHES[String(n["b"])]
+		bname = String(b["name"]) + (" · SOMMET" if int(n["t"]) == 7 else " · %d" % int(n["t"]))
+		nm = String(n["name"])
+		fx = String(n["text"])
+		cost = int(n["cost"])
+		owned = meta.learned(id)
+		av = meta.node_open(id)
+	var can: bool = bool(meta.can_buy_purse()) if id == PURSE else ((not is_root) and bool(meta.can_learn(id)))
+	var x := r.position.x + 18 * u
+	var xr := r.end.x - 18 * u
+	# branche
+	draw_circle(Vector2(x + 5 * u, r.position.y + 18 * u), 5.0 * u, Color(col if not is_root else UIColors.WASHI, a))
+	draw_string(_ui, Vector2(x + 16 * u, r.position.y + 18 * u + UiKit.FS_MICRO * u * 0.36), _p(bname), HORIZONTAL_ALIGNMENT_LEFT, -1,
+		int(UiKit.FS_MICRO * u), Color(UIColors.WASHI, 0.7 * a))
+	# nom
+	var nfs := _fit(UiKit.TITLE_FONT, nm, int(19 * u), xr - x, int(13 * u))
+	draw_string(UiKit.TITLE_FONT, Vector2(x, r.position.y + 45 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(UIColors.WASHI, a))
+	# effet (deux lignes au plus)
+	var efs := int(12.5 * u)
+	var lines := UiKit.wrap(UiKit.UI_FONT, fx, efs, xr - x, [":", "%", "»", "!", "?"])
+	if lines.size() > 2:
+		efs = int(11 * u)
+		lines = UiKit.wrap(UiKit.UI_FONT, fx, efs, xr - x, [":", "%", "»", "!", "?"])
+	for i in mini(lines.size(), 3):
+		draw_string(UiKit.UI_FONT, Vector2(x, r.position.y + 68 * u + float(i) * (efs + 4.0 * u)), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, efs,
+			Color(UIColors.WASHI, 0.85 * a))
+	# bouton APPRENDRE (à droite, 44 u de haut)
+	var bh := UiKit.TOUCH_MIN * u
+	var label := "APPRIS" if owned else "APPRENDRE · %d" % cost
+	if id == PURSE:
+		label = "MAX" if owned else "AMÉLIORER · %d" % cost
+	var bfs := int(12.5 * u)
+	var bw := maxf(118.0 * u, UiKit.TITLE_FONT.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x + 34.0 * u)
+	var br := Rect2(Vector2(xr - bw, r.end.y - 12 * u - bh), Vector2(bw, bh))
+	if _shake_key == "learn" and _shake > 0.0:
+		br.position.x += sin(_t * 60.0) * 4.0 * u * _shake
+	if _pressed == "learn":
+		br = Rect2(br.get_center() - br.size * 0.48, br.size * 0.96)
+	if can:
+		draw_colored_polygon(_brush_pill(Rect2(br.position + Vector2(0, 2.5 * u), br.size), 1.0), Color(UIColors.VERMILION_DARK.darkened(0.3), a))
+		draw_colored_polygon(_brush_pill(br, 7.0), Color(UIColors.VERMILION, a))
+		UiKit.text(self, UiKit.TITLE_FONT, label, Vector2(br.get_center().x, br.get_center().y + bfs * 0.36), bfs, Color(UIColors.WASHI_LIGHT, a))
+	else:
+		_panel(self, br, Color(0, 0, 0, 0), bh / 2.0, Color(UIColors.WASHI, 0.25 * a), 1.5 * u)
+		UiKit.text(self, UiKit.TITLE_FONT, label, Vector2(br.get_center().x, br.get_center().y + bfs * 0.36), bfs, Color(UIColors.WASHI, 0.4 * a))
+	if not is_root and not owned:
+		_hits.append([br, "learn"])
+	# état (ou choix du rouleau de départ)
+	var sx1 := br.position.x - 10 * u
+	if id == "v3" and owned:
+		_start_chooser(Rect2(Vector2(x, br.position.y), Vector2(sx1 - x, bh)), u, a)
+		return
+	var st := "RANG MAX" if id == PURSE else "APPRIS"
+	var sc: Color = UIColors.JADE_UP_ON_DARK
+	if not is_root and not owned:
+		if av:
+			st = ("DISPONIBLE · %d ENCRE" % cost) if can else ("IL MANQUE %d ENCRE" % (cost - int(meta.sumi)))
+			sc = UIColors.GOLD if can else UIColors.MALUS_ON_DARK
+		else:
+			st = "VERROUILLÉ : APPRENDS LE NŒUD DU DESSOUS"
+			sc = UIColors.MALUS_ON_DARK
+	st = _p(st)
+	var sfs := int(10.5 * u)
+	var sl := UiKit.wrap(_ui, st, sfs, sx1 - x, [":"])
+	var cy := br.get_center().y
+	var y0 := cy - float(sl.size() - 1) * (sfs + 2.0 * u) / 2.0
+	for i in sl.size():
+		draw_string(_ui, Vector2(x, y0 + float(i) * (sfs + 2.0 * u) + sfs * 0.36), sl[i], HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(sc, a))
+
+
+## Choix du rouleau de départ (nœud « Rouleau de départ » appris) : flèches rondes de part et d'autre du rouleau.
+func _start_chooser(r: Rect2, u: float, a: float) -> void:
+	var sp: String = meta.start_power()
+	var cy := r.get_center().y
+	var lc := Vector2(r.position.x + 15 * u, cy)
+	var rc := Vector2(r.end.x - 15 * u, cy)
+	for side in [[lc, -1.0, "prev"], [rc, 1.0, "next"]]:
+		var c: Vector2 = side[0]
+		var dir: float = side[1]
+		var k := 0.88 if _pressed == String(side[2]) else 1.0
+		draw_circle(c, 14 * u * k, Color(UIColors.WASHI, a))
+		draw_colored_polygon(PackedVector2Array([c + Vector2(5.5 * dir, 0) * u * k, c + Vector2(-3.5 * dir, -6) * u * k, c + Vector2(-3.5 * dir, 6) * u * k]),
+			Color(UIColors.SUMI, a))
+		_hits.append([Rect2(c - Vector2(22, 22) * u, Vector2(44, 44) * u), String(side[2])])
+	var x0 := lc.x + 22 * u
+	var x1 := rc.x - 22 * u
+	var nm := _power_name(sp)
+	if Data.POWERS.has(sp):
+		UiKit.power_icon(self, sp, Vector2(x0 + 10 * u, cy), 10.0 * u, a)
+		x0 += 24 * u
+	var nfs := _fit(UiKit.TITLE_FONT, nm, int(12 * u), x1 - x0, int(8 * u))
+	draw_string(UiKit.TITLE_FONT, Vector2(x0, cy + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, x1 - x0, nfs, Color(UIColors.WASHI, a))
 
 
 # ------------------------------------------------------------------ estampes : filtre
@@ -887,8 +1025,8 @@ func _draw_filters(w: float, u: float) -> void:
 
 # ------------------------------------------------------------------ ligne du bas
 
-## Ligne fine du bas, seulement quand elle a quelque chose à dire : l'achat qui vient d'être fait (coche, titre),
-## ou le don des sceaux choisi (picto, nom, son effet en une ligne). Jamais de paragraphe.
+## Ligne fine du bas (estampes), seulement quand elle a quelque chose à dire : l'apparence qui vient d'être portée
+## (coche, titre). Jamais de paragraphe.
 func _draw_info(w: float, h: float, u: float) -> void:
 	if meta == null:
 		return
@@ -924,16 +1062,6 @@ func _draw_info(w: float, h: float, u: float) -> void:
 func _info_icon(lit: bool) -> Array:
 	if lit:
 		return ["check", Toon.VERMILION]
-	var kind := _sel.get_slice(":", 0)
-	var id := _sel.get_slice(":", 1)
-	match kind:
-		"line":
-			var lid: String = Meta.ORDER[int(id)]
-			return [String(LINE_GLYPHS[lid]), LINE_COLORS[lid]]
-		"seal":
-			if SEAL_GLYPHS.has(id):
-				return [String(SEAL_GLYPHS[id]), SEAL_COLORS[id]]
-			return ["star", GOLD_HI.darkened(0.2)]
 	return [String(TAB_GLYPHS[_tab]), Color(1, 1, 1, 0.1)]
 
 
@@ -941,13 +1069,6 @@ func _info_icon(lit: bool) -> Array:
 func _banner_info() -> Array:
 	if _msg_t > 0.0:
 		return [_msg, "", true]
-	if _sel.begins_with("seal:"):
-		var id := _sel.get_slice(":", 1)
-		var it: Dictionary = Meta.SEAL_ITEMS[id]
-		var detail := String(it["text"])
-		if meta.owns_seal(id) and id == "scroll":
-			detail = _power_name(String(meta.start_power()))
-		return [String(it["name"]), detail, false]
 	return []
 
 
@@ -958,7 +1079,7 @@ func _power_name(id: String) -> String:
 	return String(d["name"])
 
 
-# ------------------------------------------------------------------ listes (sceaux, estampes)
+# ------------------------------------------------------------------ liste des estampes
 
 func _draw_list() -> void:
 	_list_hits.clear()
@@ -968,11 +1089,7 @@ func _draw_list() -> void:
 	var u := _u
 	if W < 10.0:
 		return
-	var y := -_scroll + 8 * u
-	if _tab == 1:
-		y = _draw_seal_list(y, W, u)
-	else:
-		y = _draw_gallery(y, W, u)
+	var y := _draw_gallery(-_scroll + 8 * u, W, u)
 	_content_h = y + _scroll + 10 * u
 	# fondus en haut et en bas quand il reste à faire défiler
 	var vh := _list.size.y
@@ -986,156 +1103,6 @@ func _draw_list() -> void:
 		var th := maxf(24.0 * u, vh * vh / _content_h)
 		var k := clampf(_scroll / maxf(1.0, _max_scroll()), 0.0, 1.0)
 		_panel(_list, Rect2(Vector2(W - 3 * u, (vh - th) * k), Vector2(2.5 * u, th)), Color(Toon.WASHI, 0.25), 1.5 * u)
-
-
-## Titre de section commun (UiKit.section) : sceau à kanji, petites capitales, trait de pinceau, shuriken.
-func _section(y: float, W: float, txt: String, u: float) -> void:
-	UiKit.section(_list, _tabf, txt, 4 * u, W - 6 * u, y + 13 * u, u, Toon.WASHI, 1.0)
-
-
-## Sceaux : rouleau de départ (si acquis), dons permanents puis légendaires, en tuiles sur deux colonnes.
-func _draw_seal_list(y0: float, W: float, u: float) -> float:
-	var y := y0
-	var vh := _list.size.y
-	if meta.owns_seal("scroll"):
-		var cr := Rect2(Vector2(4 * u, y), Vector2(W - 8 * u, 62 * u))
-		if cr.end.y >= -8 * u and cr.position.y <= vh + 8 * u:
-			_scroll_chooser(cr, u)
-		y += 74 * u
-	var basics: Array = []
-	var legs: Array = []
-	for id in Meta.SEAL_ORDER:
-		var it: Dictionary = Meta.SEAL_ITEMS[String(id)]
-		if it.has("power"):
-			legs.append(String(id))
-		else:
-			basics.append(String(id))
-	var gap := 10.0 * u
-	var tw := (W - 8 * u - gap) / 2.0
-	var th := 150.0 * u
-	for group in [["DONS PERMANENTS", basics], ["LÉGENDAIRES", legs]]:
-		_section(y, W, _p(String(group[0])), u)
-		y += 26 * u
-		var ids: Array = group[1]
-		for i in ids.size():
-			var r := Rect2(Vector2(4 * u + float(i % 2) * (tw + gap), y + float(int(i / 2.0)) * (th + gap)), Vector2(tw, th))
-			if r.end.y >= -12 * u and r.position.y <= vh + 12 * u:
-				_seal_tile(String(ids[i]), r, u)
-		y += float(int((ids.size() + 1) / 2.0)) * (th + gap) + 6 * u
-	return y
-
-
-func _seal_tile(id: String, r: Rect2, u: float) -> void:
-	var it: Dictionary = Meta.SEAL_ITEMS[id]
-	var key := "seal:" + id
-	var owned: bool = meta.owns_seal(id)
-	var c: int = meta.seal_cost(id)
-	var afford: bool = meta.can_buy_seal(id)
-	var sel := _sel == key
-	var leg: bool = it.has("power")
-	var col: Color = Toon.PRUSSIAN
-	if leg:
-		col = UiKit.power_color(String(it["power"]))
-	elif SEAL_COLORS.has(id):
-		col = SEAL_COLORS[id]
-	var pulse := 0.5 + 0.5 * sin(_t * 6.0)
-	var rr := r
-	if _shake_key == key and _shake > 0.0:
-		rr.position.x += sin(_t * 60.0) * 4.0 * u * _shake
-	if sel:
-		rr.position.y -= 3.0 * u
-	if _pressed == key:
-		rr = Rect2(rr.get_center() - rr.size * 0.485, rr.size * 0.97)
-	var radius := 14.0 * u
-	var frame: Color = GOLD_HI if leg else (C_RARE if owned else C_COMMON)
-	var body: Color = LEG_BODY if leg else Toon.ui_paper
-	var ink: Color = Toon.WASHI if leg else Toon.ui_ink
-	if sel:
-		_panel(_list, rr.grow(5.0 * u), Color(0, 0, 0, 0), radius + 5.0 * u, Color(GOLD_HI, 0.7 + 0.3 * pulse), 3.0 * u)
-	elif leg and owned:
-		_panel(_list, rr.grow(4.0 * u), Color(0, 0, 0, 0), radius + 4.0 * u, Color(GOLD_HI, 0.2 + 0.1 * pulse), 2.5 * u)
-	_panel(_list, rr, body, radius, frame, (UiKit.BW_STRONG if (leg or owned) else UiKit.BW) * u, 0.4, u)
-	# mon en filigrane dans le coin : tomoe d'or (légendaire), losanges à la couleur du don
-	if leg:
-		UiKit.mon(_list, rr.position + Vector2(17, 17) * u, 10.0 * u, "tomoe", Color(GOLD_HI, 0.3))
-	else:
-		UiKit.fibres(_list, rr.grow(-6.0 * u), Toon.ui_ink, 1.0, u, float(id.length()) * 1.7, 6)
-		UiKit.mon(_list, rr.position + Vector2(17, 17) * u, 10.0 * u, "hishi", Color(col, 0.22))
-	var cx := rr.get_center().x
-	var mr := 24.0 * u
-	var mc := Vector2(cx, rr.position.y + 16 * u + mr)
-	_medal(_list, mc, mr, col, frame, u, 1.0)
-	if leg:
-		UiKit.power_glyph(_list, String(it["power"]), mc, mr * 0.62, GOLD_HI, col, 1.0)
-		# ruban LÉGENDAIRE sur le haut du cadre
-		var rfs := int(UiKit.FS_MICRO * u)
-		var rt := _p("LÉGENDAIRE")
-		var rw := _ui.get_string_size(rt, HORIZONTAL_ALIGNMENT_LEFT, -1, rfs).x + 14.0 * u
-		var rib := Rect2(Vector2(cx - rw / 2.0, rr.position.y - 7.5 * u), Vector2(rw, 15.0 * u))
-		_panel(_list, rib, GOLD_HI, 3.0 * u)
-		UiKit.text(_list, _ui, rt, Vector2(cx, rib.position.y + 7.5 * u + rfs * 0.36), rfs, LEG_BODY)
-	else:
-		UiKit.glyph(_list, String(SEAL_GLYPHS.get(id, "stamp")), mc, mr * 0.62, Toon.WASHI, col, 1.0)
-	if owned:
-		var bc := mc + Vector2(mr * 0.78, mr * 0.7)
-		_list.draw_circle(bc, 9.0 * u, body)
-		_list.draw_circle(bc, 7.5 * u, Toon.VERMILION)
-		UiKit.glyph(_list, "check", bc, 4.5 * u, Toon.WASHI)
-	# nom (l'effet, en une ligne, se lit en bas de l'écran quand la tuile est choisie)
-	var nm := _p(String(it["name"]))
-	var nfs := _fit(UiKit.TITLE_FONT, nm, int(13.5 * u), rr.size.x - 14 * u, int(10 * u))
-	UiKit.text(_list, UiKit.TITLE_FONT, nm, Vector2(cx, mc.y + mr + 21 * u), nfs, GOLD_HI if leg else ink)
-	# prix, ou acquis (coche)
-	var br := Rect2(Vector2(rr.position.x + 12 * u, rr.end.y - 34 * u), Vector2(rr.size.x - 24 * u, 24 * u))
-	if owned:
-		_button(_list, br, "owned", "", "check", "", u, 1.0, leg)
-	elif afford:
-		if sel:
-			var bk := 1.0 + 0.04 * pulse
-			br = Rect2(br.get_center() - br.size * bk / 2.0, br.size * bk)
-		_button(_list, br, "buy", "armé" if sel else "", "at_seal", str(c), u, 1.0)
-	else:
-		_button(_list, br, "lack", "", "at_seal", str(c), u, 1.0, leg)
-	if _stamp_key == key and _stamp > 0.0:
-		var st := _stamp
-		_panel(_list, rr, Color(1, 1, 1, 0.45 * st * st), radius)
-		_list.draw_arc(mc, mr + (1.0 - st) * 44.0 * u, 0.0, TAU, 40, Color(GOLD_HI, st), 1.0 + 3.0 * u * st, true)
-		_stamp_fx(_list, mc, "", u)
-	_list_hits.append([_to_screen(r), key])
-
-
-## Choix du rouleau de départ : flèches rondes de part et d'autre du pouvoir choisi.
-func _scroll_chooser(r: Rect2, u: float) -> void:
-	var sp: String = meta.start_power()
-	_panel(_list, r, Toon.ui_paper, 14 * u, Color(C_RARE, 1.0), 2.0 * u, 0.4, u)
-	var cy := r.get_center().y
-	var lc := Vector2(r.position.x + 28 * u, cy)
-	var rc := Vector2(r.end.x - 28 * u, cy)
-	for side in [[lc, -1.0, "prev"], [rc, 1.0, "next"]]:
-		var c: Vector2 = side[0]
-		var dir: float = side[1]
-		var k := 0.88 if _pressed == String(side[2]) else 1.0
-		_list.draw_circle(c, 16 * u * k, Toon.ui_ink)
-		_list.draw_colored_polygon(PackedVector2Array([c + Vector2(6 * dir, 0) * u * k, c + Vector2(-4 * dir, -6.5) * u * k, c + Vector2(-4 * dir, 6.5) * u * k]), Toon.ui_wash)
-	var lab := _p("ROULEAU DE DÉPART")
-	var lfs := int(8 * u)
-	var maxw := r.size.x - 120 * u
-	var nm := "aucun"
-	if Data.POWERS.has(sp):
-		var d: Dictionary = Data.POWERS[sp]
-		nm = _p(String(d["name"]))
-		var pl := UiKit.power_label(sp)
-		if pl != nm:
-			nm = pl + " · " + nm
-	var nfs := _fit(UiKit.TITLE_FONT, nm, int(13 * u), maxw - 30 * u, int(9 * u))
-	var nw := maxf(UiKit.TITLE_FONT.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x, _ui.get_string_size(lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x)
-	var x0 := r.get_center().x - (30 * u + nw) / 2.0
-	if Data.POWERS.has(sp):
-		UiKit.power_icon(_list, sp, Vector2(x0 + 12 * u, cy), 12.0 * u)
-	_list.draw_string(_ui, Vector2(x0 + 30 * u, cy - 4 * u), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, _gold_ink())
-	_list.draw_string(UiKit.TITLE_FONT, Vector2(x0 + 30 * u, cy + 12 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Toon.ui_ink)
-	_list_hits.append([_to_screen(Rect2(lc - Vector2(22, 22) * u, Vector2(44, 44) * u)), "prev"])
-	_list_hits.append([_to_screen(Rect2(rc - Vector2(22, 22) * u, Vector2(44, 44) * u)), "next"])
 
 
 ## Galerie des Vues : apparences portées, puis estampes encadrées sur trois colonnes (selon le filtre).

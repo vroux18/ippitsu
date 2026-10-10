@@ -32,6 +32,8 @@ var hud: Control  # pour les petites annonces de points (hud.score_pop)
 var points := 0
 var best_mult := 1.0
 var bonus_mult := 1.0  # Tambour des morts (pacte du sanctuaire) : tous les gains de points ×1,4 (main._take_curse)
+var chain_early := false  # Fil du sabre (Arbre du pinceau) : ×1,5 dès 2 traits réussis au lieu de 3 (posé par main._start)
+var fig_mult := 1.0  # Maître des figures (Arbre du pinceau) : points de figure ×1,25 (posé par main._start)
 var fig_t := 0.0  # fenêtre de la dernière figure
 var room_t := 0.0  # durée du combat en cours
 var room_hurt := false
@@ -48,10 +50,13 @@ func reset() -> void:
 	room_n = 0
 
 
-static func mult(chain: int) -> float:
+## early : Fil du sabre, le premier palier (×1,5) s'atteint dès 2 au lieu de 3.
+static func mult(chain: int, early := false) -> float:
 	for m in MULTS:
 		if chain >= int(m[0]):
 			return float(m[1])
+	if early and chain >= 2:
+		return 1.5
 	return 1.0
 
 
@@ -128,7 +133,7 @@ func update(dt: float) -> void:
 
 
 func _gain(base: int, chain: int, label: String) -> int:
-	var m := mult(chain)
+	var m := mult(chain, chain_early)
 	best_mult = maxf(best_mult, m)
 	var g := int(roundf(float(base) * m * bonus_mult / 10.0)) * 10
 	points += g
@@ -144,7 +149,7 @@ func on_kill(xp: int, elite: bool, figure: bool, chain: int) -> void:
 		base = int(roundf(float(base) * PLAIN_KILL))
 	_gain(base, chain, "")
 	if figure:
-		_gain(FIGURE_PTS, chain, "FIGURE")
+		_gain(int(roundf(float(FIGURE_PTS) * fig_mult)), chain, "FIGURE")
 	if elite:
 		_gain(ELITE_PTS, chain, "DÉFI")
 

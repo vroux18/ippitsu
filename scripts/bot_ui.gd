@@ -576,9 +576,10 @@ func _ref_scroll() -> void:
 func _step_atelier() -> bool:
 	var meta = main.meta
 	var ref = main.refuge
-	# monnaie offerte et toutes les estampes, pour tout acheter et tout porter
+	# monnaie offerte et toutes les estampes, pour tout apprendre et tout porter ; arbre et Bourse repartent de zéro
 	meta.sumi = 20000
-	meta.seals = 80
+	meta.tree = {}
+	meta.purse_rank = 0
 	for pid in Meta.PRINT_ORDER:
 		meta._grant(String(pid))
 	meta.save_data()
@@ -589,34 +590,51 @@ func _step_atelier() -> bool:
 	if not await _until(func(): return float(ref._t) >= 0.7 and ref._hits.size() > 0, "atelier prêt"):
 		return false
 	_ok("atelier ouvert")
-	# onglet 0 : Pierre à encre, chaque ligne jusqu'au rang max (choisir, puis confirmer)
-	for i in Meta.ORDER.size():
-		var lid := String(Meta.ORDER[i])
-		var guard := 0
-		while int(meta.cost(lid)) >= 0 and guard < 8:
-			guard += 1
-			var r0 := int(meta.rank(lid))
-			await _ref_tap("line:%d" % i)
-			await _ref_tap("line:%d" % i)
-			if int(meta.rank(lid)) != r0 + 1:
-				break
-		_check(int(meta.cost(lid)) < 0, "atelier : ligne %s achetée jusqu'au rang %d" % [lid, int(meta.rank(lid))], "rang max non atteint")
-	# onglet 1 : sceaux (dons et légendaires)
-	await _ref_tab(1)
-	for sid in Meta.SEAL_ORDER:
-		await _ref_tap("seal:%s" % sid)
-		await _ref_tap("seal:%s" % sid)
-		_check(bool(meta.owns_seal(String(sid))), "atelier : sceau %s" % sid, "non scellé")
+	# onglet 0 : Arbre du pinceau. Un nœud verrouillé ne s'apprend pas ; Tranchant I (toucher, puis APPRENDRE)
+	# débite exactement son prix ; puis chaque nœud de chaque branche jusqu'au sommet, et la Bourse jusqu'au rang max
+	var s0 := int(meta.sumi)
+	await _ref_tap("node:l2")
+	await _ref_tap("learn")
+	_check(String(ref._tree_sel) == "l2" and not bool(meta.learned("l2")) and int(meta.sumi) == s0,
+		"atelier : nœud verrouillé (Tranchant II) refusé, encre intacte", "sélection %s, encre %d" % [String(ref._tree_sel), int(meta.sumi)])
+	await _ref_tap("node:l1")
+	await _ref_tap("learn")
+	_check(bool(meta.learned("l1")) and int(meta.sumi) == s0 - int(meta.node_cost("l1")),
+		"atelier : Tranchant I appris, %d encre débitée" % (s0 - int(meta.sumi)), "appris %s, encre %d -> %d" % [str(meta.learned("l1")), s0, int(meta.sumi)])
+	for nid in Meta.TREE_ORDER:
+		if bool(meta.learned(String(nid))):
+			continue
+		var before := int(meta.sumi)
+		await _ref_tap("node:%s" % nid)
+		await _ref_tap("learn")
+		if not bool(meta.learned(String(nid))) or int(meta.sumi) != before - int(meta.node_cost(String(nid))):
+			_fail("atelier : nœud %s non appris (encre %d -> %d)" % [nid, before, int(meta.sumi)])
+	var all_learned := true
+	for nid in Meta.TREE_ORDER:
+		all_learned = all_learned and bool(meta.learned(String(nid)))
+	_check(all_learned and meta.locked_powers().is_empty(), "atelier : arbre appris en entier (%d nœuds, légendaires libérés)" % Meta.TREE_ORDER.size(), "nœuds manquants")
+	_check(bool(meta.fig_learned("wave")) and bool(meta.fig_learned("point")) and bool(meta.fig_learned("triangle")) and bool(meta.fig_learned("loop")),
+		"atelier : figures Vague, Pointe, Triangle apprises", "fig_learned faux")
+	await _ref_tap("node:purse")
+	var guard := 0
+	while int(meta.purse_cost()) >= 0 and guard < 8:
+		guard += 1
+		var pb := int(meta.sumi)
+		var pc := int(meta.purse_cost())
+		await _ref_tap("learn")
+		if int(meta.sumi) != pb - pc:
+			break
+	_check(int(meta.purse_rank) == Meta.PURSE_COSTS.size(), "atelier : Bourse au rang %d" % int(meta.purse_rank), "rang max non atteint")
+	await _ref_tap("node:v3")
 	var sp0 := String(meta.start_power())
 	await _ref_tap("next")
 	var sp1 := String(meta.start_power())
 	await _ref_tap("prev")
 	_check(sp1 != sp0 and String(meta.start_power()) == sp0, "atelier : rouleau de départ (flèches)", "%s -> %s -> %s" % [sp0, sp1, String(meta.start_power())])
-	await _ref_scroll()
-	# onglet 2 : estampes, une apparence portée par type (écharpe, sillage, encre) ; le second toucher
+	# onglet 1 : estampes, une apparence portée par type (écharpe, sillage, encre) ; le second toucher
 	# bascule l'apparence (meta.toggle_look) : on part de rien de porté, quelle que soit la sauvegarde
 	meta.look = {"cape": "", "trail": "", "ink": ""}
-	await _ref_tab(2)
+	await _ref_tab(1)
 	for kind in Meta.LOOK_KINDS:
 		var pid := ""
 		for k in Meta.PRINT_ORDER:

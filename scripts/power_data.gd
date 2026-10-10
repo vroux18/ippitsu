@@ -9,7 +9,7 @@ extends RefCounted
 ## "needs" (au moins un de ces pouvoirs déjà pris).
 ## Effet affiché en pastilles (cartes, bulles, récapitulatif) : EFFECTS, plus bas (pictogramme, chiffre, libellé).
 ## "unlock" : palier de progression (0 = dès le départ ; N = monde N vaincu, voir meta.power_unlocked).
-## Les légendaires des sceaux de l'Atelier (meta.SEAL_ITEMS) ne dépendent que de leur sceau.
+## Les légendaires des sommets de l'Arbre du pinceau (meta.TREE, « power ») ne dépendent que de leur sommet.
 ## École « fig » (figures) : une figure tracée donne seulement +1 chaîne et +15 % de dégâts sur sa ruée ;
 ## son premier rouleau (FIG_UNLOCK) débloque la technique, les suivants l'améliorent (needs).
 

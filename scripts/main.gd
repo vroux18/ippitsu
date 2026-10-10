@@ -389,6 +389,10 @@ var _stroke_hit := false
 var _touch_sp := Vector2.ZERO  # point où le doigt s'est posé
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 var _fig_mods: Dictionary = {}  # effets de la figure sur la ruée en cours (powers.figure_launch)
+# Arbre du pinceau (meta.gd) : effets de combat
+var _net_ready := false  # Coup net : la prochaine touche du combat est critique
+var _last_breath_used := false  # Dernier souffle : déjà servi dans cette partie
+var _bleed := {}  # Lame d'encre : instance_id -> [ennemi, temps restant, temps jusqu'à la prochaine goutte]
 # expédition
 var stage_i := 0  # étape en cours (index dans STAGE_PLAN)
 var _enc := -1  # zone de combat en cours dans l'étape (-1 : on marche)
@@ -633,15 +637,29 @@ func _ready() -> void:
 		_cam_dz = _cam_target()
 		arena.follow_camera(_cam_dz)
 	if "atelier" in wsearch:
-		# `?atelier&tab=1` (captures) : l'onglet N ouvert ; `&fresh` : encre et rangs remis à zéro (prix visibles)
+		# `?atelier&tab=1` (captures) : l'onglet N ouvert (0 arbre, 1 estampes) ; `&fresh` : encre et arbre remis
+		# à zéro (prix visibles) ; `&arbre` : arbre de démonstration (640 encre, quelques nœuds appris, `&voie` : la
+		# branche VOIE entière) ;
+		# `&noeud=v2` : ce nœud choisi (panneau du bas)
 		if "fresh" in wsearch:
 			meta.sumi = 60
-			meta.seals = 2
-			meta.ranks = {}
+			meta.tree = {}
+		if "arbre" in wsearch:
+			meta.sumi = 640
+			meta.tree = {}
+			for nid in ["l1", "l2", "l3", "e1", "e2", "p1", "v1"]:
+				meta.tree[nid] = true
+			if "voie" in wsearch:
+				# `&arbre&voie` : toute la branche VOIE apprise (choix du rouleau de départ, sommet)
+				for nid in ["v2", "v3", "v4", "v5", "v6", "vc"]:
+					meta.tree[nid] = true
 		var tb := wsearch.find("tab=")
 		if tb >= 0:
-			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 2))
+			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 1))
 		_on_atelier()
+		var nq := wsearch.find("noeud=")
+		if nq >= 0:
+			refuge.call("select_node", wsearch.substr(nq + 6).get_slice("&", 0))
 	if "dojo" in wsearch:
 		_start_dojo()
 	if "tuto" in wsearch:
@@ -700,7 +718,6 @@ func _ready() -> void:
 		_ending_victory = "victoire" in wsearch
 		_finish_run()
 		menu.new_prints = ["w1_room"]  # estampe de démo (vignette des gains)
-		menu.gain_seals = maxi(menu.gain_seals, 1)
 		if not _ending_victory:
 			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
 	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
@@ -2524,6 +2541,12 @@ func _start(hub := true, tutorial := false) -> void:
 	chain = 0
 	max_chain = 0
 	score.reset()
+	# Arbre du pinceau : Fil du sabre (×1,5 dès 2), Maître des figures (+25 % de points de figure)
+	score.chain_early = meta.learned("l3")
+	score.fig_mult = Meta.MASTER_FIG_PTS if meta.learned("vc") else 1.0
+	_last_breath_used = false
+	_net_ready = false
+	_bleed.clear()
 	shape_counts = {}
 	_chain_t = 0.0
 	_scratched = false
@@ -2551,6 +2574,48 @@ func elan_max() -> float:
 	return (ELAN_MAX + powers.elan_bonus() + meta.elan_bonus()) * (0.7 if "dry" in curses else 1.0)
 
 
+## Plafond de la recharge d'élan : l'élan max, ou un peu plus avec la Réserve (Arbre du pinceau).
+func elan_cap() -> float:
+	return elan_max() * meta.reserve_mult()
+
+
+## Coup net (Arbre du pinceau) : la première touche de chaque combat est critique (×2).
+func _net_crit(pos: Vector3) -> float:
+	if not _net_ready:
+		return 1.0
+	_net_ready = false
+	float_text(pos, "NET !", Toon.GOLD)
+	vfx.dusk_crit(pos)
+	return Meta.NET_CRIT
+
+
+## Lame d'encre (Arbre du pinceau) : l'ennemi saigne BLEED_TIME secondes (relancé s'il saigne déjà).
+func _bleed_start(e: Node3D) -> void:
+	var eid := e.get_instance_id()
+	if _bleed.has(eid):
+		var b: Array = _bleed[eid]
+		b[1] = Meta.BLEED_TIME
+	else:
+		_bleed[eid] = [e, Meta.BLEED_TIME, 0.0]
+
+
+func _update_bleeds(dt: float) -> void:
+	for k in _bleed.keys():
+		if not _bleed.has(k):
+			continue  # une mort en chaîne a pu vider la table pendant la boucle
+		var b: Array = _bleed[k]
+		var e = b[0]
+		b[1] = float(b[1]) - dt
+		if not is_instance_valid(e) or e.dead or float(b[1]) <= 0.0:
+			_bleed.erase(k)
+			continue
+		b[2] = float(b[2]) - dt
+		if float(b[2]) <= 0.0:
+			b[2] = 0.3
+			_splash(e.position, Toon.VERMILION, 2)  # gouttes vermillon
+		damage_enemy(e, Meta.BLEED_DPS * dt, false)
+
+
 ## Combat suivant (zone d'une étape, ou arène d'un gardien) : 3 vagues d'ennemis à tuer, tirées selon
 ## le monde, budget croissant.
 func _begin_room() -> void:
@@ -2561,6 +2626,11 @@ func _begin_room() -> void:
 	foam = powers.foam_per_room()
 	powers.on_room_start(room)
 	safety_left = meta.safety_per_room()
+	# Arbre du pinceau : Coup net (1re touche critique), Garde au départ (intouchable 2 s), saignements oubliés
+	_net_ready = meta.learned("l4")
+	_bleed.clear()
+	if meta.learned("p2") and hero.invuln < 500.0:
+		hero.invuln = maxf(hero.invuln, Meta.START_GUARD)
 	if arena.stage:
 		hazards.begin_room(room, hero.position, false, arena.bounds, true)
 	else:
@@ -2913,6 +2983,8 @@ func boss_killed(b: Node3D) -> void:
 	var clean := not _scratched
 	if is_mini_boss(String(b.kind)):
 		mini_kills += 1
+		if meta.learned("p4"):
+			heal(1)  # Kintsugi (Arbre du pinceau) : chaque gardien vaincu rend un cœur
 		_pending_levels += 1  # le gardien vaincu offre un rouleau
 		music.end_boss(true)
 		if clean and room < ROOMS:
@@ -4117,14 +4189,12 @@ func _award(victory: bool) -> void:
 	meta.sumi += bonus
 	meta.save_data()
 	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
-	menu.gain_seals = int(g.get("seals", 0))
 	if victory and _flawless_boss:
-		# boss du monde vaincu sans un coup : sceaux et encre en plus
-		meta.seals += 2
-		meta.sumi += 40
+		# boss du monde vaincu sans un coup : encre en plus (40, et les 2 anciens sceaux payés en encre)
+		var fl := 40 + 2 * Meta.SEAL_SUMI
+		meta.sumi += fl
 		meta.save_data()
-		menu.gain_seals += 2
-		menu.gain_sumi += 40
+		menu.gain_sumi += fl
 	menu.sumi = meta.sumi
 	# nouvelles Vues (ids de meta.PRINTS) pour la feuille de résultats
 	var np: Array = g.get("prints", [])
@@ -5039,7 +5109,7 @@ func _launch(s: MeshInstance3D) -> void:
 		_fig_slow = FIG_SLOW_LEN
 		# l'ultime ne se charge QUE par les figures, et seulement en combat (pas entre deux vagues)
 		if not _explore:
-			gain_ult(ULT_PER_FIGURE)
+			gain_ult(meta.ult_per_figure(ULT_PER_FIGURE))  # Maître des figures : 4 figures au lieu de 5
 		# (plus de sceau coloré flottant au bout du trait : le sceau papier du HUD, au-dessus du héros, dit déjà la figure)
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
@@ -5211,6 +5281,19 @@ func _hurt_hero(n := 1) -> void:
 		return
 	if powers.on_hurt(n):
 		return
+	if hero.hp <= n and not _last_breath_used and meta.learned("p6"):
+		# Dernier souffle (Arbre du pinceau) : une fois par partie, le coup mortel laisse 1 cœur
+		_last_breath_used = true
+		hero.hp = 1
+		hero.invuln = 1.5
+		_break_chain()
+		score.on_hurt()
+		hud.hurt_flash = 1.0
+		shake = 0.69
+		sfx.play("hurt", 0.8)
+		feel("hurt")
+		float_text(hero.position, "DERNIER SOUFFLE", Toon.GOLD)
+		return
 	hero.hurt(n, _hurt_iframes())
 	if "cursed_ink" in curses:
 		_ink_lock = INK_LOCK_T  # Encre maudite : la recharge d'encre se fige
@@ -5284,11 +5367,14 @@ func _check_slashes() -> void:
 				_prev_hero = hero.position
 				continue
 			dmg *= float(_fig_mods.get("dmg", 1.0))
-			dmg *= chain_mult() * curse_dmg_mult()
+			dmg *= chain_mult() * curse_dmg_mult() * meta.dmg_mult(chain)
+			dmg *= _net_crit(p)
 			dmg = powers.on_hit(e, dmg, dir)
 			_stroke_hit = true
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
+			if not killed and not _shape.is_empty() and meta.learned("l5"):
+				_bleed_start(e)  # Lame d'encre : tranché pendant une figure, il saigne
 			_dmg_text(p, dmg, killed, e)
 			vfx.impact(p, dir, killed)
 			_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
@@ -5304,7 +5390,7 @@ func _check_slashes() -> void:
 				powers.on_kill(e)
 				if _stroke_kills == 3:
 					_zoom_k = 1.0  # trois d'un trait : la caméra s'approche un instant
-			elan = minf(elan_max(), elan + ELAN_PER_HIT)
+			elan = maxf(elan, minf(elan_cap(), elan + ELAN_PER_HIT))
 			shake = maxf(shake, 0.3 if killed else 0.15)
 			sfx.play("kill" if killed else "slash", _combo_pitch())
 			if killed:
@@ -5324,12 +5410,13 @@ func _check_slashes() -> void:
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
 			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0)) * curse_dmg_mult()
+			bd *= meta.dmg_mult(chain) * _net_crit(bo.position)
 			_stroke_hit = true
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(powers.boss_dmg(bd) * BOSS_TOUGH, bdir)
 			powers.on_boss_hit(bo.position, bd)
-			elan = minf(elan_max(), elan + ELAN_PER_HIT)
+			elan = maxf(elan, minf(elan_cap(), elan + ELAN_PER_HIT))
 			_add_hitstop(HITSTOP_BOSS)
 			_cam_kick(bdir, 0.12)
 			shake = maxf(shake, 0.17)
@@ -5647,7 +5734,7 @@ func _process(_delta: float) -> void:
 		hud.set(&"ult", ult)
 	_ink_lock = maxf(0.0, _ink_lock - real)
 	if not touching and not hero.dashing and _ink_lock <= 0.0:
-		elan = minf(elan_max(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real)
+		elan = maxf(elan, minf(elan_cap(), elan + ELAN_REGEN * powers.regen_mult() * meta.regen_mult() * real))
 	# hors combat : l'encre se recharge aussitôt, et le doigt posé fait courir
 	_explore = exploring()
 	if _explore:
@@ -5732,6 +5819,7 @@ func _process(_delta: float) -> void:
 		score.update(dt)
 		_update_moves(dt)
 		powers.update(dt)
+		_update_bleeds(dt)
 		hazards.update(dt)
 		for bo in bosses:
 			# contact d'un boss : la ruée reste intouchable en entier (on le tranche en le traversant)
@@ -5911,7 +5999,7 @@ func _process(_delta: float) -> void:
 	hud.xp_ratio = float(xp) / float(xp_need())
 	hud.gold = run_gold
 	hud.score = int(score.points) if state != "tuto" else -1
-	hud.score_mult = Score.mult(chain) if state != "tuto" else 1.0
+	hud.score_mult = Score.mult(chain, score.chain_early) if state != "tuto" else 1.0
 	var bars: Array = []
 	for e in enemies:
 		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):
