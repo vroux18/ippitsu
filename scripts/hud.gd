@@ -62,6 +62,7 @@ var enemy_bars: Array = []  # [position écran, ratio de vie, (ratio de bouclier
 const SHIELD_BAR := Color("#6FB7FF")
 const ELITE_MARK := Color("#FFB23E")
 var in_play := false
+var picking := false  # choix de rouleau ouvert (état « pick » de main) : le HUD fixe s'efface sous le rouleau (UI v2)
 var dojo := false  # dojo (main) : HUD réduit à l'encre et à l'ultime, l'en-tête du dojo remplace les pastilles
 var pause_enabled := true  # main : vrai seulement quand la pause est possible (état « play »)
 var level := 1
@@ -328,7 +329,9 @@ func _process(_delta: float) -> void:
 			_card_t = -1.0
 	_band_k = lerpf(_band_k, _below_k(), 1.0 - exp(-real * 9.0))
 	var u := size.x / 400.0
-	_pause.visible = in_play and pause_enabled and dying <= 0.0 and not dojo
+	var scene := get_tree().current_scene
+	picking = in_play and scene != null and str(scene.get("state")) == "pick"
+	_pause.visible = in_play and pause_enabled and dying <= 0.0 and not dojo and not picking
 	_pause.size = Vector2(BAR_H, BAR_H) * u
 	_pause.position = Vector2(size.x - 58.0 * u, BAR_Y * u + top_off)
 	# hors jeu (accueil, carte, refuge…) et sans rien d'animé : _draw ne dessinerait rien ;
@@ -371,7 +374,11 @@ func _draw() -> void:
 			# élite : losange d'or au bout de la barre
 			UiKit.diamond(self, rect.position + Vector2(-5.0 * u, rect.size.y * 0.5), 4.0 * u, ELITE_MARK)
 
-	if in_play:
+	if in_play and picking:
+		# rouleau ouvert : rien de fixe sous la planche Rouleaux ; restent les sceaux qui flottent et le bandeau
+		draw_set_transform(Vector2.ZERO)
+		_draw_power_pops(sz, u)
+	elif in_play:
 		_draw_pad(u)
 		# dojo : ni vie, ni XP, ni score, ni étape ; les sceaux de figure laissent la place au verdict du dojo
 		# (sous son en-tête). Restent l'encre et l'ultime.
@@ -423,7 +430,7 @@ func _draw() -> void:
 	if _card_t >= 0.0 and _card.size() == 4:
 		_draw_card(sz, u)
 
-	if _banner_t >= 0.0:
+	if _banner_t >= 0.0 and not picking:
 		_draw_banner(sz, u)
 
 	# mort : l'image se délave dans le papier, une coulure d'encre descend
