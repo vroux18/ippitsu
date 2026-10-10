@@ -13,6 +13,7 @@ const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")
+const BossShrine = preload("res://scripts/boss_shrine.gd")
 
 const HALF := Vector2(4.6, 8.6)  # bornes de l'arène (comme main.gd)
 
@@ -318,7 +319,13 @@ func build_room(room: int, rooms: int, rng_seed: int, mini_room := 8) -> void:
 	rects = _layout_rects(layout, mirrored)
 	floor_rects = rects
 	_single_frame()
-	_finish_room(Worlds.world(world_id), rng, rng_seed)
+	# arène du gardien (1) ou du boss (2) : parvis de sanctuaire (boss_shrine.gd)
+	var shrine := 0
+	if room == mini_room:
+		shrine = 1
+	elif room >= rooms:
+		shrine = 2
+	_finish_room(Worlds.world(world_id), rng, rng_seed, shrine)
 
 
 ## Oublie la salle ou l'étape précédente (décor, haies, zones).
@@ -1345,8 +1352,9 @@ func build_hub(rng_seed: int) -> void:
 	_build_gate(w)
 
 
-## Sol, décor, départ et torii pour les `rects` courants.
-func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> void:
+## Sol, décor, départ et torii pour les `rects` courants. `shrine` : 0 = salle, 1 = arène de gardien,
+## 2 = arène de boss (le paysage des abords cède la place au sanctuaire, voir boss_shrine.gd).
+func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int, shrine := 0) -> void:
 	_build_floor(w, rng)
 	_flush_tiles()
 	# départ au sud de la plateforme la plus basse, sortie au nord de la plus haute
@@ -1359,7 +1367,12 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int) -> v
 	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
 	# rendu allégé : une seule lumière ponctuelle comme un tronçon d'étape (en compatibilité, chaque lumière
 	# refait une passe sur chaque objet qu'elle touche, sol de l'arène compris)
-	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 1 if Toon.lite else Worlds.MAX_LIGHTS)
+	if shrine > 0:
+		# sanctuaire : sa seule lumière ponctuelle remplace celles des abords (le paysage n'en garde aucune)
+		Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 0, [], true)
+		BossShrine.build(world_id, shrine == 2, _room_root, rng_seed)
+	else:
+		Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 1 if Toon.lite else Worlds.MAX_LIGHTS)
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
 	_pits = Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed)
 	_build_gate(w)

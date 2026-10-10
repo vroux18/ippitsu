@@ -961,6 +961,7 @@ func _warmup() -> void:
 	vfx.impact(fxp, Vector3.FORWARD, true)
 	vfx.kill_burst(fxp, Vector3.FORWARD, true)
 	vfx.warm(fxp)  # effets riches des pouvoirs (pinceau, additifs, crête de vague)
+	preload("res://scripts/boss_shrine.gd").warm(w)  # arènes de gardien et de boss : motif du sol, lots, halos, tōrō
 	_warm_shrink(w)
 	# libéré quoi qu'il arrive (même arbre en pause ou temps ralenti : sinon la miniature restait des secondes)
 	get_tree().create_timer(1.2, true, false, true).timeout.connect(w.queue_free)

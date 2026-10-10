@@ -1771,13 +1771,15 @@ static func _lava_flow(lava: Dictionary, veins: Dictionary, lm: Material, vm: Ma
 ## tapis d'éléments répétés (MultiMesh). Tout est fusionné : ~1 draw call par matériau.
 ## `zone` (facultatif, tronçon d'une étape) : les props de bord restent dans cette tranche de z.
 ## `pieces` (étapes) : pièces de décor posées sur la terre ferme (_set_pieces), dans les mêmes lots.
-static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = []) -> void:
+## `shrine` : arène de gardien ou de boss (boss_shrine.gd bâtit les terrasses et le sanctuaire du nord) :
+## le paysage ne garde que la bande proche du bas de l'écran et le bord sud.
+static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false) -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 31 + wid)
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
-	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
+	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights, "shrine": shrine}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
 	_landscape(wid, ctx, rng)
@@ -1978,6 +1980,9 @@ static func _ls_span(ctx: Dictionary, frame: Rect2) -> Vector2:
 	return Vector2(frame.position.y - 5.0, frame.end.y + 0.2)
 
 
+const SHRINE_NEAR_Z := 2.9  # arène de sanctuaire : la bande proche commence sous les terrasses (boss_shrine.gd)
+
+
 ## Compose les abords du tronçon (voir l'en-tête de la section).
 static func _landscape(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) -> void:
 	var frame := _ls_frame(ctx)
@@ -1985,6 +1990,16 @@ static func _landscape(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) ->
 	var has_north := frame.position.y > span.x - 0.01  # le fond de l'étape tombe dans ce tronçon
 	var main_side: float = -1.0 if rng.randf() < 0.5 else 1.0
 	ctx["ls_dens"] = 0.62 if Toon.lite else 1.0
+	if bool(ctx.get("shrine", false)):
+		# arène de sanctuaire : terrasses et sanctuaire à la place des rives bâties et du fond ;
+		# seule la bande proche reste, sous les terrasses (bas de l'écran), et le bord sud
+		for s: float in [-1.0, 1.0]:
+			var near := {"s": s, "x": frame.end.x if s > 0.0 else frame.position.x, "z0": SHRINE_NEAR_Z, "z1": span.y, "main": false, "north": false, "near_only": true}
+			_ls_shore(wid, ctx, near, rng)
+		var avoid: Array = ctx["avoid"]
+		avoid.append(Vector3(0.0, frame.end.y + 0.6, 1.7))  # marches du sanctuaire qui descendent dans l'eau
+		_ls_south(wid, ctx, frame, rng)
+		return
 	if has_north:
 		_ls_north(wid, ctx, frame, rng)
 	for s: float in [-1.0, 1.0]:
@@ -2012,6 +2027,8 @@ static func _ls_shore(wid: int, ctx: Dictionary, sh: Dictionary, rng: RandomNumb
 	var avoid: Array = ctx["avoid"]
 	# rien de haut au bas de l'écran (ça masquerait le bord de la plateforme vue d'en haut)
 	var z_tall := minf(z1, 6.5)
+	if bool(sh.get("near_only", false)):
+		z_tall = z0  # ni groupe ni bande moyenne : la bande proche seule
 	# groupe lointain : le hameau sur la rive principale, un groupe mineur sur l'autre, à des hauteurs
 	# différentes pour que les deux rives ne se répondent pas
 	if z_tall - z0 > 7.0:
