@@ -3632,6 +3632,26 @@ func warm(p: Vector3) -> void:
 		var ch := get_child(i) as Node3D
 		if ch != null:
 			ch.position.y -= 3.0
+	# puis tous passent en miniature (× 0,002 autour de p) : l'eau de l'accueil est transparente (et absente sous la
+	# mer de Ryūgū-jō), les effets additifs ou à priorité de rendu haute se voyaient en grand au pied du héros
+	# (éclair jaune, flamme, éclats d'encre) pendant les premières secondes de l'accueil
+	var hold := Node3D.new()
+	add_child(hold)
+	hold.position = p
+	hold.scale = Vector3.ONE * 0.002
+	var made: Array = []
+	for i in range(first, get_child_count() - 1):
+		made.append(get_child(i))
+	for ch in made:
+		var n := ch as Node
+		var p3 := (n as Node3D).position if n is Node3D else Vector3.ZERO
+		remove_child(n)
+		hold.add_child(n)
+		if n is Node3D:
+			(n as Node3D).position = p3 - p
+	if main != null and main.has_method("_warm_shrink"):
+		main.call("_warm_shrink", hold)
+	get_tree().create_timer(1.5, true, false, true).timeout.connect(hold.queue_free)
 	_warming = false
 
 
