@@ -13,8 +13,9 @@ extends RefCounted
 ## manquée. Les figures de l'arbre (LEARNED : vague, pointe, triangle) se distinguent des six autres par un
 ## critère simple : la vague a deux virages arrondis de sens opposés (le zigzag a des coins, la boucle et l'ensō
 ## un seul sens), la pointe un seul coin aigu et deux branches proches (le crochet, une barbe courte), le triangle
-## trois coins et se referme (l'ensō est rond, le zigzag ouvert). Pas encore apprises (`locked`), elles ne sont
-## pas lues du tout : le trait garde la lecture des six autres.
+## trois coins et se referme (l'ensō est rond, le zigzag ouvert). Pas encore apprises (`locked`), elles restent
+## lues mais ne rapportent rien : un geste qui a leur forme n'est AUCUNE figure (pas de repli sur la suivante dans
+## l'ordre : un V de pointe verrouillée n'est pas un crochet).
 ## Ensō ou boucle : le même cercle est lu (grand virage d'un même sens, ou boucle entre deux croisements), puis
 ## c'est la taille qui tranche (SPLIT_R, ou SPLIT_CM d'écran quand main passe l'échelle), et pour un cercle moyen
 ## pris entre deux longues amorces, les amorces (LOOP_TAILS) : c'est une boucle dans un trait.
@@ -77,13 +78,19 @@ const ZZ_CURVE := 200.0         # un virage cumulé de plus de 200° dans le mê
 const ST_LEN := 7.0
 const ST_DEV := 0.5
 const ST_DEV_K := 0.06
-# Kagi (crochet) : fin de trait cassée, repartant en arrière
-const HK_MIN := 110.0
+# Kagi (crochet) : un trait droit dont la fin se replie nettement en arrière, une barbe courte (le glyphe : une
+# hampe et une barbe qui remonte le long d'elle). Le crochet est la figure la plus facile à faire sans le vouloir
+# (un trait de combat qui tourne vers un second ennemi, le doigt qui dérape en levant) : il demande une intention
+# claire, chaque critère écarte un geste naturel (tools/fig_corpus.gd, traits de combat naturels)
+const HK_MIN := 112.0           # virage au coin (moyenne des deux lectures, près du coin et sur les cordes entières) :
+const HK_MIN_ANY := 110.0       # la barbe revient vers la hampe (angle intérieur ≤ 68°, chaque lecture ≤ 70°) ; un L, non
 const HK_MAX := 172.0           # l'aller-retour est testé avant : un retour court et replié reste un crochet
-const HK_LAST := 0.9
-const HK_LAST_K := 0.15
+const HK_LAST := 0.9            # barbe d'au moins 0,9 m...
+const HK_LAST_K := 0.155        # ... et 15,5 % du trait : une virgule du doigt qui dérape en levant n'est pas une barbe
+const HK_LAST_MAX_K := 0.42     # barbe d'au plus 42 % du trait : au-delà, une seconde moitié de trait (un V, un L)
 const HK_PREV := 0.8
-const HK_STRAIGHT := 0.3
+const HK_STRAIGHT := 0.3        # flèche de la barbe / sa longueur
+const HK_SHAFT := 0.1           # flèche de la hampe / sa longueur : une hampe droite, pas un trait qui s'enroule
 
 # Figures de l'arbre (apprises dans la branche Voie) : vague (S), pointe (V), triangle.
 # Kekkai (triangle) : tracé fermé à trois coins vifs, tous du même sens
@@ -113,7 +120,7 @@ const WV_BAL := 0.4             # l'arc le plus court fait au moins 40 % de la l
 # trait droit, le crochet
 const ORDER := ["zigzag", "triangle", "wave", "enso", "return", "loop", "point", "straight", "hook"]
 # figures apprises dans l'arbre (meta.fig_learned) ; main remplit `locked` avec celles pas encore apprises :
-# elles ne sont ni reconnues ni proposées par le diagnostic (le trait garde la lecture des six autres)
+# leur forme est lue mais ne donne aucune figure (ni la leur, ni une autre), et le diagnostic ne la propose pas
 const LEARNED := ["wave", "point", "triangle"]
 static var locked: Array = []
 
@@ -145,6 +152,8 @@ static func detect(points: PackedVector3Array, scale: float = 0.0) -> Dictionary
 		return {}
 	for c: Dictionary in _candidates(f, scale):
 		if float(c["score"]) >= 1.0:
+			if String(c["shape"]) in locked:
+				return {}  # la forme d'une figure pas encore apprise : aucune figure, pas de repli sur une autre
 			var out := c.duplicate()
 			out.erase("score")
 			out.erase("reason")
@@ -337,17 +346,10 @@ static func _corners(t: PackedFloat32Array, thresh: float) -> Array:
 # ---------------------------------------------------------------- candidats
 
 static func _candidates(f: Dictionary, scale: float) -> Array:
+	# les figures verrouillées sont lues aussi : un geste qui en a la forme ne retombe pas sur la figure suivante
+	# (un V de pointe pas encore apprise n'est pas un crochet) ; detect() le lit comme aucune figure
 	var curl := _curl(f, scale)
-	var out: Array = [_zigzag(f)]
-	if not "triangle" in locked:
-		out.append(_triangle(f))
-	if not "wave" in locked:
-		out.append(_wave(f))
-	out.append_array([curl[0], _return(f), curl[1]])
-	if not "point" in locked:
-		out.append(_point(f))
-	out.append_array([_straight(f), _hook(f)])
-	return out
+	return [_zigzag(f), _triangle(f), _wave(f), curl[0], _return(f), curl[1], _point(f), _straight(f), _hook(f)]
 
 
 ## Candidat : porte × produit des conditions (rapport ≥ 1 : tenue) ; la raison est la condition la plus manquée.
@@ -902,7 +904,11 @@ static func _hook(f: Dictionary) -> Dictionary:
 	var a0 := mini(n - 2, c + int(round(minf(last * 0.35, 1.0) / step)))
 	var after := q[n - 1] - q[a0]
 	var ang := _angle_change(before, after)
+	# même virage lu sur les cordes entières (départ -> coin -> fin) : un L au coin très arrondi, mesuré près du
+	# coin, paraît plus replié qu'il n'est ; la hampe entière dit d'où vient le trait
+	var ang_c := _angle_change(q[c] - q[0], q[n - 1] - q[c])
 	var straight := _sagitta(q, c, n - 1) / maxf(last, EPS)
+	var shaft := _sagitta(q, 0, c) / maxf(prev, EPS)
 	# un retour qui revient presque au départ est un aller-retour (inachevé, en direct) : pas un crochet
 	var far := 0.0
 	for pt: Vector3 in q:
@@ -911,8 +917,11 @@ static func _hook(f: Dictionary) -> Dictionary:
 	var not_ret := 1.0 if far < RET_FAR else gap / (1.25 * maxf(RET_GAP, far * RET_GAP_K))
 	return _cand("hook", [
 		[last / maxf(HK_LAST, L * HK_LAST_K), "crochet trop court"],
+		[L * HK_LAST_MAX_K / maxf(last, EPS), "crochet trop long : la barbe est courte"],
 		[prev / HK_PREV, "premier trait trop court"],
-		[ang / HK_MIN, "repars plus en arrière"],
+		[HK_SHAFT / maxf(shaft, EPS), "premier trait trop courbe"],
+		[(ang + ang_c) * 0.5 / HK_MIN, "repars plus en arrière"],
+		[minf(ang, ang_c) / HK_MIN_ANY, "repars plus en arrière"],
 		[HK_MAX / maxf(ang, EPS), "trop replié, presque un aller-retour"],
 		[not_ret, "trop replié, presque un aller-retour"],
 		[HK_STRAIGHT / maxf(straight, EPS), "crochet trop courbe"],
@@ -1153,6 +1162,10 @@ static func near_miss(points: PackedVector3Array, scale: float = 0.0) -> Diction
 		return {"shape": "", "reason": "trop court", "score": 0.0}
 	var best: Dictionary = {"shape": "", "reason": "aucune figure", "score": 0.0}
 	for c: Dictionary in _candidates(f, scale):
+		if String(c["shape"]) in locked:
+			if float(c["score"]) >= 1.0:
+				break  # la forme d'une figure pas apprise : le diagnostic ne la nomme pas, ni une autre à sa place
+			continue
 		if float(c["score"]) >= 1.0:
 			return {}
 		if float(c["score"]) > float(best["score"]):
@@ -1298,7 +1311,7 @@ static func self_test() -> Array:
 	var was: Array = locked
 	locked = LEARNED.duplicate()
 	_check(fails, "S non appris", _resample_step(ss, step), "")
-	_check(fails, "pointe non apprise (un crochet)", vv, "hook")
+	_check(fails, "pointe non apprise (aucune figure, pas un crochet)", vv, "")
 	locked = was
 	# le diagnostic : un cercle trop petit pour un ensō mais pas assez fermé pour une boucle parle du cercle
 	var m := near_miss(_resample_step(cc, step))

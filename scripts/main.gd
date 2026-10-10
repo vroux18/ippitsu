@@ -5528,7 +5528,10 @@ func _touch_move(sp: Vector2) -> void:
 	if used > 0.0 and float(stroke.length) - float(stroke.probe_len) >= 0.3:
 		stroke.probe_len = stroke.length
 		var live: Dictionary = _detect_fig(stroke) if float(stroke.length) >= 2.0 else {}
-		stroke.set_figure(String(live.get("shape", "")))
+		var live_shape := String(live.get("shape", ""))
+		# le crochet ne se confirme qu'au relâchement : doigt encore posé, une « barbe » est souvent le début du
+		# second segment d'un trait qui va chercher un autre ennemi (l'encre ne se teinte pas trop tôt)
+		stroke.set_figure("" if live_shape == "hook" else live_shape)
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
@@ -5547,7 +5550,8 @@ const FIG_CLOSED := ["loop", "enso", "return"]  # formes fermées (gardé pour l
 func _detect_fig(s: Node) -> Dictionary:
 	_sync_fig_lock()
 	var rw: PackedVector3Array = s.get("raw")
-	if rw.size() >= 3:
+	var read_raw := rw.size() >= 3
+	if read_raw:
 		var r: Dictionary = {}
 		if ctrl_mode == "pad":
 			# pad : le geste du doigt est reproduit au sol à l'échelle (15 m pour la largeur du pad) : rien à redresser
@@ -5558,7 +5562,12 @@ func _detect_fig(s: Node) -> Dictionary:
 		if not r.is_empty():
 			return r
 	var pts: PackedVector3Array = s.get("points")
-	return StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
+	var rp := StrokeShapes.detect_lead(pts, int(s.get("lead_n")))
+	# le geste du doigt a été lu et ne dit rien : le trait posé (même geste, déformé par la perspective, rogné)
+	# n'en fait pas une figure ; seul le trait droit que l'amorce depuis le héros allonge jusqu'à 7 m compte
+	if read_raw and String(rp.get("shape", "")) != "straight":
+		return {}
+	return rp
 
 
 ## Figures de l'arbre (vague, pointe, triangle) pas encore apprises (meta.fig_learned) : StrokeShapes ne les lit
@@ -5651,15 +5660,33 @@ func _figtest() -> void:
 		var by := _ground(Vector2(vs.x * 0.5, vs.y * ky - cm))
 		print("FIGTEST échelle y=%.2f : 1 cm d'écran = %.2f m (horizontal), %.2f m (vertical)" % [ky, a.distance_to(bx), a.distance_to(by)])
 	var FigCorpus = load("res://tools/fig_corpus.gd")
-	FigCorpus.run(true)
-	# gestes du corpus posés à l'écran (geste du doigt seul, à sa taille au sol pour la profondeur choisie, entre
-	# 30 et 90 % de la hauteur de la vue), puis au sol par la caméra comme en jeu
+	# deux états de l'arbre : figures de l'arbre apprises, puis toutes verrouillées (début de partie) ; un geste qui
+	# a la forme d'une figure verrouillée ne doit être aucune figure (pas de repli sur le crochet)
+	var was_lock: Array = StrokeShapes.locked
+	for lock: Array in [[], StrokeShapes.LEARNED.duplicate()]:
+		FigCorpus.run(true, FigCorpus.SEED, lock)
+		_figtest_screen(FigCorpus, lock, vs, cm)
+	StrokeShapes.locked = was_lock
+	get_tree().quit()
+
+
+## Gestes du corpus posés à l'écran (geste du doigt seul, à sa taille au sol pour la profondeur choisie, entre
+## 30 et 90 % de la hauteur de la vue), puis au sol par la caméra comme en jeu. « Chemin du jeu » : comme
+## _detect_fig, lecture redressée, et le trait au sol si elle ne dit rien. Traits de combat naturels : figures lues
+## au relâchement, et lecture en direct tous les 30 cm (la teinte de l'encre pendant le tracé).
+func _figtest_screen(FigCorpus: Variant, lock: Array, vs: Vector2, cm: float) -> void:
+	StrokeShapes.locked = lock.duplicate()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7
 	var n := 0
 	var ok_scr := 0
 	var ok_gnd := 0
+	var ok_game := 0
 	var fails: Array = []
+	var nat := {}
+	var nat_n := 0
+	var nat_live := {}
+	var nat_gray := {}
 	for s: Dictionary in FigCorpus.build(rng):
 		var pts: PackedVector3Array = s["pts"]
 		var lead := int(s.get("lead", -1))
@@ -5676,9 +5703,37 @@ func _figtest() -> void:
 		for p in pts:
 			var u := anchor + Vector2(p.x - g.x, p.z - g.z) * px_per_m
 			raw.append(_ground(u))
-		var want := String(s["want"])
+		var want: String = FigCorpus.want_of(s, lock)
 		var got_scr := String(_detect_screen(raw).get("shape", ""))
 		var got_gnd := String(StrokeShapes.detect(raw).get("shape", ""))
+		var got_game := got_scr if got_scr != "" else (got_gnd if got_gnd == "straight" else "")  # comme _detect_fig
+		if bool(s.get("nat", false)):
+			var bucket: Dictionary = nat_gray if bool(s.get("gray", false)) else nat
+			bucket[got_game] = int(bucket.get(got_game, 0)) + 1
+			if not bool(s.get("gray", false)):
+				nat_n += 1
+				# lecture en direct : chaque préfixe de 30 cm en 30 cm, dès 2 m de trait (la teinte de l'encre)
+				var seen := {}
+				var acc := 0.0
+				var last := 0.0
+				for i in range(1, raw.size()):
+					acc += raw[i].distance_to(raw[i - 1])
+					if acc >= 2.0 and acc - last >= 0.3:
+						last = acc
+						var lv := String(_detect_screen(raw.slice(0, i + 1)).get("shape", ""))
+						if lv != "":
+							seen[lv] = true
+				for k in seen.keys():
+					nat_live[k] = int(nat_live.get(k, 0)) + 1
+			else:
+				continue
+		var alt := String(s.get("alt", "-"))
+		if got_scr == alt:
+			got_scr = want
+		if got_gnd == alt:
+			got_gnd = want
+		if got_game == alt:
+			got_game = want
 		n += 1
 		if got_scr == want:
 			ok_scr += 1
@@ -5686,10 +5741,25 @@ func _figtest() -> void:
 			fails.append("%s à y=%.2f : attendu '%s', redressé '%s' (au sol '%s')" % [String(s["name"]), anchor.y / vs.y, want, got_scr, got_gnd])
 		if got_gnd == want:
 			ok_gnd += 1
-	print("FIGTEST écran : %d gestes posés au sol par la caméra : %d justes redressés (%.1f %%), %d justes lus au sol tels quels (%.1f %%)" % [n, ok_scr, 100.0 * float(ok_scr) / float(maxi(n, 1)), ok_gnd, 100.0 * float(ok_gnd) / float(maxi(n, 1))])
+		if got_game == want:
+			ok_game += 1
+		elif got_scr == want:
+			fails.append("%s à y=%.2f : attendu '%s', chemin du jeu '%s' (repli au sol)" % [String(s["name"]), anchor.y / vs.y, want, got_game])
+	var tagl := "" if lock.is_empty() else "[verrouillées : %s] " % ", ".join(PackedStringArray(lock))
+	print("FIGTEST %sécran : %d gestes posés au sol par la caméra : %d justes redressés (%.1f %%), %d justes lus au sol tels quels (%.1f %%), %d justes par le chemin du jeu (%.1f %%)" % [tagl, n, ok_scr, 100.0 * float(ok_scr) / float(maxi(n, 1)), ok_gnd, 100.0 * float(ok_gnd) / float(maxi(n, 1)), ok_game, 100.0 * float(ok_game) / float(maxi(n, 1))])
+	var nl := ""
+	for k in nat.keys():
+		nl += " %s %d" % [String(k) if String(k) != "" else "(rien)", int(nat[k])]
+	var ll := ""
+	for k in nat_live.keys():
+		ll += " %s %d" % [String(k), int(nat_live[k])]
+	print("FIGTEST %sécran, %d traits de combat naturels : au relâchement%s ; teintés en direct au moins une fois :%s" % [tagl, nat_n, nl, ll if ll != "" else " aucun"])
+	var gl := ""
+	for k in nat_gray.keys():
+		gl += " %s %d" % [String(k) if String(k) != "" else "(rien)", int(nat_gray[k])]
+	print("FIGTEST %sécran, zone grise (106-120°, non comptée) :%s" % [tagl, gl])
 	for f in fails:
 		print("FIGTEST   écran raté : ", f)
-	get_tree().quit()
 
 
 func _touch_up(sp: Vector2) -> void:
