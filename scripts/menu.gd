@@ -12,11 +12,11 @@ const UIColors = preload("res://scripts/ui_colors.gd")
 # (UIColors.WORLD_ICON). Vague, bambou, neige : planches ; feu, encre, ciel, dragon, enfers : provisoires, à valider.
 const WORLD_ICON := UIColors.WORLD_ICON
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
-# feuille de résultats : hauteurs des blocs (× u) et sceaux par ligne
-# feuille de résultats (× u) : en-tête (ensō, mot, score, rang), lignes à pictos, bas réservé aux boutons
-const HEAD_H := 244.0
-const ROW_HEIGHTS := {"killer": 84.0, "build": 54.0, "figures": 54.0, "stats": 54.0, "loot": 54.0, "unlock": 92.0, "advice": 66.0}
-const BTN_H := 132.0  # bas de l'écran réservé aux boutons
+# feuille de résultats (× u) : en-tête sumi, bloc score + rang, lignes à sceau ; le bas est réservé aux boutons
+const HEADER_H := 64.0
+const HEAD_H := 104.0
+const ROW_HEIGHTS := {"killer": 74.0, "stats": 50.0, "figures": 50.0, "build": 52.0, "loot": 66.0, "unlock": 86.0, "advice": 60.0}
+const VERMILION_LIGHT := Color("#E8574A")  # VAINCU sur l'en-tête sumi (planche Défaite)
 const RANK_ICON := ["hud/prunier", "hud/bambou", "hud/pin", "hud/couronne"]  # pictos des rangs (score.gd)
 # auteur du coup fatal (type d'ennemi), pour « VAINCU PAR … »
 const KILLER_NAMES := {"shinobi": "un shinobi", "shuriken": "un lanceur de shuriken", "kemuri": "un ninja des fumées",
@@ -433,45 +433,56 @@ func _layout_home(w: float, h: float, u: float) -> void:
 		b.font_size = _fit_font(b, int(11 * u), ew - 6.0 * u)
 
 
-## Résultats (planches Victoire / Défaite v2) : le pinceau principal au centre (le monde suivant, ou REJOUER),
-## des ronds de papier à picto de part et d'autre (accueil à gauche ; rejouer ou atelier à droite).
-## Touches bloquées les 0,6 premières secondes.
+## Résultats (UI v2) : la feuille washi à en-tête sumi (comme la pause) porte les boutons en bas. Pinceau principal
+## (le monde suivant après une victoire, sinon REJOUER en héros), puis ACCUEIL et ATELIER en étiquettes légères ;
+## après une victoire, REJOUER se glisse entre elles en texte souligné. Touches bloquées les 0,6 premières secondes.
 func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
+	var sheet := _sheet_rect()
 	var over_in := UiKit.ease_out(clampf((_t - 0.45) / 0.35, 0.0, 1.0))
 	var ink_in := clampf((_t - 0.45) / 0.6, 0.0, 1.0)
-	var rb: float = UiKit.ICON_BTN * 1.2 * u
-	var by := h - _safe.y - 96.0 * u + 20.0 * u * (1.0 - over_in)
-	var bw := w - 2.0 * (14.0 * u + rb + 10.0 * u)
-	var bx := 14.0 * u + rb + 10.0 * u
+	var y0 := sheet.end.y - _btn_zone_h(has_next) * u + 20.0 * u * (1.0 - over_in)
+	var inner_w := sheet.size.x - 40.0 * u
+	var bx := sheet.position.x + 20.0 * u
 	var main_btn: Control = _next if has_next else _replay
+	var mh := (UiKit.BTN_MAIN_H if has_next else UiKit.BTN_HERO_H) * u
 	main_btn.style = "brush"
-	main_btn.size = Vector2(bw, UiKit.BTN_MAIN_H * u)
-	main_btn.position = Vector2(bx, by)
+	main_btn.size = Vector2(inner_w, mh)
+	main_btn.position = Vector2(bx, y0)
 	main_btn.reveal = ink_in
 	main_btn.modulate.a = 1.0
+	_spacing(_tag_font, maxi(1, int(2.0 * u)))
+	_spacing(_resume_font, maxi(1, int(5.0 * u)))
 	if has_next:
 		_next.text = next_label
-		_next.font_size = _fit_font(_next, int(18 * u), bw * 0.72)
+		_next.font = _ui
+		_next.font_size = _fit_font(_next, int(18 * u), inner_w * 0.72)
 	else:
 		_replay.lead_icon = "replay"
-		_replay.font_size = _fit_font(_replay, int(21 * u), bw * 0.66)
-	# ronds de papier : accueil, puis rejouer (après une victoire) ou l'atelier
-	_home.style = "round"
-	_home.icon = "home"
-	_home.size = Vector2(rb, rb)
-	_home.position = Vector2(14.0 * u, by + (UiKit.BTN_MAIN_H * u - rb) / 2.0)
-	_home.modulate.a = over_in
-	var right: Control = _replay if has_next else _over_atelier
+		_replay.font = _resume_font
+		_replay.font_size = _fit_font(_replay, int(22 * u), inner_w * 0.62)
+	# étiquettes : ACCUEIL à gauche, ATELIER à droite (REJOUER en texte entre les deux après une victoire)
+	var ly := y0 + mh + 12.0 * u
+	var lh := 40.0 * u
+	var lw := 112.0 * u if has_next else minf(150.0 * u, (inner_w - 12.0 * u) / 2.0)
+	for b in [[_home, "home", "ACCUEIL"], [_over_atelier, "brush", "ATELIER"]]:
+		var lb: Control = b[0]
+		lb.style = "label"
+		lb.icon = String(b[1])
+		lb.text = String(b[2])
+		lb.font = _tag_font
+		lb.font_size = int((12 if has_next else 13) * u)
+		lb.size = Vector2(lw, lh)
+		lb.modulate.a = over_in
+	_home.position = Vector2(bx, ly)
+	_over_atelier.position = Vector2(sheet.end.x - 20.0 * u - lw, ly)
 	if has_next:
-		_replay.style = "round"
-		_replay.lead_icon = ""
-		_replay.icon = "replay"
-	_over_atelier.style = "round"
-	_over_atelier.icon = "brush"
-	right.size = Vector2(rb, rb)
-	right.position = Vector2(w - 14.0 * u - rb, by + (UiKit.BTN_MAIN_H * u - rb) / 2.0)
-	right.modulate.a = over_in
-	_over_atelier.visible = mode == "over" and _t > 0.45 and not has_next
+		_replay.style = "text"
+		_replay.lead_icon = ""  # le mot seul : la place est comptée entre les deux étiquettes
+		_replay.font = _tag_font
+		_replay.font_size = int(12 * u)
+		_replay.size = Vector2(inner_w - 2.0 * lw - 12.0 * u, lh)
+		_replay.position = Vector2(sheet.get_center().x - _replay.size.x / 2.0, ly)
+		_replay.modulate.a = over_in
 	var live := mode == "over" and _t >= 0.6
 	for b in [_replay, _next, _over_atelier, _home]:
 		var bc: Control = b
@@ -479,6 +490,21 @@ func _layout_over(w: float, h: float, u: float, has_next: bool) -> void:
 			bc.mouse_filter = Control.MOUSE_FILTER_STOP
 		else:
 			bc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+## Feuille de résultats : largeur 368 u au plus, de l'encoche au bas de l'écran (marges de sécurité comprises).
+func _sheet_rect() -> Rect2:
+	var w := size.x
+	var u := w / 400.0
+	var cw := minf(w - 32.0 * u, 368.0 * u)
+	var top := _safe.x + 10.0 * u
+	var bottom := size.y - _safe.y - 10.0 * u
+	return Rect2(Vector2((w - cw) / 2.0, top), Vector2(cw, bottom - top))
+
+
+## Hauteur (× u) réservée aux boutons en bas de la feuille : pinceau, puis la rangée d'étiquettes.
+func _btn_zone_h(has_next: bool) -> float:
+	return (UiKit.BTN_MAIN_H if has_next else UiKit.BTN_HERO_H) + 12.0 + 40.0 + 16.0
 
 
 ## Pause (UI v2, planche Pause) : feuille à en-tête sumi, trois tuiles (étape, temps, score), bande POUVOIRS
@@ -647,25 +673,52 @@ func _draw_ink_counter(p: Vector2, u: float) -> void:
 	draw_string(_ui, p + Vector2(16, 6) * u, str(sumi), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, th_ink)
 
 
-## Écran de fin (planches Victoire / Défaite v2) : fond sumi, ensō, le mot, le score en grand, le rang en picto,
-## puis des lignes à pictos (rouleaux, figures, chiffres, butin, déblocages) ; défaite : le monstre du coup fatal
-## et le conseil d'esquive en pictos. Un titre, des pictos, des chiffres : pas de légende.
+## Écran de fin (UI v2, planches Victoire / Défaite, sur la feuille washi de la pause) : en-tête sumi (le mot,
+## trait vermillon), le score en Zen Kaku 900, le rang en tuile picto + nom et le palier suivant en texte, RECORD
+## en pastille ; puis des lignes à sceau vermillon : chiffres de la partie, figures, pouvoirs (médaillons et
+## étiquettes d'élément), gains (encre, sceaux, estampes), déblocages d'une victoire ; défaite : le monstre du coup
+## fatal et le conseil d'esquive en pictos. Jamais de kanji, les chiffres en num_font, pas de flou.
 func _draw_results() -> void:
 	var w := size.x
 	var u := w / 400.0
-	var a := UiKit.ease_out(clampf(_t / 0.45, 0.0, 1.0))
-	draw_rect(Rect2(Vector2.ZERO, size), Color(UIColors.SUMI, 0.94 * a))
+	var a := UiKit.ease_out(clampf(_t / 0.3, 0.0, 1.0))
+	draw_rect(Rect2(Vector2.ZERO, size), Color(Toon.VEIL, 0.88 * a))
+	var sheet := _sheet_rect()
+	var cx := sheet.get_center().x
+	# ombre portée sans flou (deux couches décalées), puis la feuille aux coins arrondis
+	var pts := UiKit.rrect_points(sheet, 18.0 * u)
+	draw_colored_polygon(Transform2D(0.0, Vector2(0, 7.0 * u)) * pts, Color(0, 0, 0, 0.14 * a))
+	draw_colored_polygon(Transform2D(0.0, Vector2(0, 3.0 * u)) * pts, Color(0, 0, 0, 0.18 * a))
+	draw_colored_polygon(pts, Color(th_paper, a))
+	# en-tête sumi : VICTOIRE en papier (VAINCU en vermillon clair), trait vermillon qui se pose dessous
+	var head := Rect2(sheet.position, Vector2(sheet.size.x, HEADER_H * u))
+	draw_colored_polygon(UiKit.rrect_points(head, 18.0 * u, true), Color(UIColors.SUMI, a))
+	var word := "VICTOIRE" if victory else "VAINCU"
+	var wc: Color = UIColors.WASHI if victory else VERMILION_LIGHT
+	var sp := maxi(1, int(8.0 * u))
+	_spacing(_pause_title, sp)
+	var tfs := int(24 * u)
+	var tw := _pause_title.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
+	if tw > head.size.x * 0.82:
+		tfs = int(float(tfs) * head.size.x * 0.82 / tw)
+	var kh := UiKit.ease_out(clampf((_t - 0.15) / 0.35, 0.0, 1.0))
+	UiKit.text(self, _pause_title, word, Vector2(cx + float(sp) * 0.5, head.position.y + 41.0 * u + 4.0 * u * (1.0 - kh)), tfs, Color(wc, a * kh))
+	var bk := UiKit.ease_out(clampf((_t - 0.25) / 0.4, 0.0, 1.0))
+	if bk > 0.05:
+		var swash := Rect2(Vector2(cx - 81.0 * u, head.position.y + 47.0 * u), Vector2(162.0 * u, 9.0 * u))
+		draw_colored_polygon(UiKit.swash_points(swash, bk, 5.0), Color(UIColors.VERMILION, a))
+	# contenu : le score et le rang, puis les lignes
 	var lay := _results_layout(u)
 	var v: float = lay["v"]
-	var x0 := 24.0 * u
-	var x1 := w - 24.0 * u
-	var y: float = lay["top"] + 16.0 * u * (1.0 - a)
+	var x0 := sheet.position.x + 18.0 * u
+	var x1 := sheet.end.x - 18.0 * u
+	var y: float = lay["top"]
 	_draw_head(y, u, v, a)
 	y += HEAD_H * v
 	var rows: Array = lay["rows"]
 	for i in rows.size():
 		var kind := String(rows[i])
-		var rk := UiKit.ease_out(clampf((_t - 0.55 - 0.14 * float(i)) / 0.3, 0.0, 1.0))
+		var rk := UiKit.ease_out(clampf((_t - 0.5 - 0.12 * float(i)) / 0.3, 0.0, 1.0))
 		var rh := float(ROW_HEIGHTS[kind]) * v
 		if rk > 0.0:
 			var ra := a * rk
@@ -685,34 +738,36 @@ func _draw_results() -> void:
 					_draw_unlocks(x0, x1, ry, rh, u, ra)
 				"advice":
 					_draw_advice(x0, x1, ry, rh, u, ra)
-			if i > 0 and kind != "advice" and kind != "killer":
-				draw_line(Vector2(x0, y), Vector2(x1, y), Color(UIColors.WASHI, 0.1 * ra), maxf(1.0, 1.0 * u))
+			if kind != "advice" and kind != "killer":
+				draw_line(Vector2(x0, y), Vector2(x1, y), Color(th_ink, 0.12 * ra), maxf(1.0, 1.0 * u))
 		y += rh
 
 
-## Lignes de la feuille et leur échelle verticale v (resserrée si l'écran est court).
+## Lignes de la feuille et leur échelle verticale v (resserrée si l'écran est court) ; top : y du score.
 func _results_layout(u: float) -> Dictionary:
 	var rows: Array = []
 	if victory:
-		rows = ["build", "figures", "stats", "loot"]
+		rows = ["stats", "figures", "build", "loot"]
 		if _unlock_rows() > 0:
 			rows.append("unlock")
 	else:
-		rows = ["killer", "stats", "loot", "advice"]
+		rows = ["killer", "stats", "figures", "loot", "advice"]
 	var content := HEAD_H
 	for r in rows:
 		content += float(ROW_HEIGHTS[r])
-	var avail := (size.y - _safe.x - _safe.y) / u - BTN_H - 24.0
+	var sheet := _sheet_rect()
+	var avail := (sheet.size.y - HEADER_H * u - _btn_zone_h(next_label != "") * u) / u - 14.0
 	var k := clampf(avail / content, 0.7, 1.0)
-	var top := _safe.x / u + 6.0 + maxf(0.0, avail - content) * 0.3
-	return {"v": u * k, "top": top * u, "rows": rows}
+	var top := sheet.position.y + HEADER_H * u + 8.0 * u + maxf(0.0, avail - content) * 0.35 * u
+	return {"v": u * k, "top": top, "rows": rows}
 
 
-## Déblocages d'une victoire : monde ouvert, famille de rouleaux, Vues gagnées.
+## Déblocages d'une victoire (rangée DÉBLOQUÉ) : le monde ouvert, la famille de rouleaux.
+## Les estampes gagnées sont dans les gains.
 func _unlock_rows() -> int:
 	if not victory:
 		return 0
-	var n := mini(new_prints.size(), 3)
+	var n := 0
 	if unlock_world > 0:
 		n += 1
 	if not unlock_powers.is_empty():
@@ -720,83 +775,71 @@ func _unlock_rows() -> int:
 	return n
 
 
-## Pastille picto d'une ligne (carré vermillon arrondi, picto papier) ; renvoie le x où commence le contenu.
+## Sceau d'une ligne (carré vermillon arrondi, picto papier) ; renvoie le x où commence le contenu.
 func _row_icon(x0: float, cy: float, key: String, u: float, a: float) -> float:
-	var sq := Rect2(Vector2(x0, cy - 15.0 * u), Vector2(30.0, 30.0) * u)
+	var sq := Rect2(Vector2(x0, cy - 14.0 * u), Vector2(28.0, 28.0) * u)
 	draw_style_box(UiKit.box(_sb, Color(UIColors.VERMILION, a), int(6 * u)), sq)
-	UiKit.draw_icon(self, key, sq.get_center(), 18.0 * u, a, UIColors.WASHI)
-	return x0 + 44.0 * u
+	UiKit.draw_icon(self, key, sq.get_center(), 17.0 * u, a, UIColors.WASHI)
+	return x0 + 40.0 * u
 
 
-## En-tête : ensō (plein en victoire, à la mesure des étapes sinon), le mot, le score qui monte, le rang en picto,
-## RECORD en pastille, et le prochain rang en picto + chiffre.
+## Nom d'un rang en minuscules accentuées (« PRUNIER » -> « Prunier »).
+func _rank_word(r: int) -> String:
+	var n := Score.rank_name(r)
+	if n == "":
+		return ""
+	return n.substr(0, 1) + n.substr(1).to_lower()
+
+
+## Score (compteur qui monte, or après une victoire), puis le rang : tuile de sa couleur à picto (elle s'abat une
+## fois les points comptés), son nom, et le palier suivant en texte (« Pin à 60 000 », « Rang maximal ») ;
+## RECORD en pastille or à droite.
 func _draw_head(y: float, u: float, v: float, a: float) -> void:
 	var cx := size.x / 2.0
-	var ec := Vector2(cx, y + 104.0 * v)
-	var er := 96.0 * v
-	var full := TAU * 0.84
-	var a0 := -PI * 0.42  # le trait part en haut, à droite, et s'ouvre là
-	var sweep := full * UiKit.ease_out(clampf((_t - 0.1) / 0.8, 0.0, 1.0))
-	if victory:
-		# ensō vermillon, posé d'un seul trait
-		draw_arc(ec, er, a0, a0 + sweep, 72, Color(UIColors.VERMILION, a), 10.0 * u, true)
-	else:
-		# cercle brisé, gris, et les gouttes du trait qui s'interrompt
-		var prog := clampf(float(stat_room) / float(maxi(rooms_total, 1)), 0.12, 0.8)
-		draw_arc(ec, er, a0, a0 + full, 72, Color(UIColors.WASHI, 0.14 * a), 8.0 * u, true)
-		var k := sweep / full
-		draw_arc(ec, er, a0, a0 + full * prog * k, 72, Color(UIColors.WASHI, 0.28 * a), 8.0 * u, true)
-		var endp := ec + Vector2.from_angle(a0 + full * prog) * er
-		draw_circle(endp + Vector2(6.0, 14.0) * u, 3.5 * u, Color(UIColors.VERMILION, a * k))
-		draw_circle(endp + Vector2(14.0, 26.0) * u, 2.2 * u, Color(UIColors.VERMILION, a * k))
-	var kh := UiKit.ease_out(clampf((_t - 0.2) / 0.35, 0.0, 1.0))
-	var word := "VICTOIRE" if victory else "VAINCU"
-	var wc: Color = UIColors.WASHI if victory else UIColors.VERMILION
-	_spacing(_title, maxi(1, int(6.0 * u)))
-	var tfs := int(32 * u)
-	var tw := _title.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, tfs).x
-	if tw > size.x * 0.8:
-		tfs = int(float(tfs) * size.x * 0.8 / tw)
-	UiKit.text(self, _title, word, Vector2(cx + 3.0 * u, y + 98.0 * v + 6.0 * u * (1.0 - kh)), tfs, Color(wc, a * kh))
-	# score : le compteur monte
 	var nf := UiKit.num_font()
-	var ck := UiKit.ease_out(clampf((_t - 0.35) / 1.0, 0.0, 1.0))
-	var sc: Color = UIColors.GOLD if victory else UIColors.WASHI
-	UiKit.text(self, nf, Score.fmt(int(round(float(stat_score) * ck))), Vector2(cx, y + 144.0 * v), int(36 * u), Color(sc, a * kh))
-	# rang : tuile de sa couleur, son picto ; elle s'abat une fois les points comptés
-	var rk := clampf((_t - 1.35) / 0.22, 0.0, 1.0)
-	var tc := Vector2(cx - 62.0 * u, y + 196.0 * v)
-	var ts := 44.0 * u
+	var ck := UiKit.ease_out(clampf((_t - 0.3) / 1.0, 0.0, 1.0))
+	var sc: Color = GOLD_INK if victory else th_ink
+	UiKit.text(self, nf, Score.fmt(int(round(float(stat_score) * ck))), Vector2(cx, y + 40.0 * v), int(36 * u), Color(sc, a))
+	# le groupe tuile + textes (+ RECORD) est centré
+	var rk := clampf((_t - 1.3) / 0.22, 0.0, 1.0)
+	var ra := a * UiKit.ease_out(clampf((_t - 1.4) / 0.3, 0.0, 1.0))
+	var ts := 38.0 * u
+	var line1 := _rank_word(score_rank) if score_rank > 0 else "Sans rang"
+	var line2 := "Rang maximal"
+	if score_next > 0:
+		line2 = "%s à %s" % [_rank_word(mini(score_rank + 1, 4)), Score.fmt(score_next)]
+	_spacing(_title, maxi(1, int(1.0 * u)))
+	var fs1 := int(15 * u)
+	var fs2 := int(11 * u)
+	var w1 := _title.get_string_size(line1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1).x
+	var w2 := nf.get_string_size(line2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
+	var tw := maxf(w1, w2)
+	var gw := ts + 10.0 * u + tw
+	var rec := score_record or new_record
+	var pfs := int(10 * u)
+	var pw := _tag_font.get_string_size("RECORD", HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 20.0 * u
+	if rec:
+		gw += 12.0 * u + pw
+	var gx := cx - gw / 2.0
+	var tc := Vector2(gx + ts / 2.0, y + 80.0 * v)
 	if score_rank > 0:
 		if rk > 0.0:
 			var s := 1.0 + 0.6 * (1.0 - UiKit.ease_out(rk))
 			draw_set_transform(tc, -0.1, Vector2(s, s))
 			var tr := Rect2(Vector2(-ts, -ts) / 2.0, Vector2(ts, ts))
-			draw_style_box(UiKit.box(_sb, Color(Score.rank_color(score_rank), a * rk), int(7 * u), Color(UIColors.WASHI, 0.85 * a * rk), int(maxf(1.0, 2.0 * u))), tr)
+			draw_style_box(UiKit.box(_sb, Color(Score.rank_color(score_rank), a * rk), int(7 * u), Color(UIColors.WASHI, 0.9 * a * rk), int(maxf(1.0, 2.0 * u))), tr)
 			UiKit.draw_icon(self, _rank_icon(score_rank), Vector2.ZERO, ts * 0.6, a * rk, UIColors.WASHI)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	else:
-		_dashed_rect(Rect2(tc - Vector2(ts, ts) / 2.0, Vector2(ts, ts)), 6.0 * u, Color(UIColors.WASHI, 0.35 * a), u)
-	# à droite de la tuile : RECORD, puis le prochain palier (picto du rang suivant et ses points)
-	var rx := tc.x + ts / 2.0 + 14.0 * u
-	var ra := a * UiKit.ease_out(clampf((_t - 1.45) / 0.3, 0.0, 1.0))
-	var ry := tc.y - 20.0 * u
-	if score_record or new_record:
+		_dashed_rect(Rect2(tc - Vector2(ts, ts) / 2.0, Vector2(ts, ts)), 6.0 * u, Color(th_ink, 0.35 * a), u)
+	var tx := gx + ts + 10.0 * u
+	draw_string(_title, Vector2(tx, tc.y - 3.0 * u), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1, Color(th_ink, ra))
+	draw_string(nf, Vector2(tx, tc.y + 12.0 * u), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2, Color(th_ink, 0.6 * ra))
+	if rec:
 		var pulse := 0.85 + 0.15 * sin(_t * 6.0)
-		var pfs := int(11 * u)
-		var pw := _ui.get_string_size("RECORD", HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 24.0 * u
-		var pr := Rect2(Vector2(rx, ry), Vector2(pw, 24.0 * u))
-		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, ra * pulse), int(12 * u)), pr)
-		UiKit.text(self, _ui, "RECORD", pr.get_center() + Vector2(2.0 * u, pfs * 0.36), pfs, Color(UIColors.SUMI, ra))
-		ry += 34.0 * u
-	else:
-		ry += 6.0 * u
-	if score_next > 0:
-		var ni := _rank_icon(mini(score_rank + 1, 4))
-		var nc: Color = Score.rank_color(mini(score_rank + 1, 4))
-		draw_circle(Vector2(rx + 10.0 * u, ry + 10.0 * u), 10.0 * u, Color(nc, ra))
-		UiKit.draw_icon(self, ni, Vector2(rx + 10.0 * u, ry + 10.0 * u), 12.0 * u, ra, UIColors.WASHI)
-		draw_string(nf, Vector2(rx + 26.0 * u, ry + 10.0 * u + 13.0 * u * 0.36), Score.fmt(score_next), HORIZONTAL_ALIGNMENT_LEFT, -1, int(13 * u), Color(UIColors.WASHI, 0.6 * ra))
+		var pr := Rect2(Vector2(tx + tw + 12.0 * u, tc.y - 11.0 * u), Vector2(pw, 22.0 * u))
+		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, ra * pulse), int(11 * u)), pr)
+		UiKit.text(self, _tag_font, "RECORD", pr.get_center() + Vector2(1.0 * u, pfs * 0.36), pfs, Color(UIColors.SUMI, ra))
 
 
 ## Picto du rang (prunier, bambou, pin, couronne du maître).
@@ -825,16 +868,16 @@ func _dashed_rect(r: Rect2, rad: float, col: Color, u: float) -> void:
 			acc += step
 
 
-## Coup fatal (défaite) : le monstre en picto, son nom, l'étape (picto du monde et « 5/8 »).
+## Coup fatal (défaite) : le monstre en picto sur un disque sombre, son nom (sceau vermillon à picto),
+## l'étape (picto du monde et « 5/8 »).
 func _draw_killer(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var r := Rect2(Vector2(x0, y + 4.0 * u), Vector2(x1 - x0, rh - 12.0 * u))
-	draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI, 0.06 * a), int(14 * u), Color(UIColors.WASHI, 0.12 * a), int(maxf(1.0, 1.0 * u))), r)
-	var cc := Vector2(r.position.x + 40.0 * u, r.get_center().y)
-	draw_circle(cc, 26.0 * u, Color(UIColors.VERMILION_DARK, 0.35 * a))
-	UiKit.draw_icon(self, "hud/oni", cc, 34.0 * u, a, UIColors.VERMILION)
-	var tx := cc.x + 40.0 * u
-	# nom sur une pastille vermillon à picto
-	var sq := Rect2(Vector2(tx, r.get_center().y - 24.0 * u), Vector2(22.0, 22.0) * u)
+	var r := Rect2(Vector2(x0, y + 4.0 * u), Vector2(x1 - x0, rh - 10.0 * u))
+	draw_style_box(UiKit.box(_sb, Color(th_ink, 0.06 * a), int(14 * u), Color(th_ink, 0.14 * a), int(maxf(1.0, 1.0 * u))), r)
+	var cc := Vector2(r.position.x + 38.0 * u, r.get_center().y)
+	draw_circle(cc, 25.0 * u, Color(UIColors.VERMILION_DARK, 0.22 * a))
+	UiKit.draw_icon(self, "hud/oni", cc, 32.0 * u, a, UIColors.VERMILION)
+	var tx := cc.x + 38.0 * u
+	var sq := Rect2(Vector2(tx, r.get_center().y - 23.0 * u), Vector2(22.0, 22.0) * u)
 	draw_style_box(UiKit.box(_sb, Color(UIColors.VERMILION, a), int(5 * u)), sq)
 	UiKit.draw_icon(self, "hud/oni", sq.get_center(), 14.0 * u, a, UIColors.WASHI)
 	var nm := _killer_label()
@@ -844,12 +887,11 @@ func _draw_killer(x0: float, x1: float, y: float, rh: float, u: float, a: float)
 	var nw := _title.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
 	if nw > maxw and nw > 0.0:
 		nfs = maxi(8, int(float(nfs) * maxw / nw))
-	draw_string(_title, Vector2(tx + 30.0 * u, sq.get_center().y + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(UIColors.WASHI, a))
-	# étape : pastille du monde et le compte
-	var ws := Rect2(Vector2(tx, r.get_center().y + 4.0 * u), Vector2(18.0, 18.0) * u)
+	draw_string(_title, Vector2(tx + 30.0 * u, sq.get_center().y + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(th_ink, a))
+	var ws := Rect2(Vector2(tx, r.get_center().y + 5.0 * u), Vector2(18.0, 18.0) * u)
 	draw_style_box(UiKit.box(_sb, Color(world_color, a), int(4 * u)), ws)
 	UiKit.draw_icon(self, String(WORLD_ICON.get(world_kanji, "hud/vague")), ws.get_center(), 12.0 * u, a, UIColors.WASHI)
-	_num_pair(Vector2(tx + 26.0 * u, ws.get_center().y), str(stat_room), "/%d" % rooms_total, int(14 * u), Color(UIColors.WASHI, a), u)
+	_num_pair(Vector2(tx + 26.0 * u, ws.get_center().y), str(stat_room), "/%d" % rooms_total, int(14 * u), Color(th_ink, a), u)
 
 
 ## Nom du monstre du coup fatal, sans son article (« un oni » -> « Oni »), ou le nom du gardien.
@@ -878,17 +920,41 @@ func _num_pair(c: Vector2, big: String, small: String, fs: int, col: Color, _u: 
 	return bw + nf.get_string_size(small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
 
 
-## Rouleaux de la partie : médaillons des pouvoirs (les plus rares d'abord), « +N » s'il en reste.
+## Pouvoirs de la partie : bande des médaillons (les plus rares d'abord, « +N » s'il en reste), puis les étiquettes
+## d'élément (picto + NOM) des écoles du build, trois au plus, calées à droite.
 func _draw_build(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "hud/rouleau", u, a)
 	var n := _build_list.size()
 	var ms := 30.0 * u
-	var step := ms + 8.0 * u
+	var step := ms + 6.0 * u
 	if n == 0:
-		draw_arc(Vector2(x + ms / 2.0, cy), ms * 0.45, 0.0, TAU, 36, Color(UIColors.WASHI, 0.3 * a), maxf(1.0, 1.4 * u), true)
+		draw_arc(Vector2(x + ms / 2.0, cy), ms * 0.45, 0.0, TAU, 36, Color(th_ink, 0.3 * a), maxf(1.0, 1.4 * u), true)
 		return
-	var cap := maxi(1, int((x1 - x + 8.0 * u) / step))
+	# étiquettes : écoles présentes, dans l'ordre des écoles, tant qu'elles tiennent (trois médaillons au moins restent visibles)
+	var schools: Array = []
+	for sd in _build_list:
+		var sid := UiKit.power_school(String(sd[0]))
+		if not schools.has(sid):
+			schools.append(sid)
+	schools.sort_custom(func(p, q): return PowerData.SCHOOL_ORDER.find(p) < PowerData.SCHOOL_ORDER.find(q))
+	var th := 18.0 * u
+	var tags: Array = []
+	var tags_w := 0.0
+	var room := (x1 - x) - 3.0 * step - 8.0 * u
+	for sid in schools:
+		if tags.size() >= 3:
+			break
+		var tw := UiKit.element_tag(self, _sb, String(sid), 0.0, 0.0, th, 1.0, false)
+		if tags_w + tw + 5.0 * u > room:
+			break
+		tags.append([sid, tw])
+		tags_w += tw + 5.0 * u
+	# les médaillons d'abord : une étiquette de moins (jusqu'à une seule) tant qu'ils ne tiennent pas tous
+	var cap := maxi(1, int((x1 - x - tags_w + 6.0 * u) / step))
+	while tags.size() > 1 and n > cap:
+		tags_w -= float(tags.pop_back()[1]) + 5.0 * u
+		cap = maxi(1, int((x1 - x - tags_w + 6.0 * u) / step))
 	var shown := n if n <= cap else cap - 1
 	for i in shown:
 		var k := UiKit.ease_out(clampf((_t - 0.7 - 0.04 * float(i)) / 0.25, 0.0, 1.0))
@@ -899,11 +965,17 @@ func _draw_build(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 		UiKit.power_medal(self, String(sd[0]), mc, ms / 60.0, UIColors.element(UiKit.power_school(String(sd[0]))), 27.0, 4.0, UiKit.NONE, 4.0, a * k)
 	if n > shown:
 		var mc2 := Vector2(x + ms / 2.0 + step * float(shown), cy)
-		draw_arc(mc2, ms * 0.45, 0.0, TAU, 36, Color(UIColors.WASHI, 0.5 * a), maxf(1.0, 1.4 * u), true)
-		UiKit.text(self, UiKit.num_font(), "+%d" % (n - shown), mc2 + Vector2(0, 4.5 * u), int(12 * u), Color(UIColors.WASHI, a))
+		draw_arc(mc2, ms * 0.45, 0.0, TAU, 36, Color(th_ink, 0.5 * a), maxf(1.0, 1.4 * u), true)
+		UiKit.text(self, UiKit.num_font(), "+%d" % (n - shown), mc2 + Vector2(0, 4.5 * u), int(12 * u), Color(th_ink, a))
+	var tx := x1 - tags_w + 5.0 * u
+	for i in tags.size():
+		var tk := UiKit.ease_out(clampf((_t - 0.9 - 0.08 * float(i)) / 0.3, 0.0, 1.0))
+		if tk > 0.0:
+			UiKit.element_tag(self, _sb, String(tags[i][0]), tx, cy, th, a * tk)
+		tx += float(tags[i][1]) + 5.0 * u
 
 
-## Les six figures, chacune avec son compte (la préférée en couleur pleine, les autres pâles).
+## Les six figures, chacune avec son compte (celles tracées en couleur pleine, les autres pâles).
 func _draw_figures(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "elements/figure", u, a)
@@ -917,10 +989,10 @@ func _draw_figures(x0: float, x1: float, y: float, rh: float, u: float, a: float
 		if k <= 0.0:
 			continue
 		var fa := a * k * (1.0 if n > 0 else 0.35)
-		var col: Color = UIColors.FIGURES_INK.get(sh, UIColors.WASHI)
+		var col: Color = UIColors.FIGURES_INK.get(sh, th_ink)
 		var c := Vector2(x + step * float(i) + 11.0 * u, cy)
 		UiKit.figure_icon(self, sh, c, 20.0 * u * (0.7 + 0.3 * k), fa, col)
-		draw_string(nf, Vector2(c.x + 13.0 * u, cy + fs * 0.36), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.WASHI, fa))
+		draw_string(nf, Vector2(c.x + 13.0 * u, cy + fs * 0.36), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, fa))
 
 
 ## Chiffres de la partie : étape (picto du monde), ennemis, chaîne max, temps.
@@ -944,122 +1016,108 @@ func _draw_stats(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 			draw_style_box(UiKit.box(_sb, Color(world_color, ka), int(4 * u)), ws)
 			UiKit.draw_icon(self, String(WORLD_ICON.get(world_kanji, "hud/vague")), c, 13.0 * u, ka, UIColors.WASHI)
 		else:
-			UiKit.draw_icon(self, String(it[0]), c, 20.0 * u, ka, UIColors.WASHI)
+			UiKit.draw_icon(self, String(it[0]), c, 20.0 * u, ka, th_ink)
 		if String(it[2]) != "":
-			_num_pair(Vector2(c.x + 15.0 * u, cy), String(it[1]), String(it[2]), fs, Color(UIColors.WASHI, ka), u)
+			_num_pair(Vector2(c.x + 15.0 * u, cy), String(it[1]), String(it[2]), fs, Color(th_ink, ka), u)
 		else:
-			draw_string(nf, Vector2(c.x + 15.0 * u, cy + fs * 0.36), String(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.WASHI, ka))
+			draw_string(nf, Vector2(c.x + 15.0 * u, cy + fs * 0.36), String(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, ka))
 
 
-## Butin : l'encre qui monte (goutte), les sceaux ; à la défaite, les Vues gagnées suivent en vignettes.
+## Gains : l'encre qui monte (goutte sur pastille indigo), les sceaux (carré vermillon), puis chaque estampe
+## débloquée en vignette cernée d'or, son nom dessous.
 func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "hud/piece", u, a)
 	var nf := UiKit.num_font()
 	var fs := int(16 * u)
-	# encre : goutte sur pastille indigo, le compteur monte
+	var up: Color = UIColors.JADE_UP_ON_DARK if Toon.ui_dark else UIColors.JADE_UP
 	var ik := clampf((_t - 1.0) / 0.9, 0.0, 1.0)
 	var dc := Vector2(x + 11.0 * u, cy)
-	draw_circle(dc, 11.0 * u, Color(UIColors.SUMI_HUD_BG, a))
-	draw_arc(dc, 11.0 * u, 0.0, TAU, 28, Color(UIColors.WASHI, 0.5 * a), maxf(1.0, 1.2 * u), true)
+	draw_circle(dc, 11.0 * u, Color(UIColors.element_key_color("eau"), a))
 	UiKit.glyph(self, "at_drop", dc, 6.0 * u, UIColors.WASHI, UiKit.NONE, a)
 	var num := "+%d" % int(round(float(gain_sumi) * UiKit.ease_out(ik)))
-	draw_string(nf, Vector2(dc.x + 17.0 * u, cy + fs * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.JADE_UP_ON_DARK, a))
+	draw_string(nf, Vector2(dc.x + 17.0 * u, cy + fs * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up, a))
 	var nw := nf.get_string_size("+%d" % gain_sumi, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	# sceaux : carré vermillon à picto, puis le compte (pâle s'il est nul)
 	var sk := UiKit.ease_out(clampf((_t - 1.5) / 0.25, 0.0, 1.0))
+	var px := dc.x + 30.0 * u + nw
 	if sk > 0.0:
-		var sa := a * sk * (1.0 if gain_seals > 0 else 0.4)
-		var sq := Rect2(Vector2(dc.x + 30.0 * u + nw, cy - 10.0 * u), Vector2(20.0, 20.0) * u)
+		var sa := a * sk * (1.0 if gain_seals > 0 else 0.45)
+		var sq := Rect2(Vector2(px, cy - 10.0 * u), Vector2(20.0, 20.0) * u)
 		var ss := 1.0 + 0.5 * (1.0 - sk)
 		draw_set_transform(sq.get_center(), 0.0, Vector2(ss, ss))
 		draw_style_box(UiKit.box(_sb, Color(UIColors.VERMILION, sa), int(4 * u)), Rect2(-sq.size / 2.0, sq.size))
 		UiKit.glyph(self, "at_seal", Vector2.ZERO, 6.0 * u, UIColors.WASHI, UiKit.NONE, sa)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		draw_string(nf, Vector2(sq.end.x + 6.0 * u, cy + fs * 0.36), "+%d" % gain_seals, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.JADE_UP_ON_DARK if gain_seals > 0 else UIColors.WASHI, sa))
-		# Vues gagnées (défaite : pas de ligne de déblocages)
-		if not victory:
-			var px := sq.end.x + 6.0 * u + nf.get_string_size("+%d" % gain_seals, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 14.0 * u
-			for i in mini(new_prints.size(), 3):
-				var pid := String(new_prints[i])
-				if not Meta.PRINTS.has(pid) or px + 36.0 * u > x1:
-					break
-				var pk := UiKit.ease_out(clampf((_t - 1.8 - 0.25 * float(i)) / 0.3, 0.0, 1.0))
-				var th := Rect2(Vector2(px, cy - 13.0 * u), Vector2(36.0, 26.0) * u)
-				draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(4 * u), Color(UIColors.GOLD, a * pk), int(maxf(1.0, 1.5 * u))), th.grow(2.0 * u))
-				UiKit.print_thumb(self, th, Meta.PRINTS[pid], u, a * pk)
-				px += 44.0 * u
+		var st := "+%d" % gain_seals
+		draw_string(nf, Vector2(sq.end.x + 6.0 * u, cy + fs * 0.36), st, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up if gain_seals > 0 else th_ink, sa))
+		px = sq.end.x + 6.0 * u + nf.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 16.0 * u
+	# estampes : vignette 40 × 28 cernée d'or, nom en petit dessous
+	var tw := 40.0 * u
+	var thh := 28.0 * u
+	var nfs := int(7.5 * u)
+	for i in mini(new_prints.size(), 3):
+		var pid := String(new_prints[i])
+		if not Meta.PRINTS.has(pid) or px + tw > x1:
+			break
+		var pd: Dictionary = Meta.PRINTS[pid]
+		var pk := UiKit.ease_out(clampf((_t - 1.7 - 0.25 * float(i)) / 0.3, 0.0, 1.0))
+		if pk <= 0.0:
+			break
+		var th := Rect2(Vector2(px, cy - 19.0 * u), Vector2(tw, thh))
+		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(4 * u), Color(UIColors.GOLD_DARK, a * pk), int(maxf(1.0, 2.0 * u))), th.grow(2.0 * u))
+		UiKit.print_thumb(self, th, pd, u, a * pk)
+		var nm := UiKit.plain(String(pd.get("name", "")))
+		var f := nfs
+		while f > 5 and nf.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > tw + 10.0 * u:
+			f -= 1
+		UiKit.text(self, nf, nm, Vector2(th.get_center().x, th.end.y + 11.0 * u), f, Color(th_ink, 0.8 * a * pk))
+		px += tw + 14.0 * u
 
 
-## Déblocages (victoire) : tuiles qui glissent en place : le monde ouvert (son picto), la famille de rouleaux
-## (quelques médaillons et « +N »), chaque Vue gagnée (vignette et picto de l'apparence).
+## Déblocages (victoire) : tuiles qui glissent en place : le monde ouvert (son picto, « monde N »), la famille
+## de rouleaux (quelques médaillons et « +N »).
 func _draw_unlocks(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "hud/ouvert", u, a)
-	var tw := 62.0 * u
+	var tw := 64.0 * u
 	var th := rh - 10.0 * u
 	var step := tw + 10.0 * u
 	var i := 0
 	var nf := UiKit.num_font()
-	var t0 := 1.6
+	var t0 := 1.5
 	if unlock_world > 0:
 		var pk := UiKit.ease_out(clampf((_t - t0) / 0.35, 0.0, 1.0))
 		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - pk), cy - th / 2.0), Vector2(tw, th))
-		_dashed_rect(r, 8.0 * u, Color(UIColors.GOLD, a * pk), u)
+		draw_style_box(UiKit.box(_sb, Color(th_ink, 0.05 * a * pk), int(8 * u)), r)
+		_dashed_rect(r, 8.0 * u, Color(UIColors.GOLD_DARK, a * pk), u)
 		var ic := Vector2(r.get_center().x, r.position.y + th * 0.42)
 		var ws := Rect2(ic - Vector2(14.0, 14.0) * u, Vector2(28.0, 28.0) * u)
 		draw_style_box(UiKit.box(_sb, Color(unlock_world_color, a * pk), int(6 * u)), ws)
 		UiKit.draw_icon(self, String(WORLD_ICON.get(unlock_world_kanji, "hud/vague")), ic, 18.0 * u, a * pk, UIColors.WASHI)
-		UiKit.text(self, nf, str(unlock_world), Vector2(r.get_center().x, r.end.y - 7.0 * u), int(12 * u), Color(UIColors.WASHI, 0.8 * a * pk))
+		UiKit.text(self, nf, "monde %d" % unlock_world, Vector2(r.get_center().x, r.end.y - 7.0 * u), int(8.5 * u), Color(th_ink, 0.8 * a * pk))
 		x += step
 		i += 1
 	if not unlock_powers.is_empty():
 		var qk := UiKit.ease_out(clampf((_t - t0 - 0.25 * float(i)) / 0.35, 0.0, 1.0))
 		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - qk), cy - th / 2.0), Vector2(tw, th))
-		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, 0.1 * a * qk), int(8 * u), Color(UIColors.GOLD, 0.8 * a * qk), int(maxf(1.0, 1.5 * u))), r)
+		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, 0.12 * a * qk), int(8 * u), Color(UIColors.GOLD_DARK, 0.9 * a * qk), int(maxf(1.0, 1.5 * u))), r)
 		var shown := mini(unlock_powers.size(), 3)
 		var ir := 9.0 * u
 		for q in shown:
 			var ic := Vector2(r.get_center().x + (float(q) - float(shown - 1) / 2.0) * 15.0 * u, r.position.y + th * 0.42)
 			draw_circle(ic, ir + 1.5 * u, Color(UIColors.WASHI_LIGHT, a * qk))
 			UiKit.power_icon(self, String(unlock_powers[q]), ic, ir, a * qk)
-		UiKit.text(self, nf, "+%d" % unlock_powers.size(), Vector2(r.get_center().x, r.end.y - 7.0 * u), int(12 * u), Color(UIColors.GOLD, a * qk))
-		x += step
-		i += 1
-	for p in mini(new_prints.size(), 3):
-		var pid := String(new_prints[p])
-		if not Meta.PRINTS.has(pid) or x + tw > x1:
-			break
-		var pd: Dictionary = Meta.PRINTS[pid]
-		var pk := UiKit.ease_out(clampf((_t - t0 - 0.25 * float(i)) / 0.35, 0.0, 1.0))
-		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - pk), cy - th / 2.0), Vector2(tw, th))
-		draw_style_box(UiKit.box(_sb, Color(UIColors.WASHI, 0.08 * a * pk), int(8 * u), Color(UIColors.GOLD, 0.8 * a * pk), int(maxf(1.0, 1.5 * u))), r)
-		var thr := Rect2(Vector2(r.position.x + 6.0 * u, r.position.y + 6.0 * u), Vector2(tw - 12.0 * u, th * 0.55))
-		UiKit.print_thumb(self, thr, pd, u, a * pk)
-		# apparence gagnée : pastille de sa couleur, picto de sa catégorie
-		var kind := String(pd.get("kind", ""))
-		var lc: Color = pd.get("col", UIColors.WASHI)
-		var pc := Vector2(r.get_center().x, r.end.y - 11.0 * u)
-		draw_circle(pc, 7.0 * u, Color(lc, a * pk))
-		draw_arc(pc, 7.0 * u, 0.0, TAU, 24, Color(UIColors.WASHI, 0.7 * a * pk), maxf(1.0, 1.0 * u), true)
-		if kind == "cape":
-			UiKit.hanger_icon(self, pc - Vector2(0, 1.0 * u), 4.0 * u, Color(UIColors.SUMI, a * pk))
-		elif kind == "trail":
-			UiKit.brush_line(self, pc + Vector2(-4.0, 2.0) * u, pc + Vector2(4.0, -2.0) * u, 2.0 * u, Color(UIColors.SUMI, a * pk))
-		else:
-			UiKit.glyph(self, "at_drop", pc, 3.5 * u, UIColors.SUMI, UiKit.NONE, a * pk)
-		x += step
-		i += 1
+		UiKit.text(self, nf, "+%d" % unlock_powers.size(), Vector2(r.get_center().x, r.end.y - 7.0 * u), int(11 * u), Color(GOLD_INK, a * qk))
 
 
 ## Conseil d'esquive (défaite), tout en pictos : bouclier d'alerte, la zone rouge, puis le bond (un toucher)
 ## et le trait qui tranche, dans un cadre or en pointillés.
 func _draw_advice(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var r := Rect2(Vector2(x0, y + 6.0 * u), Vector2(x1 - x0, rh - 12.0 * u))
-	_dashed_rect(r, 12.0 * u, Color(UIColors.GOLD, 0.8 * a), u)
+	_dashed_rect(r, 12.0 * u, Color(UIColors.GOLD_DARK, 0.9 * a), u)
 	var cy := r.get_center().y
 	var gold := Color(UIColors.GOLD, a)
-	var washi := Color(UIColors.WASHI, a)
+	var ink := Color(th_ink, a)
 	var x := r.position.x + 26.0 * u
 	# bouclier d'alerte
 	UiKit.glyph(self, "shield", Vector2(x, cy), 11.0 * u, gold, UiKit.NONE, a)
@@ -1071,19 +1129,19 @@ func _draw_advice(x0: float, x1: float, y: float, rh: float, u: float, a: float)
 	draw_circle(Vector2(x, cy), 9.0 * u, Color(UIColors.ATTACK_ZONE_FILL, a * (0.6 + 0.4 * pulse)))
 	draw_arc(Vector2(x, cy), 9.0 * u, 0.0, TAU, 28, Color(UIColors.ATTACK_ZONE_STROKE, a), maxf(1.0, 2.0 * u), true)
 	x += 30.0 * u
-	_arrow(Vector2(x, cy), u, washi)
+	_arrow(Vector2(x, cy), u, ink)
 	x += 30.0 * u
 	# le bond : un toucher (point dans un cercle en pointillés)
-	UiKit.dashed_arc(self, Vector2(x, cy), 10.0 * u, 0.0, TAU, washi, maxf(1.0, 1.4 * u), 3.0 * u, 3.0 * u)
-	draw_circle(Vector2(x, cy), 3.0 * u, washi)
+	UiKit.dashed_arc(self, Vector2(x, cy), 10.0 * u, 0.0, TAU, ink, maxf(1.0, 1.4 * u), 3.0 * u, 3.0 * u)
+	draw_circle(Vector2(x, cy), 3.0 * u, ink)
 	x += 30.0 * u
-	_arrow(Vector2(x, cy), u, washi)
+	_arrow(Vector2(x, cy), u, ink)
 	x += 30.0 * u
 	# le trait qui tranche : trois traits de vitesse et le monstre barré
 	for i in 3:
 		var yy := cy + (float(i) - 1.0) * 5.0 * u
-		draw_line(Vector2(x - 14.0 * u, yy), Vector2(x - 5.0 * u + 2.0 * u * float(i % 2), yy), washi, maxf(1.0, 1.8 * u), true)
-	draw_arc(Vector2(x + 8.0 * u, cy), 8.0 * u, 0.0, TAU, 24, washi, maxf(1.0, 1.6 * u), true)
+		draw_line(Vector2(x - 14.0 * u, yy), Vector2(x - 5.0 * u + 2.0 * u * float(i % 2), yy), ink, maxf(1.0, 1.8 * u), true)
+	draw_arc(Vector2(x + 8.0 * u, cy), 8.0 * u, 0.0, TAU, 24, ink, maxf(1.0, 1.6 * u), true)
 	draw_line(Vector2(x - 2.0 * u, cy), Vector2(x + 18.0 * u, cy), Color(UIColors.VERMILION, a), maxf(1.0, 2.6 * u), true)
 
 

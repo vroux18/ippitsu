@@ -598,8 +598,11 @@ func _ready() -> void:
 		run_time = 312.0
 		score.points = 61280 if "victoire" in wsearch else 18420
 		shape_counts = {"loop": 12, "zigzag": 7, "straight": 31, "return": 4, "enso": 2}
+		powers.levels = {"fire_burn": 2, "fire_spark": 1, "water_tide": 1, "fig_loop": 1}  # build de démo (médaillons, étiquettes)
 		_ending_victory = "victoire" in wsearch
 		_finish_run()
+		menu.new_prints = ["w1_room"]  # estampe de démo (vignette des gains)
+		menu.gain_seals = maxi(menu.gain_seals, 1)
 		if not _ending_victory:
 			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)

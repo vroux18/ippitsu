@@ -2106,6 +2106,33 @@ static func element_icon(ci: CanvasItem, school: String, c: Vector2, sz: float, 
 		glyph(ci, school, c, sz * 0.42, tint, NONE, a)
 
 
+## Étiquette d'élément (UI v2, règle 2 : picto + NOM, jamais un kanji) : pilule de la couleur d'élément, hauteur h,
+## bord gauche en `left`, centrée sur `cy` ; le mot en Zen Kaku 900, lettres espacées. Renvoie sa largeur
+## (draw = false : la largeur seule, pour composer une rangée).
+static func element_tag(ci: CanvasItem, sb: StyleBoxFlat, school: String, left: float, cy: float, h: float, a := 1.0, draw := true) -> float:
+	var nf := num_font()
+	var word := caps(UIColors.element_word(school), nf)
+	var wfs := maxi(1, int(h * 0.45))
+	var sp := h * 0.055
+	var ww := 0.0
+	for i in word.length():
+		ww += nf.get_string_size(word.substr(i, 1), HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x + sp
+	var ic := h * 0.6
+	var pad := h * 0.3
+	var w := pad + ic + h * 0.18 + ww - sp + pad
+	if not draw:
+		return w
+	var pill := Rect2(Vector2(left, cy - h / 2.0), Vector2(w, h))
+	ci.draw_style_box(box(sb, Color(UIColors.element(school), a), int(h / 2.0)), pill)
+	element_icon(ci, school, Vector2(left + pad + ic / 2.0, cy), ic, a, UIColors.WASHI)
+	var x := left + pad + ic + h * 0.18
+	for i in word.length():
+		var ch := word.substr(i, 1)
+		ci.draw_string(nf, Vector2(x, cy + float(wfs) * 0.36), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs, Color(UIColors.WASHI, a))
+		x += nf.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x + sp
+	return w
+
+
 ## Pictogramme d'une figure tracée, à son encre (ou col), taille sz.
 static func figure_icon(ci: CanvasItem, fig: String, c: Vector2, sz: float, a := 1.0, col := NONE) -> void:
 	var tint: Color = col
