@@ -2477,27 +2477,32 @@ func _trim_zones(kind: String, keep: int) -> void:
 			continue
 		n += 1
 		if n >= keep:
-			var node: Node3D = _zones[i]["node"]
-			if is_instance_valid(node):
-				node.queue_free()
+			var z: Dictionary = _zones[i]
+			z["gone"] = true
+			var nv = z["node"]  # non typé : le nœud a pu être libéré
+			if is_instance_valid(nv):
+				nv.queue_free()
 			_zones.remove_at(i)
 
 
+## Les coups des zones peuvent tuer, et une mise à mort pose parfois une autre zone (cendres, taches) qui
+## en retire d'anciennes (_trim_zones) : on parcourt donc une copie, et une zone finie est retirée par
+## identité (un retrait par indice ôtait la mauvaise : son nœud libéré restait dans la liste).
 func _update_zones(dt: float) -> void:
-	for i in range(_zones.size() - 1, -1, -1):
-		var z: Dictionary = _zones[i]
-		var node: Node3D = z["node"]
+	var done: Array = []
+	for z: Dictionary in _zones.duplicate():
+		if z.get("gone", false):
+			continue  # déjà retirée pendant ce passage
+		var nv = z["node"]  # non typé : le nœud a pu être libéré
 		z["t"] = float(z["t"]) - dt
-		if float(z["t"]) <= 0.0 or not is_instance_valid(node):
-			if is_instance_valid(node):
-				node.queue_free()
-			_zones.remove_at(i)
+		if float(z["t"]) <= 0.0 or not is_instance_valid(nv):
+			done.append(z)
 			continue
+		var node: Node3D = nv
 		var kind := String(z["kind"])
 		if kind in SPECIAL_ZONES:
 			if _special_zone(z, dt):
-				node.queue_free()
-				_zones.remove_at(i)
+				done.append(z)
 			continue
 		var pos: Vector3 = z["pos"]
 		var r: float = z["r"]
@@ -2540,7 +2545,22 @@ func _update_zones(dt: float) -> void:
 					_ignite(o2, 0.6, 2.0)
 				main.damage_enemy(o2, dmg, false)
 			main.damage_bosses(pos, r, dmg, false)
-		node.position = Vector3(pos.x, node.position.y, pos.z)
+		if is_instance_valid(node):
+			node.position = Vector3(pos.x, node.position.y, pos.z)
+	for z: Dictionary in done:
+		_drop_zone(z)
+
+
+## Retire une zone (par identité) et libère son nœud.
+func _drop_zone(z: Dictionary) -> void:
+	z["gone"] = true
+	var nv = z["node"]
+	if is_instance_valid(nv):
+		nv.queue_free()
+	for i in range(_zones.size() - 1, -1, -1):
+		if is_same(_zones[i], z):
+			_zones.remove_at(i)
+			return
 
 
 # ------------------------------------------------------------------ balayages (vague, clone)
@@ -2591,10 +2611,11 @@ func _sweep(points: PackedVector3Array, kind: String, node: Node3D, speed: float
 func _update_sweeps(dt: float) -> void:
 	for i in range(_sweeps.size() - 1, -1, -1):
 		var s: Dictionary = _sweeps[i]
-		var node: Node3D = s["node"]
-		if not is_instance_valid(node):
+		var nv = s["node"]  # non typé : le nœud a pu être libéré
+		if not is_instance_valid(nv):
 			_sweeps.remove_at(i)
 			continue
+		var node: Node3D = nv
 		var kind := String(s["kind"])
 		if float(s["delay"]) > 0.0:
 			s["delay"] = float(s["delay"]) - dt
@@ -2776,7 +2797,7 @@ func _process(delta: float) -> void:
 			fox.position = fp + Vector3(0, 0.95 + 0.12 * sin(_anim * 4.0 + float(k) * 2.1), 0)
 			fox.scale = Vector3.ONE * (0.9 + 0.15 * sin(_anim * 13.0 + float(k)))
 	for z in _zones:
-		var sp: Node3D = z.get("spin")
+		var sp = z.get("spin")  # non typé : libéré avec sa zone
 		if is_instance_valid(sp):
 			match String(z["kind"]):
 				"wheel":
@@ -2789,14 +2810,15 @@ func _process(delta: float) -> void:
 					sp.rotation.y += dt * 0.8
 	for i in range(_fx.size() - 1, -1, -1):
 		var fx: Dictionary = _fx[i]
-		var node: Node3D = fx["node"]
+		var nv = fx["node"]  # non typé : le nœud a pu être libéré
 		fx["t"] = float(fx["t"]) + dt
 		var k2: float = float(fx["t"]) / float(fx["life"])
-		if not is_instance_valid(node) or k2 >= 1.0:
-			if is_instance_valid(node):
-				node.queue_free()
+		if not is_instance_valid(nv) or k2 >= 1.0:
+			if is_instance_valid(nv):
+				nv.queue_free()
 			_fx.remove_at(i)
 			continue
+		var node: Node3D = nv
 		match String(fx["kind"]):
 			"bolt":
 				var thin := 1.0 - k2
