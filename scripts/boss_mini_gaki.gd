@@ -511,13 +511,13 @@ func _animate(delta: float) -> void:
 		n.rotation = Vector3(0.1 * sin(ph * 0.7) + 0.4 * _lean, 0, 0.1 * cos(ph * 0.9 + 0.5))
 	# le modèle regarde vers -Z : penché en avant = rotation.x négative
 	if _state == "fallen":
-		body.rotation.x = lerpf(body.rotation.x, 0.5, 0.1)
+		body.rotation.x = lerpf(body.rotation.x, 0.5, minf(1.0, delta * 6.0))
 		body.position.y = -0.3
 	elif _state != "dying":
-		body.rotation.x = lerpf(body.rotation.x, -_lean, 0.2)
+		body.rotation.x = lerpf(body.rotation.x, -_lean, minf(1.0, delta * 12.0))
 		body.position.y = 0.04 * sin(_t * 1.7)
 	else:
-		body.rotation.x = lerpf(body.rotation.x, -_lean, 0.1)
+		body.rotation.x = lerpf(body.rotation.x, -_lean, minf(1.0, delta * 6.0))
 	_maw.scale = Vector3.ONE * maxf(0.01, _glow * (1.0 + 0.15 * sin(_t * 14.0)))
 	if _state != "spawn" and _state != "dying":
 		body.scale = Vector3.ONE * (1.06 if _flash > 0.0 else 1.0)

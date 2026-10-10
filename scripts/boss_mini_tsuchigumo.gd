@@ -409,7 +409,7 @@ func _animate(delta: float) -> void:
 		var pv: Node3D = l[0]
 		var ph := float(l[1])
 		if _state == "dying":
-			pv.rotation.z = lerpf(pv.rotation.z, 0.9, 0.05)
+			pv.rotation.z = lerpf(pv.rotation.z, 0.9, minf(1.0, delta * 3.0))
 		elif fast:
 			pv.rotation.z = sin(_t * 16.0 + ph) * 0.3
 		else:
