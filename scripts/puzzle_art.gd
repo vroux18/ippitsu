@@ -587,33 +587,36 @@ static func glyph_path(shape: String) -> PackedVector3Array:
 	var out := PackedVector3Array()
 	match shape:
 		"loop":
-			for i in 56:
-				var t := float(i) / 55.0
-				var v := Vector2.from_angle(t * TAU * 1.75) * 0.92 * (0.12 + 0.88 * t)
+			# spirale de 1,75 tour qui s'ouvre depuis le centre
+			for i in 40:
+				var t := float(i) / 39.0
+				var v := Vector2.from_angle(t * TAU * 1.75) * 0.85 * (0.15 + 0.85 * t)
 				out.append(Vector3(v.x, 0, v.y))
 		"zigzag":
-			for v: Vector2 in [Vector2(-0.6, -0.9), Vector2(0.3, -0.15), Vector2(-0.3, 0.12), Vector2(0.6, 0.9)]:
+			# Z à deux coins (éclair)
+			for v: Vector2 in [Vector2(-0.6, -0.9), Vector2(0.25, -0.15), Vector2(-0.25, 0.1), Vector2(0.6, 0.9)]:
 				out.append(Vector3(v.x, 0, v.y))
 		"straight":
-			out.append(Vector3(-0.92, 0, 0.62))
-			out.append(Vector3(0.92, 0, -0.62))
+			out.append(Vector3(-0.95, 0, 0.55))
+			out.append(Vector3(0.95, 0, -0.55))
 		"return":
-			out.append(Vector3(-0.55, 0, 0.85))
-			for i in 19:
-				var a := PI + PI * float(i) / 18.0
-				out.append(Vector3(cos(a) * 0.55, 0, -0.15 + sin(a) * 0.62))
-			out.append(Vector3(0.55, 0, 0.85))
+			# arche : on monte à gauche, on tourne, on redescend à droite (sans pointe de flèche)
+			out.append(Vector3(-0.55, 0, 0.8))
+			for i in 29:
+				var a := PI + PI * float(i) / 28.0
+				out.append(Vector3(cos(a) * 0.55, 0, -0.1 + sin(a) * 0.55))
+			out.append(Vector3(0.55, 0, 0.55))
 		"enso":
 			for i in 49:
-				var a2 := -PI * 0.3 + PI * 1.78 * float(i) / 48.0
-				out.append(Vector3(cos(a2), 0, sin(a2)) * 0.85)
+				var a2 := -PI * 0.35 + PI * 1.8 * float(i) / 48.0
+				out.append(Vector3(cos(a2), 0, sin(a2)) * 0.8)
 		"hook":
-			out.append(Vector3(0.38, 0, -0.9))
-			out.append(Vector3(0.38, 0, 0.3))
-			for i in range(1, 17):
-				var a3 := PI * float(i) / 16.0
-				out.append(Vector3(0.0, 0, 0.3) + Vector3(cos(a3) * 0.38, 0, sin(a3) * 0.4))
-			out.append(Vector3(-0.5, 0, -0.1))
+			# J : descente puis demi-tour en bas (sans pointe de flèche)
+			out.append(Vector3(0.35, 0, -0.9))
+			out.append(Vector3(0.35, 0, 0.3))
+			for i in range(1, 29):
+				var a3 := PI * float(i) / 28.0
+				out.append(Vector3(cos(a3) * 0.35, 0, 0.3 + sin(a3) * 0.35))
 	return out
 
 
@@ -623,9 +626,10 @@ static func build_seal(n: Node3D, pk: Dictionary, shape: String, side: float) ->
 	var glow := n.get_node_or_null("Glow") as Node3D
 	if glow != null:
 		glow.visible = false  # l'or ne respire qu'une fois le sceau brisé
-	# lavis d'encre au sol, et l'éclair vermillon des ratés par-dessus
+	# lavis d'encre au sol, et l'éclat d'or du déverrouillage par-dessus (jamais de vermillon au sol : c'est la
+	# couleur des annonces d'attaque, design/PALETTES.md)
 	_part_flat(n, _mesh("disc"), _mat("seal_wash"), Vector3(0, 0.016, 0), Vector3(1.05, 1, 1.05))
-	var fm := Toon.flat(Color(Toon.VERMILION, 0.0))
+	var fm := Toon.flat(Color(Toon.GOLD, 0.0))
 	_part_flat(n, _mesh("disc"), fm, Vector3(0, 0.02, 0), Vector3(1.3, 1, 1.3))
 	pk["fmat"] = fm
 	var bind := Node3D.new()
@@ -770,7 +774,7 @@ static func _update_seal(pk: Dictionary, t: float, fk: float) -> void:
 	var gmv = pk.get("gmat")
 	if gmv is ShaderMaterial:
 		_ink_cycle(gmv, t - float(pk["cyc0"]), SEAL_PERIOD, 0.5, SEAL_INK)
-	# raté : le lien tremble, le sceau gonfle, éclair vermillon au sol ; sinon le sceau respire à peine
+	# raté : le lien tremble, le sceau gonfle (la figure de la plaque rougit, _ink_cycle) ; sinon le sceau respire à peine
 	var bv = pk.get("bind")
 	if is_instance_valid(bv):
 		var bind: Node3D = bv
@@ -779,10 +783,6 @@ static func _update_seal(pk: Dictionary, t: float, fk: float) -> void:
 	if is_instance_valid(sv):
 		var seal: Node3D = sv
 		seal.scale = Vector3.ONE * (1.0 + 0.3 * fk + 0.04 * sin(t * 2.6))
-	var fmv = pk.get("fmat")
-	if fmv is StandardMaterial3D:
-		var fm: StandardMaterial3D = fmv
-		fm.albedo_color = Color(Toon.VERMILION, 0.4 * fk)
 
 
 ## Déverrouillage (main._unseal_chest) : la figure de la plaque se dore ; le sceau se fend, ses moitiés tombent ;
