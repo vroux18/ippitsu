@@ -3783,7 +3783,8 @@ static func _glyph_pts(shape: String, o: Vector3, k: float) -> PackedVector3Arra
 func _update_puzzle(pk: Dictionary, n: Node3D, d: float) -> void:
 	if not bool(pk["hinted"]) and d < 4.2 and _explore:
 		pk["hinted"] = true
-		hud.toast(_puzzle_hint(pk))
+		# (UI v2 : plus de consigne écrite ; la figure de la stèle se trace d'elle-même, les lanternes portent leurs
+		# numéros et leur chemin en pointillé, l'esprit son icône de boucle fléchée)
 		sfx.play("shrine", 1.6, -8.0)
 	# la figure se trace d'elle-même, les lanternes s'allument au fil du trait, l'esprit erre (puzzle_art.gd)
 	var lit := 0
@@ -3899,8 +3900,7 @@ func _puzzle_stroke(pts: PackedVector3Array) -> void:
 
 func _puzzle_fail(pk: Dictionary, msg: String) -> void:
 	pk["fail_t"] = run_time
-	PuzzleArt.fail(pk, run_time)  # secousse vermillon de l'objet (puzzle_art.update)
-	hud.toast(msg)
+	PuzzleArt.fail(pk, run_time)  # secousse vermillon de l'objet (puzzle_art.update) : seul retour, sans texte (UI v2)
 	sfx.play("empty", 0.9, -4.0)
 
 

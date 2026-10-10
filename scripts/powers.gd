@@ -77,7 +77,7 @@ var _anim := 0.0
 var _cache := {}
 # figures : techniques débloquées par les rouleaux de figure
 const FIG_NAMES := {"loop": "UZU · TOUPIE", "zigzag": "INAZUMA · ÉCLAIR EN CHAÎNE", "return": "KAESHI · GARDE",
-	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · FRAPPE AU SOL", "hook": "KAGI · ESTOC"}
+	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · ONDE DE CHOC", "hook": "KAGI · ESTOC"}
 const FIG_PLAIN := {"loop": "BOUCLE", "zigzag": "ZIGZAG", "return": "ALLER-RETOUR", "straight": "TRAIT DROIT",
 	"enso": "ENSŌ", "hook": "CROCHET"}
 var demo := false  # tutoriel : toutes les techniques prêtées (niveau 1)

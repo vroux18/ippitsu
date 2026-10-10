@@ -481,7 +481,6 @@ static func build_spirit(n: Node3D, pk: Dictionary) -> void:
 	_part_flat(ic, _mesh("icon_dark"), _mat("icon_dark"), Vector3.ZERO)
 	_part_flat(ic, _mesh("icon_light"), _mat("icon_light"), Vector3(0, 0.004, 0))
 	pk["dot"] = _part_flat(ic, _mesh("icon_dot"), _mat("icon_dot"), Vector3(0.2, 0.012, 0))
-	_label(sp, UiKit.plain("ENTOURE"), Vector3(0, 1.22, 0), SPIRIT_INK, 34, 0.0045, true, 12)
 	pk["at"] = 0.0
 
 
