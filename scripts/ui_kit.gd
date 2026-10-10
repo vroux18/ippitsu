@@ -202,13 +202,15 @@ static func _gesture_points_build(kind: String) -> PackedVector2Array:
 	var p := PackedVector2Array()
 	match kind:
 		"loop":
-			for i in 41:
-				var t := float(i) / 40.0
-				var base := Vector2(0.5, 0.92 - 0.82 * t)
-				var lp := clampf((t - 0.3) / 0.4, 0.0, 1.0)
-				if lp > 0.0 and lp < 1.0:
-					base += Vector2(sin(lp * TAU) * 0.22, (1.0 - cos(lp * TAU)) * 0.12)
-				p.append(base)
+			# une petite boucle prise dans un trait qui continue (un cercle seul serait un ensō) : le trait monte,
+			# fait un tour complet et repart tout droit
+			for i in 9:
+				p.append(Vector2(0.5, 0.92 - 0.32 * i / 8.0))
+			for i in range(1, 25):
+				var th := TAU * i / 24.0
+				p.append(Vector2(0.36, 0.6) + Vector2(cos(th), -sin(th)) * 0.14)
+			for i in range(1, 11):
+				p.append(Vector2(0.5, 0.6 - 0.5 * i / 10.0))
 		"zigzag":
 			var zz := [Vector2(0.5, 0.92), Vector2(0.2, 0.7), Vector2(0.8, 0.5), Vector2(0.2, 0.3), Vector2(0.75, 0.1)]
 			for i in range(zz.size() - 1):
