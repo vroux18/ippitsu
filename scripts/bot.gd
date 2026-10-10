@@ -726,7 +726,8 @@ func _powers_setup() -> void:
 	for nid in Meta.TREE_ORDER:
 		var nd: Dictionary = Meta.TREE[nid]
 		var pid := String(nd.get("power", ""))
-		if pid == "":
+		var fig := String(nd.get("fig", ""))  # figures de l'arbre (vague, pointe, triangle) : apprises aussi, pour les tracer en jeu
+		if pid == "" and fig == "":
 			continue
 		var guard := 0
 		while not main.meta.learned(String(nid)) and guard < 8:
@@ -736,6 +737,13 @@ func _powers_setup() -> void:
 				step = main.meta.node_prereq(step)
 			main.meta.sumi = int(main.meta.sumi) + main.meta.node_cost(step)
 			main.meta.learn(step)
+		if fig != "":
+			if main.meta.fig_learned(fig):
+				print("BOT FIGURE %s apprise (%s)" % [fig, String(nid)])
+			else:
+				alert("figure %s : pas apprise après le nœud %s de l'arbre" % [fig, String(nid)])
+			if pid == "":
+				continue
 		if main.meta.power_unlocked(pid):
 			print("BOT POUVOIR %s déverrouillé (%s)" % [pid, "était scellé" if pid in locked else "déjà libre"])
 		else:
