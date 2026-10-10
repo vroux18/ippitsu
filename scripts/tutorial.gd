@@ -1,7 +1,7 @@
 extends Control
 ## Hôte du dojo (entraînement libre, scripts/dojo.gd), dans l'état « tuto » de main.
 ## Le tutoriel se fait désormais en jeu, au premier monde (coach.gd).
-## main appelle begin_dojo(), on_dash_end(...), on_dodge(), on_ultimate() et is_over_ui() ;
+## main appelle begin_dojo(), on_dash_end(...), on_ultimate() et is_over_ui() ;
 ## à la fermeture du dojo, émet dojo_finished.
 
 const Dojo = preload("res://scripts/dojo.gd")
@@ -53,12 +53,6 @@ func is_over_ui(p: Vector2) -> bool:
 	if not visible or not in_dojo():
 		return false
 	return dojo.is_over_ui(p)
-
-
-## Bond d'esquive (tap, ou petit glissé) : main l'appelle au lancement du bond.
-func on_dodge() -> void:
-	if in_dojo():
-		dojo.on_dodge()
 
 
 ## Fin d'une ruée.

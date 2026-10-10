@@ -7,11 +7,11 @@ extends Control
 ## sinon ce qui a manqué (StrokeShapes.near_miss / describe).
 ## Le carnet (page déroulante, planche Carnet v2) : les six figures en tuiles (geste animé, nom, picto de la
 ## technique, compte), sans texte d'explication ; toucher une figure en fait la cible de l'entraînement, et
-## son geste fantôme se trace en grand sous l'en-tête. Il compte aussi esquives, zones, ultimes et défis.
+## son geste fantôme se trace en grand sous l'en-tête. Il compte aussi zones fuies, ultimes et défis.
 ## Mode offensif : trois mannequins (au plus) poursuivent le héros et frappent avec leurs annonces, comme en
 ## combat (le héros reste intouchable, ils reviennent quand on les abat) ; l'un d'eux annonce aussi
 ## régulièrement une zone rouge sous le héros, pour s'exercer au bond.
-## Le tutoriel (tutorial.gd) le possède et lui transmet on_dash_end, on_dodge, on_ultimate et is_over_ui.
+## Le tutoriel (tutorial.gd) le possède et lui transmet on_dash_end, on_ultimate et is_over_ui.
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -43,7 +43,7 @@ const CHALLENGES := [
 	{"id": "loop_zz", "text": "Boucle puis zigzag d'affilée"},
 	{"id": "enso3", "text": "3 ensō de suite"},
 	{"id": "multi3", "text": "Toucher 3 mannequins d'un trait"},
-	{"id": "zone", "text": "Esquiver une zone rouge"},
+	{"id": "zone", "text": "Fuir une zone rouge d'un trait"},
 	{"id": "ult", "text": "Lancer l'ultime"},
 	{"id": "all6", "text": "Les six figures"},
 ]
@@ -54,14 +54,12 @@ var open := false        # carnet déplié
 var offensive := false   # mannequin offensif
 var target := ""         # figure ciblée depuis le carnet ("" : aucune)
 var counts := {}         # figure -> nombre réussi
-var dodges := 0
 var zones_ok := 0
 var ults := 0
 var done := {}           # défi -> true
 var last_verdict := ""   # dernier verdict affiché (lu par le robot testeur)
 var _last_shape := ""    # figure du trait précédent ("" : aucune)
 var _enso_run := 0
-var _dodged := false
 var _pts := PackedVector3Array()  # points du dernier trait lancé (relevés sur main.dash_stroke)
 var _slot_e: Array = []
 var _slot_t: Array = []
@@ -148,14 +146,12 @@ func begin() -> void:
 	offensive = false
 	target = ""
 	counts = {}
-	dodges = 0
 	zones_ok = 0
 	ults = 0
 	done = {}
 	last_verdict = ""
 	_last_shape = ""
 	_enso_run = 0
-	_dodged = false
 	_pts = PackedVector3Array()
 	_slot_e = []
 	_slot_t = []
@@ -266,13 +262,6 @@ func _set_target(kind: String) -> void:
 
 # ------------------------------------------------------------------ événements transmis par main (via le tutoriel)
 
-## Bond d'esquive : la ruée qui suit n'est pas un essai de figure.
-func on_dodge() -> void:
-	if not active:
-		return
-	_dodged = true
-
-
 ## Ultime lancé (double tap).
 func on_ultimate() -> void:
 	if not active:
@@ -284,10 +273,6 @@ func on_ultimate() -> void:
 ## Fin d'une ruée : compte, défis, et verdict sur la figure.
 func on_dash_end(_pos: Vector3, kills: int, shape: String) -> void:
 	if not active:
-		return
-	if _dodged:
-		_dodged = false
-		dodges += 1
 		return
 	main.ult = minf(1.0, float(main.ult) + ULT_PER_STROKE)
 	if _touched(kills) >= 3:
@@ -802,11 +787,11 @@ func _draw_page() -> void:
 			UiKit.draw_icon(ci, String(TECH_ICON.get(kind, "elements/figure")), tc, 13.0 * u, 1.0 if on else 0.5, Toon.WASHI)
 	y += 3.0 * (th + gap)
 	_row_hits = hits
-	# entraînement : figures, esquives, zones, ultimes (chiffres et un mot)
+	# entraînement : figures, zones fuies, ultimes (chiffres et un mot)
 	y += 4.0 * u
 	_psection(ci, "ENTRAÎNEMENT", x0, x1, y + 9.0 * u, u)
 	y += 30.0 * u
-	var cols := [["FIGURES", total_figures()], ["ESQUIVES", dodges], ["ZONES", zones_ok], ["ULTIMES", ults]]
+	var cols := [["FIGURES", total_figures()], ["ZONES", zones_ok], ["ULTIMES", ults]]
 	var sw := (x1 - x0) / float(cols.size())
 	for i in cols.size():
 		var col_s: Array = cols[i]

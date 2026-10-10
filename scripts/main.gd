@@ -185,9 +185,7 @@ const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès le départ)
 const ELAN_REGEN := 10.0  # par seconde réelle, hors tracé
 const ELAN_PER_HIT := 3.5
-const DODGE_DIST := 2.4
 const ENEMY_HP_MULT := 2.0
-const DODGE_COOLDOWN := 0.7  # esquive gratuite (sans encre), mais pas en rafale
 const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
@@ -324,7 +322,6 @@ var music: Node
 var tuto: Control  # dojo (état « tuto »)
 var coach: Control  # tutoriel en jeu (coach.gd)
 var gentle := false  # première partie du tutoriel : les deux premiers combats du monde 1 adoucis
-var _launch_dodge := false  # la ruée lancée est un bond d'esquive (pour le coach)
 # contrôles : ctrl_mode est lu une fois au lancement (cadrage, entrée) ; ctrl_pref est le choix des options,
 # appliqué au prochain lancement
 var ctrl_mode := "screen"  # screen | pad
@@ -358,7 +355,6 @@ var _pause_pending := false  # l'appli a été quittée pendant une transition :
 var _web_hidden_t := 0.0
 var ult := 0.0  # jauge d'ultime (0..1), double tap quand elle est pleine
 var _ult_sent := -1.0  # dernière valeur passée au HUD (évite un set() par image)
-var _dodge_cd := 0.0
 var _touch_ms := 0
 var _last_tap_ms := 0
 var _boss_seen: Node3D = null
@@ -627,13 +623,17 @@ func _ready() -> void:
 		# `?tuto` (web) : première partie du tutoriel en jeu
 		meta.coach_reset()
 		_start_first_run()
-	# `?tuto&coach=figures` (captures) : cette bulle du coach dès que le jeu tourne (figures, dodge, ult…)
+	# `?tuto&coach=figures` (captures) : cette bulle du coach dès que le jeu tourne (figures, ult…)
 	var cf := wsearch.find("coach=")
 	if cf >= 0:
 		coach.force(wsearch.substr(cf + 6).get_slice("&", 0))
 	# `?intro` (web) : ouvre directement les planches de l'intro (captures d'écran)
 	if "intro" in wsearch:
 		_open_intro(false)
+		# `?intro&page=N` (captures) : la planche N (0..5) directement
+		var ip := wsearch.find("page=")
+		if ip >= 0:
+			intro._go(clampi(int(wsearch.substr(ip + 5).get_slice("&", 0)), 0, 5))
 	# `?mondes` (captures) : la carte des mondes ; `?mondes&reveal=N` : le monde N se révèle (rouleaux compris)
 	if "mondes" in wsearch:
 		var rv := wsearch.find("reveal=")
@@ -2335,7 +2335,6 @@ func _start(hub := true, tutorial := false) -> void:
 	_pick_context = "room"
 	foam = 0
 	ult = 0.0
-	_dodge_cd = 0.0
 	_dmg_labels.clear()
 	_ricochets = {}
 	wave_wait = 0.8
@@ -2517,7 +2516,7 @@ func _draw_kinds(pool: Dictionary, budget: int) -> Array:
 
 
 ## Vitesse de la ruée selon le monde : plus lente au début (on voit venir les dangers et on apprend à
-## esquiver), pleine vitesse dès le monde 4. Dojo et tutoriel : vitesse du monde 1.
+## s'en écarter d'un trait), pleine vitesse dès le monde 4. Dojo et tutoriel : vitesse du monde 1.
 const WORLD_DASH := {1: 0.78, 2: 0.86, 3: 0.94}
 
 
@@ -4487,14 +4486,14 @@ func _touch_move(sp: Vector2) -> void:
 			tr.append(sp)
 			hud.pad_trail = tr
 	var was_empty: bool = stroke.exhausted
-	# hors combat : encre illimitée, trait deux fois plus long
-	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan
+	# hors combat : encre illimitée, trait deux fois plus long ; en combat, l'encre plus les mètres offerts (Plume)
+	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan + powers.free_ink(float(stroke.length))
 	var used: float = stroke.extend_to(target, budget)
 	if stroke.lead_n < 0 and used > 0.0 and ctrl_mode != "pad":
 		# (mode pad : pas d'amorce, le geste part du héros ; lead_n reste à -1, tout le trait est lu)
 		stroke.lead_n = stroke.points.size() - 1  # fin de l'amorce héros -> doigt
 	if not _explore:
-		elan -= used
+		elan -= powers.ink_cost(float(stroke.length) - used, used)
 	# figure reconnue en direct : l'encre se teinte (testé tous les 30 cm de trait)
 	if used > 0.0 and float(stroke.length) - float(stroke.probe_len) >= 0.3:
 		stroke.probe_len = stroke.length
@@ -4536,7 +4535,8 @@ func _touch_up(sp: Vector2) -> void:
 	if stroke.length >= 0.7:
 		_launch(stroke)
 	else:
-		# petit coup de doigt (direction choisie) ou simple tap (loin du danger) : bond d'esquive gratuit
+		# trait trop court pour une ruée : un simple tap (ou un petit coup de doigt) ne fait rien, l'encre
+		# est rendue ; la seule façon d'échapper à un coup est de tracer un trait (la ruée protège son départ)
 		var now := Time.get_ticks_msec()
 		var flick := _pad_to_world(sp - _touch_sp) if ctrl_mode == "pad" else _ground(sp) - _ground(_touch_sp)
 		flick.y = 0
@@ -4550,27 +4550,8 @@ func _touch_up(sp: Vector2) -> void:
 			return
 		if is_tap:
 			_last_tap_ms = now
-		var dir := Vector3.ZERO
-		if flick.length() > 0.12:
-			dir = flick.normalized()
-		elif is_tap:
-			dir = _dodge_dir(sp)
-		if dir != Vector3.ZERO and _dodge_cd <= 0.0:
-			var s: MeshInstance3D = stroke
-			var dd: float = powers.dodge_dist(DODGE_DIST)
-			var end := _clamp_point(origin + dir * dd)
-			s.extend_to(end, dd)
-			_dodge_cd = DODGE_COOLDOWN
-			hero.invuln = maxf(hero.invuln, powers.val("shadow_step"))
-			_launch_dodge = true
-			_launch(s)
-			_launch_dodge = false
-			powers.on_dodge(origin, end)
-			if state == "tuto":
-				tuto.on_dodge()
-		else:
-			elan = minf(elan_max(), elan + stroke.length)
-			stroke.queue_free()
+		elan = minf(elan_max(), elan + stroke.length)
+		stroke.queue_free()
 	stroke = null
 
 
@@ -4670,55 +4651,6 @@ func _stop_run() -> void:
 		hero.ch.play(hero.ch.idle)
 
 
-## Direction d'un bond d'esquive au tap : vers le doigt (sur l'écran), sinon (tap sur le héros, ou mode pad)
-## loin du danger le plus proche (zone annoncée, boule, ennemi), en restant sur la terre ferme et hors des zones.
-func _dodge_dir(sp: Vector2) -> Vector3:
-	var o: Vector3 = hero.dash_end()
-	var want := Vector3.ZERO
-	if ctrl_mode != "pad":
-		var g := _ground(sp) - o
-		g.y = 0
-		if g.length() > 0.3:
-			want = g.normalized()
-	if want == Vector3.ZERO:
-		var threat := Vector3.INF
-		var best := 4.5
-		for e in enemies:
-			if not is_instance_valid(e) or e.dead or e.dummy:
-				continue
-			var z: Array = e.danger_zone()
-			var tp: Vector3 = z[0] if z.size() == 3 else e.position
-			var d := Vector2(tp.x - o.x, tp.z - o.z).length()
-			if d < best:
-				best = d
-				threat = tp
-		for b in bullets:
-			var n: Node3D = b.node
-			var db := Vector2(n.position.x - o.x, n.position.z - o.z).length()
-			if db < best:
-				best = db
-				threat = n.position
-		for bo in bosses:
-			if is_instance_valid(bo) and not bo.dead:
-				var dbo := Vector2(bo.position.x - o.x, bo.position.z - o.z).length()
-				if dbo < best:
-					best = dbo
-					threat = bo.position
-		if threat != Vector3.INF:
-			want = Vector3(o.x - threat.x, 0, o.z - threat.z)
-			want = want.normalized() if want.length() > 0.01 else Vector3(0, 0, 1)
-		else:
-			want = Vector3(0, 0, 1)  # rien à fuir : petit bond en arrière
-	# on garde la direction la plus proche de l'idéale qui atterrit sur un sol sûr
-	var dd: float = powers.dodge_dist(DODGE_DIST)
-	for k in [0.0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, PI]:
-		var dv := want.rotated(Vector3.UP, float(k))
-		var p := _clamp_point(o + dv * dd)
-		if not hazards.is_hole(p, 0.2) and not is_danger(p, 0.2):
-			return dv
-	return want
-
-
 ## Ultime (double tap, jauge pleine) : un immense coup de pinceau traverse l'arène et frappe tout.
 func _ultimate() -> void:
 	ult = 0.0
@@ -4756,7 +4688,16 @@ func _launch(s: MeshInstance3D) -> void:
 	if dash_stroke and is_instance_valid(dash_stroke):
 		dash_stroke.start_drying()
 	dash_stroke = s
-	hero.dash_guard = _dash_guard(_launch_dodge)
+	# Oikaze (vent arrière) : un trait dans le sens du précédent est poussé plus loin, gratuitement
+	var ext: float = powers.stroke_extend(s.points)
+	if ext > 0.0:
+		var pts: PackedVector3Array = s.points
+		var n := pts.size()
+		var edir: Vector3 = pts[n - 1] - pts[maxi(0, n - 4)]
+		edir.y = 0
+		if edir.length() > 0.01:
+			s.extend_to(_clamp_point(pts[n - 1] + edir.normalized() * ext), ext)
+	hero.dash_guard = _dash_guard()
 	if hero.dashing:
 		# on enchaîne : la ruée en cours se termine et la nouvelle prend le relais
 		var rest := PackedVector3Array()
@@ -4788,7 +4729,7 @@ func _launch(s: MeshInstance3D) -> void:
 		hero.speed_mult *= float(_fig_mods.get("speed", 1.0))
 	if _explore:
 		_puzzle_stroke(s.points)  # énigmes des recoins (jamais en combat)
-	coach.on_launch(_launch_dodge, String(_shape.get("shape", "")))
+	coach.on_launch(String(_shape.get("shape", "")))
 	sfx.play("whoosh", randf_range(0.9, 1.1))
 	feel("dash")
 
@@ -4981,12 +4922,12 @@ func _hurt_iframes() -> float:
 	return 0.85 if current_world >= 6 else 1.0
 
 
-## Part intouchable de chaque ruée : toute la ruée aux mondes 1-2 (et au dojo), puis 0,35 s (0,25 s pour
-## le bond d'esquive, déjà très bref).
-func _dash_guard(dodge: bool) -> float:
+## Part intouchable de chaque ruée : toute la ruée aux mondes 1-2 (et au dojo), puis ses 0,35 premières
+## secondes. C'est la seule esquive du jeu : tracer un trait.
+func _dash_guard() -> float:
 	if state == "tuto" or current_world < 3:
 		return Hero.DASH_GUARD_ALL
-	return 0.25 if dodge else 0.35
+	return 0.35
 
 
 func _check_slashes() -> void:
@@ -5361,7 +5302,6 @@ func _process(_delta: float) -> void:
 		Engine.time_scale = target
 	var dt := real * Engine.time_scale
 
-	_dodge_cd = maxf(0.0, _dodge_cd - real)
 	if ult != _ult_sent:  # jauge d'ultime (dessinée par le HUD si elle existe) : reposée seulement si elle a bougé
 		_ult_sent = ult
 		hud.set(&"ult", ult)

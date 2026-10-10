@@ -9,7 +9,7 @@
 
 *Ce résumé fait foi pour ce qui est implémenté ; la suite du document est la vision v1 d'origine (salles, héros multiples, boutique… : en partie remplacée).*
 
-- **Commandes** (un doigt) : tracer = ruée qui tranche ; **tap** = bond d'esquive gratuit (recharge 0.7 s ; un petit glissé choisit la direction) ; **double tap** = ultime quand le sceau 筆 est plein ; doigt posé hors combat = course. Pad tactile en bas (ou tracé direct sur l'écran, option).
+- **Commandes** (un doigt) : tracer = ruée qui tranche (intouchable au départ : c'est la seule esquive, un tap seul ne fait rien) ; **double tap** = ultime quand le sceau 筆 est plein ; doigt posé hors combat = course. Pad tactile en bas (ou tracé direct sur l'écran, option).
 - **HUD** : vie, niveau / XP et or en haut à gauche, chaîne dessous ; sceau du monde + étape (x / 8) au centre ; pause en haut à droite ; **jauge d'encre verticale sur le bord droit** avec le sceau d'ultime ; colonne de progression de l'étape à gauche. Les pouvoirs ne sont plus affichés en jeu (pause → MES POUVOIRS, et bilan de fin).
 - **Structure** : accueil (barque) → sanctuaire de départ (dojo, torii) → **5 mondes × 8 étapes**. Une étape = longue carte vers le fond avec des **zones de combat** (vagues d'ennemis, haies sacrées qui se ferment), des recoins (coffre, source, défi d'élite, énigmes stèle / lanternes / esprit) et un torii au bout. 15 combats par monde (`STAGE_PLAN`) : étape 4 = arène du **mini-boss**, étape 8 = **boss**. Sanctuaire de malédiction après les combats 5 et 10. Battre le boss ouvre le monde suivant (carte emakimono).
 - **Mondes et bestiaire** (`worlds.gd`, `enemy.gd`) : base commune oni, kappa, brute, tate (bouclier frontal), funa ; puis
@@ -21,7 +21,7 @@
   PV ×1.0 → ×1.6 du monde 1 au monde 5.
 - **Gardiens / boss** : mini-boss Ō-Kappa, Tsuchigumo, Yuki-onna, Ibaraki-dōji, Bakekujira ; boss Uwabami, Kyūbi, Gashadokuro, Daidarabotchi, Kuro-Nami. Chacun a un point faible (geste) affiché sous sa barre.
 - **Boucliers et élites** : barre bleue — tant qu'il en reste, un coup n'entame que 25 % ; figures et pouvoirs l'usent ×2. Élites (dès le 4e combat) : ×2.5 PV, bouclier, aura et cornes d'or, 1–2 affixes (blindé, rapide, vampire, explosif, invocateur, enragé).
-- **Progression de partie** : XP et or au sol ; chaque niveau = un **rouleau** parmi 3. **59 pouvoirs** (`power_data.gd`) en 4 raretés (21 communs, 16 rares, 13 épiques, 9 légendaires) et 7 écoles (feu, eau, foudre, vent, ombre, encre, figure) ; affinités à 2 et 4 pouvoirs d'une école, synergies ; paliers de déblocage par monde vaincu.
+- **Progression de partie** : XP et or au sol ; chaque niveau = un **rouleau** parmi 3. **71 pouvoirs** (`power_data.gd`) en 4 raretés (25 communs, 23 rares, 14 épiques, 9 légendaires) et 7 écoles (feu, eau, foudre, vent, ombre, encre, figure) ; affinités à 2 et 4 pouvoirs d'une école, synergies ; paliers de déblocage par monde vaincu.
 - **Figures** (`stroke_shapes.gd`) : boucle, zigzag, trait droit, aller-retour, ensō, crochet. Tracée sans son rouleau : +1 chaîne et +15 % de dégâts ; son **rouleau de figure** (école « figure », 16 rouleaux) débloque la technique puis l'améliore.
 - **Méta (Atelier)** : encre (sumi) → Pierre à encre (6 lignes à rangs) ; sceaux (dons permanents, légendaires) ; collection d'estampes (Vues) qui débloquent des apparences.
 - **Tests** : robots du CI `bot.gd` (campaign, powers, stress), `bot_ui.gd` (parcours des écrans), `bot_shapes.gd` (figures).
@@ -36,7 +36,6 @@
 | `ELAN_MAX` | 14 m | longueur de trait max |
 | `ELAN_REGEN` | 9 m/s | recharge hors tracé |
 | `ELAN_PER_HIT` | 3.5 m | élan rendu par ennemi tranché |
-| `DODGE_DIST` / `DODGE_COOLDOWN` | 2.4 m / 0.7 s | bond d'esquive gratuit (tap) |
 | `HIT_REACH` | 0.55 m | demi-largeur de la coupe |
 | `DASH_SPEED` | 34 m/s | vitesse de ruée |
 | Dégâts combo | `1.0 × (1 + 0.5 × (combo−1))` | ×1, ×1.5, ×2… |

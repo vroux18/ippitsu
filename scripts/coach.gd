@@ -1,6 +1,7 @@
 extends Control
 ## Coach : le tutoriel se fait en jouant. Petites bulles d'encre posées sur le jeu, près du héros,
-## au moment où chaque geste sert : tracer, trancher, esquiver, l'encre, une figure, l'ultime, la course.
+## au moment où chaque geste sert : tracer, trancher, l'encre, une figure, l'ultime, la course.
+## (Pas de bulle « esquive » : le simple tap ne fait rien, on s'écarte d'un coup en traçant un trait.)
 ## Chaque bulle ne vient qu'une fois (meta.coach_seen) et part dès que le geste est fait (ou au bout
 ## de quelques secondes). Chaque bulle arrive en arrêt sur image : le jeu se fige, voile d'encre, bulle
 ## en grand, geste fantôme animé, puis un doigt qui pulse (invite à toucher) ; ce toucher relance le jeu
@@ -18,7 +19,6 @@ const PowerData = preload("res://scripts/power_data.gd")
 const TEXTS := {
 	"stroke": "Trace un trait",
 	"cut": "Traverse-le",
-	"dodge": "Touche : esquive",
 	"ink": "L'encre revient",
 	"ult": "Double tap : ultime",
 	"run": "Maintiens : cours",
@@ -27,7 +27,6 @@ const TEXTS := {
 # mode pad (option) : le geste se fait dans le pad du bas, pas sur le terrain
 const TEXTS_PAD := {
 	"stroke": "Trace dans le pad",
-	"dodge": "Touche : esquive",
 	"figures": "Un zigzag dans le pad",
 }
 # leçon des figures (planche en arrêt sur image) : une figure reconnue donne d'elle-même +15 % de dégâts
@@ -48,8 +47,8 @@ const FIG_TEXT := {
 	"hook": "Un crochet",
 }
 # durée de vie (s réelles, arrêt sur image non compté) ; 0 : jusqu'au geste
-const LIFE := {"stroke": 0.0, "cut": 7.0, "dodge": 5.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0}
-const ORDER := ["stroke", "dodge", "cut", "figures", "ult", "figure", "ink", "run"]
+const LIFE := {"stroke": 0.0, "cut": 7.0, "ink": 6.0, "figure": 10.0, "ult": 8.0, "run": 7.0, "figures": 14.0}
+const ORDER := ["stroke", "cut", "figures", "ult", "figure", "ink", "run"]
 var _lesson_bottom := -1.0  # bas de la planche des figures à cette image (< 0 : pas de planche)
 const GAP := 0.8  # silence entre deux bulles
 const SLOW := 0.3  # temps ralenti tant que le premier trait n'est pas tracé
@@ -162,13 +161,9 @@ func on_pick(id: String) -> void:
 			_fig = String(k)
 
 
-## Ruée lancée (trait, ou bond d'esquive) ; shape : figure reconnue ("" sinon).
-func on_launch(dodge: bool, shape: String) -> void:
+## Ruée lancée ; shape : figure reconnue ("" sinon).
+func on_launch(shape: String) -> void:
 	if mark == "":
-		return
-	if dodge:
-		if mark == "dodge":
-			_finish()
 		return
 	if mark == "stroke" or (mark == "figure" and shape == _fig) or (mark == "figures" and shape != ""):
 		_finish()
@@ -244,12 +239,9 @@ func _wanted(id: String) -> bool:
 			return not bool(main.hero.dashing)
 		"cut":
 			return _first_enemy() != null
-		"dodge":
-			return _windup_enemy() != null
 		"figures":
-			# après les bases (trancher, esquiver), dès le 2e combat, avec un ennemi sur qui essayer
-			return seen("cut") and (seen("dodge") or int(main.room) >= 3) and int(main.room) >= 2 \
-				and not bool(main.in_hub) and not bool(main.hero.dashing) and _first_enemy() != null
+			# après la base (trancher), dès le 2e combat, avec un ennemi sur qui essayer
+			return seen("cut") and int(main.room) >= 2 and not bool(main.in_hub) and not bool(main.hero.dashing) and _first_enemy() != null
 		"ink":
 			return not bool(main._explore) and float(main.elan) < float(main.elan_max()) * 0.35
 		"figure":
@@ -261,15 +253,6 @@ func _wanted(id: String) -> bool:
 			return bool(main._explore) and not bool(main.in_hub) and bool(ar.stage) and int(main._enc) < 0 \
 				and int(ar.zones_done()) >= 1 and int(ar.zones_left()) > 0
 	return false
-
-
-## Ennemi qui arme son attaque (pour « esquive »), ou null.
-func _windup_enemy() -> Node3D:
-	for e in main.enemies:
-		if is_instance_valid(e) and not e.dead and not e.dummy and str(e.get("_state")) == "windup":
-			var n: Node3D = e
-			return n
-	return null
 
 
 ## Ennemi vivant le plus proche du héros (pour « traverse-le »).
@@ -324,10 +307,7 @@ func _process(_delta: float) -> void:
 				_unfreeze()
 		else:
 			_life += real
-			# une attaque annoncée passe avant le reste (sauf le tout premier trait)
-			if mark != "dodge" and mark != "stroke" and not seen("dodge") and _wanted("dodge"):
-				_show("dodge")
-			elif mark == "ink" and _life > 1.5 and float(main.elan) >= float(main.elan_max()) * 0.9:
+			if mark == "ink" and _life > 1.5 and float(main.elan) >= float(main.elan_max()) * 0.9:
 				_finish()  # l'encre est revenue : compris
 			else:
 				var life := float(LIFE.get(mark, 6.0))
@@ -396,16 +376,6 @@ func _draw() -> void:
 				_bubble(txt, _screen(e.position + Vector3(0, 2.2, 0)), u, a, false, 0.0, big)
 			else:
 				_bubble(txt, head, u, a, false, 0.0, big)
-		"dodge":
-			# arrêt sur image : l'ennemi qui arme son coup est cerclé de vermillon
-			var we := _windup_enemy()
-			if we != null and _fz >= 0.0:
-				var wp := _screen(we.position + Vector3(0, 0.9, 0))
-				if wp.x > -9000.0:
-					var wpulse := 0.5 + 0.5 * sin(_t * 7.0)
-					draw_arc(wp, (34.0 + 6.0 * wpulse) * u, 0, TAU, 36, Color(Toon.VERMILION, (0.55 + 0.4 * wpulse) * a), 3.0 * u, true)
-			_ghost_flick(feet, u, a)
-			_bubble(txt, head, u, a, false, 0.0, big)
 		"ink":
 			# la jauge d'encre du HUD (bord droit), avec son cadre : géométrie lue dans le HUD (raccourcie au-dessus du pad)
 			var ir: Rect2 = main.hud.ink_rect()
@@ -661,20 +631,6 @@ func _ghost_line(from: Vector2, to: Vector2, u: float, a: float) -> void:
 	draw_line(from, end, Color(Toon.WASHI, 0.25 * a), 4.0 * u, true)
 	if k > 0.02:
 		draw_line(from, tip, Color(Toon.SUMI, 0.7 * a), 4.0 * u, true)
-	_finger(tip, u, a)
-
-
-## Coup de doigt bref (esquive) : un tap qui rebondit, puis un petit glissé.
-func _ghost_flick(c: Vector2, u: float, a: float) -> void:
-	if c.x < -9000.0:
-		return
-	var t := fmod(_t, 1.4)
-	var p := clampf(t / 0.18, 0.0, 1.0)
-	var tip := c + Vector2(34.0, -22.0) * u * p
-	if p > 0.0:
-		draw_line(c, tip, Color(Toon.WASHI, 0.6 * a), 3.0 * u, true)
-	if t < 0.6:
-		draw_arc(c, (10.0 + 40.0 * t) * u, 0, TAU, 24, Color(Toon.WASHI, (0.6 - t) * a), 2.0 * u, true)
 	_finger(tip, u, a)
 
 

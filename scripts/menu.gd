@@ -674,7 +674,7 @@ func _draw_ink_counter(p: Vector2, u: float) -> void:
 ## trait vermillon), le score en Zen Kaku 900, le rang en tuile picto + nom et le palier suivant en texte, RECORD
 ## en pastille ; puis des lignes à sceau vermillon : chiffres de la partie, figures, pouvoirs (médaillons et
 ## étiquettes d'élément), gains (encre, sceaux, estampes), déblocages d'une victoire ; défaite : le monstre du coup
-## fatal et le conseil d'esquive en pictos. Jamais de kanji, les chiffres en num_font, pas de flou.
+## fatal et le conseil de fuite en pictos (zone rouge → trace un trait pour en sortir). Jamais de kanji, les chiffres en num_font, pas de flou.
 func _draw_results() -> void:
 	var w := size.x
 	var u := w / 400.0
@@ -1107,8 +1107,8 @@ func _draw_unlocks(x0: float, x1: float, y: float, rh: float, u: float, a: float
 		UiKit.text(self, nf, "+%d" % unlock_powers.size(), Vector2(r.get_center().x, r.end.y - 7.0 * u), int(11 * u), Color(GOLD_INK, a * qk))
 
 
-## Conseil d'esquive (défaite), tout en pictos : bouclier d'alerte, la zone rouge, puis le bond (un toucher)
-## et le trait qui tranche, dans un cadre or en pointillés.
+## Conseil de fuite (défaite), tout en pictos : bouclier d'alerte, la zone rouge, puis le doigt qui trace un trait
+## pour en sortir (la ruée est intouchable au départ) et le trait qui tranche, dans un cadre or en pointillés.
 func _draw_advice(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var r := Rect2(Vector2(x0, y + 6.0 * u), Vector2(x1 - x0, rh - 12.0 * u))
 	_dashed_rect(r, 12.0 * u, Color(UIColors.GOLD_DARK, 0.9 * a), u)
@@ -1128,9 +1128,13 @@ func _draw_advice(x0: float, x1: float, y: float, rh: float, u: float, a: float)
 	x += 30.0 * u
 	_arrow(Vector2(x, cy), u, ink)
 	x += 30.0 * u
-	# le bond : un toucher (point dans un cercle en pointillés)
-	UiKit.dashed_arc(self, Vector2(x, cy), 10.0 * u, 0.0, TAU, ink, maxf(1.0, 1.4 * u), 3.0 * u, 3.0 * u)
-	draw_circle(Vector2(x, cy), 3.0 * u, ink)
+	# le trait tracé : un trait de pinceau qui sort d'une petite zone rouge, point de départ, bout du doigt au bout
+	draw_circle(Vector2(x - 10.0 * u, cy + 3.0 * u), 5.0 * u, Color(UIColors.ATTACK_ZONE_FILL, a * 0.7))
+	var tp := PackedVector2Array([Vector2(x - 10.0 * u, cy + 3.0 * u), Vector2(x - 3.0 * u, cy - 2.0 * u), Vector2(x + 5.0 * u, cy - 5.0 * u), Vector2(x + 13.0 * u, cy - 4.0 * u)])
+	draw_polyline(tp, ink, maxf(1.0, 3.0 * u), true)
+	draw_circle(tp[0], 2.6 * u, ink)
+	draw_circle(tp[3], 3.4 * u, Color(UIColors.GOLD, a))
+	draw_arc(tp[3], 5.5 * u, 0.0, TAU, 20, ink, maxf(1.0, 1.2 * u), true)
 	x += 30.0 * u
 	_arrow(Vector2(x, cy), u, ink)
 	x += 30.0 * u
