@@ -94,6 +94,7 @@ var _drag_ms := 0
 var _row_hits: Array = []  # [cadre dans le contenu, figure] (relevés au dessin de la page)
 var _close_rect := Rect2()
 var _ui := FontVariation.new()
+var _tfont := FontVariation.new()  # DOJO : Shippori espacée (titre d'écran)
 var _sb := StyleBoxFlat.new()
 var _psb := StyleBoxFlat.new()  # celle de la page
 
@@ -104,6 +105,8 @@ func _ready() -> void:
 	visible = false
 	_ui.base_font = UiKit.UI_FONT
 	_ui.spacing_glyph = 2
+	_tfont.base_font = UiKit.TITLE_FONT
+	_tfont.spacing_glyph = UiKit.TITLE_SPACING
 	# la page d'abord : les boutons de l'en-tête passent par-dessus
 	_page = Control.new()
 	_page.clip_contents = true
@@ -121,16 +124,18 @@ func _ready() -> void:
 	_home.icon = "home"
 	add_child(_home)
 	_home.pressed.connect(stop)
-	_book = _button("CARNET")
+	_book = _button("CARNET", "brush")
 	_book.pressed.connect(_toggle_book)
-	_off = _button("OFFENSIF")
+	_off = _button("OFFENSIF", "bestiary")
 	_off.pressed.connect(_toggle_offensive)
 
 
-func _button(label: String) -> Control:
+## Étiquette papier (UI v2, bouton secondaire) à puce picto.
+func _button(label: String, icon: String) -> Control:
 	var b := InkButton.new()
 	b.text = label
-	b.style = "ghost"
+	b.style = "label"
+	b.icon = icon
 	b.font = _ui
 	add_child(b)
 	return b
@@ -220,7 +225,7 @@ func _toggle_book() -> void:
 
 func _toggle_offensive() -> void:
 	offensive = not offensive
-	_off.style = "primary" if offensive else "ghost"
+	_off.accent = offensive  # étiquette armée (vermillon, coche) tant que les mannequins attaquent
 	_zone_wait = 1.0
 	if not offensive:
 		_clear_zone()
@@ -484,11 +489,13 @@ func _process(_delta: float) -> void:
 	var card := _card_rect()
 	_home.size = Vector2(36, 36) * u
 	_home.position = card.position + Vector2(7, 7) * u
-	_book.size = Vector2(84, 30) * u
-	_book.position = Vector2(card.end.x - 92 * u, card.position.y + 10 * u)
+	_book.size = Vector2(92, 32) * u
+	_book.position = Vector2(card.end.x - 100 * u, card.position.y + 9 * u)
+	_book.font_size = int(9.5 * u)
 	_book.font_size = int(10.5 * u)
-	_off.size = Vector2(92, 30) * u
-	_off.position = Vector2(_book.position.x - 98 * u, card.position.y + 10 * u)
+	_off.size = Vector2(100, 32) * u
+	_off.position = Vector2(_book.position.x - 106 * u, card.position.y + 9 * u)
+	_off.font_size = int(9.5 * u)
 	_off.font_size = int(10.5 * u)
 	_task.position = Vector2(card.position.x, card.position.y + HEAD_H * u)
 	_task.size = Vector2(card.size.x, TASK_H * u)
@@ -606,9 +613,11 @@ func _draw() -> void:
 	_sb.shadow_offset = Vector2(0, 3 * u)
 	draw_style_box(_sb, card)
 	_sb.shadow_offset = Vector2.ZERO
-	# titre et défis relevés (compte et six pastilles)
+	# titre (UI v2 : capitales espacées, trait vermillon dessous) et défis relevés (compte et six pastilles)
 	var tx := card.position.x + 52 * u
-	draw_string(UiKit.TITLE_FONT, Vector2(tx, card.position.y + 24 * u), "Dojo", HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u), Color(Toon.ui_ink, a))
+	var ttw := _tfont.get_string_size("DOJO", HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
+	draw_string(_tfont, Vector2(tx, card.position.y + 22 * u), "DOJO", HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), Color(Toon.ui_ink, a))
+	draw_colored_polygon(UiKit.swash_points(Rect2(Vector2(tx + ttw * 0.1, card.position.y + 25.5 * u), Vector2(ttw * 0.8, 4.5 * u)), a, 5.0), Color(Toon.VERMILION, 0.95 * a))
 	var dl := "DÉFIS %d / %d" % [done.size(), CHALLENGES.size()]
 	var dfs := int(8.5 * u)
 	draw_string(_ui, Vector2(tx, card.position.y + 39 * u), dl, HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, Color(Toon.VERMILION, a))
