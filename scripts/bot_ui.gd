@@ -447,6 +447,9 @@ func _option(key: String, val: String, log_it: bool) -> bool:
 			r = h[0]
 			found = true
 	if not found:
+		# interrupteur (son, vibrations) : il n'offre que la valeur opposée ; déjà sur la bonne : rien à toucher
+		if _option_applied(key, val):
+			return true
 		_fail("option %s = %s : case introuvable" % [key, val])
 		return false
 	_tap(opt, r.get_center())
@@ -537,6 +540,9 @@ func _ref_tap(key: String) -> void:
 	var ref = main.refuge
 	await _frame()
 	var r := _ref_rect(key)
+	# fiche d'estampe ouverte : le second toucher se fait sur son bouton ÉQUIPER (la liste est sous le voile)
+	if key.begins_with("print:") and bool(ref._sheet_on()) and String(ref._sel) == key:
+		r = ref._sheet_btn
 	if r.has_area():
 		_tap(ref, r.get_center())
 	else:
