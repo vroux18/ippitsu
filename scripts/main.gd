@@ -1281,6 +1281,8 @@ func _warmup() -> void:
 		w.add_child(pn)
 		pn.position = Vector3(px, 0, 4.0)
 		px += 2.0
+		if pkind == "spring":
+			_seal_spring(pn)  # eau vermillon émissive de la source du sceau du cœur
 		if pkind == "sealed":
 			# coffre scellé : chaîne, ofuda, sceau, plaque et son encre, gouttes du déverrouillage
 			PuzzleArt.build_seal(pn, {}, "loop", 1.0)
@@ -1298,7 +1300,6 @@ func _warmup() -> void:
 	sgw.call("build")
 	sgw.call("open")
 	sgw.set("hover_force", 0)
-	SealGate.marker(sgw, "heart")  # petit sceau au-dessus d'une source ou d'un défi de sceau
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(fxp, Vector3.FORWARD)
@@ -4332,9 +4333,27 @@ func _build_pockets() -> void:
 			continue
 		var sealed := (k == "spring" and seal_reward == "heart") or (k == "elite" and seal_reward == "oni")
 		var pn := _pocket_node(k, p)
-		if sealed:
-			SealGate.marker(pn, seal_reward)  # le sceau choisi au torii flotte au-dessus
+		if sealed and k == "spring":
+			_seal_spring(pn)  # sceau du cœur : la source elle-même est vermillon (plus de sceau flottant)
 		_pockets.append({"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed})
+
+
+const SPRING_RED := Color("#C8322A")  # eau de la source du sceau du cœur
+
+
+## Source du sceau du cœur : eau vermillon lumineuse et lueur d'or au sol (main._update_pockets la fait pulser).
+func _seal_spring(n: Node3D) -> void:
+	var w := n.get_node_or_null("Water") as MeshInstance3D
+	if w != null:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = SPRING_RED
+		m.emission_enabled = true
+		m.emission = SPRING_RED
+		m.emission_energy_multiplier = 0.5
+		w.material_override = m
+	var gl := n.get_node_or_null("Glint") as MeshInstance3D
+	if gl != null:
+		gl.material_override = Toon.flat(Color(Toon.GOLD, 0.2))  # lueur d'or : bénéfique (le rouge au sol annonce les attaques)
 
 
 func _clear_pockets() -> void:
@@ -4455,6 +4474,16 @@ func _update_pockets() -> void:
 					pk["used"] = true
 					_open_chest(pk, false)
 			"spring":
+				if bool(pk.get("seal", false)):
+					# source du sceau du cœur : l'eau vermillon pulse et sa lueur respire, jusqu'à ce qu'on y boive
+					var sk := 0.5 + 0.5 * sin(run_time * 2.6)
+					var gl3 := n.get_node_or_null("Glint") as MeshInstance3D
+					if gl3 != null:
+						gl3.scale = Vector3.ONE * (1.0 + 0.22 * sk)
+						(gl3.material_override as StandardMaterial3D).albedo_color = Color(Toon.GOLD, 0.12 + 0.14 * sk)
+					var wr := n.get_node_or_null("Water") as MeshInstance3D
+					if wr != null:
+						(wr.material_override as StandardMaterial3D).emission_energy_multiplier = 0.3 + 0.6 * sk
 				if d < 1.1 and hero.hp < hero.max_hp:
 					pk["used"] = true
 					heal(SEAL_HEAL if bool(pk.get("seal", false)) else 1, bool(pk.get("seal", false)))
@@ -4466,7 +4495,7 @@ func _update_pockets() -> void:
 						gl2.visible = false
 					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
 					sfx.play("shrine", 1.4, -4.0)
-					hud.toast("SOIN +1")
+					hud.toast("SOIN +%d" % (SEAL_HEAL if bool(pk.get("seal", false)) else 1))
 			"elite":
 				if d < 3.0 and _enc < 0:
 					pk["used"] = true
