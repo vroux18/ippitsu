@@ -9,10 +9,13 @@ extends "res://scripts/boss_mini_base.gd"
 ##  Attaques : marée (bande en travers de l'arène, 1.2 s), souffle d'eau (cône 9 m, 1.0 s),
 ##  bulles (gerbe de boules lentes, lueur 0.9 s). Contact : la tête et ses moustaches.
 
-const SCALE_C := Color("#1E5A5E")
-const SCALE_HI := Color("#2E7A7A")
-const BELLY := Color("#E8D9A8")
-const MANE := Color("#C8423A")
+const Yokai = preload("res://scripts/yokai_parts.gd")
+
+const INK_INDIGO := Color("#1A1E3C")  # encre indigo du dragon
+const INK_HI := Color("#2A3058")  # ventre d'encre plus claire
+const WASHI_SC := Color("#EFE6D2")  # écailles de washi
+const NACRE := Color("#E7D9C8")
+const MASK_RYU := Color("#F2EAD8")  # plaque du masque de dragon
 const PEARL := Color("#F4F1EA")
 const PEARL_HIT := 0.8
 const HEAD_R := 1.7  # contact (tête posée au sol devant le corps)
@@ -21,6 +24,8 @@ const PEARL_SH := 0.6  # éclat de cuirasse par perle d'un trait raté
 const TIDE_HZ := 1.0
 const BREATH_HALF := 0.4
 const BREATH_LEN := 9.0
+
+static var _ink_mat: StandardMaterial3D = null
 
 var _head: Node3D
 var _jaw: Node3D
@@ -52,11 +57,48 @@ func _ready() -> void:
 
 # ------------------------------------------------------------------ construction
 
+## Toon à contour épais (boss) aux couleurs de sommets : un seul matériau pour l'encre, le washi, l'or.
+static func ink_mat() -> StandardMaterial3D:
+	if _ink_mat == null:
+		_ink_mat = Toon.mat(Color.WHITE, true, 0.04)
+		_ink_mat.vertex_color_use_as_albedo = true
+		_ink_mat.vertex_color_is_srgb = true
+	return _ink_mat
+
+
+## Pièce fusionnée posée sur `parent` : surface toon, et aplat lumineux si `f` n'est pas vide.
+static func piece(parent: Node3D, a: Yokai.Mesher, f: Yokai.Mesher = null) -> MeshInstance3D:
+	var m: ArrayMesh = a.mesh() if f == null else Yokai.two(a, f)
+	var mi := MeshInstance3D.new()
+	mi.mesh = m
+	mi.set_surface_override_material(0, ink_mat())
+	if m.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	parent.add_child(mi)
+	return mi
+
+
+## Petit masque de nō posé sur le dessus d'un segment (face vers +Y, la caméra plonge) : plaque de washi
+## cernée d'or, sourcils froncés, yeux d'or, petite bouche corail.
+static func seg_mask(a: Yokai.Mesher, f: Yokai.Mesher, c: Vector3, r: float) -> void:
+	a.ball(c + Vector3(0, -0.02 * r, 0), Vector3(0.36 * r, 0.07 * r, 0.42 * r), Toon.GOLD, Vector3.ZERO, 8)
+	a.ball(c, Vector3(0.32 * r, 0.08 * r, 0.38 * r), MASK_RYU, Vector3.ZERO, 8)
+	var top := c.y + 0.075 * r
+	for s in [-1.0, 1.0]:
+		var x := float(s)
+		a.box(Vector3(c.x + x * 0.13 * r, top, c.z - 0.14 * r), Vector3(0.16 * r, 0.02 * r, 0.04 * r), Toon.SUMI, Vector3(0, -x * 0.45, 0))
+		f.ball(Vector3(c.x + x * 0.13 * r, top, c.z - 0.02 * r), Vector3(0.07 * r, 0.015 * r, 0.06 * r), Yokai.EYE_GOLD, Vector3.ZERO, 6)
+		f.ball(Vector3(c.x + x * 0.13 * r, top + 0.006 * r, c.z - 0.02 * r), Vector3(0.03 * r, 0.012 * r, 0.03 * r), Toon.SUMI, Vector3.ZERO, 6)
+	a.box(Vector3(c.x, top, c.z + 0.2 * r), Vector3(0.12 * r, 0.02 * r, 0.05 * r), Color("#C86E7E"))
+
+
+## Dragon d'encre indigo : sept segments qui sortent de l'eau (chacun : écailles de washi sur l'échine, crête
+## d'or, petit masque de nō sur le dessus, ventre d'encre claire), tête = grand masque de dragon de nō (plaque
+## de washi cernée d'or relevée vers la caméra, sourcils froncés, yeux d'or, cornes d'or, longues moustaches
+## d'or), crinière d'encre qui coule en arrière, gueule vermillon aux crocs de nacre, perle de nacre sous le menton.
+## Les repères de la mécanique (segments, tête à (0, 1, 0.6), mâchoire, contact HEAD_R) ne bougent pas.
 func _build() -> void:
-	var skin := Toon.mat_shared(SCALE_C, true, 0.04)
-	var hi := Toon.mat_shared(SCALE_HI, true, 0.03)
-	var belly := Toon.mat_shared(BELLY, true, 0.03)
-	var gold := Toon.mat_shared(Toon.GOLD, true, 0.03)
+	var lite := Toon.lite
 	Toon.disc(self, 2.4, Color(0, 0, 0, 0.2))
 	body = Node3D.new()
 	add_child(body)
@@ -68,39 +110,85 @@ func _build() -> void:
 		var x := sin(t * PI * 1.6) * 2.6
 		c.position = Vector3(x, 0.0, -1.0 - t * 2.4)
 		var r := lerpf(0.9, 0.55, t)
-		Toon.part(c, Toon.sphere(r), skin, Vector3(0, r * 0.7, 0), Vector3(1.0, 1.0, 1.3))
-		Toon.part(c, Toon.sphere(r * 0.85), belly, Vector3(0, r * 0.35, 0.15), Vector3(1.0, 0.6, 1.2))
-		var fin := Toon.part(c, Toon.cyl(0.0, r * 0.35, r * 0.8, 4), Toon.mat_shared(MANE), Vector3(0, r * 1.55, 0))
-		fin.rotation.x = -0.4
+		var a := Yokai.Mesher.new(1.0)
+		var f := Yokai.Mesher.new(1.0)
+		a.ball(Vector3(0, r * 0.7, 0), Vector3(r, r, r * 1.3), INK_INDIGO, Vector3.ZERO, 10)
+		a.ball(Vector3(0, r * 0.35, 0.15), Vector3(r * 0.85, r * 0.5, r * 1.05), INK_HI, Vector3.ZERO, 8)
+		# écailles de washi : deux rangs de part et d'autre de l'échine
+		var ns := 2 if lite else 3
+		for k in ns:
+			var zz := (float(k) - float(ns - 1) * 0.5) * r * 0.62
+			for s in [-1.0, 1.0]:
+				var sx := float(s)
+				a.ball(Vector3(sx * r * 0.62, r * 1.35, zz), Vector3(r * 0.2, r * 0.05, r * 0.16), WASHI_SC, Vector3(0, 0, -sx * 0.9), 6)
+				if not lite:
+					a.ball(Vector3(sx * r * 0.9, r * 0.95, zz + r * 0.3), Vector3(r * 0.16, r * 0.04, r * 0.13), WASHI_SC, Vector3(0, 0, -sx * 1.35), 6)
+		# crête d'or à l'arrière du segment, petit masque sur le dessus
+		a.spike(Vector3(0, r * 1.5, -r * 0.75), r * 0.22, r * 0.75, Toon.GOLD, Vector3(0.75, 0, 0), 0.0, 4, 0.3)
+		seg_mask(a, f, Vector3(0, r * 1.68, r * 0.15), r)
+		piece(c, a, f)
 		_coils.append([c, t * 4.0])
-	# tête de dragon : museau, mâchoire, cornes de cerf, crinière, moustaches, yeux d'or
+	# tête de dragon (face vers +Z)
 	_head = Node3D.new()
 	body.add_child(_head)
 	_head.position = Vector3(0, 1.0, 0.6)
-	Toon.part(_head, Toon.sphere(0.95), skin, Vector3(0, 0.3, 0), Vector3(1.0, 0.85, 1.1))
-	Toon.part(_head, Toon.box(Vector3(1.0, 0.5, 1.2)), skin, Vector3(0, 0.15, 1.0))
-	Toon.part(_head, Toon.box(Vector3(0.9, 0.12, 1.1)), hi, Vector3(0, 0.45, 1.0))
+	var h := Yokai.Mesher.new(1.0)
+	var hf := Yokai.Mesher.new(1.0)
+	h.ball(Vector3(0, 0.3, 0), Vector3(0.95, 0.8, 1.0), INK_INDIGO, Vector3.ZERO, 12)
+	h.ball(Vector3(0, 0.1, 0.95), Vector3(0.62, 0.42, 0.7), INK_INDIGO, Vector3.ZERO, 10)
+	# masque de nō : plaque de washi cernée d'or, relevée vers la caméra ; front, sourcils, nez d'or
+	var mrot := Vector3(-0.55, 0, 0)
+	h.ball(Vector3(0, 0.55, 0.78), Vector3(0.92, 0.68, 0.3), Toon.GOLD, mrot, 12)
+	h.ball(Vector3(0, 0.56, 0.84), Vector3(0.84, 0.6, 0.3), MASK_RYU, mrot, 12)
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		h.box(Vector3(sx * 0.36, 0.9, 1.02), Vector3(0.42, 0.09, 0.05), Toon.SUMI, Vector3(-0.55, 0, sx * 0.4))
+		h.ball(Vector3(sx * 0.22, 0.3, 1.32), Vector3(0.09, 0.07, 0.06), Toon.SUMI, Vector3.ZERO, 6)  # naseaux
+	h.ball(Vector3(0, 0.36, 1.3), Vector3(0.18, 0.14, 0.12), Toon.GOLD, Vector3.ZERO, 8)  # nez
+	# gueule : palais vermillon sous le museau, crocs de nacre en haut
+	h.ball(Vector3(0, -0.06, 0.95), Vector3(0.56, 0.07, 0.62), Toon.VERMILION, Vector3.ZERO, 8)
+	for k in 4:
+		h.spike(Vector3(-0.33 + 0.22 * float(k), -0.06, 1.3), 0.05, 0.2, NACRE, Vector3(PI, 0, 0), 0.0, 4)
+	# cornes d'or (deux branches), oreilles d'encre
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		var tip := h.spike(Vector3(sx * 0.35, 1.0, -0.2), 0.09, 1.0, Toon.GOLD, Vector3(-0.5, 0, -sx * 0.4), 0.35, 5)
+		h.spike(tip, 0.055, 0.5, Toon.GOLD, Vector3(-0.3, 0, -sx * 1.0), 0.0, 5)
+		h.spike(Vector3(sx * 0.62, 0.95, -0.1), 0.045, 0.45, Toon.GOLD, Vector3(-0.3, 0, -sx * 1.0), 0.0, 5)
+		h.spike(Vector3(sx * 0.8, 0.55, 0.1), 0.16, 0.5, INK_INDIGO, Vector3(0.6, 0, -sx * 1.5), 0.0, 4, 0.3)
+		# moustaches d'or : deux brins articulés, vers l'avant puis vers l'extérieur et l'arrière
+		var m1 := h.spike(Vector3(sx * 0.55, 0.12, 1.45), 0.045, 0.9, Toon.GOLD, Vector3(-1.1, 0, -sx * 0.9), 0.6, 4)
+		h.spike(m1, 0.03, 0.9, Toon.GOLD, Vector3(0.3, 0, -sx * 1.6), 0.0, 4)
+	# crinière d'encre qui coule en arrière du masque (mèches), pointes d'écume
+	var nm := 4 if lite else 7
+	for k in nm:
+		var u := (float(k) - float(nm - 1) * 0.5) / float(nm - 1)
+		var base := Vector3(u * 1.5, 0.78 - 0.35 * absf(u), -0.2 - 0.3 * absf(u))
+		h.spike(base, 0.2 - 0.06 * absf(u), 0.85, INK_INDIGO, Vector3(-1.9 + 0.2 * absf(u), 0, u * 1.2), 0.0, 5)
+		if not lite:
+			h.ball(base + Vector3(0, 0.1, -0.2), Vector3(0.12, 0.08, 0.12), WASHI_SC, Vector3.ZERO, 6)
+	piece(_head, h, hf)
+	# yeux d'or luisants (matériau propre : ils s'allument avant la gerbe de bulles)
+	_eye_mat = Toon.mat(Yokai.EYE_GOLD, false)
+	_eye_mat.emission_enabled = true
+	_eye_mat.emission = Toon.GOLD
+	_eye_mat.emission_energy_multiplier = 2.0
+	var pupil := Toon.mat_shared(Toon.SUMI, false)
+	for s in [-1.0, 1.0]:
+		var sx := float(s)
+		Toon.part(_head, Toon.sphere(0.19), _eye_mat, Vector3(sx * 0.4, 0.62, 1.05), Vector3(1.0, 0.85, 0.6))
+		Toon.part(_head, Toon.sphere(0.075), pupil, Vector3(sx * 0.4, 0.6, 1.17))
+	# mâchoire : encre, langue vermillon, crocs de nacre
 	_jaw = Node3D.new()
 	_head.add_child(_jaw)
 	_jaw.position = Vector3(0, -0.15, 0.4)
-	Toon.part(_jaw, Toon.box(Vector3(0.85, 0.22, 1.1)), belly, Vector3(0, -0.05, 0.55))
+	var j := Yokai.Mesher.new(1.0)
+	j.ball(Vector3(0, -0.1, 0.55), Vector3(0.5, 0.16, 0.62), INK_INDIGO, Vector3.ZERO, 8)
+	j.ball(Vector3(0, 0.0, 0.5), Vector3(0.42, 0.05, 0.5), Toon.VERMILION, Vector3.ZERO, 8)
 	for k in 4:
-		var tooth := Toon.part(_jaw, Toon.cyl(0.0, 0.05, 0.16, 4), Toon.mat_shared(PEARL), Vector3(-0.3 + 0.2 * float(k), 0.1, 1.0))
-		tooth.rotation.x = PI
-	_eye_mat = main.vfx.glow_mat(Toon.GOLD, 2.0)
-	for sx: float in [-1.0, 1.0]:
-		Toon.part(_head, Toon.sphere(0.17), _eye_mat, Vector3(sx * 0.42, 0.55, 0.62))
-		# cornes de cerf
-		var h1 := Toon.part(_head, Toon.cyl(0.03, 0.08, 1.0, 5), gold, Vector3(sx * 0.35, 1.2, -0.2))
-		h1.rotation = Vector3(-0.5, 0, -sx * 0.4)
-		var h2 := Toon.part(_head, Toon.cyl(0.02, 0.05, 0.45, 5), gold, Vector3(sx * 0.62, 1.45, -0.35))
-		h2.rotation = Vector3(-0.3, 0, -sx * 1.0)
-		# moustaches (barbillons)
-		var w := Toon.part(_head, Toon.cyl(0.015, 0.04, 1.4, 4), gold, Vector3(sx * 0.6, 0.1, 1.5))
-		w.rotation = Vector3(1.2, 0, -sx * 0.9)
-	for k in 6:
-		var mane := Toon.part(_head, Toon.cyl(0.0, 0.22, 0.8, 5), Toon.mat_shared(MANE), Vector3((float(k) - 2.5) * 0.25, 0.75, -0.6))
-		mane.rotation.x = -1.0 - 0.1 * float(k % 2)
+		j.spike(Vector3(-0.3 + 0.2 * float(k), 0.02, 1.0), 0.05, 0.16, NACRE, Vector3.ZERO, 0.0, 4)
+	j.ball(Vector3(0, -0.2, 1.05), Vector3(0.14, 0.12, 0.1), Toon.GOLD, Vector3.ZERO, 6)  # barbiche d'or
+	piece(_jaw, j)
 	# la perle du dragon tenue sous le menton
 	Toon.part(_head, Toon.sphere(0.25), main.vfx.glow_mat(PEARL, 1.8), Vector3(0, -0.45, 1.3))
 	_make_stars(_head, 1.8)
