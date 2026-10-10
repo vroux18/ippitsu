@@ -12,6 +12,7 @@ const FX_BRUSH = preload("res://shaders/fx_brush.gdshader")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
 
 const TRAIL_LIFE := 0.16
+const TRAIL_TIP := 0.96  # pointe de la traînée : largeur pleine à ~0,7 m de la tête (0,45 par point à 60 Hz, ruée 28 m/s)
 const TRAIL_W := 0.25
 
 # palette des écoles : chaque élément a sa couleur ET sa forme
@@ -120,6 +121,15 @@ func _update_trail(dt: float) -> void:
 	if n < 2:
 		return
 	_trail_live = true
+	# distance à la tête, en mètres : la pointe s'effile sur une longueur fixe, quelle que soit la cadence
+	# (compter les points la rendait 4 fois plus courte à 120 Hz qu'à 30 Hz)
+	var head_d := PackedFloat32Array()
+	head_d.resize(n)
+	head_d[n - 1] = 0.0
+	for i in range(n - 2, -1, -1):
+		var pa: Vector3 = _trail_pts[i][0]
+		var pb: Vector3 = _trail_pts[i + 1][0]
+		head_d[i] = head_d[i + 1] + pa.distance_to(pb)
 	_trail_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	for i in n:
 		var p: Vector3 = _trail_pts[i][0]
@@ -133,7 +143,7 @@ func _update_trail(dt: float) -> void:
 			t = Vector3.FORWARD
 		var side := Vector3(-t.z, 0, t.x).normalized()
 		# pointe effilée à la tête (le pinceau se pose), queue qui s'amincit avec l'âge
-		var tip := minf(1.0, float(n - 1 - i) * 0.45 + 0.35)
+		var tip := minf(1.0, head_d[i] * TRAIL_TIP + 0.35)
 		var w := TRAIL_W * k * tip
 		# fil blanc net côté tranchant, lavis d'encre de l'autre ; une pointe de vermillon en fin de trace
 		var col := Color(1.0, 0.97, 0.92).lerp(Toon.VERMILION, (1.0 - k) * 0.35)
