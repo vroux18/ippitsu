@@ -2111,8 +2111,9 @@ static func figure_icon(ci: CanvasItem, fig: String, c: Vector2, sz: float, a :=
 	var tint: Color = col
 	if col.a <= 0.0:
 		tint = UIColors.FIGURES_INK.get(fig, Toon.SUMI)
-	if not FIG_ICON.has(fig) or not draw_icon(ci, String(FIG_ICON[fig]), c, sz, a, tint):
-		_fsym(ci, fig, c, sz * 0.4, Color(tint, tint.a * a), maxf(1.2, sz * 0.07))
+	# glyphes au trait (_fsym : spirale, aller-retour fléché, éclair, crochet fléché…) partout, préférés aux
+	# pictos SVG FIG_ICON (décision de Victor : ce sont ceux de l'écran de fin)
+	_fsym(ci, fig, c, sz * 0.4, Color(tint, tint.a * a), maxf(1.2, sz * 0.07))
 
 
 ## Médaillon de pouvoir v2, centré en c, s = pixels par unité du gabarit 60 : disque washi (rayon disc_r) cerné
