@@ -43,7 +43,6 @@ const NinjaRig = preload("res://scripts/ninja_rig.gd")
 const InkRig = preload("res://scripts/ink_rig.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
 const Worlds = preload("res://scripts/worlds.gd")
-const SealMark = preload("res://scripts/seal_mark.gd")
 # textures recolorées des squelettes et du rōdeur (préchargées une fois : plus de load() au montage)
 const TEX_RED := preload("res://assets/kaykit/tex/skeleton_red.png")
 const TEX_INK := preload("res://assets/kaykit/tex/skeleton_ink.png")
@@ -282,11 +281,13 @@ var shield_max := 0.0
 var elite := false
 var affixes: Array = []
 var minion := false  # invoqué (pas d'élite)
-# yōkai scellé (main._spawn_list) : ofuda au front où est peinte la figure qui le brise d'un coup (unseal_kill) ;
-# tout le reste ricoche et ne fait que SEAL_RESIST des dégâts (on peut l'user, il n'est jamais immortel)
+# yōkai scellé (main._spawn_list) : un cadenas dessiné par le HUD au-dessus de sa tête (hud._draw_seal_locks) porte
+# la figure qui le brise d'un coup (unseal_kill) ; tout le reste ricoche et ne fait que SEAL_RESIST des dégâts (on
+# peut l'user, il n'est jamais immortel)
 var seal_fig := ""
-var _seal: Node3D
+var seal_rico := 0.0  # ricochet du cadenas (1 -> 0 en SEAL_RICO_T) : il tressaute, sa figure rougit
 var _seal_spark_t := -9.0
+const SEAL_RICO_T := 0.42
 const SEAL_RESIST := 0.18
 const NO_SEAL := ["kitsunebi", "kitsunebi_s", "tanuki_d", "sumidama", "sumidama_s", "funa", "umibozu", "tsurara", "hinotama"]
 var _shield_frac := 0.0  # bouclier de départ (fraction des PV max), posé à la première image
@@ -1416,10 +1417,8 @@ func hurt_dot(dmg: float) -> bool:
 func _die() -> void:
 	dead = true
 	if seal_fig != "":
-		# usé jusqu'à la mort sans sa figure : l'ofuda se décolle seul (sans l'or du sceau brisé)
-		seal_fig = ""
-		if is_instance_valid(_seal):
-			_seal.unseal(main if main is Node3D else self, false)
+		# usé jusqu'à la mort sans sa figure : le cadenas s'efface simplement (sans l'or du sceau brisé)
+		_seal_gone(false)
 	_cancel_attack()
 	_timer = 0.0
 	_thaw()
@@ -1474,16 +1473,30 @@ func _die() -> void:
 		main.float_text(position, "EXPLOSIF", ELITE_C)
 
 
-## Scelle ce yōkai (main._spawn_list) : la figure `fig` (clé UiKit._fsym) est peinte sur son ofuda.
+## Scelle ce yōkai (main._spawn_list) : la figure `fig` (clé UiKit._fsym) est tracée dans son cadenas (HUD).
 func set_seal(fig: String) -> void:
 	seal_fig = fig
-	_seal = SealMark.new()
-	_seal.name = "Sceau"
-	add_child(_seal)
-	_seal.build(fig)
-	_seal.lift = _h * 1.0
-	_seal.reach = maxf(0.35, radius * 0.85)
-	_seal.visible = false
+	seal_rico = 0.0
+
+
+## Point monde où le HUD accroche le cadenas (au-dessus de la tête, à la hauteur de la barre de vie : le HUD le
+## remonte d'un cran à l'écran) ; aussi l'origine des étincelles du ricochet.
+func seal_anchor() -> Vector3:
+	return position + Vector3(0, bar_top(), 0)
+
+
+## Le cadenas se montre-t-il ? (caché sous l'eau, dans la fumée, en vol, évanoui, pas encore apparu)
+func seal_shown() -> bool:
+	return seal_fig != "" and not dead and body != null and body.visible and not is_harmless()
+
+
+## Le sceau tombe : le HUD ouvre le cadenas (`gold` : brisé par la bonne figure) ou l'efface (mort à l'usure).
+func _seal_gone(gold: bool) -> void:
+	var fig := seal_fig
+	seal_fig = ""
+	seal_rico = 0.0
+	if main != null and main.get("hud") != null and main.hud.has_method("seal_unlock"):
+		main.hud.seal_unlock(fig, seal_anchor(), gold)
 
 
 ## Peut-il porter un sceau ? (ni élite, ni invoqué, ni leurre, ni yōkai qui passe son temps sous l'eau)
@@ -1491,24 +1504,20 @@ func can_be_sealed() -> bool:
 	return not minion and not dummy and not elite and not dead and not (kind in NO_SEAL) and seal_fig == ""
 
 
-## La bonne figure l'a touché (main._check_slashes) : le sceau se brise, l'ofuda s'envole, il meurt d'un coup.
+## La bonne figure l'a touché (main._check_slashes) : le cadenas s'ouvre (HUD), il meurt d'un coup.
 func unseal_kill(dir: Vector3) -> bool:
 	if seal_fig == "" or dead:
 		return false
-	seal_fig = ""
 	set_meta("unsealed", true)
-	if is_instance_valid(_seal):
-		_seal.unseal(main if main is Node3D else self, true)
+	_seal_gone(true)
 	shield = 0.0
 	return take_hit(maxf(hp, 1.0) * 1000.0, dir)
 
 
-## Coup qui ne brise pas le sceau : le papier tressaute, la figure rougit, quelques étincelles qui rebondissent
-## (limitées : brûlures et foudre frappent à chaque image). Sans texte.
+## Coup qui ne brise pas le sceau : le cadenas tressaute, sa figure rougit (HUD), quelques étincelles qui
+## rebondissent (limitées : brûlures et foudre frappent à chaque image). Sans texte.
 func _seal_ricochet(dir: Vector3) -> void:
-	if not is_instance_valid(_seal):
-		return
-	_seal.ricochet()
+	seal_rico = 1.0
 	if main != null and main.has_method("seal_event"):
 		main.seal_event()
 	if _t - _seal_spark_t < 0.3 or main == null:
@@ -1517,7 +1526,7 @@ func _seal_ricochet(dir: Vector3) -> void:
 	var back := Vector3(-dir.x, 0.6, -dir.z)
 	if back.length_squared() < 0.01:
 		back = Vector3.UP
-	main.vfx.sparks(_seal.card_pos(), back.normalized(), 7, Toon.GOLD.lightened(0.25), 4.0, 8.0, 70.0)
+	main.vfx.sparks(seal_anchor(), back.normalized(), 7, Toon.GOLD.lightened(0.25), 4.0, 8.0, 70.0)
 	main.sfx.play("empty", 1.7, -6.0)
 
 
@@ -1580,9 +1589,8 @@ func _process(delta: float) -> void:
 			_base_glow()
 	if _bubble != null or _aura != null:
 		_update_marks()
-	if seal_fig != "" and is_instance_valid(_seal):
-		_seal.lift = _h + maxf(body.position.y, 0.0)
-		_seal.update(delta, body.visible and not is_harmless())  # (caché sous l'eau, dans la fumée, en vol, évanoui)
+	if seal_rico > 0.0:
+		seal_rico = maxf(0.0, seal_rico - delta / SEAL_RICO_T)
 
 	if dead:
 		if _blast_t > 0.0:
