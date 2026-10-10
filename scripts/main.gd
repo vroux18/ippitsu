@@ -2984,39 +2984,61 @@ func _after_room_pick() -> void:
 		_set_state("play")
 
 
-## Sanctuaire facultatif (après certains combats) : un petit autel près du torii (s'il est ouvert),
-## sinon près du héros. Le toucher propose un pacte ; passer le torii l'ignore.
+## Sanctuaire facultatif (après les combats de SANCTUARIES) : un autel de pierre (PuzzleArt.build_altar) posé au
+## milieu du tronçon qui suit le combat, à SHRINE_BEFORE_GATE m au moins avant le torii de sortie, loin du héros
+## et des recoins. Le toucher (anneau d'approche au sol) propose un pacte ; passer le torii l'ignore.
 func _spawn_shrine() -> void:
-	var gp: Vector3 = arena.gate_pos if arena.gate_open else hero.position + Vector3(0, 0, -1.5)
-	var side := 1.0 if randf() < 0.5 else -1.0
-	var p: Vector3 = arena.clamp_walk(gp + Vector3(2.3 * side, 0, 2.2), 0.6)
-	if p.distance_to(gp) < 1.8 or p.distance_to(hero.position) < 1.6:
-		p = arena.clamp_walk(gp + Vector3(-2.3 * side, 0, 2.2), 0.6)
+	var p := _shrine_spot()
 	_shrine = Node3D.new()
 	add_child(_shrine)
 	_shrine.position = Vector3(p.x, 0, p.z)
-	var stone := Toon.mat_shared(Color("#8C8A86"))
-	var red := Toon.mat_shared(Color("#7A1F1A"))
-	var roof := Toon.mat_shared(Toon.SUMI)
-	Toon.part(_shrine, Toon.box(Vector3(0.8, 0.18, 0.7)), stone, Vector3(0, 0.09, 0))
-	Toon.part(_shrine, Toon.box(Vector3(0.56, 0.5, 0.46)), red, Vector3(0, 0.43, 0))
-	Toon.part(_shrine, Toon.box(Vector3(0.82, 0.08, 0.7)), roof, Vector3(0, 0.72, 0))
-	var top := Toon.part(_shrine, Toon.box(Vector3(0.5, 0.08, 0.5)), roof, Vector3(0, 0.8, 0))
-	top.rotation.y = PI / 4.0
-	_disc(_shrine, 1.1, Toon.flat(Color(Toon.GOLD, 0.35)), 0.02)
-	var l := Label3D.new()
-	l.font = KANJI_FONT
-	l.text = "鬼"
-	l.font_size = 110
-	l.pixel_size = 0.005
-	l.modulate = Toon.VERMILION
-	l.outline_modulate = Toon.SUMI
-	l.outline_size = 18
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.position = Vector3(0, 1.45, 0)
-	_shrine.add_child(l)
+	PuzzleArt.build_altar(_shrine, current_world)
 	hud.banner("SANCTUAIRE", "UN PACTE ?", Color("#7A1F1A"), 2.6)
 	sfx.play("shrine", 1.0, -4.0)
+
+
+const SHRINE_BEFORE_GATE := 6.5  # autel : au moins cette distance (m) avant le torii de sortie
+const SHRINE_CLEAR := 2.6  # … et loin du héros et des recoins
+
+
+## Place de l'autel : milieu du dernier tronçon de l'étape (entre la fin du combat et le torii), décalé vers
+## un côté libre ; à défaut (salle unique) près du torii ou du héros.
+func _shrine_spot() -> Vector3:
+	var gp: Vector3 = arena.gate_pos
+	var cands: Array = []
+	if arena.stage and not arena.zones.is_empty():
+		var z: Rect2 = arena.zones[arena.zones.size() - 1]
+		# le tronçon est traversé du sud (z grand) au nord (torii) : milieu du tronçon, jamais plus près du torii
+		var zc := maxf(z.get_center().y, gp.z + SHRINE_BEFORE_GATE)
+		for dx in [0.0, 1.8, -1.8, 3.0, -3.0]:
+			for dz in [0.0, 1.5, -1.5, 3.0]:
+				cands.append(Vector3(gp.x + float(dx), 0, zc + float(dz)))
+	else:
+		var base: Vector3 = gp if arena.gate_open else hero.position + Vector3(0, 0, -1.5)
+		for dx in [2.3, -2.3, 3.2, -3.2]:
+			cands.append(base + Vector3(float(dx), 0, 2.2))
+	var best := Vector3.INF
+	var best_score := -1.0e9
+	for c in cands:
+		var q: Vector3 = arena.clamp_walk(c, 0.9)
+		var dh := Vector2(q.x - hero.position.x, q.z - hero.position.z).length()
+		var dg := Vector2(q.x - gp.x, q.z - gp.z).length()
+		var dp := 1.0e9
+		for pk in _pockets:
+			var pp: Vector3 = pk["pos"]
+			dp = minf(dp, Vector2(q.x - pp.x, q.z - pp.z).length())
+		var sc := minf(dh, 6.0) + minf(dp, 4.0) + minf(dg, SHRINE_BEFORE_GATE + 2.0)
+		if dh < SHRINE_CLEAR or dp < SHRINE_CLEAR:
+			sc -= 50.0
+		if dg < SHRINE_BEFORE_GATE and arena.stage:
+			sc -= 20.0
+		sc -= 0.3 * Vector2(q.x - c.x, q.z - c.z).length()  # un candidat déplacé par clamp_walk vaut moins
+		if sc > best_score:
+			best_score = sc
+			best = q
+	if best == Vector3.INF:
+		best = arena.clamp_walk(hero.position + Vector3(0, 0, -3.0), 0.9)
+	return best
 
 
 func _open_upgrades() -> void:

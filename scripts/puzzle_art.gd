@@ -569,6 +569,88 @@ static func _solve_spirit(pk: Dictionary, root: Node3D) -> void:
 	ts.tween_callback(sparks.queue_free).set_delay(1.6)
 
 
+# ------------------------------------------------------------------ autel du sanctuaire (main._spawn_shrine)
+
+const ALTAR_RING_R := 1.3  # anneau d'approche au sol (= rayon de déclenchement, main._stage_roam)
+const ALTAR_SCALE := 1.3  # l'autel lui-même est agrandi (lisible de la caméra haute) ; l'anneau garde son rayon
+
+## Autel du sanctuaire posé sur l'étape après les combats de main.SANCTUARIES : socle de pierre à deux degrés cerné
+## d'encre, table, torii miniature laqué de vermillon avec sa shimenawa et trois shide, ofuda scellé pendu au nuki,
+## bol d'encre qui luit, deux tōrō allumés de part et d'autre, mousse ; au sol, un anneau d'or discret marque la
+## zone d'approche. Pierre et mousse à la palette du monde (WORLD_STONE). ≈ 1 000 triangles, aucune animation.
+static func build_altar(n: Node3D, world_id: int) -> void:
+	set_world(world_id)
+	var stone := _mat("stone")
+	var dark := _mat("stone_dark")
+	var moss := _mat("moss")
+	var red := _mat("altar_red")
+	var sumi := _mat("altar_sumi")
+	var paper := _mat("paper")
+	var rope := _mat("rope")
+	# ombre, socle cerné d'encre, anneau d'approche (sur la racine, à l'échelle du monde)
+	Toon.blob(n, 1.05 * ALTAR_SCALE, 0.32)
+	_part_flat(n, _mesh("disc"), _mat("altar_ink"), Vector3(0, 0.014, 0), Vector3(0.82 * ALTAR_SCALE, 1, 0.82 * ALTAR_SCALE))
+	_part_flat(n, _mesh("altar_ring"), _mat("altar_gold"), Vector3(0, 0.016, 0))
+	# tout l'autel sous un nœud agrandi
+	var root := n
+	n = Node3D.new()
+	n.name = "Autel"
+	root.add_child(n)
+	n.scale = Vector3.ONE * ALTAR_SCALE
+	Toon.part(n, _mesh("plinth0"), dark, Vector3(0, 0.08, 0))
+	Toon.part(n, _mesh("plinth1"), stone, Vector3(0, 0.23, 0))
+	Toon.part(n, _mesh("altar_table"), stone, Vector3(0, 0.41, 0))
+	Toon.part(n, _mesh("moss"), moss, Vector3(0.44, 0.17, 0.3), Vector3(1.3, 0.35, 0.9))
+	Toon.part(n, _mesh("moss"), moss, Vector3(-0.38, 0.31, -0.2), Vector3(1.1, 0.3, 0.8))
+	# torii miniature au fond de la table : deux piliers, nuki, shimaki vermillon, kasagi sumi aux bouts relevés
+	var tz := -0.1
+	for sx in [-1.0, 1.0]:
+		Toon.part(n, _mesh("altar_pillar"), red, Vector3(float(sx) * 0.24, 0.87, tz))
+		Toon.part(n, _mesh("altar_kusabi"), red, Vector3(float(sx) * 0.27, 1.0, tz))
+	Toon.part(n, _mesh("altar_nuki"), red, Vector3(0, 1.0, tz))
+	Toon.part(n, _mesh("altar_gaku"), sumi, Vector3(0, 1.1, tz + 0.02))
+	Toon.part(n, _mesh("altar_shimaki"), red, Vector3(0, 1.16, tz))
+	Toon.part(n, _mesh("altar_kasagi"), sumi, Vector3(0, 1.22, tz))
+	for sx in [-1.0, 1.0]:
+		var tip := Toon.part(n, _mesh("altar_kasagi_tip"), sumi, Vector3(float(sx) * 0.4, 1.235, tz))
+		tip.rotation.z = -float(sx) * 0.22
+	# shimenawa entre les piliers (sous le nuki) et ses shide
+	var rp := Toon.part(n, _mesh("altar_rope"), rope, Vector3(0, 0.94, tz + 0.02))
+	rp.rotation.z = PI / 2.0
+	for k in 3:
+		var sd := Toon.part(n, _mesh("altar_shide"), paper, Vector3(-0.15 + 0.15 * float(k), 0.875, tz + 0.03))
+		sd.rotation.z = 0.2 if k == 1 else -0.12
+		sd.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# ofuda pendu au nuki, sceau vermillon en tête
+	Toon.part(n, _mesh("altar_ofuda"), paper, Vector3(0, 0.78, tz + 0.05))
+	_part_flat(n, _mesh("altar_seal"), _mat("seal"), Vector3(0, 0.86, tz + 0.056))
+	# bol d'encre sur le devant de la table, sa lueur
+	Toon.part(n, _mesh("bowl"), stone, Vector3(0, 0.565, 0.1))
+	_part_flat(n, _mesh("disc"), _mat("altar_ink"), Vector3(0, 0.612, 0.1), Vector3(0.12, 1, 0.12))
+	_part_flat(n, _mesh("halo"), _mat("altar_glow"), Vector3(0, 0.72, 0.1), Vector3(0.6, 0.6, 0.6))
+	# deux tōrō (mêmes pièces que l'énigme des lanternes, à 0,55), allumés, sur les degrés du socle
+	var lamp := _mat("altar_lamp")
+	var roof := _mat("roof")
+	for sx in [-1.0, 1.0]:
+		var ln := Node3D.new()
+		n.add_child(ln)
+		ln.position = Vector3(float(sx) * 0.72, 0.0, 0.12)
+		ln.scale = Vector3.ONE * 0.55
+		Toon.part(ln, _mesh("tr_base"), stone, Vector3(0, 0.05, 0))
+		Toon.part(ln, _mesh("tr_base2"), stone, Vector3(0, 0.13, 0))
+		Toon.part(ln, _mesh("tr_shaft"), stone, Vector3(0, 0.37, 0))
+		Toon.part(ln, _mesh("tr_mid"), stone, Vector3(0, 0.62, 0))
+		Toon.part(ln, _mesh("tr_paper"), lamp, Vector3(0, 0.79, 0))
+		for px in [-1.0, 1.0]:
+			for pz in [-1.0, 1.0]:
+				Toon.part(ln, _mesh("tr_post"), stone, Vector3(float(px) * 0.12, 0.79, float(pz) * 0.12))
+		Toon.part(ln, _mesh("tr_eave"), roof, Vector3(0, 0.945, 0))
+		Toon.part(ln, _mesh("tr_roof"), roof, Vector3(0, 1.03, 0))
+		Toon.part(ln, _mesh("tr_hoju"), stone, Vector3(0, 1.13, 0), Vector3(1, 1.25, 1))
+		Toon.part(ln, _mesh("tr_tip"), stone, Vector3(0, 1.22, 0))
+		_part_flat(ln, _mesh("lamp_halo"), _mat("altar_lamp_halo"), Vector3(0, 0.8, 0))
+
+
 # ------------------------------------------------------------------ entrées (main.gd)
 
 ## Chaque image, tant que l'énigme n'est pas résolue : `lit` lanternes allumées par le trait en cours,
@@ -916,6 +998,32 @@ static func _mesh(key: String) -> Mesh:
 			m = ribbon_mesh([_arc(0.2, 0.6, TAU - 0.3, 28), _chev(0.2, TAU - 0.3, 0.09)], 0.024, 0.0, 0.0)
 		"icon_dot":
 			m = Toon.sphere(0.045)
+		"altar_table":
+			m = Toon.box(Vector3(0.72, 0.22, 0.48))
+		"altar_pillar":
+			m = Toon.cyl(0.03, 0.036, 0.7, 8)
+		"altar_kusabi":
+			m = Toon.box(Vector3(0.028, 0.08, 0.05))
+		"altar_nuki":
+			m = Toon.box(Vector3(0.62, 0.04, 0.035))
+		"altar_gaku":
+			m = Toon.box(Vector3(0.07, 0.1, 0.02))
+		"altar_shimaki":
+			m = Toon.box(Vector3(0.66, 0.045, 0.06))
+		"altar_kasagi":
+			m = Toon.box(Vector3(0.7, 0.06, 0.09))
+		"altar_kasagi_tip":
+			m = Toon.box(Vector3(0.12, 0.06, 0.09))
+		"altar_rope":
+			m = Toon.cyl(0.018, 0.018, 0.5, 6)
+		"altar_shide":
+			m = Toon.box(Vector3(0.04, 0.075, 0.006))
+		"altar_ofuda":
+			m = Toon.box(Vector3(0.09, 0.2, 0.008))
+		"altar_seal":
+			m = Toon.box(Vector3(0.045, 0.045, 0.004))
+		"altar_ring":
+			m = ribbon_mesh([_arc(ALTAR_RING_R, 0.0, TAU, 64)], 0.05, 0.0, 0.0)
 		"mote":
 			var q3 := QuadMesh.new()
 			q3.size = Vector2(0.1, 0.1)
@@ -998,6 +1106,32 @@ static func _mat(key: String) -> Material:
 			var dm := Toon.flat(Color(1, 1, 1, 1))
 			dm.render_priority = 2
 			m = dm
+		"altar_red":
+			m = Toon.mat(Toon.VERMILION, true, 0.02)
+		"altar_sumi":
+			m = Toon.mat(Color("#2A2428"), true, 0.02)
+		"altar_ink":
+			var ai := Toon.flat(Color(Toon.SUMI, 0.9))
+			ai.render_priority = 1
+			m = ai
+		"altar_gold":
+			var ag := Toon.flat(Color(Toon.GOLD, 0.38))
+			ag.render_priority = 1
+			m = ag
+		"altar_glow":
+			var agl := _glow_mat(Color(Toon.VERMILION, 0.45), true)
+			agl.render_priority = -1
+			m = agl
+		"altar_lamp":
+			var al := Toon.mat(PAPER_LIT, false)
+			al.emission_enabled = true
+			al.emission = Color(LAMP_EMIT, 1.0)
+			al.emission_energy_multiplier = 1.2
+			m = al
+		"altar_lamp_halo":
+			var ah := _glow_mat(Color(LAMP_EMIT, 0.4), true)
+			ah.render_priority = -1
+			m = ah
 		"mote":
 			var mm := StandardMaterial3D.new()
 			mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
