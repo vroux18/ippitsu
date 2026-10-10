@@ -7,11 +7,19 @@ extends "res://scripts/boss_mini_base.gd"
 ##  l'anneau n'est qu'ébréché et les sceaux se réarrangent. Prépare les noyaux de Daidarabotchi.
 ##  Attaques : charge en ligne (bande annoncée 1.0 s, 10 m/s) ; cercle de feu autour de lui
 ##  (r2.6, annoncé 1.2 s).
+## Apparence (direction « Masque d'encre », règles en tête de yokai_ink_w1.gd) : l'oni à massue du monde 4
+## (yokai_ink_w4.gd) en GARDIEN de 3,2 m — corps d'encre chaude sur le rig des yōkai d'encre (ink_rig.gd), obi de
+## cendre à flammes ambre et liserés d'or, MASQUE ROUGE CERNÉ D'OR aux yeux d'or, rictus à crocs, deux cornes
+## d'ivoire baguées d'or, crinière hérissée ; épaulière de fer rivetée d'or du côté du KANABŌ (main gauche) ;
+## à droite, le MOIGNON D'ENCRE QUI GOUTTE, bandé de washi. Seule l'apparence a changé : PV, anneau, sceaux,
+## zones, rythme, interface et robot sont ceux d'avant.
 
-const WARRIOR = preload("res://assets/kaykit/Skeleton_Warrior.glb")
-const EMBER := Color("#E0602A")
+const Yokai = preload("res://scripts/yokai_parts.gd")
+const W4 = preload("res://scripts/yokai_ink_w4.gd")  # palette du monde 4 (encre chaude, cendre, flamme ambre, braise)
+const FLAME := Color("#D9A64A")  # ambre des sceaux et de l'anneau (palette : jamais orange)
 const BRAISE := Color("#8E2A1E")
 const IRON := Color("#3B3633")
+const HEIGHT := 3.2  # l'oni à massue commun fait ~2 m
 const SEAL_HIT := 0.8  # distance trait-sceau pour le toucher
 const SHIELD := 10.0
 const SEAL_CHIP := 0.8  # anneau ébréché par sceau pris dans le désordre
@@ -40,56 +48,163 @@ func _ready() -> void:
 	max_hp = hp
 	radius = 1.0
 	_build()
-	_shield_init(SHIELD, Vector3(1.4, 1.9, 1.4), 1.5)
+	_shield_init(SHIELD, Vector3(1.5, 2.0, 1.5), 1.6)
 	_state = "spawn"
 	_timer = 1.4
 
 
 # ------------------------------------------------------------------ construction
 
+## Marionnette du gardien : le rig des yōkai d'encre (ink_rig.gd) habillé des pièces bâties ici. Le bras droit est
+## tranché : les poses des bras sont MIROIR de celles du rig (le kanabō est en main gauche, c'est elle qui frappe)
+## et le bras droit porte le moignon. Les noms d'animations KayKit du combat deviennent ses clips.
+class Rig extends "res://scripts/ink_rig.gd":
+	static var _cache := {}  # léger -> pièces
+
+	func setup(k: String, height := H_REF) -> void:
+		super.setup(k, height)
+		# avant miroir : « droit » = kanabō sur l'épaule, « gauche » = moignon levé devant
+		_rest_r = Vector3(2.5, 0, 0.45)
+		_rest_l = Vector3(0.9, 0, -0.6)
+		_eval(0.0)
+		for j in SLOTS:
+			_out[j] = _tgt[j]
+		_apply()
+
+	## Le masque regarde un peu plus la caméra que celui des communs (la crinière ne doit pas le cacher).
+	func _apply() -> void:
+		super._apply()
+		_head.rotation.x += 0.22
+
+	## Poses clés en miroir : le bras gauche fait ce que le rig destine au droit (et inversement).
+	func _key(k: int, b: Array[Vector3]) -> void:
+		super._key(k, b)
+		var l := b[S_ARM_L]
+		var r := b[S_ARM_R]
+		b[S_ARM_L] = Vector3(r.x, -r.y, -r.z)
+		b[S_ARM_R] = Vector3(l.x, -l.y, -l.z)
+
+	func _dress() -> void:
+		var key := 1 if Toon.lite else 0
+		if not _cache.has(key):
+			_cache[key] = _build_parts(Toon.lite)
+		var d: Dictionary = _cache[key]
+		_parts.clear()
+		_part_id = PackedStringArray()
+		_part_on(_body, "body", d)
+		_part_on(_head, "head", d)
+		_part_on(_arms[0], "arm", d)
+		_part_on(_arms[1], "stump", d)
+		# kanabō en main gauche (unités du monde), plus grand que celui des communs
+		var w := _part_on(_hands[0], "weapon_l", d)
+		if w != null:
+			w.position = Vector3(0, 0.02, 0)
+			w.scale = Vector3.ONE * 1.5
+		for n in _drips:
+			n.queue_free()
+		_drips.clear()
+		_drip_spread = 0.0
+		var pts: PackedVector3Array = d.get("drips", PackedVector3Array())
+		for p in pts:
+			var piv := Node3D.new()
+			piv.position = p
+			_body.add_child(piv)
+			_drips.append(piv)
+			_part_on(piv, "drip", d)
+
+	## Pièces (unités du modèle, H_REF = 1,75 m, face vers -Z), deux surfaces : toon à contour, aplat lumineux.
+	static func _build_parts(lite: bool) -> Dictionary:
+		var d := {}
+		var w := 1.2
+		var b := Yokai.Mesher.new(1.0)
+		Yokai.ink_body(b, w, W4.INK_ASH, W4.ASH_CLOTH, W4.FLAME, Toon.GOLD, lite, true)
+		# épaulière de fer rivetée d'or sur l'épaule gauche (celle du kanabō) ; à droite, l'épaule du moignon :
+		# un bourrelet d'encre bandé de washi
+		b.box(Vector3(-0.5 * w, 1.12, 0), Vector3(0.3, 0.1, 0.36), W4.IRON_D, Vector3(0, 0, 0.4))
+		b.box(Vector3(-0.56 * w, 1.0, 0), Vector3(0.12, 0.26, 0.34), W4.IRON_D, Vector3(0, 0, 0.25))
+		b.ball(Vector3(-0.52 * w, 1.19, 0), Vector3(0.06, 0.06, 0.06), Toon.GOLD, Vector3.ZERO, 6)
+		if not lite:
+			for j in 2:
+				b.ball(Vector3(-0.6 * w, 0.92 + 0.14 * float(j), -0.12 + 0.24 * float(j)), Vector3(0.035, 0.035, 0.035), Toon.GOLD, Vector3.ZERO, 6)
+		b.ball(Vector3(0.44 * w, 1.06, 0), Vector3(0.2, 0.15, 0.19), W4.INK_ASH, Vector3.ZERO, 8)
+		b.cyl(Vector3(0.46 * w, 1.03, 0), Vector3(0.19, 0.08, 0.18), Toon.WASHI, Vector3(0, 0, -0.5), 0.9, 8)
+		# collier de prières en gros grains d'or (le gardien est riche)
+		var n := 5 if lite else 9
+		for i in n:
+			var ang := -1.0 + 2.0 * float(i) / float(n - 1)
+			b.ball(Vector3(sin(ang) * 0.4 * w, 0.98 - 0.08 * cos(ang), -cos(ang) * 0.4 * w), Vector3(0.05, 0.05, 0.05), Toon.GOLD, Vector3.ZERO, 6)
+		d["body"] = b.mesh()
+		var a := Yokai.Mesher.new(1.0)
+		var f := Yokai.Mesher.new(1.0)
+		# masque rouge d'oni cerné d'or, plus large que celui des communs ; sourcils froncés, yeux d'or
+		Yokai.mask_plate(a, Yokai.MASK_ONI, 1.25, 1.2, true)
+		Yokai.mask_brows(a, Toon.SUMI, true, 1.25)
+		Yokai.mask_eyes(f, Yokai.EYE_GOLD, 0.06, 1.25)
+		# rictus : large trait sumi, quatre crocs d'ivoire (deux vers le haut, deux vers le bas)
+		a.box(Vector3(0, -0.16, Yokai.FACE_Z), Vector3(0.34, 0.055, 0.02), Toon.SUMI)
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			a.spike(Vector3(x * 0.1, -0.135, Yokai.FACE_Z - 0.005), 0.022, 0.08, Yokai.HORN, Vector3(PI, 0, 0), 0.0, 4)
+			a.spike(Vector3(x * 0.19, -0.185, Yokai.FACE_Z - 0.005), 0.02, 0.07, Yokai.HORN, Vector3.ZERO, 0.0, 4)
+			# cornes d'ivoire baguées d'or, penchées en arrière et vers l'extérieur
+			var rot := Vector3(-0.6, 0, -x * 0.45)
+			a.spike(Vector3(x * 0.19, 0.3, Yokai.MASK_Z + 0.06), 0.075, 0.46, Yokai.HORN, rot, 0.0, 6)
+			var bb := Basis.from_euler(rot)
+			a.cyl(Vector3(x * 0.19, 0.3, Yokai.MASK_Z + 0.06) + bb * Vector3(0, 0.12, 0), Vector3(0.07, 0.04, 0.07), Toon.GOLD, rot, 0.9, 8)
+		# crinière hérissée : calotte d'encre et pointes en couronne derrière le masque
+		a.ball(Vector3(0, 0.18, 0.1), Vector3(0.4, 0.3, 0.36), W4.INK_ASH, Vector3.ZERO, 8)
+		var m := 4 if lite else 7
+		for i in m:
+			var k := (float(i) / float(m - 1) - 0.5) * 2.0
+			a.spike(Vector3(k * 0.3, 0.3, 0.12 + 0.06 * absf(k)), 0.07, 0.32 - 0.08 * absf(k), W4.INK_ASH, Vector3(-0.9, 0, -k * 0.7), 0.0, 5)
+		d["head"] = Yokai.two(a, f)
+		# bras gauche : encre, brassard de fer, bague d'or ; main en boule
+		var ar := Yokai.Mesher.new(1.0)
+		ar.cyl(Vector3(0, -0.2, 0), Vector3(0.11, 0.4, 0.11), W4.INK_ASH, Vector3(PI, 0, 0), 0.7, 7)
+		ar.cyl(Vector3(0, -0.3, 0), Vector3(0.105, 0.14, 0.105), W4.IRON_D, Vector3.ZERO, 0.9, 8)
+		ar.cyl(Vector3(0, -0.225, 0), Vector3(0.11, 0.03, 0.11), Toon.GOLD, Vector3.ZERO, 1.0, 8)
+		ar.ball(Vector3(0, -0.43, 0), Vector3(0.13, 0.11, 0.13), W4.INK_ASH)
+		d["arm"] = ar.mesh()
+		# moignon droit : bras tranché court, bandé de washi, gouttes d'encre qui pendent de la plaie
+		var st := Yokai.Mesher.new(1.0)
+		st.cyl(Vector3(0, -0.1, 0), Vector3(0.11, 0.2, 0.11), W4.INK_ASH, Vector3(PI, 0, 0), 0.85, 7)
+		st.cyl(Vector3(0, -0.17, 0), Vector3(0.105, 0.07, 0.105), Toon.WASHI, Vector3(0.1, 0, 0), 0.95, 8)
+		st.ball(Vector3(0, -0.22, 0), Vector3(0.1, 0.06, 0.1), W4.INK_ASH, Vector3.ZERO, 7)
+		for i in (2 if lite else 3):
+			var ang := TAU * float(i) / 3.0
+			st.spike(Vector3(sin(ang) * 0.05, -0.23, cos(ang) * 0.05), 0.03, 0.14 + 0.05 * float(i), W4.INK_ASH, Vector3(PI, 0, 0), 0.0, 4)
+		d["stump"] = st.mesh()
+		Yokai.ink_drip(d, W4.INK_ASH)
+		d["drips"] = PackedVector3Array([Vector3(0.16, 0.36, -0.14), Vector3(-0.2, 0.35, 0.06), Vector3(0.06, 0.34, 0.2)]) if not lite \
+			else PackedVector3Array([Vector3(0.16, 0.36, -0.14), Vector3(-0.17, 0.35, 0.1)])
+		d["weapon_l"] = Yokai.weapon("kanabo")
+		return d
+
+
 func _build() -> void:
 	Toon.disc(self, 1.0, Color(0, 0, 0, 0.16))
 	body = Node3D.new()
 	add_child(body)
-	ch = Character.new()
+	body.rotation.y = PI  # il entre face au héros (le corps regarde vers -Z ; _face le tourne ensuite)
+	ch = Rig.new()
 	body.add_child(ch)
-	var red: Texture2D = load("res://assets/kaykit/tex/skeleton_red.png")
-	var gold: Texture2D = load("res://assets/kaykit/tex/skeleton_gold.png")
-	# le bras droit manque (tranché par Watanabe no Tsuna) : le kanabō est dans la main gauche
-	ch.setup(WARRIOR, 3.0, [["Cloak", red], ["Helmet", gold]], ["Skeleton_Warrior_ArmRight"], EMBER)
+	ch.setup("ibaraki", HEIGHT)
 	ch.idle = "Idle_Combat"
-	ch.attach("handslot.l", _kanabo())
 	ch.play_once("Spawn_Ground_Skeletons", ch.length("Spawn_Ground_Skeletons") / 1.4, 0.0)
-	# cornes d'oni
-	for sx in [-1.0, 1.0]:
-		var horn := Toon.part(body, Toon.cyl(0.0, 0.1, 0.5, 6), Toon.mat_shared(Toon.GOLD), Vector3(float(sx) * 0.3, 3.05, -0.05))
-		horn.rotation.z = -float(sx) * 0.4
-	# anneau de forge qui le lie (son armure)
+	# anneau de forge qui le lie (son armure) : or, quatre braises ambre
 	_bind = Node3D.new()
 	body.add_child(_bind)
-	_bind.position = Vector3(0, 1.45, 0)
+	_bind.position = Vector3(0, 1.55, 0)
 	var tm := TorusMesh.new()
-	tm.inner_radius = 0.85
-	tm.outer_radius = 0.97
+	tm.inner_radius = 0.95
+	tm.outer_radius = 1.08
 	tm.rings = 32
 	tm.ring_segments = 6
 	Toon.part(_bind, tm, Toon.mat_shared(Toon.GOLD), Vector3.ZERO, Vector3(1, 0.6, 1))
 	for k in 4:
 		var a := TAU * float(k) / 4.0
-		Toon.part(_bind, Toon.sphere(0.13), Toon.flat(EMBER), Vector3(cos(a) * 0.91, 0, sin(a) * 0.91))
-	_make_stars(body, 3.4)
-
-
-## Massue d'oni : fût de fer, pointes or.
-func _kanabo() -> Node3D:
-	var k := Node3D.new()
-	Toon.part(k, Toon.cyl(0.04, 0.04, 0.4, 8), Toon.mat_shared(Color("#4A3A2C")), Vector3(0, 0.0, 0))
-	Toon.part(k, Toon.cyl(0.14, 0.09, 1.2, 8), Toon.mat_shared(IRON), Vector3(0, 0.75, 0))
-	for i in 4:
-		for j in 4:
-			var a := TAU * float(j) / 4.0 + float(i) * 0.4
-			Toon.part(k, Toon.sphere(0.045), Toon.mat_shared(Toon.GOLD, false), Vector3(cos(a) * 0.13, 0.35 + 0.22 * float(i), sin(a) * 0.13))
-	return k
+		Toon.part(_bind, Toon.sphere(0.13), Toon.flat(FLAME), Vector3(cos(a) * 1.02, 0, sin(a) * 1.02))
+	_make_stars(body, 3.7)
 
 
 ## Sceau de braise numéroté par `idx + 1` encoches sumi.
@@ -103,12 +218,12 @@ func _make_seal(idx: int, p: Vector3) -> Dictionary:
 	n.add_child(orb)
 	orb.position.y = 0.9
 	Toon.part(orb, Toon.sphere(0.34), Toon.flat(Toon.GOLD), Vector3.ZERO)
-	Toon.part(orb, Toon.sphere(0.5), Toon.flat(Color(EMBER, 0.35)), Vector3.ZERO)
+	Toon.part(orb, Toon.sphere(0.5), Toon.flat(Color(FLAME, 0.35)), Vector3.ZERO)
 	var ink := Toon.mat_shared(Toon.SUMI, false)
 	for k in idx + 1:
 		var x := (float(k) - float(idx) * 0.5) * 0.2
 		Toon.part(n, Toon.box(Vector3(0.08, 0.05, 0.4)), ink, Vector3(x, 1.6, 0))
-	main.splash(p + Vector3(0, 0.9, 0), EMBER, 6)
+	main.splash(p + Vector3(0, 0.9, 0), FLAME, 6)
 	return {"node": n, "orb": orb, "pos": Vector3(p.x, 0, p.z), "lit": false}
 
 
@@ -127,7 +242,7 @@ func _free_seals(burst: bool) -> void:
 		if is_instance_valid(n):
 			if burst:
 				var p: Vector3 = s["pos"]
-				main.splash(p + Vector3(0, 0.9, 0), EMBER, 10)
+				main.splash(p + Vector3(0, 0.9, 0), FLAME, 10)
 			n.queue_free()
 	_seals.clear()
 	_order = []
@@ -386,7 +501,7 @@ func _start_charge(dir: Vector3) -> void:
 func _break_bind() -> void:
 	main.float_text(position + Vector3(0, 1.8, 0), "鬼", Toon.GOLD)
 	main.big_hit(position + Vector3(0, 1.2, 0))
-	main.splash(position + Vector3(0, 1.6, 0), EMBER, 30)
+	main.splash(position + Vector3(0, 1.6, 0), FLAME, 30)
 	main.shake = maxf(float(main.shake), 0.86)
 	_shield_dmg(shield_max)
 

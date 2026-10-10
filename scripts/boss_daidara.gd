@@ -10,17 +10,24 @@ extends Node3D
 ## Attaques : poing (carré 3×3, 1.3 s), pluie de cendres (6–8 zones r0.8, ~1.1 s),
 ##  crachat de lave (boules lentes, 0.9 s de lueur), souffle (cône 45° 8 m, 1.0 s) sous 30 %.
 ## main appelle : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
+## Apparence (direction « Masque d'encre », règles en tête de yokai_ink_w1.gd) : un COLOSSE D'ENCRE CENDRE qui
+## monte du bassin de lave sumi veiné d'or ; sa carapace est faite de PLAQUES DE BASALTE SUMI VEINÉES D'OR
+## (épaulières, dossière, plastron fendu sur le cœur de lave, ceinture, dos des poings) ; la tête porte un
+## MASQUE DE NŌ GÉANT IMPASSIBLE cerné d'or, aux yeux mi-clos de lueur d'or, sous une couronne de basalte ;
+## torque d'or au cou ; l'encre goutte sous les épaules, le menton et les poings. Lave : sumi + or, jamais orange.
+## Les noyaux (or, encoches sumi), les mains, les épaules et la tête restent aux mêmes coordonnées : seuls les
+## maillages et matériaux ont changé.
 
 const Toon = preload("res://scripts/toon.gd")
+const Yokai = preload("res://scripts/yokai_parts.gd")
 
 const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (comme main.gd)
+const INK := Color("#211C1E")  # encre cendre du monde 4 (yokai_ink_w4.INK_ASH)
 const BASALT := Color("#2A2422")
-const BASALT_HI := Color("#3B3330")
+const MASK := Color("#EFE6D2")  # masque de nō (washi)
 const LAVA := Color("#C49A45")  # fissures de lave or
-const EMBER := Color("#E0602A")  # yeux de braise
 const BRAISE := Color("#8E2A1E")
 const ASH := Color("#5A5550")
-const ROCK_FLASH := Color("#7A6A62")  # roche éclaircie au coup reçu
 const DANGER_MARGIN := 0.35  # marge de danger_at (comme is_danger de main)
 const CORE_HIT := 0.75  # distance trait-noyau pour le toucher
 const POOL_R := 2.2  # bassin de lave : contact = dégâts
@@ -59,7 +66,8 @@ var _torso: Node3D
 var _head: Node3D
 var _hands: Array = []  # Node3D, 0 = gauche, 1 = droite
 var _arms: Array = []  # [bras, avant-bras] par côté
-var _rock_mat: StandardMaterial3D
+var _rock_mat: StandardMaterial3D  # basalte des rochers du bassin et des blocs de cendre
+var _ink_mat: StandardMaterial3D  # encre et carapace du colosse (couleurs de sommets ; éclat au coup reçu)
 var _crack_mat: StandardMaterial3D
 var _eye_mat: StandardMaterial3D
 
@@ -151,11 +159,133 @@ func _crack(parent: Node3D, pos: Vector3, size: Vector3, rz := 0.0) -> void:
 	c.rotation.z = rz
 
 
+## Matériau toon à contour du colosse (couleurs de sommets ; émission blanche pour l'éclat du coup reçu).
+static func _ink_material() -> StandardMaterial3D:
+	var m := Toon.mat(Color.WHITE, true, 0.05)
+	m.vertex_color_use_as_albedo = true
+	m.vertex_color_is_srgb = true
+	m.rim = 0.35
+	m.rim_tint = 0.5
+	m.emission_enabled = true
+	m.emission = Color.WHITE
+	m.emission_energy_multiplier = 0.0
+	return m
+
+
+## Pièce posée sur `parent` (surface 0 : toon à contour `mat`, surface 1 : aplat lumineux s'il y en a une).
+static func _piece(parent: Node3D, mesh: ArrayMesh, mat: StandardMaterial3D, pos := Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.position = pos
+	mi.set_surface_override_material(0, mat)
+	if mesh.get_surface_count() > 1:
+		mi.set_surface_override_material(1, Yokai.ink_flat_mat())
+	if Toon.lite:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	return mi
+
+
+## Plaque de basalte sumi veinée d'or : pavé aux arêtes vives, une ou deux veines d'or sur sa face du dessus.
+static func _plate(m: Yokai.Mesher, pos: Vector3, size: Vector3, rot: Vector3, veins: int) -> void:
+	m.box(pos, size, BASALT, rot)
+	var b := Basis.from_euler(rot)
+	for i in veins:
+		var k := (float(i) - float(veins - 1) * 0.5) * 0.4
+		var off := Vector3(k * size.x, size.y * 0.5 + 0.005, 0.0)
+		m.box(pos + b * off, Vector3(size.x * 0.1, 0.02, size.z * 0.7), LAVA, rot + Vector3(0, 0.35 * k + 0.2, 0))
+
+
+## Corps du colosse (repère de _torso, face vers +Z) : masse d'encre (hanches, torse, épaules, cou), carapace de
+## plaques de basalte veinées d'or, torque d'or, gouttes d'encre. Les fissures lumineuses du sternum et le cœur
+## de lave sont des pièces à part (elles battent).
+static func _torso_mesh(lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3(0, 0.9, 0), Vector3(2.4, 1.3, 1.7), INK, Vector3.ZERO, 10)
+	m.ball(Vector3(0, 2.5, 0), Vector3(2.1, 1.8, 1.45), INK, Vector3.ZERO, 10)
+	m.cyl(Vector3(0, 4.15, 0.3), Vector3(0.95, 0.9, 0.85), INK, Vector3.ZERO, 0.85, 10)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		m.ball(Vector3(x * 2.05, 3.5, 0.2), Vector3(1.05, 0.9, 1.0), INK, Vector3.ZERO, 8)
+		# épaulières : deux plaques étagées, penchées vers l'extérieur
+		_plate(m, Vector3(x * 2.1, 4.2, 0.2), Vector3(1.5, 0.36, 1.35), Vector3(0, 0, -x * 0.28), 2 if not lite else 1)
+		_plate(m, Vector3(x * 2.75, 3.8, 0.15), Vector3(0.9, 0.3, 1.1), Vector3(0, 0, -x * 0.6), 1)
+		# plastron fendu : deux plaques de part et d'autre du sternum (fissure et cœur à part)
+		_plate(m, Vector3(x * 0.72, 3.0, 1.15), Vector3(1.1, 1.0, 0.45), Vector3(0.2, x * 0.25, x * 0.1), 1)
+		# gouttes sous les épaules et les aisselles
+		m.spike(Vector3(x * 2.7, 3.05, 0.3), 0.2, 1.0, INK, Vector3(PI, 0, 0), 0.0, 5)
+		if not lite:
+			m.spike(Vector3(x * 2.1, 2.7, 0.9), 0.14, 0.6, INK, Vector3(PI, 0, 0), 0.0, 5)
+			m.spike(Vector3(x * 1.4, 1.6, 1.55), 0.12, 0.55, INK, Vector3(PI, 0, 0), 0.0, 5)
+	# dossière : trois plaques étagées sur le dos (lisibles du dessus, le colosse penche en avant)
+	var rows := [[1.6, 2.6, 0.7], [2.5, 2.3, 0.65], [3.35, 1.9, 0.6]] if not lite else [[1.9, 2.5, 0.8], [3.1, 2.0, 0.7]]
+	for r in rows:
+		var row: Array = r
+		_plate(m, Vector3(0, float(row[0]), -1.25), Vector3(float(row[1]), float(row[2]), 0.5), Vector3(-0.12, 0, 0), 2)
+	# ceinture de plaques autour des hanches
+	var n := 4 if lite else 6
+	for i in n:
+		var ang := -1.25 + 2.5 * float(i) / float(n - 1)
+		_plate(m, Vector3(sin(ang) * 2.2, 1.15, cos(ang) * 1.55), Vector3(0.9, 0.5, 0.3), Vector3(0, ang, 0), 1)
+	# torque d'or au cou, boucle d'or sur la ceinture
+	m.cyl(Vector3(0, 3.95, 0.3), Vector3(1.0, 0.14, 0.9), Toon.GOLD, Vector3(0.1, 0, 0), 1.0, 12)
+	m.ball(Vector3(0, 1.15, 1.72), Vector3(0.22, 0.22, 0.08), Toon.GOLD, Vector3.ZERO, 8)
+	return m.mesh()
+
+
+## Tête (repère de _head, face vers +Z) : tête d'encre, masque de nō impassible cerné d'or (sourcils fins, paupières
+## baissées, bouche mince), couronne de plaques de basalte à pointes d'or, urne d'or, gouttes sous le menton.
+## Les yeux (lueur d'or) sont des pièces à part : ils s'allument quand il charge.
+static func _head_mesh(lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3(0, 0.0, -0.1), Vector3(0.95, 0.95, 0.9), INK, Vector3.ZERO, 10)
+	m.ball(Vector3(0, 0.0, 0.45), Vector3(0.98, 1.12, 0.3), Toon.GOLD, Vector3.ZERO, 12)
+	m.ball(Vector3(0, 0.0, 0.5), Vector3(0.9, 1.05, 0.3), MASK, Vector3.ZERO, 12)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		m.box(Vector3(x * 0.38, 0.42, 0.76), Vector3(0.42, 0.045, 0.03), Toon.SUMI, Vector3(0, 0, -x * 0.15))
+		m.box(Vector3(x * 0.36, 0.17, 0.78), Vector3(0.4, 0.07, 0.04), Toon.SUMI, Vector3(0, 0, -x * 0.08))
+		m.spike(Vector3(x * 0.6, -0.75, 0.0), 0.12, 0.6, INK, Vector3(PI, 0, 0), 0.0, 5)
+	m.box(Vector3(0, -0.42, 0.77), Vector3(0.4, 0.04, 0.03), Toon.SUMI)
+	m.box(Vector3(0, -0.47, 0.77), Vector3(0.34, 0.03, 0.03), Toon.VERMILION)
+	m.ball(Vector3(0, 0.68, 0.68), Vector3(0.08, 0.1, 0.05), Toon.GOLD, Vector3.ZERO, 6)
+	# couronne : plaques dressées en éventail sur le sommet, pointes d'or
+	var n := 3 if lite else 5
+	for i in n:
+		var ca := -0.9 + 1.8 * float(i) / float(n - 1)
+		var base := Vector3(sin(ca) * 0.6, 0.85 - absf(ca) * 0.2, -0.1)
+		var rot := Vector3(0.15, 0, -ca * 0.7)
+		var tip := m.spike(base, 0.2, 0.7, BASALT, rot, 0.35, 4, 0.5)
+		m.spike(tip, 0.07, 0.2, Toon.GOLD, rot, 0.0, 4, 0.5)
+	return m.mesh()
+
+
+## Poing (repère de la main) : masse d'encre, plaque de basalte sur le dos de la main, quatre plaques de
+## phalanges veinées d'or, gouttes. La veine lumineuse du dessus est une pièce à part.
+static func _hand_mesh(lite: bool) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.ball(Vector3.ZERO, Vector3(0.96, 0.56, 0.84), INK, Vector3.ZERO, 8)
+	_plate(m, Vector3(0, 0.42, -0.1), Vector3(1.1, 0.22, 0.8), Vector3.ZERO, 0)
+	for j in 4:
+		_plate(m, Vector3(-0.45 + 0.3 * float(j), 0.2, 0.72), Vector3(0.28, 0.28, 0.3), Vector3(0, 0, 0), 1 if not lite else 0)
+	for sx in [-1.0, 1.0]:
+		m.spike(Vector3(float(sx) * 0.85, -0.05, 0.1), 0.1, 0.3, INK, Vector3(PI, 0, 0), 0.0, 5)
+	return m.mesh()
+
+
+## Segment de bras : cylindre d'encre de hauteur 1 centré (étiré par _limb).
+static func _bone_mesh(r: float) -> ArrayMesh:
+	var m := Yokai.Mesher.new(1.0)
+	m.cyl(Vector3.ZERO, Vector3(r, 1.0, r), INK, Vector3.ZERO, 0.9, 7)
+	return m.mesh()
+
+
 func _build() -> void:
-	_rock_mat = Toon.mat(BASALT, true, 0.05)
-	var hi := Toon.mat_shared(BASALT_HI, true, 0.04)
+	var lite := Toon.lite
+	_rock_mat = Toon.mat_shared(BASALT, true, 0.05)
+	_ink_mat = _ink_material()
 	_crack_mat = _glow_mat(LAVA, 0.6)
-	_eye_mat = _glow_mat(EMBER, 1.2)
+	_eye_mat = _glow_mat(LAVA, 1.2)
 
 	# bassin de lave : sumi veiné d'or
 	Toon.disc(self, 3.0, Color(LAVA, 0.5), 0.012)
@@ -173,57 +303,34 @@ func _build() -> void:
 	add_child(rig)
 	_torso = Node3D.new()
 	rig.add_child(_torso)
-	# hanches et torse
-	Toon.part(_torso, _rock(1.9, 7), _rock_mat, Vector3(0, 0.9, 0), Vector3(1.25, 0.7, 0.9))
-	Toon.part(_torso, _rock(1.8, 7), _rock_mat, Vector3(0, 2.5, 0), Vector3(1.15, 1.0, 0.8))
-	for sx in [-1.0, 1.0]:
-		var pec := Toon.part(_torso, Toon.box(Vector3(1.2, 0.95, 0.5)), hi, Vector3(sx * 0.68, 3.0, 1.12))
-		pec.rotation = Vector3(0.2, sx * 0.25, sx * 0.1)
-		# épaules en blocs, piques de roche
-		Toon.part(_torso, _rock(1.05, 6), _rock_mat, Vector3(sx * 2.05, 3.5, 0.2), Vector3(1.0, 0.85, 1.0))
-		for j in 2:
-			var sp := Toon.part(_torso, Toon.cyl(0.0, 0.3, 0.9, 5), hi, Vector3(sx * (1.9 + 0.45 * j), 4.3 - 0.15 * j, 0.1 - 0.3 * j))
-			sp.rotation.z = -sx * (0.3 + 0.35 * j)
-		_crack(_torso, Vector3(sx * 0.6, 1.75, 1.3), Vector3(0.1, 0.8, 0.12), sx * 0.6)
-		_crack(_torso, Vector3(sx * 1.95, 3.55, 1.0), Vector3(0.08, 0.6, 0.1), sx * 0.9)
-	# fissure du sternum et cœur de lave
+	_piece(_torso, _torso_mesh(lite), _ink_mat)
+	# fissure du sternum et cœur de lave (lumineux, ils battent avec la charge)
 	_crack(_torso, Vector3(0, 2.25, 1.45), Vector3(0.12, 1.5, 0.12))
 	_crack(_torso, Vector3(0.25, 1.0, 1.62), Vector3(0.1, 0.7, 0.12), 0.4)
+	for sx in [-1.0, 1.0]:
+		_crack(_torso, Vector3(float(sx) * 0.6, 1.75, 1.3), Vector3(0.1, 0.8, 0.12), float(sx) * 0.6)
 	var heart := Toon.part(_torso, _gem(0.32), _crack_mat, Vector3(0, 2.75, 1.5))
 	heart.rotation.y = 0.785
 
-	# tête
+	# tête : masque de nō impassible ; yeux d'or mi-clos (ils s'allument quand il charge)
 	_head = Node3D.new()
 	_head.position = Vector3(0, 4.55, 0.35)
 	_torso.add_child(_head)
-	Toon.part(_head, _rock(0.95, 6), _rock_mat, Vector3.ZERO, Vector3(1.0, 0.95, 0.9))
-	var brow := Toon.part(_head, Toon.box(Vector3(1.5, 0.3, 0.5)), hi, Vector3(0, 0.28, 0.55))
-	brow.rotation.x = 0.25
-	Toon.part(_head, Toon.box(Vector3(1.1, 0.45, 0.7)), _rock_mat, Vector3(0, -0.55, 0.3))
+	_piece(_head, _head_mesh(lite), _ink_mat)
 	for sx in [-1.0, 1.0]:
-		Toon.part(_head, Toon.sphere(0.2), _ink(BRAISE), Vector3(sx * 0.36, 0.05, 0.7))
-		Toon.part(_head, Toon.sphere(0.13), _eye_mat, Vector3(sx * 0.36, 0.05, 0.8))
-	_crack(_head, Vector3(0, -0.36, 0.7), Vector3(0.7, 0.08, 0.1))
-	# couronne de piques : le sommet du volcan
-	for i in 5:
-		var ca := -0.9 + 0.45 * float(i)
-		var spike := Toon.part(_head, Toon.cyl(0.0, 0.22, 0.75, 5), hi, Vector3(sin(ca) * 0.6, 0.95 - absf(ca) * 0.2, -0.1))
-		spike.rotation.z = -ca * 0.7
+		Toon.part(_head, Toon.sphere(0.11), _eye_mat, Vector3(float(sx) * 0.36, 0.1, 0.78), Vector3(1.6, 0.55, 1.0))
 
 	# mains posées au sol devant lui, bras recalculés à chaque image
 	for side in 2:
 		var h := Node3D.new()
 		rig.add_child(h)
 		h.position = HAND_REST[side]
-		Toon.part(h, _rock(0.8, 6), _rock_mat, Vector3.ZERO, Vector3(1.2, 0.7, 1.05))
-		for j in 4:
-			var kn := Toon.part(h, Toon.box(Vector3(0.28, 0.28, 0.3)), hi, Vector3(-0.45 + 0.3 * float(j), 0.2, 0.72))
-			kn.rotation.y = randf_range(-0.2, 0.2)
-		var top := Toon.part(h, Toon.box(Vector3(0.55, 0.06, 0.08)), _crack_mat, Vector3(0, 0.5, 0))
+		_piece(h, _hand_mesh(lite), _ink_mat)
+		var top := Toon.part(h, Toon.box(Vector3(0.55, 0.06, 0.08)), _crack_mat, Vector3(0, 0.54, -0.1))
 		top.rotation.y = 0.5 if side == 0 else -0.5
 		_hands.append(h)
-		var up := Toon.part(rig, Toon.cyl(0.5, 0.5, 1.0, 6), _rock_mat, Vector3.ZERO)
-		var fore := Toon.part(rig, Toon.cyl(0.42, 0.5, 1.0, 6), _rock_mat, Vector3.ZERO)
+		var up := _piece(rig, _bone_mesh(0.5), _ink_mat)
+		var fore := _piece(rig, _bone_mesh(0.46), _ink_mat)
 		_arms.append([up, fore])
 	_update_arms()
 
@@ -864,7 +971,7 @@ func _resolve(z: Dictionary) -> void:
 				main.enemy_strike(hero.position, 0.6)
 			for j in 6:
 				var p := c + dir * (1.2 + 1.3 * float(j)) + Vector3(0, 0.5, 0)
-				main.splash(p, EMBER, 5)
+				main.splash(p, Toon.SUMI, 5)
 				main.splash(p, LAVA, 3)
 			main.shake = maxf(float(main.shake), 0.42)
 			_flame(c, dir, float(z["r"]))
@@ -907,11 +1014,16 @@ func _flame(apex: Vector3, dir: Vector3, length: float) -> void:
 	add_child(n)
 	n.global_position = Vector3(apex.x, 0, apex.z)
 	n.rotation.y = atan2(dir.x, dir.z)
-	var f := Toon.part(n, _fan_mesh(deg_to_rad(22.5), length), Toon.flat(Color(EMBER, 0.7)), Vector3(0, 0.05, 0))
+	# lave sumi veinée d'or : langue sombre, cœur d'or plus étroit (jamais orange)
+	var f := Toon.part(n, _fan_mesh(deg_to_rad(22.5), length), Toon.flat(Color(Toon.SUMI, 0.75)), Vector3(0, 0.05, 0))
 	f.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var g := Toon.part(n, _fan_mesh(deg_to_rad(11.0), length * 0.9), Toon.flat(Color(LAVA, 0.8)), Vector3(0, 0.06, 0))
+	g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var m := f.material_override as StandardMaterial3D
+	var m2 := g.material_override as StandardMaterial3D
 	var tw := n.create_tween()
 	tw.tween_property(m, "albedo_color:a", 0.0, 0.45)
+	tw.parallel().tween_property(m2, "albedo_color:a", 0.0, 0.4)
 	tw.tween_callback(n.queue_free)
 
 
@@ -1050,7 +1162,7 @@ func _process(delta: float) -> void:
 		_cores_lock -= delta
 	if _flash > 0.0:
 		_flash -= delta
-		_rock_mat.albedo_color = ROCK_FLASH if _flash > 0.0 else BASALT
+		_ink_mat.emission_energy_multiplier = 0.9 if _flash > 0.0 else 0.0
 	_shield_tick(delta)
 	_update_zones(delta)
 	_update_fist(delta)

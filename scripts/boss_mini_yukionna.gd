@@ -7,11 +7,19 @@ extends "res://scripts/boss_mini_base.gd"
 ##  (au moins 4 dans l'ordre) brise tout le voile : figée 5.5 s, vulnérable (dégâts ×2). Dans le
 ##  désordre (2 cristaux ou plus) : un éclat de voile par cristal et le sentier fond.
 ##  Prépare la colonne de Gashadokuro. Puis : salve de 3 boules de neige (lueur 0.7 s).
+## Apparence (direction « Masque d'encre », règles en tête de yokai_ink_w1.gd) : la yukionna commune de
+## yokai_ink_w3.gd en GARDIENNE, deux fois plus haute (3,7 m) — corps d'encre bleutée sur le rig des yōkai
+## d'encre (ink_rig.gd : flotteur, bras, gouttes, clips procéduraux), CHÂLE DE NEIGE IMMENSE bordé d'or qui
+## couvre les épaules et traîne dans le dos, masque de ko-omote cerné d'or aux yeux mi-clos de lueur de glace,
+## longues nappes de cheveux, COURONNE D'OR hérissée de cristaux de glace, glaçons qui pendent sous le corps.
+## Seule l'apparence a changé : PV, voile, cristaux, zones, rythme, interface et robot sont ceux d'avant.
 
-const MAGE = preload("res://assets/kaykit/Skeleton_Mage.glb")
+const Yokai = preload("res://scripts/yokai_parts.gd")
+const W3 = preload("res://scripts/yokai_ink_w3.gd")  # palette du monde 3 (encre bleutée, glace, neige, étoffe)
 const ICE := Color("#BFD6E3")
 const SNOW := Color("#F3F5F7")
 const LAVENDER := Color("#8C8FA8")
+const HEIGHT := 3.7  # la commune fait 1,85 m (enemy.KIND_H)
 const CRYSTALS := 5
 const CRYS_NEAR := 1.5  # distance du plus grand cristal
 const CRYS_STEP := 1.1
@@ -41,59 +49,157 @@ func _ready() -> void:
 	max_hp = hp
 	radius = 0.8
 	_build()
-	_shield_init(SHIELD, Vector3(1.15, 1.6, 1.15), 1.35)
+	_shield_init(SHIELD, Vector3(1.5, 2.1, 1.5), 1.9)
 	_state = "spawn"
 	_timer = 1.2
 
 
 # ------------------------------------------------------------------ construction
 
+## Marionnette de la gardienne : le rig des yōkai d'encre (ink_rig.gd) habillé des pièces bâties ici (le genre
+## « yukionna_o » n'existe dans aucun yokai_ink_wN.gd : _dress est remplacé, le reste du rig sert tel quel).
+## Les noms d'animations KayKit du combat (Idle, Spellcast_Shoot, Hit_A, Death_A) deviennent ses clips.
+class Rig extends "res://scripts/ink_rig.gd":
+	static var _cache := {}  # léger -> pièces
+
+	func setup(k: String, height := H_REF) -> void:
+		super.setup(k, height)
+		# bras tendus devant : le souffle part des deux mains (comme la yukionna commune)
+		_rest_r = Vector3(1.5, 0, 0.35)
+		_rest_l = Vector3(1.5, 0, -0.35)
+		_eval(0.0)
+		for j in SLOTS:
+			_out[j] = _tgt[j]
+		_apply()
+
+	## Le masque regarde un peu plus la caméra que celui des communs (la couronne ne doit pas le cacher).
+	func _apply() -> void:
+		super._apply()
+		_head.rotation.x += 0.22
+
+	func _dress() -> void:
+		var key := 1 if Toon.lite else 0
+		if not _cache.has(key):
+			_cache[key] = _build_parts(Toon.lite)
+		var d: Dictionary = _cache[key]
+		_parts.clear()
+		_part_id = PackedStringArray()
+		_part_on(_body, "body", d)
+		_part_on(_head, "head", d)
+		_part_on(_arms[0], "arm", d)
+		_part_on(_arms[1], "arm", d)
+		for n in _drips:
+			n.queue_free()
+		_drips.clear()
+		_drip_spread = float(d.get("spread", 0.0))
+		var pts: PackedVector3Array = d.get("drips", PackedVector3Array())
+		for p in pts:
+			var piv := Node3D.new()
+			piv.position = p
+			_body.add_child(piv)
+			_drips.append(piv)
+			_part_on(piv, "drip", d)
+
+	## Pièces (unités du modèle, H_REF = 1,75 m, face vers -Z), deux surfaces : toon à contour, aplat lumineux.
+	static func _build_parts(lite: bool) -> Dictionary:
+		var d := {}
+		var w := 0.95
+		var b := Yokai.Mesher.new(1.0)
+		# corps de la yukionna commune, en variante dorée (liserés et oreilles d'or de l'élite)
+		Yokai.ink_body(b, w, W3.INK_SNOW, W3.W3_CLOTH, W3.W3_WAVE, Toon.GOLD, lite, true)
+		# châle immense : cône de neige drapé des épaules jusqu'à l'obi, bordé d'un liseré d'or ; deux pans qui
+		# tombent devant de chaque côté du masque ; longue traîne de neige dans le dos
+		b.cyl(Vector3(0, 0.98, 0.02), Vector3(0.74, 0.36, 0.68), SNOW, Vector3.ZERO, 0.42, 14)
+		b.cyl(Vector3(0, 0.81, 0.02), Vector3(0.76, 0.035, 0.7), Toon.GOLD, Vector3.ZERO, 1.0, 14)
+		b.cyl(Vector3(0, 0.6, 0.44), Vector3(0.5, 1.0, 0.12), SNOW, Vector3(0.16, 0, 0), 0.72, 10)
+		for s in [-1.0, 1.0]:
+			var x := float(s)
+			b.cyl(Vector3(x * 0.44, 0.68, -0.2), Vector3(0.16, 0.72, 0.09), SNOW, Vector3(-0.08, 0, x * 0.1), 0.75, 8)
+		if not lite:
+			# flocons brodés sur le bord du châle (lisibles du dessus), broche d'or sur la poitrine
+			for i in 10:
+				var ang := TAU * (float(i) + 0.5) / 10.0
+				b.ball(Vector3(sin(ang) * 0.66, 0.9, 0.02 + cos(ang) * 0.6), Vector3(0.05, 0.05, 0.02), W3.ICE_L, Vector3(0, ang, 0), 6)
+			b.ball(Vector3(0, 0.9, -0.44 * w), Vector3(0.07, 0.07, 0.03), Toon.GOLD, Vector3.ZERO, 8)
+		d["body"] = b.mesh()
+		var a := Yokai.Mesher.new(1.0)
+		var f := Yokai.Mesher.new(1.0)
+		# masque de ko-omote cerné d'or, un peu plus haut que celui de la commune
+		Yokai.mask_plate(a, W3.MASK_SNOW, 1.0, 1.08, true)
+		Yokai.mask_brows(a, Toon.SUMI, false, 1.0)
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			# yeux mi-clos : paupière noire, lueur de glace dessous
+			a.box(Vector3(x * 0.11, 0.06, Yokai.FACE_Z), Vector3(0.12, 0.024, 0.015), Toon.SUMI, Vector3(0, 0, -x * 0.1))
+			f.ball(Vector3(x * 0.11, 0.035, Yokai.FACE_Z - 0.01), Vector3(0.05, 0.016, 0.01), W3.ICE_L, Vector3.ZERO, 6)
+		a.box(Vector3(0, -0.15, Yokai.FACE_Z), Vector3(0.08, 0.03, 0.02), W3.ICE_D)
+		# larme d'or au front
+		a.ball(Vector3(0, 0.27, Yokai.FACE_Z + 0.005), Vector3(0.025, 0.04, 0.012), Toon.GOLD, Vector3.ZERO, 6)
+		# chevelure : calotte, deux longues nappes jusqu'à l'obi, mèches devant les épaules
+		a.ball(Vector3(0, 0.14, 0.12), Vector3(0.4, 0.32, 0.36), Yokai.HAIR, Vector3.ZERO, 8)
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			a.stick(Vector3(x * 0.33, 0.1, -0.06), Vector3(0.14, 1.25, 0.1), Yokai.HAIR, Vector3(PI, 0, x * 0.04))
+			if not lite:
+				a.stick(Vector3(x * 0.2, -0.08, -0.32), Vector3(0.05, 0.55, 0.04), Yokai.HAIR, Vector3(PI + 0.1, 0, x * 0.1))
+		# couronne d'or : bandeau sur la chevelure, cristaux de glace plantés dedans, petites pointes d'or entre eux
+		# (posée en arrière du masque et penchée en arrière : vue en plongée, elle ne cache pas le visage)
+		a.cyl(Vector3(0, 0.27, 0.16), Vector3(0.31, 0.07, 0.29), Toon.GOLD, Vector3(-0.3, 0, 0), 0.88, 12)
+		var n := 3 if lite else 7
+		for i in n:
+			var k := (float(i) / float(n - 1) - 0.5) * 2.0
+			var h := 0.44 - 0.16 * absf(k)
+			a.spike(Vector3(k * 0.27, 0.3 - 0.06 * absf(k), 0.18 + 0.04 * absf(k)), 0.055, h, W3.ICE_L, Vector3(-0.55, 0, -k * 0.5), 0.0, 4)
+		if not lite:
+			for i in 6:
+				var k2 := (float(i) / 5.0 - 0.5) * 2.0
+				a.spike(Vector3(k2 * 0.24, 0.3, 0.18 + 0.03 * absf(k2)), 0.025, 0.12, Toon.GOLD, Vector3(-0.55, 0, -k2 * 0.5), 0.0, 4)
+			# disque d'or (soleil pâle) derrière la pointe centrale
+			a.cyl(Vector3(0, 0.42, 0.32), Vector3(0.14, 0.02, 0.14), Toon.GOLD, Vector3(PI / 2.0 - 0.55, 0, 0), 1.0, 12)
+		d["head"] = Yokai.two(a, f)
+		# bras d'encre (comme Yokai.ink_arm) avec un bracelet d'or
+		var ar := Yokai.Mesher.new(1.0)
+		ar.cyl(Vector3(0, -0.2, 0), Vector3(0.085, 0.4, 0.085), W3.INK_SNOW, Vector3(PI, 0, 0), 0.7, 7)
+		ar.ball(Vector3(0, -0.43, 0), Vector3(0.1, 0.085, 0.1), W3.INK_SNOW)
+		ar.cyl(Vector3(0, -0.33, 0), Vector3(0.09, 0.035, 0.09), Toon.GOLD, Vector3.ZERO, 1.0, 8)
+		d["arm"] = ar.mesh()
+		# glaçons : pointe de glace qui pend d'une goutte d'encre
+		var t := Yokai.Mesher.new(1.0)
+		t.ball(Vector3.ZERO, Vector3(0.065, 0.065, 0.065), W3.INK_SNOW, Vector3.ZERO, 6)
+		t.spike(Vector3(0, 0.02, 0), 0.055, 0.36, W3.ICE_L, Vector3(PI, 0, 0), 0.0, 5)
+		d["drip"] = t.mesh()
+		var m := 3 if lite else 6
+		var pts := PackedVector3Array()
+		for i in m:
+			var ang := TAU * (float(i) + 0.3) / float(m)
+			pts.append(Vector3(sin(ang) * 0.2, 0.4, cos(ang) * 0.18))
+		d["drips"] = pts
+		d["spread"] = 0.15
+		return d
+
+
 func _build() -> void:
 	Toon.disc(self, 0.8, Color(0, 0, 0, 0.12))
 	body = Node3D.new()
 	add_child(body)
-	# kimono blanc sans pieds : un pan qui s'évase vers le sol, ourlet lavande, obi bleu de Prusse
-	Toon.part(body, Toon.cyl(0.3, 0.6, 1.15, 10), Toon.mat_shared(SNOW), Vector3(0, 0.62, 0))
-	Toon.part(body, Toon.cyl(0.61, 0.52, 0.06, 10), Toon.mat_shared(LAVENDER), Vector3(0, 0.07, 0))
-	Toon.part(body, Toon.cyl(0.32, 0.34, 0.14, 10), Toon.mat_shared(Toon.PRUSSIAN), Vector3(0, 1.08, 0))
-	ch = Character.new()
+	body.rotation.y = PI  # elle entre face au héros (le corps regarde vers -Z ; _face la tourne ensuite)
+	ch = Rig.new()
 	body.add_child(ch)
-	ch.position = Vector3(0, 1.1, 0)
-	var tex: Texture2D = load("res://assets/kaykit/tex/skeleton_prussian.png")
-	ch.setup(MAGE, 1.45, [["Body", tex]], ["Skeleton_Mage_Hat", "Skeleton_Mage_LegLeft", "Skeleton_Mage_LegRight"], ICE)
+	# le bas de l'encre s'effile à 0,6 m au-dessus de l'origine du rig : un peu enfoncé pour que les glaçons frôlent le sol
+	ch.position = Vector3(0, -0.2, 0)
+	ch.setup("yukionna_o", HEIGHT)
 	ch.idle = "Idle"
 	ch.play("Idle")
-	_ghostify()
-	# longs cheveux noirs dans le dos
-	Toon.part(body, Toon.box(Vector3(0.5, 1.25, 0.1)), Toon.mat_shared(Toon.SUMI), Vector3(0, 1.85, 0.28))
-	# voile de givre
+	# voile de givre : bulle de glace autour du corps, flocons qui tournent
 	_veil = Node3D.new()
 	body.add_child(_veil)
-	Toon.part(_veil, Toon.sphere(1.0), Toon.flat(Color(ICE, 0.3)), Vector3(0, 1.35, 0), Vector3(0.95, 1.45, 0.95))
+	Toon.part(_veil, Toon.sphere(1.0), Toon.flat(Color(ICE, 0.3)), Vector3(0, 1.8, 0), Vector3(1.35, 1.95, 1.35))
 	for k in 6:
 		var a := TAU * float(k) / 6.0
-		var flake := Toon.part(_veil, Toon.box(Vector3(0.05, 0.05, 0.32)), Toon.flat(Color(SNOW, 0.9)), Vector3(cos(a) * 0.95, 1.35 + 0.5 * sin(a * 2.0), sin(a) * 0.95))
+		var flake := Toon.part(_veil, Toon.box(Vector3(0.06, 0.06, 0.4)), Toon.flat(Color(SNOW, 0.9)), Vector3(cos(a) * 1.35, 1.8 + 0.7 * sin(a * 2.0), sin(a) * 1.35))
 		flake.rotation.y = -a
-	_make_stars(body, 2.75)
+	_make_stars(body, 4.1)
 	body.scale = Vector3.ONE * 0.01
-
-
-## Rendu fantôme : lueur glacée, matériaux translucides (comme les noyés).
-func _ghostify() -> void:
-	for n in ch.model.find_children("*", "MeshInstance3D", true, false):
-		var mi := n as MeshInstance3D
-		if mi.mesh == null:
-			continue
-		for i in mi.mesh.get_surface_count():
-			var m := mi.get_surface_override_material(i) as StandardMaterial3D
-			if m == null:
-				continue
-			m.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED  # opaque : plus de scintillement
-			m.albedo_color.a = 0.8
-			var o := m.next_pass as StandardMaterial3D
-			if o != null:
-				o.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
-				o.albedo_color.a = 0.55
 
 
 func _spawn_path() -> void:
@@ -338,7 +444,7 @@ func _crys_touch(a: Vector3, b: Vector3) -> void:
 		main.small_hit(p2 + Vector3(0, 0.4, 0))
 
 
-## Flottement, lueur glacée, cristaux qui pulsent du petit vers le grand.
+## Flottement, lueur glacée (l'encre ne s'allume qu'à la charge du souffle), cristaux qui pulsent du petit vers le grand.
 func _animate(delta: float) -> void:
 	if _state == "frozen":
 		body.position.y = move_toward(body.position.y, 0.0, delta * 3.0)
@@ -349,7 +455,7 @@ func _animate(delta: float) -> void:
 		if _state != "spawn":
 			body.scale = Vector3.ONE * (1.06 if _flash > 0.0 else 1.0)
 	if _flash <= 0.0:
-		ch.set_glow(_glow, ICE)
+		ch.set_glow(maxf(_glow - 0.3, 0.0) * 0.8, ICE)
 	for i in _crys.size():
 		var c: Dictionary = _crys[i]
 		var spike: Node3D = c["spike"]
