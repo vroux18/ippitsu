@@ -146,6 +146,88 @@ func census() -> void:
 	print("PERF RECENSEMENT particules CPU (émetteurs actifs) : %d" % cpu_parts)
 
 
+## Signature du shader d'une matière : ShaderMaterial -> son shader ; matière standard -> ses options qui changent
+## le code généré (mélange, ombrage, faces, profondeur, billboard, émission, textures, couleurs de sommets…).
+func _mat_sig(m: Material, instanced: bool) -> String:
+	var id := m.get_instance_id()
+	var base: String = _mat_sig_cache.get(id, "")
+	if base == "":
+		if m is ShaderMaterial:
+			var sh: Shader = (m as ShaderMaterial).shader
+			base = "shader:%s" % (sh.resource_path if sh != null and sh.resource_path != "" else str(sh.get_instance_id() if sh != null else 0))
+		elif m is BaseMaterial3D:
+			var b := m as BaseMaterial3D
+			var parts: Array = [b.get_class(), b.transparency, b.blend_mode, b.shading_mode, b.diffuse_mode, b.specular_mode,
+				b.cull_mode, b.depth_draw_mode, b.no_depth_test, b.vertex_color_use_as_albedo, b.vertex_color_is_srgb,
+				b.billboard_mode, b.billboard_keep_scale, b.emission_enabled, b.albedo_texture != null, b.emission_texture != null,
+				b.normal_enabled, b.rim_enabled, b.clearcoat_enabled, b.anisotropy_enabled, b.ao_enabled, b.heightmap_enabled,
+				b.subsurf_scatter_enabled, b.backlight_enabled, b.refraction_enabled, b.detail_enabled, b.texture_filter,
+				b.use_point_size, b.fixed_size, b.disable_receive_shadows, b.disable_ambient_light, b.shadow_to_opacity,
+				b.proximity_fade_enabled, b.distance_fade_mode, b.grow, b.uv1_triplanar, b.texture_repeat, b.alpha_antialiasing_mode,
+				b.metallic_texture != null, b.roughness_texture != null, b.disable_fog, b.vertex_color_is_srgb, b.use_particle_trails]
+			base = "std:" + str(parts)
+		else:
+			base = m.get_class()
+		_mat_sig_cache[id] = base
+	return base + ("|inst" if instanced else "")
+
+
+func _scan_materials() -> void:
+	if main == null:
+		return
+	# premier passage après le préchauffage : sa miniature (ennemis, effets) est encore là, tout compte comme vu
+	var report := _warm_done
+	var stack: Array = [main]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		var gi := n as GeometryInstance3D
+		if gi == null or not gi.is_visible_in_tree():
+			continue
+		var mats: Array = []
+		var inst := gi is MultiMeshInstance3D or gi is CPUParticles3D or gi is GPUParticles3D
+		if gi.material_override != null:
+			mats.append(gi.material_override)
+		var mesh: Mesh = null
+		if gi is MeshInstance3D:
+			mesh = (gi as MeshInstance3D).mesh
+			if mesh != null and gi.material_override == null:
+				for si in mesh.get_surface_count():
+					var sm: Material = (gi as MeshInstance3D).get_active_material(si)
+					if sm != null:
+						mats.append(sm)
+		elif gi is CPUParticles3D:
+			mesh = (gi as CPUParticles3D).mesh
+		elif gi is MultiMeshInstance3D and (gi as MultiMeshInstance3D).multimesh != null:
+			mesh = (gi as MultiMeshInstance3D).multimesh.mesh
+		if mesh != null and gi.material_override == null and not (gi is MeshInstance3D):
+			for si in mesh.get_surface_count():
+				var mm: Material = mesh.surface_get_material(si)
+				if mm != null:
+					mats.append(mm)
+		for m in mats:
+			var sig := _mat_sig(m, inst)
+			if _mat_seen.has(sig):
+				continue
+			_mat_seen[sig] = true
+			if report:
+				print("PERF NOUVEAU SHADER [%s] image %d : %s (%s)" % [_where(), _frames, _chain(n), sig.left(160)])
+	if bool(main.get("warmed")) and not _warm_done:
+		_warm_done = true
+		print("PERF préchauffage : %d sortes de matières vues" % _mat_seen.size())
+
+
+## Ascendance lisible d'un nœud (scripts et noms), du plus proche de main au nœud.
+func _chain(n: Node) -> String:
+	var out: Array = []
+	var p := n
+	while p != null and p != main and out.size() < 6:
+		out.push_front(_label(p))
+		p = p.get_parent()
+	return " / ".join(out)
+
+
 func _branch(n: Node) -> String:
 	var chain: Array = []
 	var p := n
@@ -170,7 +252,16 @@ func _label(n: Node) -> String:
 	return "%s:%s" % [String(n.name).left(16), n.get_class()]
 
 
+# `--shadercheck` : sortes de matières (une sorte = un shader à compiler) vues à l'écran ; celles qui paraissent
+# après la fin du préchauffage (main.warmed) sont signalées avec le nœud qui les porte : shader compilé en partie
+var _shader_check := false
+var _mat_seen := {}  # signature -> true
+var _mat_sig_cache := {}  # id de matière -> signature
+var _warm_done := false
+
+
 func _ready() -> void:
+	_shader_check = "--shadercheck" in OS.get_cmdline_user_args()
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("--census="):
 			for v in String(a).substr(9).split(","):
@@ -259,6 +350,8 @@ func _process(_delta: float) -> void:
 		_print_window()
 	if _frames in _census_at:
 		census()
+	if _shader_check and _frames % 2 == 0:
+		_scan_materials()
 
 
 func _rinfo(kind: int) -> float:

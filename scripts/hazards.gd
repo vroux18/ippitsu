@@ -224,6 +224,23 @@ func _ensure_mats() -> void:
 	_glint_mesh = mb.st.commit()
 
 
+## Préchauffage (main._warmup) : un éclat de chaque matière des trous (aplat, lave, relief cerné d'encre et son
+## ombre, feuille, reflet) sous la miniature : leurs shaders sont compilés à l'accueil, plus à l'ouverture du premier
+## trou en plein combat (relevé --perf --shadercheck).
+func warm(parent: Node3D, at: Vector3) -> void:
+	_ensure_mats()
+	var x := 0.0
+	for m in [_m_flat, _m_lava, _m_relief, _m_sheet, _m_glint]:
+		var mb := Mb.new()
+		mb.quad(Vector3(-0.2, 0, -0.2), Vector3(0.2, 0, -0.2), Vector3(0.2, 0, 0.2), Vector3(-0.2, 0, 0.2),
+			Color.WHITE, Color.WHITE, Color.WHITE, Color.WHITE)
+		var holder := Node3D.new()
+		parent.add_child(holder)
+		holder.position = at + Vector3(x, 0, 0)
+		mb.build(holder, m, m == _m_relief)
+		x += 0.5
+
+
 ## Un trou, à l'allure du sol du monde. Tout est en coordonnées locales (centre du trou en 0) ;
 ## les aplats sont légèrement au-dessus du sol et simulent la profondeur vue en plongée.
 func _make_hole(c: Vector3, r: float) -> void:

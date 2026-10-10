@@ -417,6 +417,7 @@ const FRAMES_MAX := 12
 # mesures de chargement : lignes « BOT PERF <étape> <ms> » avec le robot, bilan à sa fin (bot.finish)
 var perf := {}  # étape -> [nombre, total ms, max ms]
 var _perf_on := false
+var warmed := false  # préchauffage fini (shaders des ennemis et des effets compilés : relevé --perf --shadercheck)
 
 
 func _ready() -> void:
@@ -884,6 +885,7 @@ func _warmup() -> void:
 		pn.position = Vector3(px, 0, 4.0)
 		px += 2.0
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
+	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(fxp, Vector3.FORWARD)
@@ -899,6 +901,7 @@ func _warmup() -> void:
 	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
 	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
 	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
+	warmed = true
 	if Perf.on:
 		print("PERF préchauffage fini t=%.1f" % Time.get_unix_time_from_system())
 
