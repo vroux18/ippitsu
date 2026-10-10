@@ -7,7 +7,9 @@ extends SceneTree
 ## coins arrondis ; plus des contre-exemples qui ne doivent donner aucune figure.
 ## Les figures de l'arbre (vague, pointe, triangle) ont leur propre tirage (graine SEED + 1, après les six
 ## premières : les gestes des six premières restent les mêmes), avec leurs quasi-confusions (S plat, V large,
-## V inégal = crochet, triangle sans son 3e côté = pointe). Le corpus se joue avec toutes les figures apprises (StrokeShapes.locked vide).
+## V inégal = crochet, triangle sans son 3e côté = pointe, grand Λ = pointe). Puis les traits de combat naturels (aucune
+## figure ; graine SEED + 2). run() joue le corpus avec les figures `lock` verrouillées (main._figtest : aucune, puis
+## toutes celles de l'arbre) : un geste qui a la forme d'une figure verrouillée ne doit être aucune figure.
 ## Lancement : `godot --headless --path . -- --figtest` (main._figtest) ou `--script tools/fig_corpus.gd`.
 ## Imprime la matrice de confusion (attendu × détecté), le taux par figure, les ratés, la stabilité de la
 ## lecture en direct (trait sans ses 30 derniers centimètres), et la réussite des figures du robot.
@@ -23,6 +25,9 @@ const PER_FIG := 36       # variantes par figure (3 tailles × 12)
 const SEED := 20261010
 const LAID_STEP := 0.18   # pas du trait posé (ink_stroke.gd STEP)
 const PROBE := 0.3        # la lecture en direct se fait tous les 30 cm (main._touch_move)
+const NAT_KINDS := ["comma", "ell", "split", "bowcomma", "hesitant", "reach"]  # traits de combat naturels (_natural)
+const NAT_PER := 24       # variantes par sorte (aucune figure attendue)
+const NAT_GRAY := 12      # variantes de la zone grise par sorte (virgule, L, deux segments)
 
 
 # ---------------------------------------------------------------- lancement
@@ -34,12 +39,19 @@ func _init() -> void:
 
 ## Joue tout le corpus (graine `seed` : une autre graine, d'autres gestes) ;
 ## renvoie {"ok": int, "n": int, "rate": {fig: float}, "fails": Array, "unstable": Array, "bot_ok": bool}.
-static func run(verbose: bool, seed: int = SEED) -> Dictionary:
+## `lock` : figures de l'arbre verrouillées pendant la partie (StrokeShapes.locked) ; un geste qui a leur forme
+## doit alors n'être AUCUNE figure (pas de repli sur une autre : un V de pointe verrouillée n'est pas un crochet).
+static func run(verbose: bool, seed: int = SEED, lock: Array = []) -> Dictionary:
 	var was_locked: Array = StrokeShapes.locked
-	StrokeShapes.locked = []
+	StrokeShapes.locked = lock.duplicate()
+	var tagl := "" if lock.is_empty() else "[verrouillées : %s] " % ", ".join(PackedStringArray(lock))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed
 	var samples := build(rng)
+	var n_scored := 0
+	for s: Dictionary in samples:
+		if not bool(s.get("gray", false)):
+			n_scored += 1
 	var mat := {}
 	for a in COLS:
 		var row := {}
@@ -50,13 +62,22 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 	var unstable: Array = []
 	var ok := 0
 	var fp := 0
-	var grp := {"base": [0, 0], "tree": [0, 0]}  # [justes, total] : six premières figures (et leurs contre-exemples), figures de l'arbre
+	var grp := {"base": [0, 0], "tree": [0, 0], "nat": [0, 0]}  # [justes, total] : six premières figures (et leurs contre-exemples), figures de l'arbre, traits naturels
+	var nat := {}  # traits de combat naturels : figure lue -> nombre
+	var gray := {}  # zone grise
 	for s: Dictionary in samples:
 		var pts: PackedVector3Array = s["pts"]
-		var want := String(s["want"])
+		var want := want_of(s, lock)
 		var got := _shape(_detect(s, pts))
+		if bool(s.get("gray", false)):
+			gray[got] = int(gray.get(got, 0)) + 1
+			continue
+		if bool(s.get("nat", false)):
+			nat[got] = int(nat.get(got, 0)) + 1
+		if got != want and got == String(s.get("alt", "-")):
+			want = got
 		mat[want][got] = int(mat[want][got]) + 1
-		var g: Array = grp["tree" if bool(s.get("tree", false)) else "base"]
+		var g: Array = grp["nat" if bool(s.get("nat", false)) else ("tree" if bool(s.get("tree", false)) else "base")]
 		g[1] = int(g[1]) + 1
 		if got == want:
 			g[0] = int(g[0]) + 1
@@ -80,10 +101,18 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 		for b in COLS:
 			tot += int(mat[f][b])
 		rate[f] = float(mat[f][f]) / float(maxi(tot, 1))
-	var bot := _bot_check()
+	var bot := _bot_check(lock)
 	if verbose:
-		print("FIGTEST corpus : %d échantillons, %d justes (%.1f %%)" % [samples.size(), ok, 100.0 * float(ok) / float(maxi(samples.size(), 1))])
-		print("FIGTEST groupes : six premières figures (et contre-exemples) %d/%d ; figures de l'arbre (vague, pointe, triangle, quasi-confusions) : %d/%d" % [int(grp["base"][0]), int(grp["base"][1]), int(grp["tree"][0]), int(grp["tree"][1])])
+		print("FIGTEST %scorpus : %d échantillons, %d justes (%.1f %%)" % [tagl, n_scored, ok, 100.0 * float(ok) / float(maxi(n_scored, 1))])
+		print("FIGTEST groupes : six premières figures (et contre-exemples) %d/%d ; figures de l'arbre (vague, pointe, triangle, quasi-confusions) : %d/%d ; traits de combat naturels (aucune figure) : %d/%d" % [int(grp["base"][0]), int(grp["base"][1]), int(grp["tree"][0]), int(grp["tree"][1]), int(grp["nat"][0]), int(grp["nat"][1])])
+		var nl := ""
+		for k in nat.keys():
+			nl += " %s %d" % [String(k) if String(k) != "" else "(rien)", int(nat[k])]
+		print("FIGTEST traits naturels lus comme :%s" % nl)
+		var gl := ""
+		for k in gray.keys():
+			gl += " %s %d" % [String(k) if String(k) != "" else "(rien)", int(gray[k])]
+		print("FIGTEST zone grise (L, virgules, deux segments à 106-120°, non comptés) lus comme :%s" % gl)
 		var head := "FIGTEST %-10s" % "att.\\dét."
 		for b in COLS:
 			head += "%9s" % (b if b != "" else "(rien)")
@@ -106,13 +135,19 @@ static func run(verbose: bool, seed: int = SEED) -> Dictionary:
 			print("FIGTEST   raté : ", f)
 		for k in bot.keys():
 			var r: Array = bot[k]
-			print("FIGTEST robot %-9s : %d/%d orientations reconnues" % [String(k), int(r[0]), int(r[1])])
+			print("FIGTEST robot %-9s : %d/%d orientations %s" % [String(k), int(r[0]), int(r[1]), "sans figure (verrouillée)" if String(k) in lock else "reconnues"])
 	var bot_ok := true
 	for k in bot.keys():
 		if int(bot[k][0]) != int(bot[k][1]):
 			bot_ok = false
 	StrokeShapes.locked = was_locked
-	return {"ok": ok, "n": samples.size(), "rate": rate, "fails": fails, "unstable": unstable, "bot_ok": bot_ok}
+	return {"ok": ok, "n": n_scored, "rate": rate, "fails": fails, "unstable": unstable, "bot_ok": bot_ok, "nat": nat}
+
+
+## Figure attendue d'un échantillon quand les figures `lock` sont verrouillées : leur forme ne donne rien.
+static func want_of(s: Dictionary, lock: Array) -> String:
+	var w := String(s["want"])
+	return "" if w in lock else w
 
 
 static func _detect(s: Dictionary, pts: PackedVector3Array) -> Dictionary:
@@ -126,8 +161,9 @@ static func _shape(r: Dictionary) -> String:
 	return String(r.get("shape", ""))
 
 
-## Les figures du robot (bot_shapes.gd) : 8 directions × 2 côtés, sans bords ; toutes doivent être reconnues.
-static func _bot_check() -> Dictionary:
+## Les figures du robot (bot_shapes.gd) : 8 directions × 2 côtés, sans bords ; toutes doivent être reconnues (une
+## figure verrouillée, `lock`, ne doit rien donner).
+static func _bot_check(lock: Array = []) -> Dictionary:
 	var out := {}
 	for shape: String in BotShapes.SHAPES:
 		var n := 0
@@ -139,7 +175,7 @@ static func _bot_check() -> Dictionary:
 				n += 1
 				var wps: PackedVector3Array = BotShapes.waypoints(shape, Vector3.ZERO, f, side)
 				var pts: PackedVector3Array = BotShapes.simulate(Vector3.ZERO, wps, Callable(FigCorpusClamp, "same"))
-				if _shape(StrokeShapes.detect(pts)) == shape:
+				if _shape(StrokeShapes.detect(pts)) == ("" if shape in lock else shape):  # verrouillée : aucune figure
 					ok += 1
 		out[shape] = [ok, n]
 	return out
@@ -182,9 +218,110 @@ static func build(rng: RandomNumberGenerator) -> Array:
 		var size := k % 3
 		for fig: String in TREE:
 			out.append(_tree_sample(rng2, fig, size, k))
-	for kind: String in ["flatS", "wideV", "lopV", "openT"]:
+	for kind: String in ["flatS", "wideV", "lopV", "openT", "lambda", "lambda"]:
 		for k in 6:
 			out.append(_tree_counter(rng2, kind, k))
+	# traits de combat naturels (aucune figure) : tirage à part (graine SEED + 2), les gestes précédents ne bougent pas
+	var rng3 := RandomNumberGenerator.new()
+	rng3.seed = rng.seed + 2
+	for kind: String in NAT_KINDS:
+		for k in NAT_PER:
+			out.append(_natural(rng3, kind, k, false))
+	# zone grise (virage de 106 à 120°, angle intérieur 60 à 74° : la frontière avec un crochet franc à 125°) :
+	# mesurée et imprimée, pas comptée comme une erreur
+	for kind: String in ["comma", "ell", "split"]:
+		for k in NAT_GRAY:
+			out.append(_natural(rng3, kind, k, true))
+	return out
+
+
+## Traits de combat naturels (aucune figure) : ce que trace un pouce qui va chercher un ou deux ennemis sans
+## vouloir de figure ; le crochet, la plus facile des figures, ne doit pas les capter. Trait droit dont le doigt
+## dérape en levant (virgule de 10 à 25 % du trait jusqu'à 105°, minuscule jusqu'à 150°, arrondie ou cassée), L
+## large (un ennemi puis un autre, virage de 55 à 105°), deux segments 70/30 ou 60/40, trait un peu courbe terminé
+## par une virgule, départ hésitant (petit crochet ou tremblé au départ), trait qui s'infléchit en arc vers un
+## second ennemi. 3,5 à 12 m, toutes orientations. Un trait droit qui dérape (virgule, départ hésitant) peut rester
+## lu comme le trait droit voulu (`alt`) ; aucune autre figure. `gray` : virage de 106 à 120°, entre le L et le
+## crochet franc (125° et plus) : la lecture y est mesurée, pas exigée.
+static func _natural(rng: RandomNumberGenerator, kind: String, k: int, gray: bool) -> Dictionary:
+	var g := PackedVector2Array()
+	var tag := kind
+	var total := rng.randf_range(3.5, 12.0)
+	var sgn := 1.0 if rng.randf() < 0.5 else -1.0
+	var round_m := rng.randf_range(0.0, 0.25)
+	match kind:
+		"comma":
+			# au-delà de 120°, la virgule reste minuscule (8 à 15 % du trait)
+			var frac := rng.randf_range(0.1, 0.25)
+			var ang := rng.randf_range(106.0, 120.0) if gray else rng.randf_range(45.0, 105.0)
+			if k % 4 == 3 and not gray:
+				frac = rng.randf_range(0.08, 0.15)
+				ang = rng.randf_range(105.0, 150.0)
+			g = _bowed(total * (1.0 - frac), rng.randf_range(0.0, 0.25))
+			g = _tail_arc(g, total * frac, ang * sgn) if k % 2 == 0 else _tail_seg(g, total * frac, ang * sgn)
+			tag = "virgule %d %% à %d°" % [int(frac * 100.0), int(ang)]
+		"ell":
+			var frac := rng.randf_range(0.2, 0.5)
+			var ang := rng.randf_range(106.0, 120.0) if gray else rng.randf_range(55.0, 105.0)
+			g = _tail_seg(_bowed(total * (1.0 - frac), rng.randf_range(0.0, 0.2)), total * frac, ang * sgn)
+			round_m = rng.randf_range(0.0, 0.12) * total
+			tag = "L %d/%d à %d°" % [100 - int(frac * 100.0), int(frac * 100.0), int(ang)]
+		"split":
+			var frac := (0.3 if k % 2 == 0 else 0.4) + rng.randf_range(-0.03, 0.03)
+			var ang := rng.randf_range(106.0, 120.0) if gray else rng.randf_range(60.0, 105.0)
+			g = _tail_seg(_bowed(total * (1.0 - frac), rng.randf_range(0.0, 0.2)), total * frac, ang * sgn)
+			tag = "deux segments %d/%d à %d°" % [100 - int(frac * 100.0), int(frac * 100.0), int(ang)]
+		"bowcomma":
+			var frac := rng.randf_range(0.1, 0.22)
+			var bend := rng.randf_range(15.0, 35.0)
+			var r := total * (1.0 - frac) / deg_to_rad(bend)
+			g = _arc(Vector2(0.0, r), r, -PI / 2.0, -PI / 2.0 + deg_to_rad(bend))
+			var ang := rng.randf_range(50.0, 100.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+			g = _tail_arc(g, total * frac, ang) if k % 2 == 0 else _tail_seg(g, total * frac, ang)
+			tag = "courbe %d° virgule %d %% à %d°" % [int(bend), int(frac * 100.0), int(absf(ang))]
+		"hesitant":
+			var h := rng.randf_range(0.3, 1.0)
+			var a0 := deg_to_rad(rng.randf_range(100.0, 170.0)) * sgn
+			g = PackedVector2Array([Vector2.from_angle(a0) * h, Vector2.ZERO])
+			if k % 3 == 1:
+				g = PackedVector2Array([Vector2(-0.2, h * 0.6), Vector2.from_angle(a0) * h, Vector2.ZERO])
+			g.append_array(_bowed(total, rng.randf_range(0.0, 0.25)).slice(1))
+			if k % 3 == 2:
+				g = _tail_seg(g, total * rng.randf_range(0.1, 0.2), rng.randf_range(50.0, 110.0) * -sgn)
+			tag = "départ hésitant %.1f m" % h
+		"reach":
+			var frac := rng.randf_range(0.25, 0.4)
+			var ang := rng.randf_range(60.0, 110.0)
+			g = _tail_arc(_bowed(total * (1.0 - frac), rng.randf_range(0.0, 0.2)), total * frac, ang * sgn)
+			tag = "inflexion %d %% sur %d°" % [int(frac * 100.0), int(ang)]
+	var laid := k % 2 == 0
+	var pts := _finish(rng, g, round_m, 0.0, laid)
+	var s := {"name": "trait naturel%s #%d (%s, %.1f m%s)" % [" (zone grise)" if gray else "", k, tag, total, ", posé" if laid else ", brut"], "pts": pts, "want": "", "lead": -1, "nat": true, "gray": gray}
+	if kind in ["comma", "bowcomma", "hesitant"]:
+		s["alt"] = "straight"  # un trait droit qui dérape un peu reste le trait droit que le joueur a voulu
+	if k % 3 == 1:
+		_add_lead(rng, s)
+	return s
+
+
+## Prolonge g d'un segment de longueur l qui part du bout en tournant de `ang` degrés (signés).
+static func _tail_seg(g: PackedVector2Array, l: float, ang: float) -> PackedVector2Array:
+	var out := g.duplicate()
+	var e := g[g.size() - 1]
+	out.append(e + (e - g[g.size() - 2]).normalized().rotated(deg_to_rad(ang)) * l)
+	return out
+
+
+## Prolonge g d'un arc tangent de longueur l qui tourne de `ang` degrés (signés) : une virgule arrondie.
+static func _tail_arc(g: PackedVector2Array, l: float, ang: float) -> PackedVector2Array:
+	var out := g.duplicate()
+	var e := g[g.size() - 1]
+	var d := (e - g[g.size() - 2]).normalized()
+	var th := deg_to_rad(absf(ang))
+	var sg := signf(ang)
+	var c := e + Vector2(-d.y, d.x) * (l / maxf(th, 0.01)) * sg
+	var a0 := (e - c).angle()
+	out.append_array(_arc(c, l / maxf(th, 0.01), a0, a0 + th * sg).slice(1))
 	return out
 
 
@@ -273,6 +410,14 @@ static func _tree_counter(rng: RandomNumberGenerator, kind: String, k: int) -> D
 			g = PackedVector2Array([Vector2(main, 0), Vector2.ZERO, Vector2.from_angle(deg_to_rad(ang)) * last])
 			tag = "V inégal %.1f/%.1f à %d°" % [main, last, int(ang)]
 			want = "hook"
+		"lambda":
+			# cas réel (monde 1) : un grand Λ tracé pour toucher deux ennemis, branches presque égales, 38 à 58° au
+			# sommet, 2,5 à 7 m par branche : une pointe (rien si elle n'est pas apprise), jamais un crochet
+			var b := rng.randf_range(2.5, 7.0)
+			var ang := rng.randf_range(38.0, 58.0)
+			g = PackedVector2Array([Vector2(b, 0), Vector2.ZERO, Vector2.from_angle(deg_to_rad(ang)) * b * rng.randf_range(0.82, 1.15)])
+			tag = "Λ %.1f m à %d°" % [b, int(ang)]
+			want = "point"
 		"openT":
 			var side := rng.randf_range(2.5, 4.5)
 			var tri := _tri(side, 65.0, 50.0)
@@ -280,7 +425,10 @@ static func _tree_counter(rng: RandomNumberGenerator, kind: String, k: int) -> D
 			tag = "triangle sans 3e côté %.1f" % side
 			want = "point"  # deux côtés égaux à 50° : un V
 	var pts := _finish(rng, g, rng.randf_range(0.0, 0.15), 0.0, k % 2 == 0)
-	return {"name": "quasi-confusion #%d (%s)" % [k, tag], "pts": pts, "want": want, "lead": -1, "tree": true}
+	var s := {"name": "quasi-confusion #%d (%s)" % [k, tag], "pts": pts, "want": want, "lead": -1, "tree": true}
+	if kind == "lambda" and k % 2 == 1:
+		_add_lead(rng, s)  # le doigt touche loin du héros : amorce
+	return s
 
 
 ## S : arc de rayon r sur t1 degrés, puis arc de l'autre sens de rayon r2 sur t2 degrés, tangents ; amorces

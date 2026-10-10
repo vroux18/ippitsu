@@ -211,10 +211,13 @@ static func gesture_points(kind: String) -> PackedVector2Array:
 			for i in range(1, 13):
 				p.append(Vector2(0.54, 0.15 + 0.73 * i / 12.0))
 		"hook":
+			# comme le glyphe : une hampe droite, puis une barbe courte (un tiers de la hampe) qui se replie
+			# nettement vers elle (virage de 150°) ; une barbe qui part à angle droit, ou aussi longue que la hampe
+			# (un V), n'est pas un crochet (stroke_shapes._hook)
 			for i in 13:
 				p.append(Vector2(0.35 + 0.15 * i / 12.0, 0.9 - 0.75 * i / 12.0))
-			for i in range(1, 9):
-				p.append(Vector2(0.5 + 0.3 * i / 8.0, 0.15 + 0.4 * i / 8.0))
+			for i in range(1, 7):
+				p.append(Vector2(0.5 + 0.105 * i / 6.0, 0.15 + 0.31 * i / 6.0))
 		"wave", "point", "triangle":
 			# même dessin que le glyphe (fig_pts), redécoupé à pas réguliers pour que le geste avance d'un pas égal
 			var src := fig_pts(kind)
