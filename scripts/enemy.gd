@@ -1028,9 +1028,9 @@ func take_hit(dmg: float, dir: Vector3) -> bool:
 	body.scale = SQUASH
 	_squash = 0.25
 	_hit_freeze = HIT_FREEZE
-	if kind == "umibozu" and _phase == "up":
+	if kind == "umibozu" and _phase == "up" and not _lonely():
 		# touché sans être tranché net : il replonge bientôt (pas aussitôt : sinon, PV élevés des derniers
-		# mondes, il plonge à chaque coup et le combat traîne)
+		# mondes, il plonge à chaque coup et le combat traîne). Dernier debout : il reste à portée.
 		_ptimer = minf(_ptimer, 0.8)
 	elif kind == "tanuki" and _doron_cd <= 0.0:
 		_doron_cd = 6.0
@@ -2023,7 +2023,7 @@ func _umibozu(delta: float, dir: Vector3, dist: float) -> void:
 			body.position.y = lerpf(0.0, FUNA_DEPTH, clampf(1.0 - _ptimer / FUNA_DIVE, 0.0, 1.0))
 			if _ptimer <= 0.0:
 				_phase = "under"
-				_ptimer = UMI_UNDER * (0.4 if _lonely() else 1.0)
+				_ptimer = UMI_UNDER * (0.25 if _lonely() else 1.0)
 				_waits = 0
 				body.visible = false
 				_shadow.visible = false
@@ -2048,7 +2048,7 @@ func _umibozu(delta: float, dir: Vector3, dist: float) -> void:
 				return
 			_ptimer = 0.3
 			_waits += 1
-			if _waits > (3 if _lonely() else 6):
+			if _waits > (2 if _lonely() else 6):
 				# pas de jeton ni d'ouverture : il remonte sans frapper
 				_surface()
 				return
