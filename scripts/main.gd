@@ -899,6 +899,8 @@ func _warmup() -> void:
 	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
 	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
 	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
+	if Perf.on:
+		print("PERF préchauffage fini t=%.1f" % Time.get_unix_time_from_system())
 
 
 # ------------------------------------------------------------------ états

@@ -112,10 +112,10 @@ var _t := 0.0
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 # Couches : chaque grappe est un enfant (_Layer) qui garde son dessin tant que ses entrées ne changent pas ; tout
 # redessiner à chaque image coûtait ~0,7 ms de script (relevé --perf). Les tracés visent _ci : le HUD ou la couche.
-enum { L_LIFE, L_INK, L_POP, L_BAR, L_SCORE, L_GAIN, L_OVER }
+enum { L_LIFE, L_XP, L_INK, L_ULT, L_POP, L_BAR, L_SCORE, L_GAIN, L_OVER }
 var _ci: CanvasItem = self
 var _layers: Array = []
-var _layer_sig: Array = [null, null, null, null, null, null, null]  # entrées du dernier dessin de chaque couche (null : à refaire)
+var _layer_sig: Array = [null, null, null, null, null, null, null, null, null]  # entrées du dernier dessin de chaque couche (null : à refaire)
 var _title_sp := FontVariation.new()  # Shippori espacée (bandeau, nom du gardien)
 var _caps_sp := FontVariation.new()  # Zen Kaku espacée (petites capitales)
 var _xp_shown := 0.0  # remplissage affiché de la barre d'expérience (rattrape xp_ratio)
@@ -436,10 +436,17 @@ func _draw_layer(ly: CanvasItem, part: int) -> void:
 		L_LIFE:
 			if in_play and not picking and not dojo:
 				_draw_life(u)
+		L_XP:
+			# filet d'XP et hexagone de niveau : à côté du fourreau, sans le toucher (même son halo d'alerte)
+			if in_play and not picking and not dojo:
 				_draw_xp(u)
 		L_INK:
 			if in_play and not picking:
 				_draw_ink(u)
+		L_ULT:
+			# sceau d'ultime, sous la jauge d'encre (il pulse seul quand il est plein)
+			if in_play and not picking:
+				_draw_ult(Vector2(size.x - 34.0 * u, _cluster_top() + 218.0 * u), u)
 		L_POP:
 			if in_play and not picking:
 				_draw_ink_full(u)
@@ -577,14 +584,22 @@ func _refresh_layers() -> void:
 	var u := size.x / 400.0
 	var low := hp > 0 and (hp == 1 or float(hp) <= float(maxi(max_hp, 1)) * 0.25)
 	var cl := _cluster_top()
-	if hurt_flash > 0.0 or low or not _lost.is_empty() or _gain_t > 0.0 or _lv_flash > 0.0:
+	if hurt_flash > 0.0 or low or not _lost.is_empty() or _gain_t > 0.0:
 		_layer_anim(L_LIFE)
 	else:
-		_layer_check(L_LIFE, [vis, size, top_off, in_play, picking, dojo, cl, hp, max_hp, _xp_shown, level, _lv_txt])
-	if elan_empty or ult >= 1.0 or _ult_full_t > 0.0:
+		_layer_check(L_LIFE, [vis, size, top_off, in_play, picking, dojo, cl, hp, max_hp])
+	if _lv_flash > 0.0:
+		_layer_anim(L_XP)
+	else:
+		_layer_check(L_XP, [vis, size, top_off, in_play, picking, dojo, cl, _xp_shown, level, _lv_txt])
+	if elan_empty:
 		_layer_anim(L_INK)
 	else:
-		_layer_check(L_INK, [vis, size, top_off, in_play, picking, cl, InkStroke.ink, elan, elan_m, ult])
+		_layer_check(L_INK, [vis, size, top_off, in_play, picking, cl, InkStroke.ink, elan, elan_m])
+	if ult >= 1.0 or _ult_full_t > 0.0:
+		_layer_anim(L_ULT)
+	else:
+		_layer_check(L_ULT, [vis, size, top_off, in_play, picking, cl, ult])
 	if in_play and not picking and (elan >= 0.999 or (not dojo and not _shapes.is_empty() and _shape_t <= 3.4)):
 		_layer_anim(L_POP)
 	else:
@@ -922,7 +937,7 @@ func _draw_ink(u: float) -> void:
 		var y := ir.end.y - ir.size.y * (2.0 * i / elan_m)
 		if y > ir.position.y + 2.0:
 			_ci.draw_line(Vector2(ir.position.x, y), Vector2(ir.position.x + ir.size.x * 0.35, y), Color(UIColors.SUMI, 0.3), maxf(1.0, 1.2 * u))
-	_draw_ult(Vector2(size.x - 34.0 * u, y0 + 218.0 * u), u)
+	# (le sceau d'ultime, dessous, est sa propre couche : L_ULT)
 
 
 ## Encre pleine : point d'or qui pulse au-dessus de la jauge (couche L_POP, redessinée à chaque image ; la jauge

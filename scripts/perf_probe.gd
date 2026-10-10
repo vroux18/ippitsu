@@ -302,7 +302,8 @@ func _top(src: Dictionary, n: int) -> Array:
 
 
 func _print_window() -> void:
-	print("PERF [%s] (moy/méd/p95/max) %s | pire %.2f ms : %s" % [_where(), _line(_win), float(_worst_win[0]), String(_worst_win[1])])
+	print("PERF [%s] t=%.1f (moy/méd/p95/max) %s | pire %.2f ms : %s" % [_where(), Time.get_unix_time_from_system(), _line(_win),
+		float(_worst_win[0]), String(_worst_win[1])])
 	var tops: Array = []
 	for r in _top(_keys_win, TOP_N):
 		tops.append("%s %.0f/%.0f/%.0f/%.0f" % [r[0], r[1], r[4], r[2], r[3]])

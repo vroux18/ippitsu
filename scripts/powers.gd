@@ -72,6 +72,7 @@ var _root: Node3D
 var _halo: Node3D
 var _flames: Array = []
 var _drums: Node3D
+var _drum_spin: Node3D  # couronne qui tourne (enfant « Spin » de _drums), gardée : pas de get_node à chaque image
 var _gale: Node3D
 var _foxes: Array = []
 var _anim := 0.0
@@ -2709,6 +2710,7 @@ func _ensure_visuals() -> void:
 		var spin := Node3D.new()
 		spin.name = "Spin"
 		_drums.add_child(spin)
+		_drum_spin = spin
 		var band := _part(spin, _torus(), main.vfx.glow_mat(Vfx.BOLT, 1.8))
 		band.scale = Vector3(0.85, 0.04, 0.85)
 		for k in 8:
@@ -2765,8 +2767,7 @@ func _process(delta: float) -> void:
 		_drums.position = hp + Vector3(0, 1.75, 0.25)
 		_drums.rotation.x = 0.5
 		_drums.scale = Vector3.ONE * (1.0 + 0.35 * _drum_pulse)
-		var spin: Node3D = _drums.get_node("Spin")
-		spin.rotation.y += dt * (0.8 + 6.0 * _drum_pulse)
+		_drum_spin.rotation.y += dt * (0.8 + 6.0 * _drum_pulse)
 	if is_instance_valid(_gale):
 		_gale.position = hp + Vector3(0, 0.9, 0)
 		_gale.rotation.y += dt * 7.0
