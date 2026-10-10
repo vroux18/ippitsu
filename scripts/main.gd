@@ -4,6 +4,7 @@ extends Node3D
 ## des recoins à fouiller, l'arène du gardien à mi-chemin et le boss au bout.
 ## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
+const Mesure = preload("res://scripts/mesure.gd")  # mode mesure caché (appui long sur le titre de l'accueil)
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -502,6 +503,7 @@ const FRAMES_MAX := 12
 # mesures de chargement : lignes « BOT PERF <étape> <ms> » avec le robot, bilan à sa fin (bot.finish)
 var perf := {}  # étape -> [nombre, total ms, max ms]
 var _perf_on := false
+var measure: CanvasLayer  # mode mesure (mesure.gd) : inactif, il ne relève rien
 var warmed := false  # préchauffage fini (shaders des ennemis et des effets compilés : relevé --perf --shadercheck)
 
 
@@ -534,6 +536,12 @@ func _ready() -> void:
 	meta = Meta.new()
 	meta.load_data()
 	score.hud = hud
+	measure = Mesure.new()
+	measure.main = self
+	add_child(measure)
+	menu.measure_toggled.connect(_on_measure_toggled)
+	menu.report_copy_pressed.connect(_on_report_copy)
+	menu.report_reset_pressed.connect(_on_report_reset)
 	var ref_layer := CanvasLayer.new()
 	ref_layer.layer = 4
 	add_child(ref_layer)
@@ -630,6 +638,8 @@ func _ready() -> void:
 		elif s.begins_with("--shot="):
 			_shot(s.substr(7))
 	var wpos := wsearch.find("world=")
+	# mode mesure : choix sauvegardé, ou `?mesure` / `--q=mesure` (captures : forcé, rien n'est sauvegardé)
+	measure.set_active(bool(meta.measure_mode) or "mesure" in wsearch)
 	hud.show_fps = "fps" in wsearch
 	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
 	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
@@ -1005,6 +1015,11 @@ func _shot(arg: String) -> void:
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(path)
 	print("SHOT ", path)
+	if measure.active:
+		# mode mesure (`--q=mesure`) : le rapport à cet instant, à côté de la capture
+		var f := FileAccess.open(path.get_basename() + "_rapport.txt", FileAccess.WRITE)
+		if f != null:
+			f.store_string(measure.report() + "\n")
 	get_tree().quit()
 
 
@@ -1016,8 +1031,34 @@ func perf_mark(label: String, usec: int) -> void:
 	e[1] = float(e[1]) + ms
 	e[2] = maxf(float(e[2]), ms)
 	perf[label] = e
+	if measure != null and measure.active:
+		measure.event(label, ms)
 	if _perf_on:
 		print("BOT PERF %s %.1f" % [label, ms])
+
+
+## Appui long sur le titre de l'accueil : mode mesure activé ou désactivé (gardé dans la sauvegarde).
+func _on_measure_toggled() -> void:
+	var on := not bool(measure.active)
+	measure.set_active(on)
+	meta.measure_mode = on
+	meta.save_data()
+	menu.measure_on = on
+	measure.toast("Mode mesure activé" if on else "Mode mesure désactivé")
+	sfx.play("levelup" if on else "whoosh", 1.0, -6.0)
+
+
+## Pause, mode mesure : le rapport va dans le presse-papiers.
+func _on_report_copy() -> void:
+	var txt: String = measure.report()
+	measure.last_report = txt
+	DisplayServer.clipboard_set(txt)
+	measure.toast("Rapport copié")
+
+
+func _on_report_reset() -> void:
+	measure.reset()
+	measure.toast("Mesure remise à zéro")
 
 
 func _on_arena_perf(label: String, usec: int) -> void:
@@ -1445,6 +1486,7 @@ func _on_pause() -> void:
 	menu.stat_score = int(score.points)
 	menu.stat_time = run_time
 	menu.pause_powers = powers.levels.keys()
+	menu.measure_on = measure.active
 	hud.pause_enabled = false
 	state = "paused"
 	menu.show_mode("pause")

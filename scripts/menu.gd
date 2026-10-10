@@ -46,7 +46,10 @@ signal powers_pressed
 signal dojo_pressed
 signal next_pressed  # résultats d'une victoire : vers le monde suivant
 signal wardrobe_pressed
-signal world_step(dir: int)  # accueil : monde précédent (-1) ou suivant (+1), chevrons ou glissé
+signal world_step(dir: int)
+signal measure_toggled  # appui long (1,5 s) sur le titre IPPITSU : mode mesure (mesure.gd)
+signal report_copy_pressed  # pause, mode mesure : COPIER LE RAPPORT
+signal report_reset_pressed  # pause, mode mesure : REMETTRE À ZÉRO  # accueil : monde précédent (-1) ou suivant (+1), chevrons ou glissé
 
 var mode := "home"  # home | over | pause | hidden
 var best := 0
@@ -135,6 +138,13 @@ var _confirm_t := 0.0
 var th_paper := Toon.PAPER
 var th_wash := Toon.WASHI
 var th_ink := Toon.SUMI
+# mode mesure : appui long sur le titre (accueil) ; deux étiquettes sous la feuille de pause quand il est actif
+const LONG_PRESS := 1.5
+var measure_on := false
+var _lp_t := -1.0  # durée de l'appui sur le titre (< 0 : aucun)
+var _lp_p := Vector2.ZERO
+var _rep_copy: Control
+var _rep_reset: Control
 
 
 func _ready() -> void:
@@ -217,6 +227,14 @@ func _ready() -> void:
 	_quit.danger = true
 	_quit.font = _tag_font
 	_quit.pressed.connect(func(): _confirm_press("quit"))
+	_rep_copy = _button("COPIER LE RAPPORT", "label")
+	_rep_copy.font = _tag_font
+	_rep_copy.icon = "brush"
+	_rep_copy.pressed.connect(func(): report_copy_pressed.emit())
+	_rep_reset = _button("REMETTRE À ZÉRO", "label")
+	_rep_reset.font = _tag_font
+	_rep_reset.icon = "replay"
+	_rep_reset.pressed.connect(func(): report_reset_pressed.emit())
 	show_mode("home")
 
 
@@ -273,13 +291,19 @@ func _sel_rect(w: float, h: float, u: float) -> Rect2:
 func _unhandled_input(event: InputEvent) -> void:
 	if mode != "home" or not visible:
 		_swipe_on = false
+		_lp_t = -1.0
 		return
+	var u := size.x / 400.0
+	# appui long sur le titre : un doigt qui glisse l'annule
+	if event is InputEventMouseMotion and _lp_t >= 0.0 and (event as InputEventMouseMotion).position.distance_to(_lp_p) > 24.0 * u:
+		_lp_t = -1.0
 	if not (event is InputEventMouseButton):
 		return
 	var mb := event as InputEventMouseButton
 	if mb.button_index != MOUSE_BUTTON_LEFT:
 		return
-	var u := size.x / 400.0
+	_lp_t = 0.0 if mb.pressed and _title_rect().has_point(mb.position) else -1.0
+	_lp_p = mb.position
 	if mb.pressed:
 		var top := _top_y(u) + UiKit.ICON_BTN * u
 		var bottom := _sel_rect(size.x, size.y, u).position.y
@@ -290,6 +314,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		var d := mb.position - _swipe_p
 		if absf(d.x) > 48.0 * u and absf(d.x) > absf(d.y) * 1.4:
 			world_step.emit(1 if d.x < 0.0 else -1)
+
+
+## Zone du titre IPPITSU de l'accueil (sceau compris), pour l'appui long du mode mesure.
+func _title_rect() -> Rect2:
+	var u := size.x / 400.0
+	var title_y := maxf(_top_y(u) + 170.0 * u, size.y * 0.21)
+	var tw := minf(size.x * 0.84, 300.0 * u)
+	return Rect2(Vector2((size.x - tw) / 2.0, title_y - 120.0 * u), Vector2(tw, 140.0 * u))
 
 
 func _toggle_sound() -> void:
@@ -351,6 +383,12 @@ func _process(_delta: float) -> void:
 		if _confirm_t <= 0.0:
 			_confirm = ""
 	_safe = UiKit.safe_insets(size)
+	if _lp_t >= 0.0:
+		_lp_t += dt
+		if _lp_t >= LONG_PRESS:
+			_lp_t = -1.0
+			_swipe_on = false
+			measure_toggled.emit()
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
@@ -368,6 +406,8 @@ func _process(_delta: float) -> void:
 	_quit.visible = mode == "pause"
 	_restart.visible = mode == "pause"
 	_powers_btn.visible = mode == "pause"
+	_rep_copy.visible = mode == "pause" and measure_on
+	_rep_reset.visible = mode == "pause" and measure_on
 	_sound.visible = mode == "home"  # en pause, le son se règle dans OPTIONS (planche Pause v2)
 	_atelier.visible = mode == "home"
 	_dojo.visible = mode == "home"
@@ -555,6 +595,19 @@ func _layout_pause(u: float) -> void:
 	for b in [_gear, _quit, _restart]:
 		var lb: Control = b
 		lb.font_size = int(13 * u)
+	# mode mesure : deux étiquettes sous la feuille (au-dessus de la barre de geste)
+	if measure_on:
+		var gap := 10.0 * u
+		var mw := (pc.size.x - gap) / 2.0
+		var mh := 40.0 * u
+		var my := minf(pc.end.y + 10.0 * u, size.y - _safe.y - 6.0 * u - mh)
+		_rep_copy.size = Vector2(mw, mh)
+		_rep_copy.position = Vector2(pc.position.x, my)
+		_rep_reset.size = Vector2(mw, mh)
+		_rep_reset.position = Vector2(pc.position.x + mw + gap, my)
+		for b in [_rep_copy, _rep_reset]:
+			var rb: Control = b
+			rb.font_size = _fit_font(rb, int(12 * u), mw - 24.0 * u)
 
 
 func _draw() -> void:
