@@ -1794,7 +1794,7 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	if wid <= 2:
+	if wid <= 3:
 		_landscape(wid, ctx, rng)
 	else:
 		_ls_legacy(wid, ctx, rng)
@@ -2259,6 +2259,8 @@ static func _ls_mid_kinds(wid: int) -> Array:
 			return ["piles", "boat", "pier", "nets", "piles", "lantern"]
 		2:
 			return ["bamboo", "garland", "fence", "torii", "tanzaku", "bamboo"]
+		3:
+			return ["fence", "pines", "toro", "steles", "jizo", "pines"]
 		_:
 			return ["piles"]
 
@@ -2268,6 +2270,8 @@ static func _ls_near(wid: int, ctx: Dictionary, p: Vector2, s: float, k: int, rn
 	match wid:
 		2:
 			_ls_near_tanabata(ctx, p, s, k, rng)
+		3:
+			_ls_near_contes(ctx, p, s, k, rng)
 		_:
 			_ls_near_wave(ctx, p, s, k, rng)
 
@@ -2277,6 +2281,8 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 	match wid:
 		2:
 			_ls_mid_tanabata(ctx, kind, a, b, s, rng)
+		3:
+			_ls_mid_contes(ctx, kind, a, b, s, rng)
 		_:
 			_ls_mid_wave(ctx, kind, a, b, s, rng)
 
@@ -2289,6 +2295,11 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 				_ls_tanabata_shrine(ctx, c, s, rng)
 			else:
 				_ls_tanabata_bridge(ctx, c, s, rng)
+		3:
+			if main:
+				_ls_snow_cabin(ctx, c, s, rng)
+			else:
+				_ls_snow_grove(ctx, c, s, rng)
 		_:
 			if main:
 				_ls_hamlet(ctx, c, s, rng)
@@ -2301,6 +2312,8 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 	match wid:
 		2:
 			_ls_north_tanabata(ctx, frame, rng)
+		3:
+			_ls_north_contes(ctx, frame, rng)
 		_:
 			_ls_north_wave(ctx, frame, rng)
 
@@ -2729,6 +2742,119 @@ static func _ls_mini_torii(b: Dictionary, xf: Transform3D, col: Color, low_y: fl
 	_add(b, m, _box(Vector3(1.3, 0.08, 0.07)), xf * _at(Vector3(0, 1.24, 0)))
 	_add(b, m, _box(Vector3(1.5, 0.1, 0.12)), xf * _at(Vector3(0, 1.5, 0)))
 	_add(b, ink, _box(Vector3(1.6, 0.06, 0.16)), xf * _at(Vector3(0, 1.58, 0)))
+
+
+# --- monde 3 : berges de l'étang gelé du temple sous la neige
+
+## Bande proche : bosses de neige, roseaux secs, glaçons, une lanterne d'Obon de loin en loin.
+static func _ls_near_contes(ctx: Dictionary, p: Vector2, s: float, k: int, rng: RandomNumberGenerator) -> void:
+	var bn: Dictionary = ctx["bn"]
+	var dens: float = ctx["ls_dens"]
+	if k % 9 == 7:
+		_toro_into(bn, _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0)))
+		return
+	if k % 6 == 2:
+		var sc := rng.randf_range(0.6, 1.2)
+		_inst(ctx, "floe", _cyl(0.6, 0.62, 0.06, 6), _toon(ICE, false), _at(Vector3(p.x, VOID_Y + 0.02, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, 1, sc * 0.7)))
+		return
+	if k % 3 == 1:
+		var sc := rng.randf_range(0.5, 1.1)
+		_inst(ctx, "lump", _ball(0.5, 0.36, 9, 4), _toon(SNOW, false), _at(Vector3(p.x, VOID_Y, p.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 0.9, sc * 1.1)))
+		return
+	var reed := _toon_ds(Color("#9C9480"))
+	for i in (3 if dens > 0.9 else 2):
+		var q := p + Vector2(rng.randf_range(-0.2, 0.2), rng.randf_range(-0.2, 0.2))
+		var sc := rng.randf_range(0.9, 1.4)
+		_inst(ctx, "reed", _tuft_mesh(), reed, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(sc, sc * 1.4, sc)))
+
+
+## Bande moyenne : clôture enneigée, pins sur une congère, lanternes de pierre, stèles, jizō.
+static func _ls_mid_contes(ctx: Dictionary, kind: String, a: Vector2, b: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var ln := b.y - a.y
+	var zc := (a.y + b.y) * 0.5
+	var x := a.x
+	var face := _face(Vector2(x, zc), x - s * 5.0, zc)
+	match kind:
+		"fence":
+			Decor.fence_into(bs, bn, Vector3(x, 0, a.y + 0.2), Vector3(x, 0, b.y - 0.2), 0.62, VOID_Y - 0.3, true)
+			_inst(ctx, "lump", _ball(0.5, 0.36, 9, 4), _toon(SNOW, false), _at(Vector3(x + s * 0.5, VOID_Y, zc), Vector3.ZERO, Vector3(0.9, 0.7, 1.4)))
+		"pines":
+			var top := _mound_into(bs, bn, Vector2(x + s * 0.3, zc), minf(ln * 0.3, 1.2), rng)
+			_snow_pine_into(bs, _at(Vector3(x + s * 0.2, top - 0.1, zc - 0.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.3))
+			_snow_pine_into(bs, _at(Vector3(x + s * 0.6, top - 0.12, zc + 0.6), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.95))
+		"toro":
+			var top := _mound_into(bs, bn, Vector2(x, zc), minf(ln * 0.3, 1.1), rng)
+			for k in 2:
+				_stone_lantern(ctx, Vector3(x, top - 0.08, zc + (k - 0.5) * 1.3), 0.62, k == 0)
+		"steles":
+			var top := _mound_into(bs, bn, Vector2(x + s * 0.2, zc), minf(ln * 0.3, 1.2), rng)
+			var gm := _toon(GRAVE, true, 0.02)
+			var cap := _toon(SNOW, false)
+			for k in 3:
+				_stele_into(bs, gm, cap, _at(Vector3(x + s * 0.2, top - 0.12, zc + (k - 1) * 0.6), Vector3(0, face + rng.randf_range(-0.2, 0.2), 0), Vector3.ONE * rng.randf_range(0.75, 0.95)))
+			_sotoba_into(bs, _at(Vector3(x + s * 0.7, top - 0.12, zc - 0.3), Vector3(0, face, 0)), rng)
+		_:
+			var top := _mound_into(bs, bn, Vector2(x + s * 0.2, zc), minf(ln * 0.3, 1.2), rng)
+			for k in 3:
+				_jizo_into(bs, _at(Vector3(x + s * 0.2, top - 0.1, zc + (k - 1) * 0.5), Vector3(0, face, 0), Vector3.ONE * 0.9))
+			_offering_into(bs, bn, _at(Vector3(x - s * 0.3, top - 0.1, zc), Vector3(0, face, 0)))
+
+
+## Cabane de montagne (rive principale) : congère, cabane de rondins au toit chargé de neige, deux pins
+## derrière, lanterne de pierre allumée devant, ombrelle fermée contre le mur, bout de clôture.
+static func _ls_snow_cabin(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _mound_into(bs, bn, c, 1.7, rng)
+	_contact(ctx, c, 1.6)
+	var face := _face(c, c.x - s * 6.0, c.y)
+	var hx := _at(Vector3(c.x + s * 0.2, top - 0.1, c.y + 0.2), Vector3(0, face + rng.randf_range(-0.15, 0.15), 0))
+	_stilt_house_into(bs, bn, hx, 1.5, 1.3, 1.0, VOID_Y - 0.3 - top, true, Decor.BARK_PINE, SNOW, Color("#3A3A48"))
+	_light(ctx, Vector3(c.x - s * 0.9, top + 0.8, c.y + 0.6), Color(1.0, 0.8, 0.5), 0.55, 3.0)
+	_snow_pine_into(bs, _at(Vector3(c.x + s * 1.4, top - 0.3, c.y - 0.9), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.35))
+	if not Toon.lite:
+		_snow_pine_into(bs, _at(Vector3(c.x + s * 1.1, top - 0.35, c.y + 1.5), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.0))
+	_stone_lantern(ctx, Vector3(c.x - s * 0.9, top - 0.15, c.y - 0.8), 0.6, true)
+	_wagasa_into(bs, _at(Vector3(c.x - s * 0.5, top - 0.1, c.y + 1.0), Vector3(0, face, 0)), false, BONNET)
+	Decor.fence_into(bs, bn, Vector3(c.x - s * 0.9, top - 0.1, c.y + 1.5), Vector3(c.x + s * 0.9, top - 0.1, c.y + 1.8), 0.5, top - 0.5, true)
+
+
+## Rive mineure : bosquet de pins enneigés sur une congère, lanternes d'Obon à la dérive au pied.
+static func _ls_snow_grove(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var top := _mound_into(bs, bn, c, 1.4, rng)
+	_contact(ctx, c, 1.3)
+	for k in (2 if Toon.lite else 3):
+		var q := Vector3(c.x + s * (0.1 + k * 0.4), top - 0.1 - k * 0.08, c.y + (k - 1) * 0.8)
+		_snow_pine_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(1.0, 1.4)))
+	for k in 2:
+		_toro_into(bn, _at(Vector3(c.x - s * 1.4, VOID_Y, c.y + (k - 0.5) * 1.1), Vector3(0, rng.randf() * TAU, 0)))
+
+
+## Fond : beffroi de la cloche dans un coin, torii enneigé de profil dans l'autre, lanternes d'Obon
+## qui dérivent devant.
+static func _ls_north_contes(ctx: Dictionary, frame: Rect2, rng: RandomNumberGenerator) -> void:
+	var bs: Dictionary = ctx["bs"]
+	var bn: Dictionary = ctx["bn"]
+	var avoid: Array = ctx["avoid"]
+	var top := frame.position.y
+	var side: float = -1.0 if rng.randf() < 0.5 else 1.0
+	var bc := Vector2(side * (frame.size.x * 0.5 + 1.0), top - 3.2)
+	var bt := _mound_into(bs, bn, bc, 1.6, rng)
+	Decor.bell_tower_into(bs, bn, _at(Vector3(bc.x, bt - 0.1, bc.y), Vector3(0, _face(bc, 0.0, top), 0), Vector3.ONE * 0.62), true)
+	avoid.append(Vector3(bc.x, bc.y, 2.0))
+	var tc := Vector2(-side * (frame.size.x * 0.5 + 0.8), top - 3.0)
+	var tt := _mound_into(bs, bn, tc, 1.3, rng)
+	_snow_torii(bs, bn, _at(Vector3(tc.x, tt - 0.12, tc.y), Vector3(0, PI * 0.5, 0), Vector3.ONE * 0.4))
+	_snow_pine_into(bs, _at(Vector3(tc.x - side * 0.2, tt - 0.2, tc.y - 1.0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.2))
+	avoid.append(Vector3(tc.x, tc.y, 1.8))
+	for k in (3 if Toon.lite else 5):
+		var q := Vector2(rng.randf_range(-5.0, 5.0), top - rng.randf_range(1.2, 2.4))
+		if _ok(ctx, q, 0.4, 0.0):
+			_toro_into(bn, _at(Vector3(q.x, VOID_Y, q.y), Vector3(0, rng.randf() * TAU, 0)))
 
 
 ## Ancien remplissage au hasard des abords (mondes pas encore composés).
