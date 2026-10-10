@@ -7,6 +7,7 @@ extends Node3D
 ## Longue écharpe vermillon à deux pans (couleur de l'écharpe de la garde-robe), simulée ici en verlet : elle
 ## retombe au repos, s'étire et claque pendant la ruée. Réception en fin de trait : écrasement puis rebond.
 ## Lisibilité : liseré de lumière, anneau au sol dessiné par-dessus le décor (no_depth_test), qui respire au repos.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Character = preload("res://scripts/character.gd")
@@ -394,6 +395,7 @@ func cancel_moves() -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if dashing:
 		dash_t += delta
 		var move := DASH_SPEED * speed_mult * delta
@@ -470,6 +472,8 @@ func _process(delta: float) -> void:
 	_life = fmod(_life + delta, 1000.0)
 	_update_pose(delta)
 	_update_tails(delta)
+	if _pt != 0:
+		Perf.add(&"hero", _pt)
 
 
 ## Apparence choisie à l'Atelier (meta.apply_run_start) : couleur de l'écharpe (cape), sillage de lame.

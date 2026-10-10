@@ -3,6 +3,7 @@ extends Node3D
 ## de longues cartes qui avancent vers le fond, des zones de combat qui se ferment (vagues d'ennemis),
 ## des recoins à fouiller, l'arène du gardien à mi-chemin et le boss au bout.
 ## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Hero = preload("res://scripts/hero.gd")
@@ -115,7 +116,8 @@ const CURSES := {
 		"line": "Toute la partie, les élites (bouclier, aura, affixes) sont deux fois plus fréquents. En échange : chaque pièce ramassée en vaut deux."},
 }
 const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
-const PASS_GOLD := 15  # « Refuser » au sanctuaire : un cœur soigné, ou cet or si la vie est pleine
+const REFUSE_COST := 40  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
+const REFUSE_COST_STEP := 10
 const INK_LOCK_T := 4.0  # Encre maudite : recharge d'encre figée après un coup reçu (s)
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
 const EXPLORE_REACH := 2.0
@@ -291,6 +293,15 @@ var _bestiary_dirty := false  # victoires comptées depuis la dernière sauvegar
 var _wardrobe_on := false
 var _wardrobe_k := 0.0
 var _env: Environment
+# ambiance de boss : ciel assombri vers l'encre du monde, brume plus dense, soleil bas et chaud, contraste,
+# éclairs lointains (boss du monde seulement) ; fondue à l'entrée en scène, retirée à la mort du boss
+var _mood_k := 0.0
+var _mood_to := 0.0
+var _mood_base: Dictionary = {}
+var _mood_flash := 0.0
+var _mood_next_flash := 6.0
+const MOOD_FADE := 2.5
+const MOOD_INK := Color("#14111A")
 var _light_mode := false  # rendu allégé (téléphone)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
 const SPLASH_POOL_MAX := 10  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup)
@@ -415,7 +426,7 @@ var chests_unsealed := 0
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
 var _flawless_boss := false  # boss du monde vaincu sans dégât
-var _pass_bonus := ""
+
 var _ink_lock := 0.0  # Encre maudite : secondes restantes sans recharge d'encre (après un coup reçu)
 var _boss_scripts := {}  # chemin -> GDScript chargé (gardé : pas recompilé à chaque boss)
 var _frame_cache := {}  # cadrages calculés par taille d'écran (_frame), gardés aussi sur le disque
@@ -425,6 +436,7 @@ const FRAMES_MAX := 12
 # mesures de chargement : lignes « BOT PERF <étape> <ms> » avec le robot, bilan à sa fin (bot.finish)
 var perf := {}  # étape -> [nombre, total ms, max ms]
 var _perf_on := false
+var warmed := false  # préchauffage fini (shaders des ennemis et des effets compilés : relevé --perf --shadercheck)
 
 
 func _ready() -> void:
@@ -604,6 +616,10 @@ func _ready() -> void:
 			music.play_world(current_world)
 		_pick_context = "room"
 		_set_state("pick")
+		# `&or=N` (captures) : or de la partie, pour voir REFUSER payable ou éteint
+		var gq := wsearch.find("or=")
+		if gq >= 0:
+			run_gold = int(wsearch.substr(gq + 3).get_slice("&", 0))
 		_open_sanctuary()
 		var sl2 := wsearch.find("sel=")
 		if sl2 >= 0:
@@ -715,6 +731,11 @@ func _ready() -> void:
 	if state == "menu" and not auto_run and "opening" in wsearch:
 		var ot := wsearch.find("&t=")
 		_open_opening(float(wsearch.substr(ot + 3).get_slice("&", 0)) if ot >= 0 else 0.0)
+	# `-- --perf` : relevé par image (temps, nœuds, dessin, mémoire ; postes de script), jamais par défaut
+	if "--perf" in OS.get_cmdline_user_args():
+		var probe: Node = Perf.new()
+		probe.set("main", self)
+		add_child(probe)
 	# `-- --bot [--mode=campaign|powers|ui|stress]` : le robot teste le jeu et signale les blocages (CI)
 	if "--bot" in OS.get_cmdline_user_args():
 		var bot_script: GDScript = load(BOT_PATH)
@@ -975,12 +996,14 @@ func _warmup() -> void:
 			PuzzleArt.build_seal(pn, {}, "loop", 1.0)
 			PuzzleArt.warm_seal(pn)
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
+	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
 	_splash(fxp, Toon.VERMILION, 8)
 	_blot(fxp, Toon.SUMI, 0.3, 0.5)
 	_slash_mark(fxp, Vector3.FORWARD)
 	vfx.impact(fxp, Vector3.FORWARD, true)
 	vfx.kill_burst(fxp, Vector3.FORWARD, true)
 	vfx.warm(fxp)  # effets riches des pouvoirs (pinceau, additifs, crête de vague)
+	preload("res://scripts/boss_shrine.gd").warm(w)  # arènes de gardien et de boss : motif du sol, lots, halos, tōrō
 	_warm_shrink(w)
 	# libéré quoi qu'il arrive (même arbre en pause ou temps ralenti : sinon la miniature restait des secondes)
 	get_tree().create_timer(1.2, true, false, true).timeout.connect(w.queue_free)
@@ -990,6 +1013,9 @@ func _warmup() -> void:
 	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
 	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
 	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
+	warmed = true
+	if Perf.on:
+		print("PERF préchauffage fini t=%.1f" % Time.get_unix_time_from_system())
 
 
 # ------------------------------------------------------------------ états
@@ -2187,6 +2213,7 @@ func _build_world() -> void:
 	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
 	var light := OS.has_feature("mobile") or OS.has_feature("web_android") or OS.has_feature("web_ios")
+	light = light or "--lite" in OS.get_cmdline_user_args()  # mesures et captures du rendu téléphone sur le bureau
 	if light:
 		# téléphone : chaque lumière refait un passage sur chaque objet -> une seule, ombres plus proches,
 		# 3D rendue un peu en dessous de la résolution native (l'interface reste nette)
@@ -2243,9 +2270,58 @@ func apply_world(id: int) -> void:
 	_env.ambient_light_energy = float(w.ambient_energy) * (1.6 if _light_mode else 1.25)
 	_sun.light_color = w.sun_color
 	_sun.light_energy = float(w.sun_energy) * 0.98
+	_mood_capture(w)
 	arena.set_world(id)
 	if fresh:
 		perf_mark("world_build", Time.get_ticks_usec() - t0)  # lointain du monde (ou monde gardé en mémoire)
+
+
+## Valeurs de lumière du monde (base de l'ambiance de boss) ; l'ambiance repart de zéro.
+func _mood_capture(w: Dictionary) -> void:
+	_mood_base = {"sky": _env.background_color, "fog": _env.fog_light_color, "fog_d": _env.fog_density,
+		"amb_e": _env.ambient_light_energy, "sun_c": _sun.light_color, "sun_e": _sun.light_energy,
+		"contrast": _env.adjustment_contrast, "bright": _env.adjustment_brightness,
+		"sat": _env.adjustment_saturation, "tint": w.get("color", MOOD_INK)}
+	_mood_k = 0.0
+	_mood_to = 0.0
+	_mood_flash = 0.0
+
+
+## Ambiance de boss : se fond vers _mood_to ; éclairs lointains quand le boss du monde est là.
+func _update_mood(real: float) -> void:
+	if _mood_base.is_empty() or in_hub or state == "menu":
+		return
+	if _mood_to > 0.0 and bosses.is_empty() and state != "boss_intro":
+		_mood_to = 0.0  # plus de boss (salle suivante, mort, abandon) : le ciel se rouvre
+	if is_equal_approx(_mood_k, _mood_to) and _mood_k <= 0.0 and _mood_flash <= 0.0:
+		return
+	_mood_k = move_toward(_mood_k, _mood_to, real / MOOD_FADE)
+	var k := _mood_k * _mood_k * (3.0 - 2.0 * _mood_k)
+	# éclairs lointains : boss du monde seulement, une lueur brève tous les 7 à 13 s
+	if _mood_to >= 1.0 and k > 0.9:
+		_mood_next_flash -= real
+		if _mood_next_flash <= 0.0:
+			_mood_next_flash = randf_range(7.0, 13.0)
+			_mood_flash = 1.0
+			sfx.play("thunder", randf_range(0.45, 0.6), -16.0)
+	_mood_flash = maxf(0.0, _mood_flash - real / 0.35)
+	var fl := _mood_flash * _mood_flash
+	var tint: Color = _mood_base["tint"]
+	var dark: Color = MOOD_INK.lerp(tint.darkened(0.55), 0.35)
+	var sky: Color = _mood_base["sky"]
+	_env.background_color = sky.lerp(dark, 0.6 * k).lerp(Color(0.92, 0.9, 1.0), 0.35 * fl)
+	var fog: Color = _mood_base["fog"]
+	_env.fog_light_color = fog.lerp(dark.lightened(0.12), 0.55 * k)
+	_env.fog_density = float(_mood_base["fog_d"]) * (1.0 + 0.9 * k)
+	_env.ambient_light_energy = float(_mood_base["amb_e"]) * (1.0 - 0.35 * k + 0.6 * fl)
+	var sun_c: Color = _mood_base["sun_c"]
+	_sun.light_color = sun_c.lerp(Color(1.0, 0.7, 0.52), 0.45 * k)
+	_sun.light_energy = float(_mood_base["sun_e"]) * (1.0 - 0.42 * k)
+	_env.adjustment_contrast = float(_mood_base["contrast"]) + 0.12 * k
+	_env.adjustment_brightness = float(_mood_base["bright"]) * (1.0 - 0.1 * k + 0.12 * fl)
+	_env.adjustment_saturation = float(_mood_base["sat"]) * (1.0 - 0.1 * k)
+	hud.mood = k
+	hud.mood_tint = dark
 
 
 ## Cadrage de l'arène : son centre (là où se tient le héros) au centre de l'écran.
@@ -2478,7 +2554,6 @@ func _start(hub := true, tutorial := false) -> void:
 	_scratched = false
 	_flawless_pending = false
 	_flawless_boss = false
-	_pass_bonus = ""
 	puzzles_seen = 0
 	puzzles_solved = 0
 	chests_sealed = 0
@@ -2767,6 +2842,7 @@ func _start_boss_intro() -> void:
 		_intro_wave = []
 		return
 	_intro_mini = is_mini_boss(String(b.kind))
+	_mood_to = 0.5 if _intro_mini else 1.0  # ambiance de boss (moitié pour un gardien)
 	var sub := ("GARDIEN DE L'ÉTAPE %d" % stage_of(MINI_ROOM)) if _intro_mini else "GARDIEN DU MONDE"
 	if _bot != null and not bool(_bot.get("cinematics")):
 		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
@@ -2858,6 +2934,7 @@ func is_mini_boss(k: String) -> bool:
 
 func boss_killed(b: Node3D) -> void:
 	_count_kill(String(b.kind), true)
+	_mood_to = 0.0  # le ciel se rouvre
 	pickups.drop(b.position, "xp", 8)
 	pickups.drop(b.position, "coin", 10)
 	var clean := not _scratched
@@ -3193,9 +3270,9 @@ func _open_sanctuary() -> void:
 		infos.append(pact_info(String(id)))
 	ids.append("refuse")
 	_last_offer = ids
-	# refuser rapporte un peu : un cœur s'il en manque, sinon de l'or
-	_pass_bonus = "heal" if hero.hp < hero.max_hp and not "ronin" in curses else "gold"
-	infos.append({"name": "Refuser", "pact": false, "refuse": true, "bonus": _pass_bonus, "gold": PASS_GOLD, "level": -1})
+	# refuser se paie en or ; sans assez d'or, le bouton est éteint : il faut sceller un pacte
+	var cost := refuse_cost()
+	infos.append({"name": "Refuser", "pact": false, "refuse": true, "cost": cost, "can": run_gold >= cost, "level": -1})
 	picker.open(ids, infos)
 	sfx.play("hurt", 0.6, -6.0)
 	sfx.play("pact", 1.0, -4.0)
@@ -3232,16 +3309,15 @@ func _open_flawless() -> void:
 	sfx.play("shot", 0.6)
 
 
-## « Refuser » au sanctuaire : le petit bonus annoncé sur le bouton (un cœur, sinon de l'or).
-func _pass_reward() -> void:
-	if _pass_bonus == "heal" and hero.hp < hero.max_hp:
-		heal(1)
-		sfx.play("shrine", 1.3, -5.0)
-	else:
-		run_gold += PASS_GOLD
-		float_text(hero.position, "+%d OR" % PASS_GOLD, Toon.GOLD)
-		sfx.play("coin", 0.9, -4.0)
-	_pass_bonus = ""
+## Prix du refus au sanctuaire dans le monde en cours.
+func refuse_cost() -> int:
+	return REFUSE_COST + REFUSE_COST_STEP * maxi(0, current_world - 1)
+
+
+## « Refuser » au sanctuaire : on paie le prix (l'or de la partie, converti en encre à la fin).
+func _pay_refuse() -> void:
+	run_gold = maxi(0, run_gold - refuse_cost())
+	sfx.play("coin", 0.6, -4.0)
 
 
 func _on_reroll() -> void:
@@ -3256,10 +3332,16 @@ func _on_reroll() -> void:
 
 func _on_picked(id: String) -> void:
 	if _pick_mode == "curse":
+		if id == "refuse" and run_gold < refuse_cost():
+			# pas assez d'or pour refuser (le bouton est éteint ; garde-fou pour les robots) : premier pacte proposé
+			for oid in _last_offer:
+				if String(oid) != "refuse":
+					id = String(oid)
+					break
 		if id != "refuse":
 			_take_curse(id)
 		else:
-			_pass_reward()
+			_pay_refuse()
 		if _extra_picks > 0:
 			_extra_picks -= 1
 			_open_upgrades()
@@ -5011,6 +5093,9 @@ func _ultimate() -> void:
 
 
 ## Jauge d'ultime : se remplit en tranchant.
+const ULT_PER_FIGURE := 0.2  # part de la jauge d'ultime par figure tracée en combat (5 figures = un ultime)
+
+
 func gain_ult(v: float) -> void:
 	if state == "play" and not in_hub:
 		ult = minf(1.0, ult + v)
@@ -5058,6 +5143,9 @@ func _launch(s: MeshInstance3D) -> void:
 	_fig_mods = {}
 	if not _shape.is_empty():
 		_fig_slow = FIG_SLOW_LEN
+		# l'ultime ne se charge QUE par les figures, et seulement en combat (pas entre deux vagues)
+		if not _explore:
+			gain_ult(ULT_PER_FIGURE)
 		# (plus de sceau coloré flottant au bout du trait : le sceau papier du HUD, au-dessus du héros, dit déjà la figure)
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
@@ -5307,7 +5395,6 @@ func _check_slashes() -> void:
 			_stroke_hit = true
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
-			gain_ult(0.06 if killed else 0.03)
 			_dmg_text(p, dmg, killed, e)
 			vfx.impact(p, dir, killed)
 			_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
@@ -5347,7 +5434,6 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(powers.boss_dmg(bd) * BOSS_TOUGH, bdir)
-			gain_ult(0.025)
 			powers.on_boss_hit(bo.position, bd)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			_add_hitstop(HITSTOP_BOSS)
@@ -5593,9 +5679,11 @@ func _update_effects(dt: float, real: float) -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	var now := Time.get_ticks_usec()
 	var real := minf((now - _ticks) / 1000000.0, 0.05)
 	_ticks = now
+	_update_mood(real)
 	if _bot != null:
 		# pas fixe (--fixed-fps) : le robot joue aussi vite que la machine le permet. Le pas est celui que
 		# reçoivent les nœuds (delta rendu à l'échelle 1) : figé à 1/30, à 120 Hz main avançait 4 fois plus
@@ -5604,18 +5692,27 @@ func _process(_delta: float) -> void:
 		if ts > 0.0001 and _delta > 0.0:
 			_bot_step = clampf(_delta / ts, 1.0 / 480.0, 0.05)
 		real = _bot_step
+		var _bt := Time.get_ticks_usec() if Perf.on else 0
 		_bot.step(real)
+		if _bt != 0:
+			Perf.add(&"bot", _bt)
+	elif Perf.sim_dt > 0.0:
+		real = Perf.sim_dt  # relevé --perf au pas fixe : partie rejouable à l'identique (mesures et captures avant/après)
 
 	# pause : tout est figé, seul l'écran de pause vit
 	if state == "paused" or (state == "pick" and _pick_context == "level"):
 		Engine.time_scale = 0.0
 		_hitstop = 0.0
+		if _pt != 0:
+			Perf.add(&"main", _pt)
 		return
 	# tutoriel : arrêt sur image le temps de lire une bulle du coach (figé comme la pause ; le coach compte
 	# en temps réel, se lève au toucher ou seul au bout de quelques secondes)
 	if state == "play" and not game_over and coach.frozen():
 		Engine.time_scale = 0.0
 		_hitstop = 0.0
+		if _pt != 0:
+			Perf.add(&"main", _pt)
 		return
 
 	# temps : fin de partie au ralenti, sinon normal
@@ -5919,8 +6016,6 @@ func _process(_delta: float) -> void:
 	hud.level = level
 	hud.xp_ratio = float(xp) / float(xp_need())
 	hud.gold = run_gold
-	hud.chain_left = 1.0 - _chain_t / CHAIN_TIMEOUT
-	hud.chain_mult = chain_mult()
 	hud.score = int(score.points) if state != "tuto" else -1
 	hud.score_mult = Score.mult(chain) if state != "tuto" else 1.0
 	var bars: Array = []
@@ -5948,19 +6043,11 @@ func _process(_delta: float) -> void:
 	hud.wave = stage_i + 1
 	# flèche : vers le torii ouvert, ou vers la suite de l'étape entre deux combats
 	hud.gate_hint = state == "play" and (arena.gate_open or (arena.stage and _enc < 0 and arena.zones_left() > 0))
-	# barre d'avancée de l'étape (héros, zones de combat) et compte des combats
+	# compte des combats de l'étape (crans de la pilule d'étape)
 	if arena.stage and not in_hub:
-		hud.stage_k = arena.progress_of(hero.position)
-		var marks: Array = []
-		for i in arena.zones.size():
-			var sp: Vector2 = arena.zone_span(i)
-			marks.append([sp.x, sp.y, int(arena.zone_state[i])])
-		hud.stage_marks = marks
 		hud.enc_done = arena.zones_done()
 		hud.enc_total = arena.zones.size()
 	else:
-		hud.stage_k = -1.0
-		hud.stage_marks = []
 		hud.enc_done = 0
 		hud.enc_total = 0
 	hud.boss_name = ""
@@ -5994,3 +6081,5 @@ func _process(_delta: float) -> void:
 			if _boss_dry_t > 12.0:
 				hud.boss_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 			hud.boss_ratio = clampf(bo.hp / bo.max_hp, 0.0, 1.0)
+	if _pt != 0:
+		Perf.add(&"main", _pt)

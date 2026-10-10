@@ -21,6 +21,7 @@ extends Node3D
 ## froncés, dents peintes sur une gueule vermillon ; halo d'or derrière la tête, collier d'or, griffes d'or ;
 ## l'encre goutte sous les épaules, le menton et les poignets. Les points d'ancrage de la mécanique (vertèbres,
 ## crâne, épaules, mains, poignets) sont aux mêmes coordonnées ; seuls les maillages et matériaux ont changé.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const Yokai = preload("res://scripts/yokai_parts.gd")
@@ -1090,6 +1091,7 @@ func _apply_pose() -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
@@ -1101,6 +1103,8 @@ func _process(delta: float) -> void:
 	_update_steles(delta)
 	_update_hands(delta)
 	_update_look(delta)
+	if _pt != 0:
+		Perf.add(&"boss", _pt)
 
 
 func _update_state(delta: float) -> void:

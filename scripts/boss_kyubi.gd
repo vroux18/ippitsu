@@ -12,6 +12,7 @@ extends Node3D
 ##  Phase 3 (≤ 25 %) — Fuite en zigzag à 6 m/s le long d'une route annoncée ;
 ##            un trait qui coupe la route devant lui le fait trébucher : voile brisé.
 ## Interface identique à boss.gd : check_dash(), take_hit(), end_stroke(), danger_at(), touching_hero().
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -1080,6 +1081,7 @@ func _trip() -> void:
 # ------------------------------------------------------------------ boucle
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_t += delta
 	if _flash > 0.0:
 		_flash -= delta
@@ -1150,6 +1152,8 @@ func _process(delta: float) -> void:
 				queue_free()
 	if not dead:
 		_animate(delta)
+	if _pt != 0:
+		Perf.add(&"boss", _pt)
 
 
 func _phase1(delta: float) -> void:

@@ -1,5 +1,5 @@
 extends RefCounted
-## Score d'une partie, propre au monde joué : chaque yokai abattu rapporte des points, multipliés par la chaîne
+## Score d'une partie, propre au monde joué : chaque yokai abattu rapporte des points (moitié sans figure), multipliés par la chaîne
 ## (ruées réussies d'affilée sans prendre de coup, main.chain) ; primes pour les figures qui tuent, les traits
 ## qui fauchent plusieurs ennemis, les combats nets ou rapides et les boss.
 ## Fin de partie : record du monde (meta), rang (梅 竹 松 極) et un peu d'encre selon le score.
@@ -9,6 +9,7 @@ const UiKit = preload("res://scripts/ui_kit.gd")
 const KILL_PTS := 50  # + 50 par point d'expérience du yokai : oni 100, kappa 150, brute 200…
 const ELITE_PTS := 300  # défi d'un recoin
 const FIGURE_PTS := 50  # par yokai tué par une figure (pendant la ruée ou sa technique)
+const PLAIN_KILL := 0.5  # yokai tué SANS figure (trait simple, pouvoir) : moitié des points de base ; les rangs se gagnent aux figures
 const MULTI_PTS := 150  # par yokai au-delà du premier, fauchés d'un même trait
 const CLEAN_PTS := 500  # combat sans un coup reçu
 const FAST_PTS := 400  # combat bouclé avant le temps de référence
@@ -139,6 +140,8 @@ func _gain(base: int, chain: int, label: String) -> int:
 ## Yokai abattu : xp = son expérience (main.KIND_XP), figure = tué par une figure.
 func on_kill(xp: int, elite: bool, figure: bool, chain: int) -> void:
 	var base := KILL_PTS + KILL_PTS * maxi(1, xp)
+	if not figure:
+		base = int(roundf(float(base) * PLAIN_KILL))
 	_gain(base, chain, "")
 	if figure:
 		_gain(FIGURE_PTS, chain, "FIGURE")

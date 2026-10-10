@@ -1,5 +1,6 @@
 extends Control
 ## Accueil (sceau, titre, pinceau JOUER, entrées Atelier · Dojo · Garde-robe), résultats en fin de partie, et pause.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
@@ -55,6 +56,8 @@ var new_record := false
 var victory := false
 var muted := false
 var sumi := 0  # encre (monnaie permanente), affichée sur l'accueil
+const HOME_SETTLED := 1.4  # accueil : toutes ses arrivées (sceau 0,4 s, titre 0,6, trait 0,8, sélecteur 1,1) sont finies
+var _home_sig: Array = []  # entrées du dernier dessin de l'accueil ou de la pause posés (vide : à refaire)
 var gain_sumi := 0  # encre gagnée à la dernière partie
 var gain_seals := 0
 # résultats de la partie (écran de fin)
@@ -340,7 +343,10 @@ func _make_build_list() -> void:
 
 
 func _process(_delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if not visible or mode == "hidden":
+		if _pt != 0:
+			Perf.add(&"menu", _pt)
 		return
 	size = get_viewport_rect().size
 	var dt := UiKit.real_delta()
@@ -381,7 +387,19 @@ func _process(_delta: float) -> void:
 		_layout_over(w, h, u, has_next)
 	elif mode == "pause":
 		_layout_pause(u)
-	queue_redraw()
+	# accueil et pause : une fois arrivés (accueil 1,4 s : sceau, titre, trait, sélecteur ; pause : feuille, trait,
+	# médaillons), l'image ne bouge plus tant que leurs entrées restent les mêmes : plus de redessin à chaque image
+	var sig: Array = []
+	if mode == "home" and _t > HOME_SETTLED:
+		sig = [mode, size, _safe, th_paper, th_wash, th_ink, sel_world, sel_name, sel_kanji, sel_color, sel_locked, sumi]
+	elif mode == "pause" and _t > 0.7 + 0.04 * float(pause_powers.size()):
+		sig = [mode, size, _safe, th_paper, th_ink, world_color, world_kanji, stat_room, rooms_total, stat_time, stat_score,
+			pause_powers.duplicate()]
+	if sig.is_empty() or sig != _home_sig:
+		_home_sig = sig
+		queue_redraw()
+	if _pt != 0:
+		Perf.add(&"menu", _pt)
 
 
 ## Accueil : icônes nues en haut à droite, le pinceau JOUER, puis ATELIER · DOJO · GARDE-ROBE.
@@ -546,7 +564,10 @@ func _layout_pause(u: float) -> void:
 
 
 func _draw() -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	if size.x < 10.0:
+		if _pt != 0:
+			Perf.add(&"menu_draw", _pt)
 		return
 	if mode == "home":
 		_draw_home()
@@ -554,6 +575,8 @@ func _draw() -> void:
 		_draw_results()
 	elif mode == "pause":
 		_draw_pause()
+	if _pt != 0:
+		Perf.add(&"menu_draw", _pt)
 
 
 ## Dégradé vertical plein écran de y0 (alpha a0) à y1 (alpha a1), couleur c.

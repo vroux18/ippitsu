@@ -27,8 +27,7 @@ const OFF_MAX := 3          # mode offensif : mannequins qui attaquent en même 
 const ZONE_R := 1.6         # rayon de la zone rouge (le bond fait 2,4 m)
 const ZONE_TIME := 2.0      # durée de l'annonce
 const ZONE_EVERY := 3.5     # pause entre deux annonces
-const ULT_PER_STROKE := 0.34  # la jauge d'ultime se remplit vite au dojo
-const ULT_REGEN := 0.08     # ... et toute seule (par seconde)
+const ULT_PER_STROKE := 0.34  # par figure : la jauge d'ultime se remplit vite au dojo (3 figures)
 const FIG_MIN_LEN := 2.0    # main : pas de figure sous 2 m de trait
 const VERDICT_LEN := 2.0
 const HEAD_H := 50.0        # rangée du titre et des boutons (× u)
@@ -274,7 +273,8 @@ func on_ultimate() -> void:
 func on_dash_end(_pos: Vector3, kills: int, shape: String) -> void:
 	if not active:
 		return
-	main.ult = minf(1.0, float(main.ult) + ULT_PER_STROKE)
+	if shape != "":
+		main.ult = minf(1.0, float(main.ult) + ULT_PER_STROKE)  # comme en combat : seules les figures chargent l'ultime
 	if _touched(kills) >= 3:
 		_complete("multi3")
 	if shape != "":
@@ -462,7 +462,6 @@ func _process(_delta: float) -> void:
 		if is_instance_valid(ds):
 			_pts = ds.points
 		_update_dummies(real)
-		main.ult = minf(1.0, float(main.ult) + ULT_REGEN * real)
 		# intouchable même quand une garde (figure retour) remplace la sienne : les coups ne blessent pas
 		var hero = main.hero
 		if is_instance_valid(hero) and float(hero.guard_t) < 1000.0:

@@ -4,6 +4,7 @@ extends Node3D
 ## Les matériaux émissifs brillent grâce au halo (glow) de l'environnement, sans délaver le reste de l'image.
 ## Lisibilité : chaque élément a sa forme (flammes, arcs d'eau, zigzag, croissants, fumée) ; au sol, les ondes
 ## passent SOUS les annonces d'attaque (priorité de rendu négative) et restent pâles.
+const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
@@ -3684,6 +3685,7 @@ func warm(p: Vector3) -> void:
 
 
 func _process(delta: float) -> void:
+	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	# temps réel : les effets ne ralentissent pas avec le jeu
 	var dt := UiKit.unscaled(delta, 0.05)
 	_frame_big = false
@@ -3800,3 +3802,5 @@ func _process(delta: float) -> void:
 			_fx.remove_at(i)
 	if _dbg_fx != "":
 		_dbg_step(dt)
+	if _pt != 0:
+		Perf.add(&"vfx", _pt)
