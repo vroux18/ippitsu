@@ -5387,9 +5387,9 @@ func float_text(pos: Vector3, text: String, color: Color) -> void:
 	add_child(l)
 	effects.append({"node": l, "t": 0.0, "life": 0.75, "kind": "label"})
 
-## Direction de marche d'un ennemi vers `to`, en passant par les passerelles si besoin.
-func steer_dir(from: Vector3, to: Vector3) -> Vector3:
-	var t: Vector3 = arena.steer(from, to)
+## Direction de marche d'un ennemi (de rayon `rad`) vers `to`, en passant par les passerelles si besoin.
+func steer_dir(from: Vector3, to: Vector3, rad := 0.3) -> Vector3:
+	var t: Vector3 = arena.steer(from, to, rad)
 	var d := t - from
 	d.y = 0
 	return d.normalized() if d.length_squared() > 0.0001 else Vector3.ZERO
