@@ -994,6 +994,7 @@ func _open_worlds(center := -1, reveal := 0, reveal_powers := []) -> void:
 		best[k] = stage_of(int(meta.world_best[k]))
 	var c: int = center if center >= 1 else current_world
 	worldmap.scores = meta.world_score.duplicate()
+	worldmap.won_top = int(meta.won_top)
 	worldmap.open(Worlds.WORLDS, unlocked, best, c, STAGE_PLAN.size(), meta.owned_prints, reveal, reveal_powers)
 
 

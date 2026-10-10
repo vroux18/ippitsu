@@ -152,6 +152,7 @@ var wins := 0  # victoires (la première rapporte +2 sceaux)
 var ranks := {}  # id de ligne -> rang acheté
 const WORLD_COUNT := 8  # mondes du jeu (worlds.gd WORLDS) : bornes des déblocages
 var unlocked := 1  # mondes débloqués (1..WORLD_COUNT) : le monde N+1 s'ouvre quand le monde N est vaincu
+var won_top := 0  # plus haut monde dont le boss a été vaincu (0 : aucun) : rang Maître ; seul témoin du dernier monde (unlocked y plafonne)
 var power_tier := 0  # paliers de rouleaux débloqués (0..4) : monde N vaincu -> palier N (power_data « unlock »)
 var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers ouverts (jamais sauvegardé)
 var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passées (anciennes sauvegardes : ancien tutoriel fait)
@@ -193,6 +194,7 @@ func load_data() -> void:
 	wins = maxi(0, int(cf.get_value("meta", "wins", 0)))
 	unlocked = clampi(int(cf.get_value("meta", "unlocked", 1)), 1, WORLD_COUNT)
 	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
+	won_top = clampi(int(cf.get_value("meta", "won_top", 0)), 0, WORLD_COUNT)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
 	for id in COACH_MARKS:
 		if bool(cf.get_value("coach", id, false)):
@@ -266,6 +268,8 @@ func _migrate_progress() -> void:
 	# (les Vues « w<id>_win » n'existent que pour les mondes 1 à 5 : au-delà, unlocked fait foi)
 	unlocked = clampi(maxi(unlocked, maxi(top_won + 1, reached)), 1, WORLD_COUNT)
 	power_tier = clampi(maxi(power_tier, top_won), 0, Data.UNLOCK_MAX)
+	# sauvegardes d'avant won_top : un monde est vaincu dès que le suivant est ouvert
+	won_top = clampi(maxi(won_top, maxi(top_won, unlocked - 1)), 0, WORLD_COUNT)
 
 
 func save_data() -> void:
@@ -278,6 +282,7 @@ func save_data() -> void:
 	cf.set_value("meta", "wins", wins)
 	cf.set_value("meta", "unlocked", unlocked)
 	cf.set_value("meta", "power_tier", power_tier)
+	cf.set_value("meta", "won_top", won_top)
 	cf.set_value("meta", "tuto_done", tuto_done)
 	for id in COACH_MARKS:
 		cf.set_value("coach", id, coach_seen.has(id))
@@ -557,6 +562,11 @@ func powers_of_tier(t: int) -> Array:
 		if Data.unlock_tier(id) == t and _seal_of(id) == "":
 			out.append(id)
 	return out
+
+
+## Boss du monde déjà vaincu une fois (rang Maître permis) : vaut aussi pour le dernier monde, sans monde suivant.
+func world_cleared(wid: int) -> bool:
+	return wid >= 1 and (wid <= won_top or world_won(wid))
 
 
 ## Monde vaincu (Vue « w<id>_win »).
@@ -955,6 +965,7 @@ func record_world(world_id: int, room_reached: int, victory: bool) -> Dictionary
 	if victory:
 		var before := unlocked
 		unlocked = clampi(maxi(unlocked, world_id + 1), 1, WORLD_COUNT)
+		won_top = clampi(maxi(won_top, world_id), 0, WORLD_COUNT)
 		if world_id + 1 <= WORLD_COUNT and before < world_id + 1:
 			res["world"] = world_id + 1
 		var tb := power_tier

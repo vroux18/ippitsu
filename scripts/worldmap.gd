@@ -70,6 +70,7 @@ var _rooms := 8  # étapes d'une partie (record affiché sur « _rooms » points
 var _wins: Dictionary = {}  # Vues gagnées ("w4_win", "w4_mini"...) ou id -> true
 var _stamp_at: Dictionary = {}  # id -> instant (_t) où le sceau ACCOMPLI frappe
 var scores: Dictionary = {}  # id -> meilleur score du monde (meta.world_score), posé par main avant open()
+var won_top := 0  # plus haut monde dont le boss a été vaincu (meta.won_top), posé par main avant open()
 static var _stamps_seen := {}  # sceaux déjà frappés pendant la session (pas de nouvelle animation)
 static var _cue_seen := false  # petit coup de pouce « on peut glisser » : une fois par session
 
@@ -322,6 +323,8 @@ func _won(i: int) -> bool:
 		return true
 	if _id(i) > 5 and _id(i) < _unlocked:
 		return true  # mondes 6 et plus (sans Vue « w<id>_win ») : le suivant ne s'ouvre qu'en le gagnant
+	if _id(i) <= won_top:
+		return true  # boss vaincu (meta.won_top) : seul témoin du dernier monde, qui n'a pas de monde suivant
 	return _wins.is_empty() and _best_of(i) >= _rooms
 
 
@@ -894,7 +897,8 @@ func _draw_tiles(ci: CanvasItem, i: int, xf: Transform2D, r: Rect2) -> void:
 	ci.draw_style_box(UiKit.box(_box, tile_bg, rad), sr)
 	# score, rang et palier suivant (seuils de score.gd, relevés selon le monde)
 	var pts := _score_of(i)
-	var cleared := id < _unlocked  # le monde suivant est ouvert : son boss a été vaincu
+	# boss du monde vaincu (meta.won_top, posé par main) ; à défaut, le monde suivant est ouvert
+	var cleared := id <= won_top or id < _unlocked
 	var rank := Score.rank_of(pts, id, cleared)
 	var nxt := Score.next_rank_pts(pts, id, cleared)
 	var nf := UiKit.num_font()

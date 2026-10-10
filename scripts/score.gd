@@ -198,7 +198,7 @@ func finish(meta: RefCounted, world_id: int, max_chain: int, won := false) -> Di
 		meta.sumi = int(meta.sumi) + bonus
 		meta.save_data()
 	var best := maxi(old_best, points)
-	# le monde est « vaincu » dès qu'il l'a été une fois (le suivant est ouvert)
-	var cleared: bool = won or int(meta.unlocked) > world_id
+	# le monde est « vaincu » dès qu'il l'a été une fois (meta.won_top : unlocked plafonne au dernier monde)
+	var cleared: bool = won or bool(meta.world_cleared(world_id))
 	return {"score": points, "best": best, "record": rec and points > 0, "rank": rank_of(points, world_id, won),
 		"best_rank": rank_of(best, world_id, cleared), "sumi": bonus, "mult": best_mult}
