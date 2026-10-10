@@ -4905,6 +4905,9 @@ func _ultimate() -> void:
 
 
 ## Jauge d'ultime : se remplit en tranchant.
+const ULT_PER_FIGURE := 0.2  # part de la jauge d'ultime par figure tracée en combat (5 figures = un ultime)
+
+
 func gain_ult(v: float) -> void:
 	if state == "play" and not in_hub:
 		ult = minf(1.0, ult + v)
@@ -4952,6 +4955,9 @@ func _launch(s: MeshInstance3D) -> void:
 	_fig_mods = {}
 	if not _shape.is_empty():
 		_fig_slow = FIG_SLOW_LEN
+		# l'ultime ne se charge QUE par les figures, et seulement en combat (pas entre deux vagues)
+		if not _explore:
+			gain_ult(ULT_PER_FIGURE)
 		# (plus de sceau coloré flottant au bout du trait : le sceau papier du HUD, au-dessus du héros, dit déjà la figure)
 		sfx.play("whoosh", 0.7)
 		_fig_mods = powers.figure_launch(String(_shape.shape), _shape, s.points)
@@ -5201,7 +5207,6 @@ func _check_slashes() -> void:
 			_stroke_hit = true
 			_chain_t = 0.0
 			var killed: bool = e.take_hit(dmg, dir)
-			gain_ult(0.06 if killed else 0.03)
 			_dmg_text(p, dmg, killed, e)
 			vfx.impact(p, dir, killed)
 			_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
@@ -5241,7 +5246,6 @@ func _check_slashes() -> void:
 			_chain_t = 0.0
 			var bdir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 			bo.take_hit(powers.boss_dmg(bd) * BOSS_TOUGH, bdir)
-			gain_ult(0.025)
 			powers.on_boss_hit(bo.position, bd)
 			elan = minf(elan_max(), elan + ELAN_PER_HIT)
 			_add_hitstop(HITSTOP_BOSS)
