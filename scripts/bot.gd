@@ -442,6 +442,9 @@ func _play(dt: float) -> void:
 		for bo in main.bosses:
 			if is_instance_valid(bo) and not bo.dead:
 				who.append("boss %s hp %.0f" % [bo.kind, bo.hp])
+				# de quoi comprendre un boss qui ne tombe pas (CI) : son état, ce que le robot peut tracer, le temps
+				var bp = bo.call("bot_stroke", main.hero.position) if bo.has_method("bot_stroke") else PackedVector3Array()
+				print("BOT BOSS BLOQUÉ %s : hp %.1f/%s, état %s, traitement %s, vulnérable %s, trait proposé %d pts, héros %s ruée %s garde %.0f, échelle du temps %.2f, cadre %s, état du jeu %s" % [bo.kind, bo.hp, str(bo.get("max_hp")), str(bo.get("_state")), str(bo.process_mode), str(bo.get("vulnerable_t")), (bp as PackedVector3Array).size(), str(main.hero.position.snapped(Vector3(0.1, 0.1, 0.1))), str(main.hero.dashing), float(main.hero.guard_t), Engine.time_scale, str(main.arena.bounds), String(main.state)])
 		alert("monde %d salle %d (%s) bloquée : %s, vagues restantes %d, porte %s" % [world, main.room, String(main.arena.layout), str(who), main._waves_left.size(), str(main.arena.gate_open)])
 		# on débloque pour continuer le test
 		for e in main.enemies:
@@ -567,7 +570,10 @@ func _seal_attack() -> bool:
 
 
 ## Ennemi immobile 8 s loin du héros (hors attaque) : coincé quelque part -> alerte.
-func _check_stuck(dt: float) -> void:
+func _check_stuck(dt_real: float) -> void:
+	# temps du monde (ralentis compris : Instant volé, Souffle suspendu, dernier ennemi) : sous un ralenti, tout le
+	# monde marche au ralenti, c'est voulu et lisible ; « immobile 8 s » se compte donc en secondes du monde
+	var dt := dt_real * Engine.time_scale
 	for e in main.enemies:
 		# kappa, funa : tireurs à distance ; tsurara : tourelle fixe (immobile par nature)
 		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa" or e.kind == "funa" or e.kind == "tsurara":

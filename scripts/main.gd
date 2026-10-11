@@ -6836,7 +6836,7 @@ func _process(_delta: float) -> void:
 	elif game_over:
 		target = 0.35
 	elif state == "play":
-		target = powers.time_mult()  # ralentis des pouvoirs (souffle suspendu, instant volé)
+		target = powers.time_mult(real)  # ralentis des pouvoirs (souffle suspendu, instant volé)
 		if coach.slows():
 			target = minf(target, Coach.SLOW)
 		if _fig_slow > 0.0:
