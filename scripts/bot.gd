@@ -35,6 +35,10 @@ var mode := "campaign"
 var gear_brush := ""  # `--pinceau=` (gear_data.ORDER)
 var gear_aspect := 0  # `--aspect=` (0..2)
 var gear_charm := ""  # `--charme=` (gear_data.CHARM_ORDER)
+var tree_full := false  # `--arbre=plein` : l'arbre du pinceau entier appris (mesures d'équilibrage des boss)
+# combats de gardien et de boss (campagne) : mesure par combat, de l'entrée en scène à la chute
+var _bf := {}  # combat en cours : {kind, mini, t, hits, strokes0, hp, room, win, vul}
+var _boss_log: Array = []  # [monde, kind, gardien ?, durée, cœurs perdus, traits, PV max]
 var seed_arg := ""
 var world := 1
 var alerts: Array = []
@@ -104,6 +108,10 @@ func begin(m: Node) -> void:
 			gear_aspect = clampi(int(s.substr(9)), 0, 2)
 		elif s.begins_with("--charme="):
 			gear_charm = s.substr(9)
+		elif s == "--arbre=plein":
+			tree_full = true
+		elif s.begins_with("--monde="):
+			world = clampi(int(s.substr(8)), 1, Worlds.WORLDS.size())  # campagne : départ à ce monde (mesures)
 	if not mode in MODES:
 		alert("mode inconnu « %s » : campagne" % mode)
 		mode = "campaign"
@@ -122,6 +130,10 @@ func begin(m: Node) -> void:
 		mt.charm_sel = gear_charm
 		mt.gear_force = true
 		print("BOT ÉQUIPEMENT pinceau %s, charme %s" % [Gear.label(String(mt.brush_sel), gear_aspect), gear_charm if gear_charm != "" else "aucun"])
+	if tree_full:
+		for nid in Meta.TREE_ORDER:
+			main.meta.tree[nid] = true
+		print("BOT ARBRE plein (%d nœuds)" % Meta.TREE_ORDER.size())
 	# progression : le robot joue avec tous les mondes et tous les paliers de rouleaux ouverts (main._ready)
 	if not bool(main.meta.test_unlock_all):
 		main.meta.test_unlock_all = true
@@ -222,12 +234,15 @@ func step(dt: float) -> void:
 	if _last_hp >= 0 and h.hp < _last_hp:
 		_hits_taken += _last_hp - h.hp
 		_stat("hits", _last_hp - h.hp)
+		if not _bf.is_empty():
+			_bf["hits"] = int(_bf["hits"]) + _last_hp - h.hp
 	elif _last_hp >= 0 and h.hp > _last_hp:
 		_stat("heals", h.hp - _last_hp)
 	_last_hp = h.hp
 	if int(main.room) != _last_room:
 		_on_room_change()
 		_last_hp = h.hp  # soin du robot à chaque salle : pas compté
+	_boss_fight_tick(dt)
 	if String(main.state) == "play":
 		var alive := 0
 		for e in main.enemies:
@@ -253,6 +268,44 @@ func step(dt: float) -> void:
 			_over()
 		"play":
 			_play(dt)
+
+
+## Mesure des combats de gardien et de boss : de la fin de l'entrée en scène à la chute du dernier boss.
+## « BOT BOSS » : durée, cœurs perdus, traits tracés, PV max (après difficulté du monde), dégâts par seconde.
+func _boss_fight_tick(dt: float) -> void:
+	if mode != "campaign" or _death_test:
+		return
+	var live: Array = []
+	for bo in main.bosses:
+		if is_instance_valid(bo) and not bo.dead:
+			live.append(bo)
+	if _bf.is_empty():
+		if live.is_empty() or not main.bosses_intro_done() or String(main.state) != "play":
+			return
+		var tot := 0.0
+		for bo in live:
+			tot += float(bo.max_hp)
+		_bf = {"kind": String(live[0].kind), "mini": main.is_mini_boss(String(live[0].kind)), "t": 0.0, "hits": 0,
+			"strokes0": int(main.stroke_id), "hp": tot, "room": int(main.room), "win": 0, "vul": false}
+		print("BOT BOSS début monde %d %s : PV %.0f, puissance ×%.2f (arbre ×%.2f, pinceau ×%.2f, charme ×%.2f), niveau %d, %d rouleaux" % [world, _bf["kind"], tot,
+			float(main.meta.dmg_mult(0)) * float(main.brush_dmg()) * float(main.curse_dmg_mult()), float(main.meta.dmg_mult(0)), float(main.brush_dmg()), float(main.curse_dmg_mult()), int(main.level), main.powers.levels.size()])
+		return
+	if String(main.state) == "play":
+		_bf["t"] = float(_bf["t"]) + dt
+	var vul := false
+	for bo in live:
+		if float(bo.get("vulnerable_t")) > 0.0:
+			vul = true
+	if vul and not bool(_bf["vul"]):
+		_bf["win"] = int(_bf["win"]) + 1  # fenêtre de vulnérabilité (bouclier brisé)
+	_bf["vul"] = vul
+	if not live.is_empty() and int(main.room) == int(_bf["room"]):
+		return
+	var dur := float(_bf["t"])
+	var strokes := int(main.stroke_id) - int(_bf["strokes0"])
+	print("BOT BOSS fin monde %d %s (%s) : %.1f s, cœurs perdus %d, traits %d, fenêtres %d, PV %.0f, %.2f PV/s" % [world, _bf["kind"], "gardien" if bool(_bf["mini"]) else "boss", dur, int(_bf["hits"]), strokes, int(_bf["win"]), float(_bf["hp"]), float(_bf["hp"]) / maxf(dur, 0.1)])
+	_boss_log.append([world, _bf["kind"], _bf["mini"], dur, int(_bf["hits"]), strokes, float(_bf["hp"]), int(_bf["win"])])
+	_bf = {}
 
 
 ## Cœurs à partir desquels le robot se protège : un coup lourd peut en ôter 2 dès le monde 5.
@@ -422,6 +475,8 @@ func _over() -> void:
 
 
 func _print_stats() -> void:
+	for r in _boss_log:
+		print("BOT BOSS bilan monde %d %s (%s) : %.1f s, cœurs perdus %d, traits %d, fenêtres %d, PV %.0f" % [int(r[0]), String(r[1]), "gardien" if bool(r[2]) else "boss", float(r[3]), int(r[4]), int(r[5]), int(r[7]), float(r[6])])
 	for w in range(1, Worlds.WORLDS.size() + 1):
 		if not _stats.has(w):
 			continue
@@ -568,6 +623,12 @@ func _seal_attack() -> bool:
 
 ## Ennemi immobile 8 s loin du héros (hors attaque) : coincé quelque part -> alerte.
 func _check_stuck(dt: float) -> void:
+	# combat de boss : le robot ne s'occupe que du boss (bot_stroke) ; ses renforts, tireurs surtout, l'attendent
+	# sur place bien plus de 8 s maintenant que les boss tiennent leurs phases (main.boss_gate) : pas d'alerte
+	for bo in main.bosses:
+		if is_instance_valid(bo) and not bo.dead:
+			_still.clear()
+			return
 	for e in main.enemies:
 		# kappa, funa : tireurs à distance ; tsurara : tourelle fixe (immobile par nature)
 		if not is_instance_valid(e) or e.dead or e.dummy or e.kind == "kappa" or e.kind == "funa" or e.kind == "tsurara":

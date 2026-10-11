@@ -705,8 +705,11 @@ func _seg_dist(p: Vector3, a: Vector3, b: Vector3) -> float:
 	return Toon.seg_dist_xz(p, a, b)
 
 
-func _damage(d: float) -> void:
-	if dead or d <= 0.0:
+func _damage(d_in: float) -> void:
+	if dead or d_in <= 0.0:
+		return
+	var d: float = main.boss_gate(self, d_in)  # garde anti-rafale et paliers (main.BOSS_FLOOR_T)
+	if d <= 0.0:
 		return
 	hp -= d
 	_flash = 0.15
