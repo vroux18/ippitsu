@@ -202,13 +202,15 @@ static func _gesture_points_build(kind: String) -> PackedVector2Array:
 	var p := PackedVector2Array()
 	match kind:
 		"loop":
-			for i in 41:
-				var t := float(i) / 40.0
-				var base := Vector2(0.5, 0.92 - 0.82 * t)
-				var lp := clampf((t - 0.3) / 0.4, 0.0, 1.0)
-				if lp > 0.0 and lp < 1.0:
-					base += Vector2(sin(lp * TAU) * 0.22, (1.0 - cos(lp * TAU)) * 0.12)
-				p.append(base)
+			# une petite boucle prise dans un trait qui continue (un cercle seul serait un ensō) : le trait monte,
+			# fait un tour complet et repart tout droit
+			for i in 9:
+				p.append(Vector2(0.5, 0.92 - 0.32 * i / 8.0))
+			for i in range(1, 25):
+				var th := TAU * i / 24.0
+				p.append(Vector2(0.36, 0.6) + Vector2(cos(th), -sin(th)) * 0.14)
+			for i in range(1, 11):
+				p.append(Vector2(0.5, 0.6 - 0.5 * i / 10.0))
 		"zigzag":
 			var zz := [Vector2(0.5, 0.92), Vector2(0.2, 0.7), Vector2(0.8, 0.5), Vector2(0.2, 0.3), Vector2(0.75, 0.1)]
 			for i in range(zz.size() - 1):
@@ -411,6 +413,15 @@ static func _shape(name: String) -> PackedVector2Array:
 				var t := lerpf(-0.46, PI + 0.46, float(i) / 14.0)
 				p.append(Vector2(0, 0.35) + Vector2(cos(t), sin(t)) * 0.6)
 			p.append(Vector2(0, -1.0))
+		"petal":
+			# pétale de cerisier : pointe en bas, haut large et arrondi, petite encoche en V au sommet
+			for i in 10:
+				p.append(_bez(Vector2(0, 1.0), Vector2(-0.7, 0.55), Vector2(-0.58, -0.4), float(i) / 10.0))
+			for i in 11:
+				p.append(_bez(Vector2(-0.58, -0.4), Vector2(-0.5, -1.0), Vector2(-0.2, -0.97), float(i) / 10.0))
+			p.append(Vector2(0, -0.5))
+			for i in range(p.size() - 2, 0, -1):
+				p.append(Vector2(-p[i].x, p[i].y))
 		"heart":
 			for i in 28:
 				var t := TAU * float(i) / 28.0
@@ -1190,6 +1201,9 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 			_shp(ci, "drop", c, s, k, Vector2(0, 0.05), 0.95)
 			if cut:
 				_arc(ci, c, s, Vector2(-0.18, 0.38), 0.3, PI * 0.9, PI * 1.35, b, maxf(1.0, w * 0.7))
+		"at_petal":
+			# pétale de cerisier (monnaie de la garde-robe), un peu penché
+			_shp(ci, "petal", c, s, k, Vector2.ZERO, 1.0, deg_to_rad(-20.0))
 		"at_seal":
 			if not cut:
 				# sans fond à découper (gains des résultats, prix grisé) : sceau au trait, sinon un carré plein muet
@@ -2629,8 +2643,9 @@ static func tab_font() -> Font:
 
 ## Compteur d'encre (UI v2, Accueil / Garde-robe) : pilule sumi à contour papier, goutte sur disque indigo, nombre en
 ## Zen Kaku. x : bord gauche de la pilule (ou bord droit si anchor_right), cy : son centre. Renvoie son cadre.
+## petals : compteur de pétales (garde-robe) : pétale sur disque sakura au lieu de la goutte.
 static func ink_counter(ci: CanvasItem, sb: StyleBoxFlat, x: float, cy: float, value: int, u: float, a: float,
-		anchor_right := false) -> Rect2:
+		anchor_right := false, petals := false) -> Rect2:
 	var nf := num_font()
 	var fs := maxi(1, int(FS_NUMBER * 0.85 * u))
 	var txt := str(value)
@@ -2641,8 +2656,12 @@ static func ink_counter(ci: CanvasItem, sb: StyleBoxFlat, x: float, cy: float, v
 	ci.draw_style_box(box(sb, Color(UIColors.SUMI_HUD_BG, UIColors.SUMI_HUD_BG.a * a), int(h / 2.0),
 		Color(UIColors.WASHI, 0.3 * a), maxi(1, int(BW * u))), r)
 	var dc := Vector2(r.position.x + 10.0 * u + 11.0 * u, cy)
-	ci.draw_circle(dc, 11.0 * u, Color(INDIGO, a))
-	glyph(ci, "at_drop", dc, 5.5 * u, Toon.WASHI, NONE, a)
+	if petals:
+		ci.draw_circle(dc, 11.0 * u, Color(UIColors.SAKURA, a))
+		glyph(ci, "at_petal", dc, 7.5 * u, Toon.WASHI, UIColors.SAKURA, a)
+	else:
+		ci.draw_circle(dc, 11.0 * u, Color(INDIGO, a))
+		glyph(ci, "at_drop", dc, 5.5 * u, Toon.WASHI, NONE, a)
 	ci.draw_string(nf, Vector2(dc.x + 11.0 * u + 7.0 * u, cy + float(fs) * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
 		Color(UIColors.WASHI, a))
 	return r

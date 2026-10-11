@@ -118,6 +118,18 @@ const CURSES := {
 		"malus": ["hud/oni", "×2", "élites"], "gain": ["hud/piece", "×2", "or"],
 		"line": "Toute la partie, les élites (bouclier, aura, affixes) sont deux fois plus fréquents. En échange : chaque pièce ramassée en vaut deux."},
 }
+const Shop = preload("res://scripts/shop.gd")  # échoppe du marchand tanuki
+# Marchand : un par monde, dans le dernier recoin de l'étape qui précède le gardien (combats 6-7). Prix en or :
+# [monde 1, + par monde]. Robot de campagne (graine 101) : ~150 pièces en poche à la fin de l'étape 3 (de 50 à 600
+# selon le sceau d'or et le refus d'un pacte), ~430 sur tout un monde : de quoi prendre un ou deux articles.
+const MERCHANT_STAGE := 2  # étape (index) du marchand : la dernière avant celle du gardien (MINI_ROOM)
+const MERCHANT_R := 1.75  # = PuzzleArt.YATAI_RING_R : l'échoppe s'ouvre dans l'anneau d'or
+const SHOP_PRICE := {"reroll": [25, 5], "heal": [40, 5], "scroll": [60, 10], "upgrade": [75, 10], "charm": [90, 10]}
+const SHOP_HEAL := 2  # cœurs rendus par l'onigiri
+const SHOP_CHARMS := ["garde", "encre", "sceaux", "figure"]  # omamori vendus (pour la fin de la partie)
+const SHOP_CHARM_LINE := {"garde": "1er coup de chaque étape annulé", "encre": "Encre pleine à chaque combat",
+	"sceaux": "Toute figure brise un sceau", "figure": "1re figure du combat doublée"}
+const GOLD_PER_SUMI := 3  # fin de partie : l'or qui reste devient de l'encre (3 pièces = 1 encre ; 2 avant le marchand)
 const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
 const REFUSE_COST := 40  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
 const REFUSE_COST_STEP := 10
@@ -140,6 +152,7 @@ const SEAL_CHANCE := 0.5  # part des coffres de recoin scellés
 const SEAL_NEAR := 3.0  # le trait passe à moins de 3 m du coffre
 const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l'expérience du niveau suivant)
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
+const OniShrine = preload("res://scripts/oni_shrine.gd")  # sanctuaire d'oni du défi d'élite (recoins)
 # yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un cadenas au-dessus de
 # la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
 # (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
@@ -204,7 +217,7 @@ const HALF := Vector2(4.6, 8.6)  # demi-dimensions de l'arène (x, z)
 const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 
 const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès le départ)
-const ELAN_REGEN := 10.0  # par seconde réelle, hors tracé
+const ELAN_REGEN := 7.0  # par seconde réelle, hors tracé (jauge pleine en ~2 s)
 const ELAN_PER_HIT := 3.5
 const ENEMY_HP_MULT := 2.05  # 2.0 avant les portes à sceaux : +2,5 % pour leurs rouleaux en plus (robots campagne)
 const ULT_DAMAGE := 4.0
@@ -332,8 +345,14 @@ var hazards: Node3D
 var meta: RefCounted
 var refuge: Control
 var mini_kills := 0
+var defi_kills := 0  # défis des recoins relevés (élites) : pétales de fin de partie
 var curses: Array = []
 var _pick_mode := "upgrade"
+var shop: Control  # échoppe du marchand (shop.gd)
+var _shop_pk: Dictionary = {}  # recoin du marchand dont l'échoppe est ouverte
+var _shop_back := false  # rouleau acheté : l'échoppe revient après le choix
+var shop_bought := 0  # articles achetés dans la partie (robot)
+var merchants_seen := 0  # marchands posés dans la partie (robot)
 var _extra_picks := 0
 var _safe_point := Vector3.ZERO
 var kills := 0
@@ -451,6 +470,8 @@ var _seal_quota := 0  # scellés encore possibles dans ce combat
 var _room_spawned := 0  # ennemis posés depuis le début du combat (le premier n'est jamais scellé)
 var _cap_fige := -1.0  # captures (`fige=`) : délai entre le coup sur le sceau et l'image figée (< 0 : rien)
 var _cap_frozen := false
+var _cap_oni_fige := -1.0  # captures (`figeoni=X`) : image figée X s après le début de l'invocation du sanctuaire d'oni
+var _cap_oni_win := false  # captures (`vaincu`) : l'élite du sanctuaire d'oni meurt aussitôt parue
 # combat de boss sans dégât
 var _scratched := false
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
@@ -586,6 +607,10 @@ func _ready() -> void:
 	pick_layer.add_child(picker)
 	picker.picked.connect(_on_picked)
 	picker.reroll.connect(_on_reroll)
+	shop = Shop.new()
+	pick_layer.add_child(shop)
+	shop.bought.connect(_on_shop_bought)
+	shop.closed.connect(_on_shop_closed)
 	var opt_layer := CanvasLayer.new()
 	opt_layer.layer = 5
 	add_child(opt_layer)
@@ -728,6 +753,11 @@ func _ready() -> void:
 			get_tree().create_timer(float(wsearch.substr(rq + 5).get_slice("&", 0)), true, false, true).timeout.connect(_puzzle_fail.bind(cpk, ""))
 	elif pq >= 0 and state == "play":
 		spawn_puzzle(pqk, hero.position + Vector3(0, 0, -3.4))
+	# `?onisha` (captures) : un sanctuaire d'oni posé devant le héros, à la distance de jeu (`&oniseal` : celui du sceau
+	# de l'oni des portes) ; `invoque=T` : l'invocation à T s ; `figeoni=X` : image figée X s après son début ;
+	# `vaincu` : l'élite meurt aussitôt parue (sanctuaire éteint)
+	if "onisha" in wsearch and state == "play":
+		_capture_oni(wsearch)
 	# `?scelle=loop` (captures) : un yōkai scellé (figure loop ; `kind=kappa`) et deux autres, figés devant le héros ;
 	# `ricoche=1.5` : un trait droit le traverse à 1,5 s (le coup ricoche) ; `brise=2` : à 2 s, le héros trace sa
 	# figure à travers lui (le sceau se brise) ; `loin=1` : posés plus loin (distance de jeu ordinaire)
@@ -750,6 +780,14 @@ func _ready() -> void:
 		var bq := wsearch.find("brise=")
 		if bq >= 0:
 			get_tree().create_timer(float(wsearch.substr(bq + 6).get_slice("&", 0)), true, false, true).timeout.connect(_capture_seal_stroke.bind(true))
+	# `?encre` (captures de l'encre liquide) : planche de taches à différents âges (jaillissement, frais, séchage,
+	# sec) et deux traits (frais, en train de sécher), puis l'image se fige ; `figer=N` : n'importe quelle partie
+	# (combat `fig=plain`…) se fige au bout de N s (temps réel)
+	if "encre" in wsearch and state == "play":
+		_capture_ink()
+	var fz := wsearch.find("figer=")
+	if fz >= 0:
+		get_tree().create_timer(float(wsearch.substr(fz + 6).get_slice("&", 0)), true, false, true).timeout.connect(func() -> void: _cap_frozen = true)
 	if "autel" in wsearch and state == "play":
 		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
 		for zi in arena.zones.size():
@@ -761,6 +799,32 @@ func _ready() -> void:
 		_prev_hero = hero.position
 		_cam_dz = _cam_target()
 		arena.follow_camera(_cam_dz)
+	# `?room=N&marchand` (captures) : l'étal du marchand posé dans l'étape en cours, le héros devant ; `&ouvert` :
+	# l'échoppe ouverte ; `&or=N` : or de la partie (140 par défaut) ; `&vendu=K` : l'article K déjà acheté
+	if "marchand" in wsearch and state == "play":
+		meta.tuto_done = true
+		for zi in arena.zones.size():
+			arena.clear_zone(zi)
+		arena.open_gate()
+		var mpk := _spawn_merchant(_shrine_spot())
+		var mp: Vector3 = mpk["pos"]
+		hero.position = arena.clamp_walk(mp + Vector3(0.4, 0, 3.0), 0.5)
+		hero.hp = maxi(1, hero.max_hp - 2)
+		_prev_hero = hero.position
+		_cam_dz = _cam_target()
+		arena.follow_camera(_cam_dz)
+		var gq2 := wsearch.find("or=")
+		run_gold = int(wsearch.substr(gq2 + 3).get_slice("&", 0)) if gq2 >= 0 else 140
+		if "ouvert" in wsearch:
+			mpk["items"] = _shop_roll(true)
+			var vq := wsearch.find("vendu=")
+			if vq >= 0:
+				var vi := int(wsearch.substr(vq + 6).get_slice("&", 0))
+				var its: Array = mpk["items"]
+				if vi >= 0 and vi < its.size():
+					its[vi]["sold"] = true
+			_open_shop(mpk)
+			shop.set("_t", 2.0)  # (capture : ouverture déjà jouée, même si la première image est lente)
 	# `?room=N&portes=fire,gold[&proche]` (maquette) : la sortie de l'étape remplacée par deux torii à sceaux
 	if "portes" in wsearch and state == "play":
 		load("res://scripts/seal_gate.gd").mock(self, wsearch)
@@ -861,7 +925,17 @@ func _ready() -> void:
 		tuto.dojo.call("_toggle_book")
 	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
 	if "garderobe" in wsearch:
+		# `&cat=N` : l'onglet N ouvert (3 : interface, les prix) ; `&petales=N` : N pétales (captures)
+		var wpq := wsearch.find("petales=")
+		if wpq >= 0:
+			meta.petals = maxi(0, int(wsearch.substr(wpq + 8).get_slice("&", 0)))
 		_open_wardrobe()
+		var wcq := wsearch.find("cat=")
+		if wcq >= 0:
+			wardrobe.call("tap", "tab:%d" % int(wsearch.substr(wcq + 4).get_slice("&", 0)))
+		var wiq := wsearch.find("item=")  # `&item=nuit` : cet élément touché (prix, ACHETER)
+		if wiq >= 0:
+			wardrobe.call("tap", "item:" + wsearch.substr(wiq + 5).get_slice("&", 0))
 	# `?depart[&voir=warefude][&sel=portes]` (captures) : l'écran AVANT LE DÉPART, ce pinceau affiché, ce charme touché
 	if "depart" in wsearch:
 		_ask_departure(current_world, false)
@@ -919,6 +993,67 @@ func _ready() -> void:
 	perf_mark("boot_ready", _ticks - t_ready)
 	# la suite (squelettes, boss, préchauffage) vient après l'affichage de l'accueil
 	_boot_async(t_ready)
+
+
+## Captures `?encre` : 4 rangées de taches (mise à mort sumi, tache vermillon, encre épaisse, éclaboussures) à
+## 4 âges (jaillissement, frais et humide, séchage, sec) ; un trait frais en cours (bas) et un trait qui sèche
+## (haut). Tout est posé à rebours de l'instant figé (T), sans ennemi.
+func _capture_ink() -> void:
+	meta.tuto_done = true
+	const T := 7.0
+	var tree := get_tree()
+	await tree.create_timer(T - 3.0, true, false, true).timeout
+	for e in enemies:
+		if is_instance_valid(e):
+			e.visible = false
+			e.process_mode = Node.PROCESS_MODE_DISABLED
+	hero.invuln = 99.0
+	var o: Vector3 = hero.position
+	var xs := [-1.7, -0.4, 0.9, 2.2]
+	var rows := [  # [z, vie, sorte]
+		[-2.0, 1.3, "kill"], [-3.7, 2.5, "verm"], [-5.4, 3.0, "thick"], [-7.1, 1.2, "spat"]]
+	var jobs: Array = []  # [instant de pose, callable]
+	for row in rows:
+		var life: float = row[1]
+		var ages := [0.06, 0.35, life * 0.55, life * 0.8]
+		for c in 4:
+			var g: Vector3 = o + Vector3(xs[c], 0, float(row[0]))
+			var kind: String = row[2]
+			var cb: Callable
+			match kind:
+				"kill":
+					cb = func() -> void: vfx.kill_burst(g, Vector3(1, 0, -0.4), false)
+				"verm":
+					cb = func() -> void: _blot(g, Toon.VERMILION, 0.55, life)
+				"thick":
+					cb = func() -> void: vfx.blot(g, 0.6, life)
+				"spat":
+					cb = func() -> void: vfx.call("_spatter", g, 0.75, vfx.INK, life)
+			jobs.append([T - float(ages[c]), cb])
+	# trait qui sèche (0,9 s de séchage) en haut, trait frais en bas (le pinceau est encore posé)
+	jobs.append([T - 2.0, func() -> void: _cap_stroke(o + Vector3(-2.6, 0, -8.6), 5.2, 1.1)])
+	jobs.append([T - 0.6, func() -> void: _cap_stroke(o + Vector3(-2.6, 0, -0.6), 5.2, -1.0)])
+	# minuteries toutes lancées au même instant (des attentes en chaîne prendraient chacune une image de retard)
+	for j in jobs:
+		tree.create_timer(float(j[0]) - (T - 3.0), true, false, true).timeout.connect(j[1] as Callable)
+	await tree.create_timer(3.0, true, false, true).timeout
+	_cap_frozen = true
+
+
+## Trait de capture : une vague de `w` m tracée en ~0,5 s (le pinceau ralentit au milieu) ; dry >= 0 : sèche
+## au bout de `dry` s.
+func _cap_stroke(a: Vector3, w: float, dry: float) -> void:
+	var s := InkStroke.new(a, stroke_layer)
+	stroke_layer += 1
+	add_child(s)
+	var n := 14
+	for i in range(1, n + 1):
+		var u := float(i) / float(n)
+		s.extend_to(a + Vector3(w * u, 0, 0.45 * sin(u * TAU)), 40.0)
+		await get_tree().create_timer(0.02 if i < 5 or i > 9 else 0.07, true, false, true).timeout
+	if dry >= 0.0:
+		await get_tree().create_timer(maxf(dry - 0.6, 0.0), true, false, true).timeout
+		s.start_drying()
 
 
 ## Captures `?fig=<figure>` : toutes les 2,6 s, le héros (intouchable) trace la figure vers l'ennemi le plus proche,
@@ -1287,6 +1422,11 @@ func _warmup() -> void:
 			# coffre scellé : chaîne, ofuda, sceau, plaque et son encre, gouttes du déverrouillage
 			PuzzleArt.build_seal(pn, {}, "loop", 1.0)
 			PuzzleArt.warm_seal(pn)
+	# sanctuaire d'oni en pleine invocation (colonne d'encre, flamme, lueurs) et fumée de l'extinction
+	var onw := Node3D.new()
+	w.add_child(onw)
+	onw.position = Vector3(3.0, 0, 5.5)
+	OniShrine.warm(onw)
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
 	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
 	# portes à deux sceaux : faces des dix sceaux rastérisées d'avance (cache de svg_tex), matières du sceau
@@ -2866,11 +3006,18 @@ func _start(hub := true, tutorial := false) -> void:
 	kills = 0
 	boss_kills = 0
 	mini_kills = 0
+	defi_kills = 0
 	run_time = 0.0
 	xp = 0
 	level = 1
 	run_gold = 0
 	_pending_levels = 0
+	_shop_pk = {}
+	_shop_back = false
+	shop_bought = 0
+	merchants_seen = 0
+	if shop != null:
+		shop.visible = false
 	seal_reward = ""
 	_seal_picks.clear()
 	pickups.clear()
@@ -3704,6 +3851,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 		pickups.drop(e.position, "coin", 8)
 		pickups.drop(e.position, "xp", 6)
 		hud.toast("DÉFI RELEVÉ")
+		defi_kills += 1
 		sfx.play("levelup", 1.2, -4.0)
 		if e.has_meta("seal_oni"):
 			_seal_picks.append({"rank": 1})  # sceau de l'oni : rouleau rare ou épique
@@ -3921,7 +4069,7 @@ func _seal_pocket(kinds: Array, spots: Array) -> void:
 				break
 		if best >= 0:
 			break
-	if best < 0 and not spots.is_empty() and spots[0] != Vector3.INF:
+	if best < 0 and not spots.is_empty() and spots[0] != Vector3.INF and String(kinds[0]) != "merchant":
 		best = 0
 	if best >= 0:
 		kinds[best] = want
@@ -4085,6 +4233,11 @@ func _on_picked(id: String) -> void:
 	if _extra_picks > 0:
 		_extra_picks -= 1
 		_open_upgrades()
+		return
+	if _shop_back:
+		# rouleau acheté au marchand : on revient à son échoppe
+		_shop_back = false
+		_reopen_shop()
 		return
 	if _pick_context == "level":
 		_set_state("play")
@@ -4310,6 +4463,19 @@ func _build_pockets() -> void:
 		if spots[i] != Vector3.INF:
 			slots.append(i)
 	slots.shuffle()
+	# le marchand : dans le recoin du dernier tronçon (juste avant le torii), sinon un autre, sinon celui du coffre
+	if stage_i == MERCHANT_STAGE and not in_hub and state != "tuto":
+		var mi := -1
+		for i in range(spots.size() - 1, 0, -1):
+			if i in slots:
+				mi = i
+				break
+		if mi >= 0:
+			slots.erase(mi)
+		elif not spots.is_empty() and spots[0] != Vector3.INF:
+			mi = 0
+		if mi >= 0:
+			kinds[mi] = "merchant"
 	# une petite énigme de trait par étape, presque toujours (à l'écart du chemin)
 	if not slots.is_empty() and randf() < 0.9:
 		kinds[int(slots.pop_back())] = "puzzle"
@@ -4328,6 +4494,9 @@ func _build_pockets() -> void:
 		if k == "puzzle":
 			spawn_puzzle("", p)
 			continue
+		if k == "merchant":
+			_spawn_merchant(p)
+			continue
 		if k == "chest" and stage_i >= 1 and randf() < SEAL_CHANCE:
 			_spawn_sealed_chest(p)
 			continue
@@ -4335,7 +4504,12 @@ func _build_pockets() -> void:
 		var pn := _pocket_node(k, p)
 		if sealed and k == "spring":
 			_seal_spring(pn)  # sceau du cœur : la source elle-même est vermillon (plus de sceau flottant)
-		_pockets.append({"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed})
+		var pk := {"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed}
+		if k == "elite":
+			pk["oni"] = pn.get_meta("oni")
+			if sealed:
+				OniShrine.mark_seal(pk["oni"])  # sceau de l'oni : le sanctuaire couve déjà (lanternes rouges, braises)
+		_pockets.append(pk)
 
 
 const SPRING_RED := Color("#C8322A")  # eau de la source du sceau du cœur
@@ -4430,22 +4604,19 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			var glint := _disc(n, 0.85, Toon.flat(Color("#9FE8C8", 0.22)), 0.02)
 			glint.name = "Glint"
 		"elite":
-			var stone2 := Toon.mat_shared(Color("#55525A"))
-			Toon.part(n, Toon.box(Vector3(0.5, 0.12, 0.4)), stone2, Vector3(0, 0.06, 0))
-			Toon.part(n, Toon.box(Vector3(0.34, 0.9, 0.16)), stone2, Vector3(0, 0.55, 0))
-			Toon.part(n, Toon.box(Vector3(0.2, 0.3, 0.02)), Toon.mat_shared(Toon.VERMILION, false), Vector3(0, 0.65, 0.09))
-			_disc(n, 1.2, Toon.flat(Color(Toon.VERMILION, 0.18)), 0.02)
-			# deux cornes d'oni en papier au sommet de la pierre (plus de kanji : UI v2), l'ofuda vermillon dessous
-			var horn := Toon.mat_shared(Toon.WASHI, true, 0.025)
-			for sx in [-1.0, 1.0]:
-				var h := Toon.part(n, Toon.cyl(0.0, 0.05, 0.22, 8), horn, Vector3(float(sx) * 0.1, 1.08, 0))
-				h.rotation = Vector3(0, 0, float(-sx) * 0.3)
+			# sanctuaire d'oni (oni_shrine.gd), tourné un peu vers le milieu de l'étape (l'élite paraît devant)
+			var mid: float = arena.stage_rect.get_center().x if arena.stage else 0.0
+			var yaw := (OniShrine.YAW * (1.0 if p.x <= mid else -1.0)) if absf(p.x - mid) > 0.3 else 0.0
+			OniShrine.build(n, current_world, yaw, Callable(arena, "walkable") if arena.stage else Callable())
 	return n
 
 
 ## Le héros touche un recoin : coffre (or, expérience), source (1 cœur), défi (un ennemi d'élite apparaît).
 func _update_pockets() -> void:
 	for pk in _pockets:
+		if String(pk["kind"]) == "elite":
+			_update_oni(pk)  # (vit aussi après l'appel : invocation, défi en cours, extinction)
+			continue
 		if bool(pk["used"]):
 			continue
 		var p: Vector3 = pk["pos"]
@@ -4496,14 +4667,78 @@ func _update_pockets() -> void:
 					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
 					sfx.play("shrine", 1.4, -4.0)
 					hud.toast("SOIN +%d" % (SEAL_HEAL if bool(pk.get("seal", false)) else 1))
-			"elite":
-				if d < 3.0 and _enc < 0:
-					pk["used"] = true
-					_spawn_elite(p, bool(pk.get("seal", false)))
-					if is_instance_valid(n):
-						n.queue_free()
 			"puzzle":
 				_update_puzzle(pk, n, d)
+			"merchant":
+				_update_merchant(pk, n, d)
+
+
+## Capture `?onisha` : sanctuaire d'oni à 1,3 m à droite et 3,6 m devant le héros (hors du rayon d'appel).
+func _capture_oni(wsearch: String) -> void:
+	meta.tuto_done = true
+	for pk in _pockets:
+		if String(pk["kind"]) == "elite" and is_instance_valid(pk["node"]):
+			(pk["node"] as Node).queue_free()
+	_pockets = _pockets.filter(func(pk: Dictionary) -> bool: return String(pk["kind"]) != "elite")
+	var p: Vector3 = arena.clamp_walk(hero.position + Vector3(1.3, 0, -3.6), 1.0)
+	p.y = 0.0
+	var sealed := "oniseal" in wsearch
+	var pn := _pocket_node("elite", p)
+	var pk := {"kind": "elite", "pos": p, "used": false, "node": pn, "seal": sealed, "oni": pn.get_meta("oni")}
+	if sealed:
+		OniShrine.mark_seal(pk["oni"])
+	_pockets.append(pk)
+	_cap_oni_win = "vaincu" in wsearch
+	var fq := wsearch.find("figeoni=")
+	if fq >= 0:
+		_cap_oni_fige = float(wsearch.substr(fq + 8).get_slice("&", 0))
+	var iq := wsearch.find("invoque=")
+	if iq >= 0:
+		pk["cap_at"] = float(wsearch.substr(iq + 8).get_slice("&", 0))  # en temps de jeu (run_time)
+
+
+## Sanctuaire d'oni d'un recoin : le héros approche (hors combat) -> invocation (OniShrine, ≈ 1,2 s), l'élite paraît
+## devant à OniShrine.SPAWN_T ; tant qu'elle vit le sanctuaire brûle rouge, sa mort l'éteint (fumée, masque fendu).
+func _update_oni(pk: Dictionary) -> void:
+	var nv = pk["node"]  # sans type : peut avoir été libéré
+	if not is_instance_valid(nv) or not pk.has("oni"):
+		return
+	var n: Node3D = nv
+	var o: Dictionary = pk["oni"]
+	var st := String(o["state"])
+	if st == "idle":
+		var p: Vector3 = pk["pos"]
+		var d := Vector2(hero.position.x - p.x, hero.position.z - p.z).length()
+		if not bool(pk["used"]) and ((d < OniShrine.TRIGGER_R and _enc < 0) or run_time >= float(pk.get("cap_at", INF))):
+			_oni_summon(pk)
+	elif st == "summon":
+		if not pk.has("foe") and run_time - float(o["t0"]) >= OniShrine.SPAWN_T:
+			var e := _spawn_elite(OniShrine.front(n, o), bool(pk.get("seal", false)))
+			pk["foe"] = e
+	if (st == "summon" or st == "active") and pk.has("foe"):
+		var fv = pk["foe"]
+		if _cap_oni_win and is_instance_valid(fv) and not bool(fv.dead) and not bool(fv.is_harmless()):
+			for _i in 40:
+				damage_enemy(fv, 9999.0, false)  # capture (`vaincu`) : le défi est relevé dès que l'élite est vulnérable
+		if not is_instance_valid(fv) or bool(fv.dead):
+			OniShrine.extinguish(o, run_time)
+			sfx.play("puff", 0.7, -4.0)
+	for cue in OniShrine.update(o, run_time):
+		match String(cue):
+			"fire":
+				sfx.play("fire", 0.8, -3.0)
+			"gust":
+				sfx.play("gust", 0.75, -2.0)
+				shake = maxf(shake, 0.18)
+	if _cap_oni_fige >= 0.0 and String(o["state"]) != "idle" and run_time - float(o["t0"]) >= _cap_oni_fige:
+		_cap_oni_fige = -1.0
+		_cap_frozen = true  # capture (`figeoni=`) : image figée à cet instant de l'invocation
+
+
+func _oni_summon(pk: Dictionary) -> void:
+	pk["used"] = true
+	OniShrine.summon(pk["oni"], run_time)
+	sfx.play("shrine", 0.55, -2.0)  # cloche grave : l'appel
 
 
 ## Coffre ouvert : le couvercle saute, colonne de lumière, butin. `rich` (coffre scellé) : plus d'or et
@@ -4587,7 +4822,7 @@ func _unseal_chest(pk: Dictionary) -> void:
 
 
 ## Défi d'un recoin : un costaud d'élite, plus gros et plus solide, qui garde un butin.
-func _spawn_elite(p: Vector3, seal := false) -> void:
+func _spawn_elite(p: Vector3, seal := false) -> Enemy:
 	var e := Enemy.new()
 	e.setup("brute", hero, self)
 	_discover("brute")
@@ -4610,8 +4845,257 @@ func _spawn_elite(p: Vector3, seal := false) -> void:
 	enemies.append(e)
 	shake = maxf(shake, 0.3)
 	sfx.play("strike", 0.45)
-	_splash(p + Vector3(0, 0.4, 0), Toon.VERMILION, 20)
+	_splash(e.position + Vector3(0, 0.4, 0), Toon.VERMILION, 20)
 	hud.banner("DÉFI", "GARDIEN D'ÉLITE", Toon.VERMILION, 1.6)
+	vfx.ring(Vector3(e.position.x, 0.05, e.position.z), Toon.SUMI, 1.8)  # anneau d'encre (le vermillon au sol annonce les attaques)
+	return e
+
+
+# ------------------------------------------------------------------ marchand tanuki
+
+## Étal du marchand (PuzzleArt.build_yatai) posé en `p` : un recoin de plus, {kind "merchant", items, away, visited}.
+## Ses articles sont tirés à la première visite (les améliorations suivent les pouvoirs du moment).
+func _spawn_merchant(p: Vector3) -> Dictionary:
+	var c := Vector3(p.x, 0, p.z)
+	var n := Node3D.new()
+	add_child(n)
+	n.position = c
+	PuzzleArt.build_yatai(n)
+	var pk := {"kind": "merchant", "pos": c, "used": false, "node": n, "items": [], "away": false, "visited": false,
+		"hinted": false, "t": randf() * TAU}
+	_pockets.append(pk)
+	merchants_seen += 1
+	if _bot != null:
+		print("BOT MARCHAND posé : monde %d, étape %d, or %d" % [current_world, stage_i + 1, run_gold])
+	return pk
+
+
+## Chaque image : le tanuki respire et agite son koban, le chōchin se balance ; le héros posé dans l'anneau d'or,
+## hors combat, ouvre l'échoppe (une fois refermée, il faut sortir de l'anneau pour la rouvrir).
+func _update_merchant(pk: Dictionary, n: Node3D, d: float) -> void:
+	var t := run_time + float(pk["t"])
+	if not pk.has("tk"):
+		pk["tk"] = n.get_node_or_null("Tanuki")
+		pk["arm"] = n.get_node_or_null("Tanuki/Arm")
+		pk["lan"] = n.get_node_or_null("Yatai/Lantern")
+	var tk = pk["tk"]
+	if is_instance_valid(tk):
+		var b := sin(t * 2.4)
+		(tk as Node3D).scale = Vector3(1.0 - 0.02 * b, 1.0 + 0.035 * b, 1.0 - 0.02 * b)
+	var arm = pk["arm"]
+	if is_instance_valid(arm):
+		# il agite son koban quand le héros approche
+		var wave := clampf((5.0 - d) / 2.0, 0.0, 1.0)
+		(arm as Node3D).rotation.z = 0.35 + (0.25 + 0.35 * wave) * sin(t * (2.0 + 4.0 * wave))
+	var lan = pk["lan"]
+	if is_instance_valid(lan):
+		(lan as Node3D).rotation = Vector3(0.12 * sin(t * 1.7), 0, 0.1 * sin(t * 1.3 + 0.7))
+	if not bool(pk["hinted"]) and d < 5.0 and _enc < 0:
+		pk["hinted"] = true
+		hud.toast("MARCHAND TANUKI")
+		sfx.play("coin", 0.9, -8.0)
+	if bool(pk["away"]):
+		if d > MERCHANT_R + 0.8:
+			pk["away"] = false
+	elif d < MERCHANT_R and _enc < 0 and _explore and not hero.dashing and state == "play" and not game_over:
+		_open_shop(pk)
+
+
+## Articles d'un marchand : l'onigiri (soin, s'il peut servir dans la partie), puis deux ou trois au hasard parmi
+## relance, rouleau, amélioration d'un pouvoir possédé (s'il y en a un) et omamori (si aucun n'est porté).
+## `full` (captures) : quatre articles.
+func _shop_roll(full := false) -> Array:
+	var out: Array = []
+	if not ("ronin" in curses or charm == "ascete"):
+		out.append({"id": "heal"})
+	var pool: Array = [{"id": "reroll"}, {"id": "scroll"}]
+	var up := _shop_upgrade_pick()
+	if up != "":
+		pool.append({"id": "upgrade", "power": up})
+	if charm == "":
+		pool.append({"id": "charm", "charm": String(SHOP_CHARMS[randi() % SHOP_CHARMS.size()])})
+	pool.shuffle()
+	var n := 4 if full or randf() < 0.5 else 3
+	for it in pool:
+		if out.size() >= n:
+			break
+		out.append(it)
+	for it in out:
+		it["price"] = shop_price(String(it["id"]))
+		it["sold"] = false
+	return out
+
+
+## Prix d'un article dans le monde en cours.
+func shop_price(id: String) -> int:
+	var pr: Array = SHOP_PRICE.get(id, [50, 10])
+	return int(pr[0]) + int(pr[1]) * maxi(0, current_world - 1)
+
+
+## Un pouvoir possédé qui peut encore monter (mêmes règles que les rouleaux : verrous et plafonds), "" sinon.
+func _shop_upgrade_pick() -> String:
+	var pools: Dictionary = powers._pools(room, level, PowerData.RARITY_ORDER)
+	var cands: Array = []
+	for rk in PowerData.RARITY_ORDER:
+		for id in pools.get(rk, []):
+			var sid := String(id)
+			if powers.lvl(sid) > 0 and powers.lvl(sid) < powers.max_level(sid) and not sid in cands:
+				cands.append(sid)
+	if cands.is_empty():
+		return ""
+	return String(cands[randi() % cands.size()])
+
+
+## Fiches des articles pour l'échoppe (shop.gd) : nom, effet, pictogramme, prix, vendu, utile maintenant (why).
+func _shop_items() -> Array:
+	var out: Array = []
+	var its: Array = _shop_pk.get("items", [])
+	for it in its:
+		var id := String(it["id"])
+		var d := {"id": id, "price": int(it["price"]), "sold": bool(it["sold"]), "can": true, "why": ""}
+		match id:
+			"heal":
+				d["name"] = "Onigiri"
+				d["line"] = "Rend %d cœurs" % SHOP_HEAL
+				d["glyph"] = "heart_plus"
+				d["col"] = Toon.VERMILION
+				if hero.hp >= hero.max_hp:
+					d["can"] = false
+					d["why"] = "CŒURS PLEINS"
+			"reroll":
+				d["name"] = "Relance"
+				d["line"] = "+1 relance de rouleau"
+				d["glyph"] = "reroll"
+				d["col"] = UiKit.INDIGO
+			"scroll":
+				d["name"] = "Rouleau"
+				d["line"] = "Un pouvoir à choisir parmi trois"
+				d["glyph"] = "scroll"
+				d["col"] = Color("#8C7458")
+			"upgrade":
+				var pid := String(it["power"])
+				var l: int = int(it["lv"]) if it.has("lv") else powers.lvl(pid)  # (vendu : le niveau d'avant l'achat)
+				d["name"] = UiKit.power_label(pid)
+				d["line"] = "Amélioration : niveau %d → %d" % [l, mini(l + 1, powers.max_level(pid))]
+				d["power"] = pid
+				if l >= powers.max_level(pid) and not bool(it["sold"]):
+					d["can"] = false
+					d["why"] = "AU MAXIMUM"
+			"charm":
+				var cid := String(it["charm"])
+				var cd: Dictionary = Gear.charm(cid)
+				d["name"] = String(cd.get("name", "Omamori"))
+				d["line"] = "%s, jusqu'à la fin de la partie" % String(SHOP_CHARM_LINE.get(cid, ""))
+				d["glyph"] = "amulet"
+				d["col"] = cd.get("col", Toon.GOLD)
+				if charm != "" and not bool(it["sold"]):
+					d["can"] = false
+					d["why"] = "DÉJÀ PORTÉ"
+		out.append(d)
+	return out
+
+
+## Le héros entre dans l'anneau du marchand : l'échoppe s'ouvre (le jeu attend, comme au sanctuaire).
+func _open_shop(pk: Dictionary) -> void:
+	_shop_pk = pk
+	pk["visited"] = true
+	if (pk["items"] as Array).is_empty():
+		pk["items"] = _shop_roll()
+	_cancel_stroke()
+	_pick_context = "room"
+	_set_state("pick")
+	_pick_mode = "shop"
+	_last_offer = []
+	shop.open(_shop_items(), run_gold)
+	sfx.play("coin", 0.8, -4.0)
+	sfx.play("shrine", 1.5, -8.0)
+	if _bot != null:
+		var desc: Array = []
+		for x in pk["items"]:
+			desc.append("%s:%d" % [String(x["id"]), int(x["price"])])
+		print("BOT MARCHAND échoppe ouverte : monde %d, or %d, articles %s" % [current_world, run_gold, str(desc)])
+
+
+## Retour à l'échoppe (après le rouleau acheté).
+func _reopen_shop() -> void:
+	if _shop_pk.is_empty():
+		_after_room_pick()
+		return
+	_pick_mode = "shop"
+	_last_offer = []
+	shop.open(_shop_items(), run_gold)
+
+
+## Achat de l'article `i` (toucher sur sa tuile, ou robot) : vérifié ici, l'or est retiré, l'effet tout de suite.
+## Le rouleau ferme l'échoppe le temps du choix (picker), puis elle revient.
+func _on_shop_bought(i: int) -> void:
+	var its: Array = _shop_pk.get("items", [])
+	if i < 0 or i >= its.size():
+		return
+	var it: Dictionary = its[i]
+	var info: Dictionary = _shop_items()[i]
+	var price := int(it["price"])
+	if bool(it["sold"]) or not bool(info["can"]) or run_gold < price:
+		return
+	run_gold -= price
+	it["sold"] = true
+	shop_bought += 1
+	var id := String(it["id"])
+	if _bot != null:
+		print("BOT MARCHAND achat : %s pour %d (or restant %d, monde %d)" % [id if id != "upgrade" else "upgrade " + String(it["power"]), price, run_gold, current_world])
+	sfx.play("coin", 0.7, -2.0)
+	feel("clear")
+	match id:
+		"heal":
+			heal(SHOP_HEAL)
+		"reroll":
+			picker.rerolls = int(picker.rerolls) + 1
+		"upgrade":
+			it["lv"] = powers.lvl(String(it["power"]))
+			powers.add(String(it["power"]))
+			sfx.play("levelup", 1.2, -6.0)
+		"charm":
+			charm = String(it["charm"])
+			hero.set_charm(charm, Gear.charm(charm).get("col", Color.WHITE))
+			charm_fx()
+		"scroll":
+			shop.visible = false
+			_shop_back = true
+			_pick_context = "room"
+			_open_upgrades()
+			return
+	shop.refresh(_shop_items(), run_gold, i)
+
+
+## PARTIR (ou retour) : l'échoppe se referme, on rend la main ; sortir de l'anneau permet d'y revenir.
+func _on_shop_closed() -> void:
+	shop.visible = false
+	if not _shop_pk.is_empty():
+		_shop_pk["away"] = true
+	_shop_pk = {}
+	_shop_back = false
+	_pick_mode = "upgrade"
+	sfx.play("whoosh", 1.3, -8.0)
+	_after_room_pick()
+
+
+## Robot : achète ce qui sert (soin s'il manque des cœurs, amélioration, rouleau, omamori, relance), dans cet
+## ordre et tant que l'or suffit, puis referme l'échoppe. Un rouleau acheté ouvre d'abord son choix (l'échoppe
+## revient après, il reprend). Vrai s'il a refermé l'échoppe.
+func bot_shop() -> bool:
+	if not shop.visible:
+		return false
+	var infos := _shop_items()
+	for want in ["heal", "upgrade", "scroll", "charm", "reroll"]:
+		for i in infos.size():
+			var d: Dictionary = infos[i]
+			if String(d["id"]) == want and not bool(d["sold"]) and bool(d["can"]) and run_gold >= int(d["price"]):
+				_on_shop_bought(i)
+				if not shop.visible:
+					return false  # rouleau : le choix d'abord
+				infos = _shop_items()
+	_on_shop_closed()
+	return true
 
 
 # ------------------------------------------------------------------ énigmes des recoins
@@ -4633,6 +5117,15 @@ func spawn_puzzle(kind: String, p: Vector3) -> Dictionary:
 			pk["lanterns"] = spots
 	if pz == "stele":
 		pk["shape"] = String(PUZZLE_FIGS[randi() % PUZZLE_FIGS.size()])
+	if pz == "spirit":
+		# l'esprit au milieu du chemin (au bord du quai, on l'entoure mal) : rapproché du centre tant que c'est praticable
+		var mx: float = (arena.stage_rect as Rect2).get_center().x
+		for f in [0.7, 0.5, 0.3]:
+			var q := Vector3(lerpf(c.x, mx, f), 0, c.z)
+			if arena.walkable(q, 1.6):
+				c = q
+				pk["pos"] = c
+				break
 	pk["node"] = _puzzle_node(pk)
 	_pockets.append(pk)
 	puzzles_seen += 1
@@ -4778,7 +5271,7 @@ func spirit_pos(pk: Dictionary) -> Vector3:
 	var t := run_time * 0.55 + float(pk["t"])
 	var q := c + Vector3(cos(t) * 0.7 + 0.2 * sin(t * 2.3), 0, sin(t * 0.8) * 0.55)
 	var b: Rect2 = arena.stage_rect
-	q.x = clampf(q.x, b.position.x + 1.0, b.end.x - 1.0)
+	q.x = clampf(q.x, b.position.x + 1.6, b.end.x - 1.6)
 	return q
 
 
@@ -4944,6 +5437,8 @@ func bot_goal() -> Vector3:
 			continue
 		if String(pk["kind"]) == "spring" and hero.hp >= hero.max_hp:
 			continue
+		if String(pk["kind"]) == "merchant" and bool(pk.get("visited", false)):
+			continue  # échoppe déjà vue : le robot n'y retourne pas
 		if int(pk.get("bot_try", 0)) >= 4:
 			continue  # énigme (ou coffre scellé) ratée plusieurs fois : le robot la laisse
 		var p: Vector3 = pk["pos"]
@@ -4994,7 +5489,7 @@ func _slowmo_w() -> float:
 
 func _award(victory: bool) -> void:
 	var cleared := room if victory or _room_done else room - 1
-	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world)
+	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world, defi_kills)
 	var open_before: Dictionary = meta.brushes_open()
 	var un: Dictionary = meta.record_world(current_world, room, victory)
 	# pinceaux : le boss vaincu avec ce pinceau donne son aspect suivant ; le monde ouvre peut-être un pinceau
@@ -5011,11 +5506,12 @@ func _award(victory: bool) -> void:
 		menu.unlock_world_name = String(nw.get("name", ""))
 		menu.unlock_world_kanji = String(nw.get("kanji", "道"))
 		menu.unlock_world_color = nw.get("color", Toon.PRUSSIAN)
-	# l'or ramassé devient de l'encre (2 pièces = 1 encre)
-	var bonus := int(run_gold / 2.0)
+	# l'or qui reste devient de l'encre (GOLD_PER_SUMI pièces = 1 encre : le marchand en est le meilleur usage)
+	var bonus := int(run_gold / GOLD_PER_SUMI)
 	meta.sumi += bonus
 	meta.save_data()
 	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
+	menu.gain_petals = int(g.get("petals", 0))  # pétales (garde-robe), à côté de l'encre
 	if victory and _flawless_boss:
 		# boss du monde vaincu sans un coup : encre en plus (40, et les 2 anciens sceaux payés en encre)
 		var fl := 40 + 2 * Meta.SEAL_SUMI
@@ -5610,7 +6106,11 @@ func _touch_move(sp: Vector2) -> void:
 		var live_shape := String(live.get("shape", ""))
 		# le crochet ne se confirme qu'au relâchement : doigt encore posé, une « barbe » est souvent le début du
 		# second segment d'un trait qui va chercher un autre ennemi (l'encre ne se teinte pas trop tôt)
-		stroke.set_figure("" if live_shape == "hook" else live_shape)
+		# même chose pour une boucle dont le trait n'est pas encore ressorti (ni enroulée) : en finissant le tour,
+		# ce cercle peut encore devenir un ensō
+		if live_shape == "hook" or (live_shape == "loop" and not bool(live.get("settled", true))):
+			live_shape = ""
+		stroke.set_figure(live_shape)
 	if stroke.exhausted and not was_empty:
 		sfx.play("empty", 0.8)
 
@@ -6686,19 +7186,8 @@ func _recycle_splash(node: Node3D) -> bool:
 
 
 func _blot(pos: Vector3, color: Color, r: float, life: float) -> void:
-	var n := Node3D.new()
-	add_child(n)
-	n.position = Vector3(pos.x, 0, pos.z)
-	# disque unité partagé, mis à l'échelle ; une seule matière par tache (elle s'efface d'un bloc)
-	var mt := Toon.flat(color)
-	var main_disc := _disc(n, r, mt, 0.015)
-	main_disc.scale = Vector3(r, 1, r * randf_range(0.7, 1.0))
-	main_disc.rotation.y = randf() * TAU
-	for i in 4:
-		var a := randf() * TAU
-		var dd := _disc(n, r * randf_range(0.12, 0.25), mt, 0.016)
-		dd.position += Vector3(cos(a), 0, sin(a)) * r * randf_range(1.1, 1.8)
-	effects.append({"node": n, "t": 0.0, "life": life, "kind": "fade", "mats": [mt], "alpha": color.a})
+	# encre liquide (vfx.ink_stain, shaders/ink_liquid.gdshader) : matière partagée, même vie qu'avant
+	vfx.ink_stain(Vector3(pos.x, 0.015, pos.z), r, color, life, Vector3.ZERO, 0.7)
 
 
 ## Disque plat au sol de rayon `r`, sur un maillage unité partagé.
@@ -6748,10 +7237,6 @@ func _update_effects(dt: float, real: float) -> void:
 		fx.t += real if fx.kind == "label" or fx.kind == "dmg" or fx.kind == "icon" else dt
 		var k: float = fx.t / fx.life
 		match fx.kind:
-			"fade":
-				var a: float = fx.alpha * clampf((1.0 - k) * 2.0, 0.0, 1.0)
-				for m in fx.mats:
-					m.albedo_color.a = a
 			"slash":
 				node.scale = Vector3(1, 1, 1.0 + k)
 				for m in fx.mats:

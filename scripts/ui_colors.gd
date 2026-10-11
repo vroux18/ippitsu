@@ -19,6 +19,7 @@ const LINE_MUTED_DARK := Color("#5A5768")  # filets éteints sur fond sombre (ca
 const DISABLED := Color("#A99E8B")
 const JADE_UP := Color("#2E7D4F")
 const JADE_UP_ON_DARK := Color("#8FD6A8")
+const SAKURA := Color("#C2456A")  # pétales (monnaie de la garde-robe) : disque sous le pétale de papier
 const MALUS_ON_DARK := Color("#FF8A7A")
 const CHIP_ON_DARK := Color("#26302A")  # fond d'un ticket d'effet sur une bulle d'encre
 # zones d'attaque : rouge à 42-45 %, contour 3,5 et liseré blanc pointillé 1,2 (6/6)

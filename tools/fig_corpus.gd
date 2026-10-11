@@ -8,7 +8,8 @@ extends SceneTree
 ## Les figures de l'arbre (vague, pointe, triangle) ont leur propre tirage (graine SEED + 1, après les six
 ## premières : les gestes des six premières restent les mêmes), avec leurs quasi-confusions (S plat, V large,
 ## V inégal = crochet, triangle sans son 3e côté = pointe, grand Λ = pointe). Puis les traits de combat naturels (aucune
-## figure ; graine SEED + 2). run() joue le corpus avec les figures `lock` verrouillées (main._figtest : aucune, puis
+## figure ; graine SEED + 2), les cercles autour du héros (ensō : un cercle seul, refermé ou qui déborde) et les volutes
+## (boucles qui s'enroulent), graine SEED + 3. run() joue le corpus avec les figures `lock` verrouillées (main._figtest : aucune, puis
 ## toutes celles de l'arbre) : un geste qui a la forme d'une figure verrouillée ne doit être aucune figure.
 ## Lancement : `godot --headless --path . -- --figtest` (main._figtest) ou `--script tools/fig_corpus.gd`.
 ## Imprime la matrice de confusion (attendu × détecté), le taux par figure, les ratés, la stabilité de la
@@ -221,6 +222,13 @@ static func build(rng: RandomNumberGenerator) -> Array:
 	for kind: String in ["flatS", "wideV", "lopV", "openT", "lambda", "lambda"]:
 		for k in 6:
 			out.append(_tree_counter(rng2, kind, k))
+	# cercles autour du héros (ensō, cas réel du monde 1) et volutes (boucles) : tirage à part (graine SEED + 3)
+	var rng4 := RandomNumberGenerator.new()
+	rng4.seed = rng.seed + 3
+	for k in 36:
+		out.append(_ring(rng4, k))
+	for k in 24:
+		out.append(_volute(rng4, k))
 	# traits de combat naturels (aucune figure) : tirage à part (graine SEED + 2), les gestes précédents ne bougent pas
 	var rng3 := RandomNumberGenerator.new()
 	rng3.seed = rng.seed + 2
@@ -302,6 +310,59 @@ static func _natural(rng: RandomNumberGenerator, kind: String, k: int, gray: boo
 	if k % 3 == 1:
 		_add_lead(rng, s)
 	return s
+
+
+## Grand cercle tracé autour du héros (cas réel du monde 1) : départ au héros, un tour entier, la fin revient sur
+## le départ et le dépasse ou le croise (jusqu'à 30 % de tour en plus), un peu vers l'intérieur ou l'extérieur ;
+## ovale (jusqu'à 1,35), petit à grand (rayon 0,9 à 4 m), dans les deux sens. Un cercle unique : un ensō.
+static func _ring(rng: RandomNumberGenerator, k: int) -> Dictionary:
+	var size := k % 3
+	var r := _pick(rng, size, [0.9, 1.6], [1.6, 2.6], [2.6, 4.0])
+	var turn := rng.randf_range(345.0, 468.0)
+	var drift := rng.randf_range(-0.15, 0.12)  # la fin rentre (ou sort) un peu : elle croise le départ
+	var ov := rng.randf_range(1.0, 1.35)
+	var sgn := 1.0 if k % 2 == 0 else -1.0
+	var ph := rng.randf_range(0.0, TAU)
+	var g := PackedVector2Array()
+	var n := maxi(36, int(turn / 4.0))
+	for i in n + 1:
+		var t := deg_to_rad(turn) * float(i) / float(n)
+		var u := t / deg_to_rad(turn)
+		var rr := r * (1.0 + 0.06 * sin(2.0 * t + ph) + 0.04 * sin(3.0 * t)) * (1.0 + drift * maxf(0.0, (u - 0.75) / 0.25))
+		var a := sgn * t
+		g.append(Vector2(cos(a) * rr * ov, sin(a) * rr))
+	var laid := k % 2 == 0
+	var pts := _finish(rng, g, rng.randf_range(0.0, 0.15), 0.0, laid)
+	var s := {"name": "cercle autour du héros #%d (r%.1f %d° ovale %.2f %s%s)" % [k, r, int(turn), ov, "antihoraire" if sgn > 0.0 else "horaire", ", posé" if laid else ", brut"],
+		"pts": pts, "want": "enso", "lead": -1}
+	if k % 4 == 1:
+		_add_lead(rng, s)  # le doigt touche un peu à côté du héros
+	return s
+
+
+## Volute : une boucle qui s'enroule (comme le glyphe), rayon qui diminue (ou grandit) d'un tiers à plus de moitié
+## en 1,2 à 1,7 tour (le glyphe : 1,75), seule ou au bout d'un trait. Une boucle (à peine plus d'un tour, elle se lit encore comme un
+## cercle qui déborde : un ensō).
+static func _volute(rng: RandomNumberGenerator, k: int) -> Dictionary:
+	var r := rng.randf_range(0.9, 2.4)
+	var turn := rng.randf_range(430.0, 600.0)
+	var shrink := rng.randf_range(0.4, 0.65)
+	var sgn := 1.0 if k % 2 == 0 else -1.0
+	var grow := k % 4 == 3  # du centre vers l'extérieur, comme le glyphe
+	var g := PackedVector2Array()
+	var n := maxi(48, int(turn / 4.0))
+	var tin := rng.randf_range(1.0, 3.0) if k % 3 == 2 else 0.0
+	if tin > 0.0:
+		g.append(Vector2(r, -tin))
+	for i in n + 1:
+		var u := float(i) / float(n)
+		var f := lerpf(1.0, shrink, u) if not grow else lerpf(shrink, 1.0, u)
+		var a := sgn * deg_to_rad(turn) * u
+		g.append(Vector2(cos(a), sin(a)) * r * f)
+	var laid := k % 2 == 0
+	var pts := _finish(rng, g, rng.randf_range(0.0, 0.1), 0.0, laid)
+	return {"name": "volute #%d (r%.1f %d° rayon ×%.2f%s%s%s)" % [k, r, int(turn), shrink, ", vers l'extérieur" if grow else "", ", amorce %.1f" % tin if tin > 0.0 else "", ", posé" if laid else ", brut"],
+		"pts": pts, "want": "loop", "lead": -1}
 
 
 ## Prolonge g d'un segment de longueur l qui part du bout en tournant de `ang` degrés (signés).
@@ -461,6 +522,8 @@ static func _tri(side: float, a1: float, a2: float) -> PackedVector2Array:
 
 
 static func _sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) -> Dictionary:
+	var solo := false
+	var r_solo := 0.0
 	var g := PackedVector2Array()
 	var tag := ""
 	match fig:
@@ -473,10 +536,13 @@ static func _sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) 
 		"loop":
 			var r := _pick(rng, size, [0.6, 0.9], [0.9, 1.2], [1.2, 2.2])
 			if k % 4 == 3:
-				# petit cercle seul, refermé ou presque, sans se recouper : une boucle (trop petit pour un ensō)
+				# petit cercle seul, refermé ou presque : un cercle unique est un ensō, même petit (la boucle
+				# s'enroule ou se prend dans un trait) ; le tirage reste celui d'avant, les gestes suivants ne bougent pas
 				r = rng.randf_range(0.6, 1.0)
 				g = _circle(rng, r, rng.randf_range(300.0, 400.0), 0.1)
-				tag = "seule r%.1f" % r
+				tag = "cercle seul r%.1f" % r
+				r_solo = r
+				solo = true
 			else:
 				var turn := rng.randf_range(250.0, 400.0)
 				# une grande boucle (r > 1,2) n'est une boucle, et pas un ensō, que prise entre deux longues amorces
@@ -523,7 +589,9 @@ static func _sample(rng: RandomNumberGenerator, fig: String, size: int, k: int) 
 	var laid := k % 2 == 0
 	var pts := _finish(rng, g, round_m, over, laid)
 	var name := "%s %s #%d (%s%s%s)" % [fig, ["petit", "moyen", "grand"][size], k, tag, ", posé" if laid else ", brut", ", dépassé %.1f" % over if over > 0.0 else ""]
-	var s := {"name": name, "pts": pts, "want": fig, "lead": -1}
+	# (un cercle seul que le doigt prolonge d'un trait droit plus long que son rayon : une petite boucle au bout
+	# d'un trait ; sinon un ensō)
+	var s := {"name": name, "pts": pts, "want": "enso" if solo and over < r_solo else fig, "lead": -1}
 	if k % 3 == 1:
 		_add_lead(rng, s)
 	return s

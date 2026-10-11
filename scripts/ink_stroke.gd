@@ -6,7 +6,7 @@ const Toon = preload("res://scripts/toon.gd")
 
 const WIDTH := 0.3
 const STEP := 0.18
-const DRY := Color("#6E6A66")
+const DRY := Color("#6E6A66")  # encre sèche (intro.gd)
 static var ink := Toon.SUMI  # encre du trait (Atelier), réglée par meta.apply_run_start
 const Gear = preload("res://scripts/gear_data.gd")
 # pinceau de la partie (gear_data.gd), posé par main._start : forme du trait dessiné ; le trait (points, geste
@@ -25,7 +25,14 @@ var drying := false
 var _dry_t := 0.0
 var _y := 0.02
 var _imesh := ImmediateMesh.new()
-var _mat: StandardMaterial3D
+# encre liquide (shaders/ink_stroke.gdshader) : une seule matière pour tous les traits, l'état du trait (horloge,
+# séchage, graine) en paramètre d'instance
+const INK_STROKE = preload("res://shaders/ink_stroke.gdshader")
+static var _smat: ShaderMaterial
+static var _seed_n := 0
+var _seed := 0.0
+var _clock := 0.0  # horloge du trait (s, temps du jeu) : âge de l'encre de chaque point
+var stamp := PackedFloat32Array()  # horloge à la pose de chaque point (le pinceau ralentit : l'encre s'accumule)
 var _tip: MeshInstance3D
 var _ring: MeshInstance3D
 var danger := false
@@ -52,10 +59,13 @@ func _init(start: Vector3, layer: int) -> void:
 	_base = bc if bc.a > 0.0 else ink
 	_col = _base
 	_goal = _base
-	# Fude : matière à l'encre et sommets teintés (rendu d'origine) ; les pinceaux colorés gardent leur vraie couleur
-	_mat = Toon.flat(_base if _brush == "fude" else Color.WHITE)
-	_mat.vertex_color_use_as_albedo = true
-	material_override = _mat
+	if _smat == null:
+		_smat = ShaderMaterial.new()
+		_smat.shader = INK_STROKE
+	material_override = _smat
+	_seed_n += 1
+	_seed = fmod(float(_seed_n) * 13.7 + randf() * 40.0, 89.0)
+	set_instance_shader_parameter(&"stroke_state", Vector4(0.0, 0.0, _seed, 0.0))
 	_add(Vector3(start.x, 0, start.z))
 
 
@@ -75,6 +85,7 @@ func _add(p: Vector3) -> void:
 		length += p.distance_to(last())
 	points.append(p)
 	jitter.append(randf_range(0.82, 1.15))
+	stamp.append(_clock)
 
 
 ## Étend le trait vers `target`, en dépensant au plus `budget` de longueur.
@@ -115,9 +126,8 @@ func start_drying() -> void:
 	if drying:
 		return
 	drying = true
-	_rebuild()  # une seule fois : ensuite le séchage ne touche qu'à la matière
 	_col = _goal
-	_mat.albedo_color = Color(_col.r * _col.r, _col.g * _col.g, _col.b * _col.b, 1.0) if _brush == "fude" else Color(_col, 1.0)
+	_rebuild()  # une seule fois : ensuite le séchage ne touche qu'au paramètre d'instance (shader)
 	if _tip:
 		_tip.visible = false
 		_ring.visible = false
@@ -125,7 +135,9 @@ func start_drying() -> void:
 
 func _process(delta: float) -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
+	_clock += delta
 	if not drying:
+		set_instance_shader_parameter(&"stroke_state", Vector4(_clock, 0.0, _seed, 0.0))
 		if not _col.is_equal_approx(_goal):
 			_col = _col.lerp(_goal, minf(1.0, delta * 10.0))
 			if absf(_col.r - _goal.r) + absf(_col.g - _goal.g) + absf(_col.b - _goal.b) < 0.01:
@@ -151,10 +163,8 @@ func _process(delta: float) -> void:
 	if _dry_t > 1.6:
 		queue_free()
 	else:
-		# l'encre fraîche est noire, elle pâlit et s'efface en séchant
-		var fade := clampf(1.0 - (_dry_t - 0.5) / 1.1, 0.0, 1.0)
-		var tint := _col.lerp(DRY, clampf(_dry_t / 0.8, 0.0, 1.0))
-		_mat.albedo_color = Color(_col.r * tint.r, _col.g * tint.g, _col.b * tint.b, fade) if _brush == "fude" else Color(tint, fade)
+		# l'encre sèche (shader) : bord plus sombre, intérieur qui pâlit et se marbre, puis s'efface par érosion
+		set_instance_shader_parameter(&"stroke_state", Vector4(_clock, _dry_t, _seed, 0.0))
 	if _pt != 0:
 		Perf.add(&"ink_stroke", _pt)
 
@@ -164,8 +174,12 @@ func _rebuild() -> void:
 	var n := points.size()
 	if n < 2:
 		return
-	# en séchant, la teinte passe par la matière (voir _process) : sommets blancs
-	var tint := Color.WHITE if drying else _col
+	# teinte affichée dans les sommets (fude : encre du pinceau × teinte de la figure, comme l'ancienne matière
+	# plate) ; le séchage se fait dans le shader
+	var tint := _col
+	if _brush == "fude":
+		var bl := _base.srgb_to_linear()
+		tint = Color(bl.r * _col.r, bl.g * _col.g, bl.b * _col.b)
 	if _brush == "warefude":
 		# pinceau fendu : deux lignes de part et d'autre du chemin du héros
 		_strip(tint, 1.0)
@@ -202,16 +216,33 @@ func _strip(tint: Color, side_k: float) -> void:
 		var q := Vector3(p.x, _y, p.z)
 		if side_k != 0.0:
 			q += side * Gear.split_off(_aspect, s) * side_k
+		var uv2 := Vector2(_density(i), stamp[i])
 		_imesh.surface_set_color(c)
+		_imesh.surface_set_normal(side)
+		_imesh.surface_set_uv(Vector2(s, 1.0))
+		_imesh.surface_set_uv2(uv2)
 		_imesh.surface_add_vertex(q + side * w)
 		_imesh.surface_set_color(c)
+		_imesh.surface_set_normal(side)
+		_imesh.surface_set_uv(Vector2(s, 0.0))
+		_imesh.surface_set_uv2(uv2)
 		_imesh.surface_add_vertex(q - side * w)
 	_imesh.surface_end()
 
 
+## Densité de l'encre au point i (0 trait vif .. 1 le pinceau a ralenti) : vitesse sur les 3 derniers pas.
+func _density(i: int) -> float:
+	var j := maxi(i - 3, 0)
+	if i == j:
+		return 0.8
+	var dt := maxf(stamp[i] - stamp[j], 1.0 / 60.0)
+	var v := STEP * float(i - j) / dt
+	return clampf(1.0 - (v - 3.0) / 12.0, 0.25, 1.0)
+
+
 ## Calame de sang : au-delà des mètres gratuits, des gouttes de sang le long du trait (le prix en vie).
 func _blood_drops(tint: Color) -> void:
-	var red := Color(0.93, 0.25, 0.18) if not drying else Color.WHITE
+	var red := Color(0.93, 0.25, 0.18)
 	var begun := false  # (pas de surface vide : Godot s'en plaint)
 	var s := 0.0
 	var next := Gear.CHI_FREE
@@ -228,18 +259,18 @@ func _blood_drops(tint: Color) -> void:
 		var side := Vector3(-t.z, 0, t.x).normalized() if t.length_squared() > 0.000001 else Vector3.RIGHT
 		var c := p + side * (0.32 if k % 2 == 0 else -0.28) + Vector3(0, _y + 0.001 - p.y, 0)
 		var r := 0.1 + 0.04 * float(k % 3)
-		var col := Color(red, 0.95) if not drying else Color(tint, 0.95)
+		var col := Color(red, 0.95)
 		if not begun:
 			_imesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 			begun = true
 		for j in 6:
 			var a0 := TAU * float(j) / 6.0
 			var a1 := TAU * float(j + 1) / 6.0
-			_imesh.surface_set_color(col)
-			_imesh.surface_add_vertex(c)
-			_imesh.surface_set_color(col)
-			_imesh.surface_add_vertex(c + Vector3(cos(a1), 0, sin(a1)) * r)
-			_imesh.surface_set_color(col)
-			_imesh.surface_add_vertex(c + Vector3(cos(a0), 0, sin(a0)) * r)
+			for v in [c, c + Vector3(cos(a1), 0, sin(a1)) * r, c + Vector3(cos(a0), 0, sin(a0)) * r]:
+				_imesh.surface_set_color(col)
+				_imesh.surface_set_normal(side)
+				_imesh.surface_set_uv(Vector2(s, 0.5))
+				_imesh.surface_set_uv2(Vector2(1.0, stamp[i]))
+				_imesh.surface_add_vertex(v)
 	if begun:
 		_imesh.surface_end()

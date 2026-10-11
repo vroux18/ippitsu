@@ -6,6 +6,7 @@ extends Control
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const UIColors = preload("res://scripts/ui_colors.gd")
 const InkButton = preload("res://scripts/ink_button.gd")
 const Meta = preload("res://scripts/meta.gd")
 const GOLD_INK := Color("#9A6B12")
@@ -211,9 +212,9 @@ func _on_buy() -> void:
 	var cost := int(meta.cosmetic_cost(c, id))
 	if cost < 0 or bool(meta.cosmetic_owned(c, id)):
 		return
-	if int(meta.sumi) < cost:
-		# pas assez d'encre : les chiffres suffisent (ce qu'on a, sur le prix)
-		_msg = "%d / %d" % [int(meta.sumi), cost]
+	if int(meta.petals) < cost:
+		# pas assez de pétales : les chiffres suffisent (ce qu'on a, sur le prix)
+		_msg = "%d / %d" % [int(meta.petals), cost]
 		_msg_t = 1.8
 		return
 	if bool(meta.buy_cosmetic(c, id)):
@@ -261,7 +262,7 @@ func _process(_delta: float) -> void:
 		_buy.size = Vector2(bw, UiKit.BTN_H * u)
 		_buy.position = Vector2((size.x - bw) / 2.0, pr.end.y - _safe.y - (UiKit.BTN_H + UiKit.SP_M) * u + 30 * u * (1.0 - a))
 		_buy.text = "ACHETER  ·  %d" % cost
-		_buy.style = "primary" if int(meta.sumi) >= cost else "ghost"
+		_buy.style = "primary" if int(meta.petals) >= cost else "ghost"
 		_buy.font_size = int(UiKit.FS_HEADING * u)
 		_buy.modulate.a = a
 	queue_redraw()
@@ -281,10 +282,11 @@ func _draw() -> void:
 	draw_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w, vh), Vector2(0, vh)]), top)
 	# en-tête commun : retour à gauche (InkButton rond), titre souligné de vermillon
 	var hy := _safe.x
-	var tmax: float = w - 2.0 * 112.0 * u  # place pour le compteur d'encre à droite
+	var tmax: float = w - 2.0 * 112.0 * u  # place pour le compteur de pétales à droite
 	UiKit.screen_title(self, _title, "GARDE-ROBE", Vector2(w / 2.0, hy + UiKit.HEAD_BASE * u - 8.0 * u * (1.0 - a)), u, _ink, a, "", tmax, UiKit.ease_out(clampf((_t - 0.15) / 0.4, 0.0, 1.0)))
-	# compteur d'encre (UI v2 : pilule sumi, goutte, chiffre en Zen Kaku), en haut à droite sur la ligne de l'en-tête
-	UiKit.ink_counter(self, _sb, w - UiKit.SP_M * u, hy + UiKit.HEAD_Y * u, int(meta.sumi), u, a, true)
+	# compteur de pétales, la monnaie de la garde-robe (même pilule sumi que l'encre, pétale sur disque sakura), en haut
+	# à droite sur la ligne de l'en-tête ; l'encre, elle, ne sert qu'à l'Arbre et ne s'affiche pas ici
+	UiKit.ink_counter(self, _sb, w - UiKit.SP_M * u, hy + UiKit.HEAD_Y * u, int(meta.petals), u, a, true, true)
 	# panneau de papier : coins hauts arrondis, ombre vers le haut, asanoha (motif de kimono) très pâle, fibres
 	var pr := _panel(h, u)
 	pr.position.y += 40 * u * (1.0 - a)
@@ -335,7 +337,7 @@ func _draw() -> void:
 			draw_arc(cc, rad + 4 * u, 0.0, TAU, 40, Color(_ink, 0.6 * ka), 1.6 * u, true)
 		if not owned:
 			UiKit.glyph(self, "at_lock", cc + Vector2(rad * 0.66, -rad * 0.66), 8.5 * u, Color(Toon.WASHI, 0.95 * ka), Toon.SUMI)
-		# prix de ce qui s'achète : pastille sumi, goutte d'encre et chiffre (le nom se lit en bas, pour l'élément affiché)
+		# prix de ce qui s'achète : pastille sumi, pétale et chiffre (le nom se lit en bas, pour l'élément affiché)
 		var cost := int(meta.cosmetic_cost(c, id))
 		if not owned and cost >= 0:
 			var nf := UiKit.num_font()
@@ -344,7 +346,7 @@ func _draw() -> void:
 			var pw := nf.get_string_size(ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 22.0 * u
 			var pr2 := Rect2(Vector2(cc.x - pw / 2.0, cc.y + 30.0 * u), Vector2(pw, 16.0 * u))
 			draw_style_box(UiKit.box(_sb, Color(Toon.SUMI, 0.9 * ka), int(8 * u)), pr2)
-			UiKit.glyph(self, "at_drop", Vector2(pr2.position.x + 9.0 * u, pr2.get_center().y), 4.5 * u, Toon.WASHI, UiKit.NONE, ka)
+			UiKit.glyph(self, "at_petal", Vector2(pr2.position.x + 9.0 * u, pr2.get_center().y), 5.0 * u, UIColors.SAKURA.lightened(0.45), UiKit.NONE, ka)
 			draw_string(nf, Vector2(pr2.position.x + 16.0 * u, pr2.get_center().y + pfs * 0.36), ptxt, HORIZONTAL_ALIGNMENT_LEFT, -1, pfs, Color(Toon.WASHI, ka))
 		_hits.append([Rect2(cc - Vector2(cw * 0.5, 30 * u), Vector2(cw, rh - 2 * u)), key])
 	# détail de l'élément affiché, sous un filet au pinceau (shuriken au milieu)
@@ -369,13 +371,15 @@ func _draw() -> void:
 		sub = UiKit.plain(String(meta.cosmetic_how(c, shown)))
 	var bfs: int = int(UiKit.FS_BODY * u)
 	var lines := UiKit.wrap(_ui, sub, bfs, w - 60 * u, ["·", ":", "»"])
-	for li in mini(lines.size(), 2):
+	var nl := mini(lines.size(), 2)
+	for li in nl:
 		var lw3 := UiKit.text(self, _ui, lines[li], Vector2(w / 2.0, dy + 27 * u + 15 * u * li), bfs, sc)
 		if check and li == 0:
 			UiKit.glyph(self, "check", Vector2(w / 2.0 - lw3 / 2.0 - 10.0 * u, dy + 27 * u - bfs * 0.36), 4.5 * u, Color(_accent, a), UiKit.NONE, a)
 	# échantillon pour le sillage et l'encre (invisibles sur le héros immobile)
 	if c == "trail" or c == "ink":
-		var sp := Vector2(w - 58 * u, dy)
+		# centré sous la description (à droite, il mangeait la fin de la ligne)
+		var sp := Vector2(w / 2.0, dy + 27 * u + 15 * u * nl + 30 * u)
 		_sample_stroke(c, shown, sp, u, a)
 
 
@@ -398,6 +402,9 @@ func _swatch(c: String, id: String, p: Vector2, r: float, a: float) -> void:
 			draw_rect(Rect2(card.position + Vector2(r * 0.18, r * 0.72), Vector2(r * 0.3, r * 0.14)), Color(acc, a))
 		"trail":
 			draw_circle(p, r, Color(Toon.SUMI, 0.9 * a))
+			if col.get_luminance() < 0.25:
+				# sillage sombre : liseré de papier, sinon noir sur noir
+				draw_arc(p, r * 0.58, PI * 0.85, PI * 2.05, 18, Color(Toon.WASHI, 0.7 * a), r * 0.36, true)
 			draw_arc(p, r * 0.58, PI * 0.85, PI * 2.05, 18, Color(col, a), r * 0.26, true)
 		"ink":
 			draw_circle(p, r, Color(Toon.PAPER, a))

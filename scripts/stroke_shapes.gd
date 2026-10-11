@@ -17,8 +17,11 @@ extends RefCounted
 ## lues mais ne rapportent rien : un geste qui a leur forme n'est AUCUNE figure (pas de repli sur la suivante dans
 ## l'ordre : un V de pointe verrouillée n'est pas un crochet).
 ## Ensō ou boucle : le même cercle est lu (grand virage d'un même sens, ou boucle entre deux croisements), puis
-## c'est la taille qui tranche (SPLIT_R, ou SPLIT_CM d'écran quand main passe l'échelle), et pour un cercle moyen
-## pris entre deux longues amorces, les amorces (LOOP_TAILS) : c'est une boucle dans un trait.
+## c'est sa structure qui tranche, comme les glyphes (ensō : un cercle ouvert au pinceau ; boucle : une volute).
+## Un cercle unique, petit ou grand, refermé ou qui déborde sur son départ, est un ensō. La boucle demande une
+## volute : elle s'enroule (le second passage court à l'intérieur ou à l'extérieur du premier, LOOP_WIND), ou elle
+## se prend dans un trait (petite boucle, SPLIT_R ou SPLIT_CM d'écran, au bout d'un trait ou au milieu ; cercle
+## moyen pris entre deux longues amorces, LOOP_TAILS).
 ## Les seuils de forme sont relatifs (au rayon, à l'aller, à la longueur du trait) ; les seuls seuils absolus
 ## sont ceux qui ont un sens de jeu (trait droit de 7 m, aller d'au moins 3 m, rayon qui sépare boucle et ensō).
 ## Vérification : tools/fig_corpus.gd (`-- --figtest`) joue un corpus de gestes réalistes.
@@ -39,7 +42,7 @@ const RUN_TOL := 20.0           # contre-virage toléré (degrés cumulés) dans
 
 # Cercles : ensō (grand cercle, ouvert jusqu'à 35 %, ou dépassé) et uzu (petite boucle, dans un trait ou seule)
 const CURL_MIN_R := 0.5
-const SPLIT_R := 1.5            # rayon (m au sol) qui sépare la boucle (plus petite) de l'ensō (plus grand)
+const SPLIT_R := 1.5            # rayon (m au sol) sous lequel une boucle au bout d'un trait (une seule amorce) suffit
 const SPLIT_CM := 0.7           # ... ou 0,7 cm d'écran quand l'échelle est connue (jamais sous SPLIT_R_MIN)
 const SPLIT_R_MIN := 1.3
 const ENSO_MIN_TURN := 210.0    # un ensō ouvert d'un bon tiers (234°) passe encore, un C (≤ 180°) jamais
@@ -48,6 +51,9 @@ const LOOP_MIN_TURN := 230.0    # une boucle tracée vite ne se recoupe pas touj
 const LOOP_ROUND := 0.45
 const LOOP_R_MAX := 2.8         # grand cercle entre deux longues amorces : encore une boucle jusqu'à ce rayon
 const LOOP_TAILS := 1.1         # amorces d'au moins 1,1 rayon de part et d'autre : boucle dans un trait, pas ensō
+const LOOP_TAIL_ONE := 1.0      # petite boucle au bout d'un trait : une amorce d'au moins un rayon
+const LOOP_WIND := 0.2          # volute : écart moyen entre deux passages au même angle, au moins 20 % du rayon
+								# (un ensō qui déborde croise son départ : l'écart y reste sous 15 %)
 const LOOP_CORNER := 110.0      # un vrai coin dans la boucle : un triangle de zigzag qui se recoupe, pas une boucle
 const CURL_COVER := 0.65        # longueur de l'arc / (tour × rayon) : au moins 0,65, sinon ce n'est pas un cercle
 const CURL_BAND := 0.25         # l'arc s'arrête là où le trait quitte la bande de ± 25 % autour du cercle ajusté
@@ -412,6 +418,32 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 	var best_e := {"shape": "enso", "reason": "", "score": 0.0}
 	var best_l := {"shape": "loop", "reason": "", "score": 0.0}
 	var split := split_radius(scale)
+	# volute nette (spirale serrée : elle n'est ronde autour d'aucun centre, les lectures de cercle la manquent) :
+	# lue sur le trait entier, autour du centre ajusté à tout le trait
+	# (centre : celui du cercle ajusté au trait entier, ou le barycentre du grand virage, plus sûr quand la volute
+	# part du centre vers l'extérieur)
+	var fa := _circle_fit(q)
+	var ra: float = fa[1]
+	var rc := Vector3.ZERO
+	for k in range(int(run[1]), mini(n, int(run[2]) + 1)):
+		rc += q[k]
+	rc /= float(maxi(1, mini(n, int(run[2]) + 1) - int(run[1])))
+	var wind := 0.0
+	if ra >= CURL_MIN_R and ra <= LOOP_R_MAX:
+		# (sur le trait entier, et sur le grand virage seul : une amorce qui arrive du dehors au centre de la volute
+		# fausse le compte des tours)
+		var qr := q.slice(int(run[1]), mini(n, int(run[2]) + 1))
+		wind = maxf(maxf(_wind_gap(qr, fa[0]), _wind_gap(qr, rc)), maxf(_wind_gap(q, fa[0]), _wind_gap(q, rc))) / ra
+	if ra >= CURL_MIN_R and ra <= LOOP_R_MAX and maxf(t_all, float(run[0])) >= LOOP_MIN_TURN:
+		var pk := 0.0
+		for k in range(int(run[1]), mini(n, int(run[2]) + 1)):  # (dans la volute : l'amorce peut y entrer en coin ; un
+			# zigzag qui se recoupe, lui, a de vrais coins)
+			pk = maxf(pk, absf(ct[k]))
+		# la volute fait l'essentiel du trait (pas une hésitation au départ d'un long trait), et au moins un tour
+		var vol_len := length(q.slice(int(run[1]), mini(n, int(run[2]) + 1))) / maxf(float(f["L"]), EPS)
+		if wind >= LOOP_WIND and pk <= LOOP_CORNER * 1.5 and vol_len >= 0.5 and float(run[0]) >= 330.0:  # (le cœur serré d'une volute vire fort sur la corde du coin)
+			return [{"shape": "enso", "reason": "une volute, pas un cercle seul", "score": 0.0},
+				{"shape": "loop", "reason": "", "score": 1.0, "center": fa[0], "radius": ra, "settled": true}]
 	for s: Array in srcs:
 		var sub: PackedVector3Array = s[0]
 		if sub.size() < 4:
@@ -446,6 +478,13 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		var tail_in := sqrt(maxf(0.0, q[0].distance_squared_to(c) - r * r))
 		var tail_out := sqrt(maxf(0.0, q[n - 1].distance_squared_to(c) - r * r))
 		var tails := minf(tail_in, tail_out) / maxf(r, EPS)
+		var tail_max := maxf(tail_in, tail_out) / maxf(r, EPS)
+		# la volute : enroulée (passages successifs écartés), ou prise dans un trait (amorces) ; un cercle seul, non
+		var wind_c := maxf(wind, _wind_gap(q, c) / maxf(r, EPS))
+		var vol_wind := wind_c >= LOOP_WIND
+		var vol := maxf(wind_c / LOOP_WIND, tails / LOOP_TAILS)
+		if r <= split:
+			vol = maxf(vol, tail_max / LOOP_TAIL_ONE)
 		# l'arc doit avoir la longueur de son tour et faire le tour de son centre : un trait qui tourne beaucoup
 		# mais loin du cercle ajusté (un demi-tour aux côtés bombés) n'en est pas un
 		var cov := length(sub) / maxf(deg_to_rad(turn) * r, EPS)
@@ -454,29 +493,28 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		var span := span_deg / CURL_MIN_SPAN
 		# il faut au moins une bonne moitié de tour pour parler de cercle
 		var gate := (turn - 100.0) / 100.0
-		# ensō : grand, rond, presque fermé ; pas une boucle prise entre deux longues amorces (sauf très grand)
-		var e_tails := 1.0 if r > LOOP_R_MAX else LOOP_TAILS / maxf(tails, EPS)
+		# ensō : un cercle seul, rond, presque fermé ou qui déborde sur son départ ; pas une volute (sauf très grand)
+		var e_tails := 1.0 if r > LOOP_R_MAX else 0.999 / maxf(vol, EPS)
 		var e := _cand("enso", [
 			[minf(turn / ENSO_MIN_TURN, span_deg / ENSO_MIN_SPAN), "fais presque tout le tour"],
-			[r / split, "cercle trop petit"],
+			[r / CURL_MIN_R, "cercle trop petit"],
 			[ENSO_ROUND / maxf(rnd, EPS), "pas assez rond"],
 			[e_tails, "trop de trait avant et après le cercle"],
 			[cover, "pas un cercle"],
 			[span, "pas un cercle"],
 		], gate, {"center": c, "radius": r})
-		# boucle : petit cercle (seul ou dans un trait), ou cercle moyen pris entre deux longues amorces
-		var small := split / r
-		if r <= LOOP_R_MAX:
-			small = maxf(small, tails / LOOP_TAILS)
+		# boucle : une volute (enroulée, ou petite boucle dans un trait, ou cercle moyen entre deux longues amorces)
 		var l := _cand("loop", [
 			[turn / LOOP_MIN_TURN, "boucle trop plate"],
 			[r / CURL_MIN_R, "boucle trop petite"],
 			[LOOP_ROUND / maxf(rnd, EPS), "boucle trop écrasée"],
-			[small, "trop grand pour une boucle"],
+			[vol, "un cercle seul est un ensō : enroule la boucle, ou prends-la dans un trait"],
+			[LOOP_R_MAX / r, "trop grand pour une boucle"],
 			[cover, "pas un cercle"],
 			[span, "pas un cercle"],
 			[LOOP_CORNER / maxf(peak, EPS), "boucle anguleuse"],
-		], gate, {"center": c, "radius": r})
+		], gate, {"center": c, "radius": r, "settled": tail_out >= LOOP_TAIL_ONE * r or vol_wind})  # settled : le trait est ressorti
+		# de la boucle (ou elle s'enroule) ; sinon, doigt encore posé, ce cercle peut encore devenir un ensō
 		# un vrai cercle : cette lecture décide
 		if rnd <= LOOP_ROUND and cover >= 1.0 and span >= 1.0 and turn >= 200.0:
 			return [e, l]
@@ -485,6 +523,47 @@ static func _curl(f: Dictionary, scale: float) -> Array:
 		if float(l["score"]) > float(best_l["score"]):
 			best_l = l
 	return [best_e, best_l]
+
+
+## Volute : écart moyen (m) entre deux passages du trait au même angle autour du centre c (un point et celui
+## qui le précède d'un tour). 0 si le trait ne fait pas un tour et 30° (une sortie droite juste après le tour
+## n'est pas un second passage). Un cercle qui déborde sur son départ
+## le croise : écart petit ; une spirale court à côté de son premier passage : écart d'une fraction du rayon.
+static func _wind_gap(q: PackedVector3Array, c: Vector3) -> float:
+	var n := q.size()
+	if n < 8:
+		return 0.0
+	var ang := PackedFloat32Array()
+	var rad := PackedFloat32Array()
+	var cum := 0.0
+	var prev := atan2(q[0].z - c.z, q[0].x - c.x)
+	for i in n:
+		var a := atan2(q[i].z - c.z, q[i].x - c.x)
+		if i > 0:
+			cum += wrapf(a - prev, -PI, PI)
+		prev = a
+		ang.append(cum)
+		rad.append(Vector2(q[i].x - c.x, q[i].z - c.z).length())
+	var sg := signf(cum)
+	if absf(cum) < TAU + deg_to_rad(30.0):
+		return 0.0
+	var tot := 0.0
+	var cnt := 0
+	var j := 0
+	for i in n:
+		var target := sg * ang[i] - TAU  # même angle, un tour plus tôt
+		if target < sg * ang[0]:
+			continue
+		while j < i - 1 and sg * ang[j + 1] < target:
+			j += 1
+		if j >= i - 1:
+			continue
+		var a0 := sg * ang[j]
+		var a1 := sg * ang[j + 1]
+		var t := clampf((target - a0) / maxf(a1 - a0, 0.0001), 0.0, 1.0)
+		tot += absf(rad[i] - lerpf(rad[j], rad[j + 1], t))
+		cnt += 1
+	return tot / float(cnt) if cnt >= 3 else 0.0
 
 
 ## Arc seul : les points des deux bouts qui sortent de la bande ± CURL_BAND autour du cercle (c, r) sont retirés.
@@ -1251,12 +1330,19 @@ static func self_test() -> Array:
 	# Kagi : 5 m puis retour à 150° sur 1.8 m
 	var hk := deg_to_rad(30.0)
 	_check(fails, "hook", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(5, 0), Vector2(5.0 - 1.8 * cos(hk), 1.8 * sin(hk))])), step), "hook")
-	# petit cercle refermé (r 1.1) sans croisement : boucle
+	# petit cercle refermé (r 1.1) sans croisement : un cercle seul, un ensō
 	var sc := PackedVector3Array()
 	for k in range(61):
 		var t3 := (TAU - 0.3) * float(k) / 60.0
 		sc.append(Vector3(1.1 * cos(t3), 0.0, 1.1 * sin(t3)))
-	_check(fails, "petite boucle fermée", _resample_step(sc, step), "loop")
+	_check(fails, "petit cercle fermé", _resample_step(sc, step), "enso")
+	# volute : un tour et demi, rayon de 1,6 à 0,8 : une boucle
+	var vo := PackedVector3Array()
+	for k in range(91):
+		var t9 := 3.0 * PI * float(k) / 90.0
+		var r9 := lerpf(1.6, 0.8, float(k) / 90.0)
+		vo.append(Vector3(r9 * cos(t9), 0.0, r9 * sin(t9)))
+	_check(fails, "volute", _resample_step(vo, step), "loop")
 	# aller-retour long et approximatif (combat)
 	_check(fails, "return large", _resample_step(_poly(PackedVector2Array([Vector2(0, 0), Vector2(8, 0), Vector2(8.3, 0.6), Vector2(0.6, 0.9)])), step), "return")
 	# ensō tracé loin du héros : amorce droite depuis le héros, puis le cercle du doigt
