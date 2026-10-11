@@ -60,8 +60,13 @@ var _hoo_used := false
 var _enso_heal_room := -1
 var _raiju_t := 2.0
 var _stolen_stroke := -1
-var _slow_until := 0  # millisecondes (temps réel)
-var _slow_cd := 0
+## Ralentis des pouvoirs comptés en temps du jeu (pas réel de main, non ralenti : _slow_clock) et non à l'horloge
+## murale : à l'horloge, la pause les laissait filer, un téléphone qui rame les raccourcissait, et le robot du CI
+## (pas fixe, bien plus vite que le temps réel) vivait 10 à 25 fois leur durée — Instant volé relancé à chaque
+## trait, le combat entier à 0,3 : les yōkai semblaient « coincés » et le boss traînait.
+var _slow_clock := 0.0  # secondes de jeu (main : `real`) depuis le début de la partie
+var _slow_until := 0.0
+var _slow_cd := 0.0
 var _slow_scale := 1.0
 var _was_touching := false
 var _drum_pulse := 0.0
@@ -159,8 +164,9 @@ func reset() -> void:
 	_enso_heal_room = -1
 	_raiju_t = 2.0
 	_stolen_stroke = -1
-	_slow_until = 0
-	_slow_cd = 0
+	_slow_clock = 0.0
+	_slow_until = 0.0
+	_slow_cd = 0.0
 	_slow_scale = 1.0
 	_was_touching = false
 	_drum_pulse = 0.0
@@ -976,12 +982,14 @@ func foam_per_room() -> int:
 
 
 ## Échelle de temps voulue par les pouvoirs (Souffle suspendu, Instant volé) ; 1.0 sinon.
-func time_mult() -> float:
-	var now := Time.get_ticks_msec()
+## `real` : pas de temps de main (non ralenti), une fois par image de jeu.
+func time_mult(real: float) -> float:
+	_slow_clock += real
+	var now := _slow_clock
 	var touching := bool(main.touching)
 	if touching and not _was_touching and lvl("wind_stillness") > 0 and now >= _slow_cd:
 		_slow(val("wind_stillness"), 0.35)
-		_slow_cd = now + 5000
+		_slow_cd = now + 5.0
 		if is_instance_valid(main.hero):
 			_tag("wind_stillness", main.hero.position)
 	_was_touching = touching
@@ -991,12 +999,12 @@ func time_mult() -> float:
 
 
 func _slow(sec: float, scale: float) -> void:
-	var now := Time.get_ticks_msec()
+	var now := _slow_clock
 	if now >= _slow_until:
 		_slow_scale = scale
 	else:
 		_slow_scale = minf(_slow_scale, scale)
-	_slow_until = maxi(_slow_until, now + int(sec * 1000.0))
+	_slow_until = maxf(_slow_until, now + sec)
 
 
 ## Dégâts d'un coup de ruée sur un boss, modifiés par les pouvoirs (renaissance, Ippitsu, critiques).
