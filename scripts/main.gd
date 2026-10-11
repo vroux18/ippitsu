@@ -62,6 +62,7 @@ const KIND_XP := {"oni": 1, "kappa": 2, "tate": 2, "funa": 2, "brute": 3,
 	"shinobi": 2, "shuriken": 2, "kemuri": 3, "kunoichi": 3}
 const Tutorial = preload("res://scripts/tutorial.gd")  # hôte du dojo
 const Coach = preload("res://scripts/coach.gd")  # tutoriel en jeu : bulles du premier monde
+const TreeCoach = preload("res://scripts/tree_coach.gd")  # tutoriel de l'Arbre du pinceau (accueil, Atelier)
 const Intro = preload("res://scripts/intro.gd")
 const Opening = preload("res://scripts/opening.gd")
 const Music = preload("res://scripts/music_player.gd")
@@ -394,6 +395,7 @@ var _ending_victory := false
 var music: Node
 var tuto: Control  # dojo (état « tuto »)
 var coach: Control  # tutoriel en jeu (coach.gd)
+var tree_coach: Control  # tutoriel de l'Arbre du pinceau (tree_coach.gd), une fois après le monde 1
 var gentle := false  # première partie du tutoriel : les deux premiers combats du monde 1 adoucis
 # contrôles : ctrl_mode est lu une fois au lancement (cadrage, entrée) ; ctrl_pref est le choix des options,
 # appliqué au prochain lancement
@@ -666,6 +668,13 @@ func _ready() -> void:
 	open_layer.add_child(opening)
 	opening.connect("reveal", _on_opening_reveal)
 	opening.connect("finished", _on_opening_finished)
+	var tc_layer := CanvasLayer.new()
+	tc_layer.layer = 7  # par-dessus l'accueil et l'Atelier
+	add_child(tc_layer)
+	tree_coach = TreeCoach.new()
+	tree_coach.main = self
+	tree_coach.visible = false
+	tc_layer.add_child(tree_coach)
 	var map_layer := CanvasLayer.new()
 	map_layer.layer = 4
 	add_child(map_layer)
@@ -686,6 +695,11 @@ func _ready() -> void:
 		elif s.begins_with("--shot="):
 			_shot(s.substr(7))
 	var wpos := wsearch.find("world=")
+	# tutoriel de l'arbre : jamais de lui-même pendant le robot ou une capture (ils le demandent : tree_coach.request)
+	tree_coach.auto = wsearch == ""
+	for a in OS.get_cmdline_user_args():
+		if String(a) in ["--bot", "--autoplay", "--figtest"] or String(a).begins_with("--shot="):
+			tree_coach.auto = false
 	# mode mesure : choix sauvegardé, ou `?mesure` / `--q=mesure` (captures : forcé, rien n'est sauvegardé)
 	measure.set_active(bool(meta.measure_mode) or "mesure" in wsearch)
 	hud.show_fps = "fps" in wsearch
@@ -891,7 +905,9 @@ func _ready() -> void:
 				refuge.call("_learn")
 	if "dojo" in wsearch:
 		_start_dojo()
-	if "tuto" in wsearch:
+	if "tutoarbre" in wsearch:
+		_capture_tree_coach(wsearch)
+	elif "tuto" in wsearch:
 		# `?tuto` (web) : première partie du tutoriel en jeu
 		meta.coach_reset()
 		_start_first_run()
@@ -1816,6 +1832,28 @@ func _on_atelier() -> void:
 	sfx.play("whoosh", 0.8)
 	menu.show_mode("hidden")
 	refuge.open()
+
+
+## `?tutoarbre[&etape=N]` (captures) : le tutoriel de l'Arbre du pinceau, à l'étape N (1 accueil, 2 nœud, 3 APPRENDRE,
+## 4 bulle finale) ; arbre vide, une partie jouée, 140 encre ; rien n'est sauvegardé par le tutoriel.
+func _capture_tree_coach(q: String) -> void:
+	meta.tree = {}
+	meta.purse_rank = 0
+	meta.runs = maxi(1, meta.runs)
+	meta.sumi = 140
+	meta.coach_seen.erase("arbre")
+	menu.sumi = meta.sumi
+	tree_coach.dry = true
+	tree_coach.hold = true
+	var eq := q.find("etape=")
+	var n := clampi(int(q.substr(eq + 6).get_slice("&", 0)), 1, 4) if eq >= 0 else 1
+	if n >= 2:
+		_on_atelier()
+	if n == 4:
+		var nid := String(refuge.call("_default_node"))
+		refuge.call("select_node", nid)
+		refuge.call("_learn")
+	tree_coach.request(n)
 
 
 func _on_refuge_closed() -> void:
