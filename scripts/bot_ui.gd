@@ -10,6 +10,7 @@ const Worlds = preload("res://scripts/worlds.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Options = preload("res://scripts/options.gd")
 const Gear = preload("res://scripts/gear_data.gd")
+const UiKit = preload("res://scripts/ui_kit.gd")
 const TIMEOUT := 15.0  # secondes réelles
 
 var bot: Node
@@ -695,7 +696,7 @@ func _ref_rect(key: String) -> Rect2:
 		for hr in ref._hits:
 			if String(hr[1]) == key:
 				r = hr[0]
-		if not r.has_area() and int(ref._tab) > 0:
+		if not r.has_area() and int(ref._tab) == 1:
 			var view: Rect2 = ref._view
 			for hr in ref._list_hits:
 				var lr: Rect2 = hr[0]
@@ -1235,19 +1236,24 @@ func _dep_tap(key: String) -> void:
 	await _frames(2)
 
 
-## Écran AVANT LE DÉPART : progression de démonstration (mondes 1 et 2 vaincus, omamori de la garde), JOUER
-## l'ouvre sur le dernier choix ; pinceau du râtelier touché -> Hake ; aspect non gagné, pinceau verrouillé et charme verrouillé
-## refusent PARTIR ; Hake · Large + Garde part, et la partie porte bien ce pinceau et ce charme.
+## Écran AVANT LE DÉPART : progression de démonstration (mondes 1 et 2 vaincus, omamori de la garde, Hake avec deux
+## aspects) ; d'abord l'Atelier, onglet PINCEAUX : Hake · Mur choisi (sauvegardé), Balai à gagner refusé. JOUER ouvre
+## l'écran sur le dernier choix ; pinceau du râtelier touché -> Hake, sur l'aspect choisi à l'Atelier (sans sceaux à
+## l'écran) ; pinceau verrouillé et charme verrouillé refusent PARTIR ; Hake · Mur + Garde part, et la partie porte
+## bien ce pinceau, cet aspect et ce charme.
 func _step_departure() -> bool:
 	var mt = main.meta
 	var dp = main.departure
 	var keep := [int(mt.won_top), mt.charms_won.duplicate(), String(mt.brush_sel), mt.aspect_sel.duplicate(), String(mt.charm_sel), mt.aspects_won.duplicate()]
 	mt.test_won = 2  # seuls les mondes 1 et 2 comptent comme vaincus (la sauvegarde peut en avoir plus)
 	mt.charms_won = {"garde": true}
-	mt.aspects_won = {}
+	mt.aspects_won = {"hake": 2}
+	mt.aspect_sel = {}
 	mt.brush_sel = "fude"
 	mt.charm_sel = ""
-	var ok := await _departure_body(dp)
+	var ok := await _atelier_aspects()
+	if ok:
+		ok = await _departure_body(dp)
 	mt.test_won = -1
 	mt.won_top = int(keep[0])
 	mt.charms_won = keep[1]
@@ -1280,6 +1286,7 @@ func _departure_body(dp) -> bool:
 	_check(small == "", "départ : zones tactiles ≥ 44 px", "trop petites :%s" % small)
 	await _dep_tap("brush:hake")
 	_check(String(dp.brush_id()) == "hake" and bool(dp.can_go()), "départ : râtelier -> Hake (boss du monde 1 vaincu), partir permis", "pinceau %s, %s" % [String(dp.brush_id()), String(dp.go_label())])
+	_check(int(dp.ak) == 1, "départ : Hake sur l'aspect choisi à l'Atelier (Mur)", "aspect %d" % int(dp.ak))
 	_check(_dep_rect("asp:0").size.x <= 0.0, "départ : plus de sceaux d'aspect à l'écran", "cible asp:0 encore présente")
 	await _dep_tap("brush:warefude")
 	_check(String(dp.brush_id()) == "warefude" and String(dp.go_label()) == "PINCEAU À GAGNER", "départ : Warefude verrouillé (boss du monde 4)", "%s, %s" % [String(dp.brush_id()), String(dp.go_label())])
@@ -1292,14 +1299,59 @@ func _departure_body(dp) -> bool:
 	if not _check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un charme verrouillé", "écran fermé, état %s" % String(main.state)):
 		return false
 	await _dep_tap("charm:garde")
-	_check(String(dp.cid) == "garde" and bool(dp.can_go()) and String(dp.brush_id()) == "hake", "départ : Hake · Large + omamori de la garde", "%s/%s, %s" % [String(dp.brush_id()), String(dp.cid), String(dp.go_label())])
+	_check(String(dp.cid) == "garde" and bool(dp.can_go()) and String(dp.brush_id()) == "hake", "départ : Hake · Mur + omamori de la garde", "%s/%s, %s" % [String(dp.brush_id()), String(dp.cid), String(dp.go_label())])
 	await _dep_tap("go")
 	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "départ : PARTIR -> monde 1"):
 		return false
 	var h = main.hero
-	return _check(String(main.brush) == "hake" and String(main.charm) == "garde" and String(main.meta.brush_sel) == "hake"
-		and h._charm != null and is_instance_valid(h._charm),
-		"départ : la partie porte Hake et l'omamori (à la ceinture), choix gardé", "pinceau %s, charme %s" % [String(main.brush), String(main.charm)])
+	return _check(String(main.brush) == "hake" and int(main.aspect) == 1 and String(main.charm) == "garde" and String(main.meta.brush_sel) == "hake"
+		and int(main.meta.aspect_sel.get("hake", 0)) == 1 and h._charm != null and is_instance_valid(h._charm),
+		"départ : la partie porte Hake · Mur et l'omamori (à la ceinture), choix gardé",
+		"pinceau %s/%d, charme %s, aspect gardé %d" % [String(main.brush), int(main.aspect), String(main.charm), int(main.meta.aspect_sel.get("hake", 0))])
+
+
+## Atelier, onglet PINCEAUX (avant l'écran de départ) : trois onglets sans texte coupé, cibles ≥ 44 px ; le râtelier
+## montre Hake ; son aspect Mur (acquis) se choisit et se sauvegarde, Balai (à gagner) est refusé ; RETOUR.
+func _atelier_aspects() -> bool:
+	var mt = main.meta
+	var ref = main.refuge
+	if not await _until(func(): return String(main.state) == "menu" and String(main.menu.mode) == "home", "accueil avant l'Atelier (pinceaux)"):
+		return false
+	await _press(main.menu._atelier, "ATELIER (pinceaux)")
+	if not await _until(func(): return bool(ref.visible) and float(ref._t) >= 0.7 and ref._hits.size() > 0, "atelier prêt (pinceaux)"):
+		return false
+	await _ref_tab(2)
+	await _frames(3)
+	# onglets : chaque mot (et le coup de pinceau de l'onglet actif) tient dans sa case
+	var tf: Font = UiKit.tab_font()
+	var fs := maxi(1, int(UiKit.FS_BODY * float(ref._u)))
+	var cut := ""
+	for i in ref.TABS.size():
+		var tr: Rect2 = ref.hit_rect("tab:%d" % i)
+		var lw := tf.get_string_size(UiKit.plain(String(ref.TABS[i])), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 30.0 * float(ref._u)
+		if not tr.has_area() or lw > tr.size.x:
+			cut += " %s (%.0f > %.0f)" % [String(ref.TABS[i]), lw, tr.size.x]
+	_check(cut == "", "atelier : trois onglets, aucun mot coupé", "trop larges :%s" % cut)
+	await _ref_tap("brush:hake")
+	_check(String(ref.brush_view()) == "hake", "atelier (pinceaux) : râtelier -> Hake", "pinceau %s" % String(ref.brush_view()))
+	await _frames(2)
+	var small := ""
+	for hr in ref._hits:
+		var r: Rect2 = hr[0]
+		var key := String(hr[1])
+		if (key.begins_with("brush:") or key.begins_with("asp:")) and (r.size.x < 44.0 or r.size.y < 44.0):
+			small += " %s %s" % [key, str(r.size)]
+	_check(small == "", "atelier (pinceaux) : zones tactiles ≥ 44 px", "trop petites :%s" % small)
+	await _ref_tap("asp:1")
+	var cf := ConfigFile.new()
+	var saved := int(cf.get_value("gear_aspect", "hake", -1)) if cf.load(Meta.SAVE_PATH) == OK else -1
+	_check(int(mt.aspect_sel.get("hake", 0)) == 1 and int(ref.chosen_aspect("hake")) == 1 and saved == 1,
+		"atelier (pinceaux) : Hake · Mur (acquis) choisi et sauvegardé", "choisi %d, sauvegardé %d" % [int(mt.aspect_sel.get("hake", 0)), saved])
+	await _ref_tap("asp:2")
+	_check(int(mt.aspect_sel.get("hake", 0)) == 1 and String(ref._shake_key) == "asp:2" and int(ref._asp_view) == 2,
+		"atelier (pinceaux) : Hake · Balai (à gagner) refusé, décrit en bas", "choisi %d, refus %s" % [int(mt.aspect_sel.get("hake", 0)), String(ref._shake_key)])
+	await _ref_tap("back")
+	return await _until(func(): return not bool(ref.visible) and String(main.state) == "menu", "atelier (pinceaux) : RETOUR -> accueil")
 
 
 func _transit_to_room1(w: int) -> bool:

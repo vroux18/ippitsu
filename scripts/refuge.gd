@@ -1,5 +1,5 @@
 extends Control
-## Atelier : l'atelier du peintre. En-tête fin (retour, titre), jetons (encre, Vues), commande segmentée à deux onglets :
+## Atelier : l'atelier du peintre. En-tête fin (retour, titre), jetons (encre, Vues), commande segmentée à trois onglets :
 ## - Arbre : l'Arbre du pinceau (meta.TREE, maquette validée) peint à l'encre sur le washi : tronc au pinceau, quatre
 ##   branches courbes (LAME, ENCRE, PAPIER, VOIE) de six nœuds et un sommet légendaire (scripts/tree_art.gd), au lavis
 ##   tant qu'elles ne sont pas apprises ; nœuds en sceaux hanko, kamon (scripts/kamon.gd). Toucher un nœud le décrit
@@ -7,7 +7,11 @@ extends Control
 ##   appris : la branche s'encre jusqu'à lui, le sceau se pose, une fleur s'ouvre. Hors de l'arbre, au pied à gauche :
 ##   la Bourse (petite pièce, cinq rangs en encre, AMÉLIORER) ;
 ## - Estampes : la collection des Vues (filtre par apparence) ; toucher ouvre la fiche de l'estampe, toucher encore
-##   porte l'apparence : un sceau vermillon s'imprime.
+##   porte l'apparence : un sceau vermillon s'imprime ;
+## - Pinceaux : le râtelier de l'écran de départ (scripts/brush_art.gd) sur le washi ; toucher un pinceau montre ses
+##   trois aspects en sceaux hanko (vermillon acquis, tirets à gagner, cadre doré sur le choisi) ; toucher un aspect
+##   acquis le choisit (meta.aspect_sel, sauvegardé) : il part avec ce pinceau (l'écran de départ ne l'affiche plus).
+##   Le panneau sombre du bas décrit l'aspect touché (effet, état ou condition).
 
 const Toon = preload("res://scripts/toon.gd")
 const Meta = preload("res://scripts/meta.gd")
@@ -16,6 +20,8 @@ const UIColors = preload("res://scripts/ui_colors.gd")
 const Data = preload("res://scripts/power_data.gd")
 const TreeArt = preload("res://scripts/tree_art.gd")
 const Kamon = preload("res://scripts/kamon.gd")
+const Gear = preload("res://scripts/gear_data.gd")
+const BrushArt = preload("res://scripts/brush_art.gd")
 
 const BG := Color("#201814")  # bois sombre
 const GOLD_HI := Color("#E2A93B")
@@ -32,8 +38,9 @@ const TABS_Y := 110.0
 const FILTERS_Y := 160.0
 const LIST_TOP := 160.0
 const LIST_TOP_PRINTS := 198.0
-const TABS := ["ARBRE", "ESTAMPES"]
-const TAB_GLYPHS := ["at_drop", "at_print"]
+const TABS := ["ARBRE", "ESTAMPES", "PINCEAUX"]
+const TAB_GLYPHS := ["at_drop", "at_print", "at_brush"]
+const TAB_BRUSHES := 2
 const CHIP_GLYPHS := ["at_drop", "at_print"]
 const CHIP_COLORS := [Color("#2F5D8A"), Color("#C49A45")]
 const CHIP_LABELS := ["ENCRE", "VUES"]
@@ -57,6 +64,12 @@ const SEAL_GOLD := Color("#C49A45")
 const SEAL_LINE := Color("#F5EEDD")
 const PLUM := Color("#E06A7A")
 const PLUM_GOLD := Color("#E2A93B")
+const BR_TEXT := Color("#3A342E")  # onglet Pinceaux : texte sur le washi
+const BR_CAPTION := Color("#8A7E68")
+const BR_MUTED := Color("#9A8E78")
+const BR_SUB := Color("#6A5F50")
+const BR_OK := Color("#3E7A4A")
+const BR_W := 390.0  # repère de la maquette du râtelier (Depart.dc.html), en largeur
 const FILTERS := ["TOUT", "ÉCHARPES", "SILLAGES", "ENCRES"]
 const FILTER_KINDS := ["", "cape", "trail", "ink"]
 const KIND_LABELS := {"cape": "ÉCHARPE", "trail": "SILLAGE", "ink": "ENCRE"}
@@ -127,6 +140,10 @@ var _lab := FontVariation.new()  # arbre : noms des branches (Mincho espacé)
 var _cap := FontVariation.new()  # arbre : petites capitales du panneau
 var _stampf := FontVariation.new()  # arbre : bouton en tampon
 var _state := FontVariation.new()  # arbre : état du nœud
+var _bview := "fude"  # onglet Pinceaux : pinceau montré sur le râtelier
+var _asp_view := -1  # aspect décrit dans le panneau du bas (-1 : le choisi)
+var _bt := -10.0  # instant (_t) du dernier pinceau touché : il descend du râtelier
+var _seal_pos := {}  # « asp:k » -> centre du sceau (écran), pour l'empreinte
 
 
 func _ready() -> void:
@@ -172,6 +189,11 @@ func open() -> void:
 	_grow_id = ""
 	_grow_b = ""
 	_grow_t = 9.0
+	_bview = "fude"
+	if meta != null:
+		_bview = String(meta.gear_now()["brush"])
+	_asp_view = -1
+	_bt = -10.0
 	_scroll = 0.0
 	_vel = 0.0
 	_content_h = 0.0
@@ -221,7 +243,7 @@ func _target_at(p: Vector2) -> String:
 		var r: Rect2 = hr[0]
 		if r.has_point(p):
 			return String(hr[1])
-	if _tab > 0 and _view.has_point(p):
+	if _tab == 1 and _view.has_point(p):
 		for i in range(_list_hits.size() - 1, -1, -1):
 			var hr: Array = _list_hits[i]
 			var r: Rect2 = hr[0]
@@ -237,7 +259,7 @@ func _gui_input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		accept_event()
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			if mb.pressed and _tab > 0 and _t >= 0.3 and not _sheet_on():
+			if mb.pressed and _tab == 1 and _t >= 0.3 and not _sheet_on():
 				var dir: float = -1.0 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
 				_scroll = clampf(_scroll + dir * 60.0 * _u, 0.0, _max_scroll())
 				_vel = 0.0
@@ -275,7 +297,7 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		accept_event()
 		if not _dragging:
-			if _tab == 0 or _sheet_on() or not _view.has_point(_press_pos) or absf(mm.position.y - _press_pos.y) <= DRAG_START * _u:
+			if _tab != 1 or _sheet_on() or not _view.has_point(_press_pos) or absf(mm.position.y - _press_pos.y) <= DRAG_START * _u:
 				return
 			_dragging = true
 			_pressed = ""  # un glissé n'appuie sur rien
@@ -338,6 +360,12 @@ func _tap(key: String) -> void:
 		return
 	if key == "learn":
 		_learn()
+		return
+	if key.begins_with("brush:"):
+		show_brush(key.substr(6))
+		return
+	if key.begins_with("asp:"):
+		choose_aspect(int(key.substr(4)))
 		return
 	if key != _sel:
 		# premier toucher : on choisit (une estampe ouvre sa fiche) ; hors de portée, le refus se voit tout de suite
@@ -420,7 +448,7 @@ func _process(_delta: float) -> void:
 			var cur: float = _disp[i]
 			cur = target if absf(target - cur) < 0.5 else lerpf(cur, target, 1.0 - exp(-9.0 * real))
 			_disp[i] = cur
-	if _tab > 0:
+	if _tab == 1:
 		var hi := _max_scroll()
 		if _dragging:
 			if real > 0.0:
@@ -461,7 +489,7 @@ func _layout() -> void:
 	_view = Rect2(Vector2(10 * u, top), Vector2(w - 20 * u, maxf(10.0, h - _bot - reserve - top)))
 	_list.position = _view.position
 	_list.size = _view.size
-	_list.visible = _tab > 0
+	_list.visible = _tab == 1
 	_list.modulate.a = UiKit.ease_out(_tab_t / 0.3)
 	_sheet.position = Vector2.ZERO
 	_sheet.size = size
@@ -626,6 +654,8 @@ func _draw() -> void:
 	_draw_tabs(w, u)
 	if _tab == 0:
 		_draw_tree(w, h, u)
+	elif _tab == TAB_BRUSHES:
+		_draw_brushes(w, h, u)
 	else:
 		_draw_filters(w, u)
 		_draw_info(w, h, u)
@@ -1235,11 +1265,207 @@ func _power_name(id: String) -> String:
 	return String(d["name"])
 
 
+# ------------------------------------------------------------------ pinceaux et aspects
+
+## Aspect choisi (meta.aspect_sel) du pinceau `id`, s'il est possédé ; sinon le premier (comme l'écran de départ).
+func chosen_aspect(id: String) -> int:
+	if meta == null:
+		return 0
+	var k := clampi(int(meta.aspect_sel.get(id, 0)), 0, 2)
+	return k if bool(meta.aspect_owned(id, k)) else 0
+
+
+## Pinceau montré sur le râtelier de l'onglet Pinceaux.
+func brush_view() -> String:
+	return _bview
+
+
+## Montre le pinceau `id` (toucher sur le râtelier, robot, captures `?atelier&tab=2&pinceau=hake`) : il descend,
+## ses aspects s'affichent ; le panneau du bas revient sur l'aspect choisi.
+func show_brush(id: String) -> void:
+	if not Gear.BRUSHES.has(id):
+		return
+	if id != _bview:
+		_bt = _t
+	_bview = id
+	_asp_view = -1
+
+
+## Toucher le sceau de l'aspect `k` du pinceau montré : le panneau du bas le décrit ; acquis, il est choisi
+## (meta.aspect_sel, sauvegardé : il partira avec ce pinceau) et son sceau s'imprime ; à gagner, le sceau se
+## secoue. Renvoie vrai si l'aspect est choisi.
+func choose_aspect(k: int) -> bool:
+	if meta == null:
+		return false
+	k = clampi(k, 0, 2)
+	_asp_view = k
+	var key := "asp:%d" % k
+	if not bool(meta.aspect_owned(_bview, k)):
+		_refuse(key)
+		return false
+	if chosen_aspect(_bview) != k:
+		_stamp_key = key
+		_stamp = 1.0
+	meta.aspect_sel[_bview] = k
+	meta.save_data()
+	return true
+
+
+func _has_glyphs(s: String) -> bool:
+	for i in s.length():
+		if not UiKit.UI_FONT.has_char(s.unicode_at(i)):
+			return false
+	return true
+
+
+## Onglet Pinceaux : washi au bord déchiré, fibres, râtelier (BrushArt, comme l'écran de départ) ; nom, devise et
+## règle du pinceau montré ; ses trois aspects en sceaux hanko ; panneau sombre du bas : l'aspect touché.
+func _draw_brushes(w: float, h: float, u: float) -> void:
+	if meta == null:
+		return
+	var a := UiKit.ease_out(_tab_t / 0.3)
+	_washi_y = _top + WASHI_Y * u
+	var ph := DETAIL_H * u + _bot
+	_detail_rect = Rect2(Vector2(0, h - ph), Vector2(w, ph))
+	var wp := PackedVector2Array()
+	for q in TreeArt.torn(true):
+		wp.append(Vector2(q.x * w, _washi_y + (q.y - 100.0) * u))
+	wp.append(Vector2(w, h))
+	wp.append(Vector2(0, h))
+	draw_colored_polygon(wp, Color(TREE_WASHI, a))
+	var sx := w / BR_W
+	var sc := Vector2(sx, u)
+	var fy0 := _washi_y + 12.0 * u
+	var fy1 := _detail_rect.position.y
+	for i in 36:
+		var fx := TreeArt.rnd(float(i) * 3.1 + 0.7) * w
+		var fy := fy0 + TreeArt.rnd(float(i) * 7.3 + 99.0) * (fy1 - fy0)
+		var ang := TreeArt.rnd(float(i) + 7.0) * 3.1
+		var l := (6.0 + TreeArt.rnd(float(i) + 3.0) * 16.0) * u
+		draw_line(Vector2(fx, fy), Vector2(fx, fy) + Vector2.from_angle(ang) * l, Color(TREE_FIBER, (0.25 + 0.3 * TreeArt.rnd(float(i) + 11.0)) * a), maxf(1.0, u), true)
+	draw_circle(Vector2(356.0 * sx, _top + 462.0 * u), 26.0 * u, Color(TREE_SUN, 0.10 * a))
+	# râtelier : le pinceau montré descend, cordon vermillon ; les pinceaux à gagner au lavis, leur monde dessous
+	BrushArt.rack(self, Vector2(195.0 * sx, _top + 186.0 * u), sc, u, a)
+	var drop := UiKit.ease_out(clampf((_t - _bt) / 0.35, 0.0, 1.0))
+	for i in Gear.ORDER.size():
+		var id := String(Gear.ORDER[i])
+		var sel := id == _bview
+		var x := (55.0 + float(i) * BrushArt.STEP) * sx
+		var y := _top + (228.0 + (12.0 * drop if sel else 0.0)) * u
+		var opn := bool(meta.brush_unlocked(id))
+		BrushArt.brush(self, id, Vector2(x, y), sc, u, sel, opn, (1.0 if opn else 0.35) * a, TREE_WASHI)
+		if not opn:
+			UiKit.text(self, _state, "MONDE %d" % int(Gear.brush(id)["world"]), Vector2(x, _top + 332.0 * u), int(8.5 * u), Color(BR_MUTED, a))
+		_hits.append([Rect2(Vector2(x - 32.0 * sx, _top + 176.0 * u), Vector2(64.0 * sx, 164.0 * u)), "brush:" + id])
+	# nom, devise, règle
+	var bd: Dictionary = Gear.brush(_bview)
+	var bopen := bool(meta.brush_unlocked(_bview))
+	var cx := w / 2.0
+	var tg: Array = BrushArt.tag(_bview)
+	var nm := String(tg[0])
+	UiKit.text(self, _lab, nm, Vector2(cx, _top + 374.0 * u), _fit(_lab, nm, int(22.0 * u), w - 40.0 * u, int(14.0 * u)), Color(TREE_SUMI, a))
+	var jp := String(bd["jp"])
+	var dev := (jp + " · " if _has_glyphs(jp) else "") + String(tg[1])
+	UiKit.text(self, _cap, dev, Vector2(cx, _top + 393.0 * u), _fit(_cap, dev, int(10.0 * u), w - 40.0 * u, int(7.0 * u)), Color(BR_SUB, a))
+	var rfs := int(12.0 * u)
+	var rl := UiKit.wrap(UiKit.UI_FONT, String(bd["rule"]), rfs, w - 44.0 * u, [":", "%", "·"])
+	for li in mini(rl.size(), 2):
+		UiKit.text(self, UiKit.UI_FONT, rl[li], Vector2(cx, _top + (418.0 + 15.0 * float(li)) * u), rfs, Color(BR_TEXT, a))
+	# les trois aspects
+	draw_string(_cap, Vector2(22.0 * sx, _top + 468.0 * u), "ASPECTS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(UiKit.FS_CAPTION * u), Color(BR_CAPTION, a))
+	var asp: Array = bd["aspects"]
+	var ck := chosen_aspect(_bview)
+	var who := String(tg[0])
+	_seal_pos.clear()
+	for k in 3:
+		var key := "asp:%d" % k
+		var c := Vector2((75.0 + float(k) * 120.0) * sx, _top + 518.0 * u)
+		if _shake_key == key and _shake > 0.0:
+			c.x += sin(_t * 60.0) * 4.0 * u * _shake
+		_seal_pos[key] = c
+		var own := bool(meta.aspect_owned(_bview, k))
+		var rot := deg_to_rad((TreeArt.rnd(float(k + Gear.ORDER.find(_bview) * 3) + 0.5) - 0.5) * 10.0)
+		var pk := 0.95 if _pressed == key else 1.0
+		BrushArt.aspect_seal(self, c, u * pk, rot, own, bopen and k == ck, a)
+		var an := String(asp[k][0]).to_upper()
+		var afs := _fit(UiKit.TITLE_FONT, an, int(12.0 * u), 50.0 * u, int(8.0 * u))
+		UiKit.text(self, UiKit.TITLE_FONT, an, Vector2(c.x, c.y + float(afs) * 0.36), afs, Color(TREE_PAPER if own else Color("#A09480"), a))
+		var cap := "PINCEAU À GAGNER"
+		var cc: Color = BR_MUTED
+		if own:
+			cap = "CHOISI" if k == ck else "ACQUIS"
+			cc = GOLD_INK if k == ck else BR_OK
+		elif bopen:
+			cap = "BOSS AVEC " + who
+		var cfs := _fit(_state, cap, int(9.0 * u), 104.0 * sx, int(7.0 * u))
+		UiKit.text(self, _state, cap, Vector2(c.x, _top + 576.0 * u), cfs, Color(cc, a))
+		var hs := maxf(UiKit.TOUCH_MIN, 76.0) * u / 2.0
+		_hits.append([Rect2(c - Vector2(hs, hs), Vector2(hs, hs) * 2.0), key])
+	if _stamp > 0.0 and _seal_pos.has(_stamp_key):
+		_stamp_fx(self, _seal_pos[_stamp_key], "", u)
+	_draw_aspect_detail(w, u, a)
+
+
+## Panneau sombre du bas de l'onglet Pinceaux : pinceau et rang de l'aspect, nom, effet, état (choisi, acquis, ou ce
+## qu'il faut pour le gagner).
+func _draw_aspect_detail(w: float, u: float, a: float) -> void:
+	var r := _detail_rect
+	var pp := PackedVector2Array()
+	for q in TreeArt.torn(false):
+		pp.append(Vector2(q.x * w, r.position.y + q.y * u))
+	pp.append(Vector2(w, r.end.y))
+	pp.append(Vector2(0, r.end.y))
+	draw_colored_polygon(pp, Color(TREE_SUMI, a))
+	var bd: Dictionary = Gear.brush(_bview)
+	var bopen := bool(meta.brush_unlocked(_bview))
+	var ck := chosen_aspect(_bview)
+	var k := ck if _asp_view < 0 else _asp_view
+	var asp: Array = bd["aspects"][k]
+	var own := bool(meta.aspect_owned(_bview, k))
+	var who := String(BrushArt.tag(_bview)[0])
+	var x := 20.0 * u
+	var xr := w - 20.0 * u
+	var y0 := r.position.y
+	draw_rect(Rect2(Vector2(x, y0 + 25.0 * u), Vector2(18.0, 3.0) * u), Color(Toon.VERMILION, a))
+	var cfs := int(UiKit.FS_CAPTION * u)
+	draw_string(_cap, Vector2(x + 26.0 * u, y0 + 26.5 * u + cfs * 0.36), "%s · ASPECT %d/3" % [who, k + 1], HORIZONTAL_ALIGNMENT_LEFT, xr - x - 26.0 * u, cfs, Color(TREE_WASHI, 0.65 * a))
+	var nm := String(asp[0])
+	var nfs := _fit(UiKit.TITLE_FONT, nm, int(20.0 * u), xr - x, int(14.0 * u))
+	draw_string(UiKit.TITLE_FONT, Vector2(x, y0 + 57.0 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(TREE_WASHI, a))
+	var efs := int(13.0 * u)
+	var lines := UiKit.wrap(UiKit.UI_FONT, String(asp[1]), efs, xr - x, [":", "%", "»", "!", "?"])
+	if lines.size() > 2:
+		efs = int(11.5 * u)
+		lines = UiKit.wrap(UiKit.UI_FONT, String(asp[1]), efs, xr - x, [":", "%", "»", "!", "?"])
+	var lh := float(efs) * 1.3
+	for i in mini(lines.size(), 3):
+		draw_string(UiKit.UI_FONT, Vector2(x, y0 + 79.0 * u + float(i) * lh), lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, efs, Color(TREE_WASHI, 0.82 * a))
+	var st := ""
+	var sc: Color = TREE_MISS
+	if not bopen:
+		st = "PINCEAU À GAGNER : BOSS DU MONDE %d" % int(bd["world"])
+	elif own and k == ck:
+		st = "CHOISI : IL PART AVEC LE %s" % who
+		sc = TREE_OK
+	elif own:
+		st = "ACQUIS : TOUCHE SON SCEAU POUR LE CHOISIR"
+		sc = PLUM_GOLD
+	else:
+		st = "À GAGNER : BATS UN BOSS DE MONDE AVEC LE %s" % who
+		if k == 2 and not bool(meta.aspect_owned(_bview, 1)):
+			st += ", APRÈS %s" % String(bd["aspects"][1][0]).to_upper()
+	var sfs := int(11.0 * u)
+	var sl := UiKit.wrap(_state, st, sfs, xr - x, [":"])
+	var sy := r.end.y - _bot - 18.0 * u - float(sl.size() - 1) * (sfs + 3.0 * u)
+	for i in sl.size():
+		draw_string(_state, Vector2(x, sy + float(i) * (sfs + 3.0 * u)), sl[i], HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(sc, a))
+
+
 # ------------------------------------------------------------------ liste des estampes
 
 func _draw_list() -> void:
 	_list_hits.clear()
-	if meta == null or _tab == 0:
+	if meta == null or _tab != 1:
 		return
 	var W := _list.size.x
 	var u := _u

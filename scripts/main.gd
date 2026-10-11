@@ -741,7 +741,8 @@ func _ready() -> void:
 		meta.test_unlock_all = true
 	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, Worlds.WORLDS.size()) if wpos >= 0 else 1)
 	# `&pinceau=hake&aspect=1&charme=garde` (captures) : équipement imposé, même verrouillé ; `&won=N` : progression
-	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés) pour l'écran de départ ; rien n'est sauvegardé
+	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés ; `&aspects=N` : N aspects par pinceau) pour l'écran
+	# de départ et l'Atelier ; rien n'est sauvegardé
 	_gear_query(wsearch)
 	# `&chapeau=oni&lame=mizu&echarpe=c_gin&sillage=t_raiko&trait=i_kin` (captures) : ces éléments de la garde-robe
 	# accordés et portés (les captures tournent sur une sauvegarde à part)
@@ -917,8 +918,9 @@ func _ready() -> void:
 	if "portes" in wsearch and state == "play":
 		load("res://scripts/seal_gate.gd").mock(self, wsearch)
 	if "atelier" in wsearch:
-		# `?atelier&tab=1` (captures) : l'onglet N ouvert (0 arbre, 1 estampes) ; `&fresh` : encre et arbre remis
-		# à zéro (prix visibles) ; `&arbre` : arbre de démonstration (640 encre, quelques nœuds appris, `&voie` : la
+		# `?atelier&tab=1` (captures) : l'onglet N ouvert (0 arbre, 1 estampes, 2 pinceaux : `&pinceau=hake&aspect=1`
+		# le montre sur cet aspect, `&won=N&aspects=2` ses aspects gagnés) ; `&fresh` : encre et arbre remis à zéro
+		# (prix visibles) ; `&arbre` : arbre de démonstration (640 encre, quelques nœuds appris, `&voie` : la
 		# branche VOIE entière, `&plein` : l'arbre entier) ;
 		# `&noeud=v2` : ce nœud choisi (panneau du bas) ; `&apprendre` : puis APPRENDRE (animation de l'achat)
 		if "fresh" in wsearch:
@@ -939,7 +941,7 @@ func _ready() -> void:
 					meta.tree[nid] = true
 		var tb := wsearch.find("tab=")
 		if tb >= 0:
-			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 1))
+			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, Refuge.TABS.size() - 1))
 		_on_atelier()
 		var nq := wsearch.find("noeud=")
 		if nq >= 0:
@@ -2737,6 +2739,11 @@ func _gear_query(q: String) -> void:
 		for cid in Gear.CHARM_ORDER:
 			if int(Gear.CHARMS[cid]["world"]) <= n:
 				meta.charms_won[cid] = true
+	# `&aspects=N` : N aspects (1..3) gagnés pour chaque pinceau (ceux des pinceaux acquis comptent)
+	var nq := q.find("aspects=")
+	if nq >= 0:
+		for bid in Gear.ORDER:
+			meta.aspects_won[bid] = clampi(int(q.substr(nq + 8).get_slice("&", 0)), 1, 3)
 	var bq := q.find("pinceau=")
 	var cq := q.find("charme=")
 	if bq >= 0 or cq >= 0:
