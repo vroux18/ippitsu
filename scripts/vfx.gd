@@ -391,8 +391,8 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false, tint := Color(0, 0, 0,
 	_mi(burst, _splat_mesh(), _mat("ink_burst", Color(Toon.SUMI, 0.8), -1, false, 2))
 	burst.scale = Vector3.ONE * 0.2
 	_fx.append({"node": burst, "t": 0.0, "life": 0.3, "kind": "burst", "s": 0.75 if big else 0.6})
-	# tache d'encre étoilée au sol, qui s'étale d'un coup puis sèche
-	_decal(Vector3(pos.x, 0.0, pos.z), 0.7 if big else 0.55, Color(Toon.SUMI, 0.5), 1.3)
+	# tache d'encre liquide au sol : elle gicle dans le sens du coup (digitations, gouttes), brille puis sèche
+	ink_stain(pos, 0.62 if big else 0.5, Color(Toon.SUMI, 0.62), 1.3, d if d.y == 0.0 else Vector3.ZERO, 1.0)
 	# (plus de sceau « entaille » à la mise à mort : les deux traits rouges à chaque coup gênaient)
 	return
 	var tex := UiKit.icon("hud/slash", 128.0, {"*": UIColors.hex(Toon.VERMILION)})
@@ -516,15 +516,90 @@ func _mon_mat() -> StandardMaterial3D:
 ## Flaque d'encre au sol : elle s'ouvre (apparition d'un yōkai, il en sort) ou l'avale (mort, il s'y enfonce),
 ## puis se résorbe. `late` : la flaque s'ouvre un peu plus tard (pendant la chute du corps).
 func spawn_ink(pos: Vector3, r: float, late := false) -> void:
-	var node := Node3D.new()
-	add_child(node)
-	node.position = Vector3(pos.x, 0.045, pos.z)
-	node.rotation = Vector3(-PI / 2.0, randf() * TAU, 0)
-	node.scale = Vector3(0.01, 0.01, 1.0)
-	_mi(node, _splat_mesh(), _mat("ink_pool", Color(Toon.SUMI, 0.7), 1))
-	_fx.append({"node": node, "t": 0.0, "life": 1.3 if late else 1.15, "kind": "pool", "r": r * 1.45, "d": 0.25 if late else 0.0})
+	# encre liquide (ink_liquid) : jaillit, reste mouillée et luisante, puis se résorbe
+	var mi := ink_quad(self, Vector3(pos.x, 0.045, pos.z), r * 1.15, Color(Toon.SUMI, 0.72), 999.0, Vector3.ZERO, 0.35,
+		Vector4(1.0, 0.0, 1.45, 0.8))
+	mi.scale = Vector3(0.01, 1.0, 0.01)
+	mi.visible = false
+	_fx.append({"node": mi, "t": 0.0, "life": 1.3 if late else 1.15, "kind": "inkpool", "r": r * 1.15, "d": 0.25 if late else 0.0})
 	if main and not Toon.lite and not late:
 		main.splash(Vector3(pos.x, 0.3, pos.z), Toon.SUMI, 5)
+
+
+# ------------------------------------------------------------------ encre liquide (shaders/ink_liquid.gdshader)
+# Toutes les taches d'encre au sol : UN quad partagé, UNE matière partagée, les réglages de chaque tache en
+# paramètres d'instance (couleur, âge, vie, graine, forme). L'âge est posé par le script à chaque image (jamais
+# TIME : l'encre se fige avec le jeu, la pause et les captures).
+
+const INK_LIQUID = preload("res://shaders/ink_liquid.gdshader")
+const INK_EXT := 2.2  # demi-côté du quad en rayons de tache (même valeur que EXT dans le shader)
+const INK_SHAPE := Vector4(1.0, 0.7, 1.55, 1.0)  # corps, gouttes vers l'avant, distance et taille des gouttes
+static var _ink_mat: ShaderMaterial
+static var _ink_quad: PlaneMesh
+static var _ink_seed := 0
+
+
+## Matière partagée des taches d'encre liquide.
+static func ink_material() -> ShaderMaterial:
+	if _ink_mat == null:
+		_ink_mat = ShaderMaterial.new()
+		_ink_mat.shader = INK_LIQUID
+		_ink_mat.render_priority = -4  # sous les autres effets (comme les anciennes taches)
+	return _ink_mat
+
+
+## Quad de tache (rayon r, couleur c, vie life s) posé dans `parent` en `g` (coordonnées de parent), le +x local
+## tourné vers `dir` (digitations et gouttes partent dans le sens de l'impact). shape : voir ink_shape du shader.
+## L'âge reste à 0 : l'appelant le fait avancer (ink_age) ou laisse vfx s'en charger (ink_stain).
+static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, dir := Vector3.ZERO, digit := 1.0,
+		shape := INK_SHAPE) -> MeshInstance3D:
+	if _ink_quad == null:
+		_ink_quad = PlaneMesh.new()
+		_ink_quad.size = Vector2(2.0, 2.0)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _ink_quad
+	mi.material_override = ink_material()
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(mi)
+	_ink_seed += 1
+	mi.position = g
+	var d := Vector3(dir.x, 0, dir.z)
+	mi.rotation.y = atan2(-d.z, d.x) if d.length_squared() > 0.0001 else randf() * TAU
+	var sz := maxf(r, 0.005) * INK_EXT
+	mi.scale = Vector3(sz, 1.0, sz)
+	var sd := fmod(float(_ink_seed) * 7.31 + randf() * 50.0, 97.0)
+	var st := Vector4(0.0, life, sd, digit)
+	mi.set_instance_shader_parameter(&"ink_color", c)
+	mi.set_instance_shader_parameter(&"ink_state", st)
+	mi.set_instance_shader_parameter(&"ink_shape", shape)
+	mi.set_meta(&"ink_st", st)
+	return mi
+
+
+## Âge (s) d'une tache posée par ink_quad.
+static func ink_age(mi: GeometryInstance3D, age: float) -> void:
+	var st: Vector4 = mi.get_meta(&"ink_st")
+	st.x = age
+	mi.set_instance_shader_parameter(&"ink_state", st)
+
+
+## ink_age pour tween_method (la valeur vient d'abord).
+static func ink_age_tw(age: float, mi: GeometryInstance3D) -> void:
+	if is_instance_valid(mi):
+		ink_age(mi, age)
+
+
+## Tache d'encre liquide au sol en `g` : jaillit, s'étale, brille humide, sèche (auréole au bord, intérieur pâle)
+## et s'efface au bout de `life` s. delay : posée plus tard ; game : âge en temps du jeu (zones de powers).
+func ink_stain(g: Vector3, r: float, c: Color, life: float, dir := Vector3.ZERO, digit := 1.0,
+		shape := INK_SHAPE, delay := 0.0, game := false) -> MeshInstance3D:
+	var mi := ink_quad(self, Vector3(g.x, 0.05 + 0.0004 * float(_ink_seed % 8), g.z), r, c, life, dir, digit, shape)
+	mi.visible = delay <= 0.0
+	var fx := {"node": mi, "t": 0.0, "life": life + delay, "kind": "ink", "d": delay}
+	if game:
+		fx["game"] = true
+	_fx.append(fx)
+	return mi
 
 
 ## Tache d'encre étoilée (plan XY, rayon ~1) : bord déchiqueté, coulures en pointe, gouttes autour.
@@ -1015,37 +1090,6 @@ func _star_mesh() -> ArrayMesh:
 	return mesh
 
 
-## Éclaboussures d'encre au sol (rayon ~1) : gouttes rondes et quelques coulures qui fusent vers l'extérieur.
-func _spatter_mesh() -> ArrayMesh:
-	if _meshes.has("spatter"):
-		return _meshes["spatter"]
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 913
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for k in 26:
-		var a := rng.randf() * TAU
-		var d := rng.randf_range(0.75, 1.2)
-		var s := rng.randf_range(0.025, 0.075)
-		var dir := Vector3(cos(a), 0, sin(a))
-		var cen := dir * d
-		for j in 6:
-			var a0 := TAU * float(j) / 6.0
-			var a1 := TAU * float(j + 1) / 6.0
-			st.add_vertex(cen)
-			st.add_vertex(cen + Vector3(cos(a0), 0, sin(a0)) * s)
-			st.add_vertex(cen + Vector3(cos(a1), 0, sin(a1)) * s)
-		if k % 4 == 0:
-			# coulure : goutte étirée qui file vers l'extérieur
-			var side := Vector3(-dir.z, 0, dir.x) * s * 0.6
-			st.add_vertex(cen + side)
-			st.add_vertex(cen - side)
-			st.add_vertex(cen + dir * s * 4.0)
-	var mesh := st.commit()
-	_meshes["spatter"] = mesh
-	return mesh
-
-
 # profil de la crête (avancée vers -z, hauteur) : dos de la vague, puis la lèvre qui s'enroule ; creux sous la lèvre
 const CURL_OUT := [Vector2(-0.6, 0.0), Vector2(-0.42, 0.18), Vector2(-0.26, 0.4), Vector2(-0.1, 0.62), Vector2(0.06, 0.8),
 	Vector2(0.22, 0.9), Vector2(0.38, 0.9), Vector2(0.5, 0.82), Vector2(0.56, 0.7), Vector2(0.53, 0.58),
@@ -1202,13 +1246,8 @@ func _ink_pop(p: Vector3, s: float) -> void:
 
 ## Éclaboussures d'encre au sol, en couronne de rayon r.
 func _spatter(g: Vector3, r: float, c: Color, life: float) -> void:
-	var node := Node3D.new()
-	add_child(node)
-	node.position = Vector3(g.x, 0.06, g.z)
-	node.rotation.y = randf() * TAU
-	var rr := _sramp("spat" + c.to_html(), Color(c, 0.7), -4)
-	var mi := _mi(node, _spatter_mesh(), rr[0])
-	_anim(node, life, Vector3.ONE * r * 0.55, Vector3.ONE * r * 1.05, {"g": 0.22, "f": 0.5, "lay": [[mi, -1, rr]]})
+	# encre liquide : couronne de gouttes sans corps (elles jaillissent, luisent, sèchent avec leur auréole)
+	ink_stain(Vector3(g.x, 0.06, g.z), r, Color(c, 0.75), life, Vector3.ZERO, 0.0, Vector4(0.0, 0.0, 1.0, 1.15))
 
 
 ## Silhouette d'ombre laissée au départ d'un estoc (rémanence violette qui se dissipe).
@@ -2341,139 +2380,19 @@ func _fol(ex: Dictionary, target: Node3D, off: Vector3) -> Dictionary:
 
 # --- Encre épaisse (Nōboku) : taches qui se déposent une à une
 
-## Tache d'encre (plan XZ, rayon ~1) : 3 à 5 lobes, bord vivant ; surface 0 corps + gouttes satellites,
-## surface 1 reflet humide (ovale décalé), surface 2 craquelures (fils qui partent du centre, montrées à la fin).
-func _blot_mesh(v: int) -> ArrayMesh:
-	var key := "blot%d" % v
-	if _meshes.has(key):
-		return _meshes[key]
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 4451 + v * 97
-	var mesh := ArrayMesh.new()
-	var lobes := rng.randi_range(3, 5)
-	var la := PackedFloat32Array()
-	var lr := PackedFloat32Array()
-	var lw := PackedFloat32Array()
-	for i in lobes:
-		la.append(TAU * float(i) / float(lobes) + rng.randf_range(-0.3, 0.3))
-		lr.append(rng.randf_range(0.3, 0.55))
-		lw.append(rng.randf_range(0.35, 0.7))
-	var n := 44
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var pts := PackedVector3Array()
-	for i in n:
-		var a := TAU * float(i) / float(n)
-		var r := 0.52
-		for j in lobes:
-			var d := angle_difference(a, la[j])
-			r += lr[j] * exp(-(d * d) / (lw[j] * lw[j]))
-		r += 0.035 * sin(a * 9.0 + float(v)) + 0.02 * sin(a * 17.0)
-		pts.append(Vector3(cos(a) * r, 0, sin(a) * r))
-	for i in n:
-		st.add_vertex(Vector3.ZERO)
-		st.add_vertex(pts[(i + 1) % n])
-		st.add_vertex(pts[i])
-	# gouttes satellites : au bout de deux lobes
-	for k in 3:
-		var j := k % lobes
-		var a := la[j] + rng.randf_range(-0.15, 0.15)
-		var d := 0.52 + lr[j] + rng.randf_range(0.12, 0.3)
-		var s := rng.randf_range(0.05, 0.11)
-		var c := Vector3(cos(a) * d, 0, sin(a) * d)
-		for q in 7:
-			var a0 := TAU * float(q) / 7.0
-			var a1 := TAU * float(q + 1) / 7.0
-			st.add_vertex(c)
-			st.add_vertex(c + Vector3(cos(a1), 0, sin(a1)) * s)
-			st.add_vertex(c + Vector3(cos(a0), 0, sin(a0)) * s)
-	st.commit(mesh)
-	# reflet humide : ovale décalé vers l'arrière-gauche (la lumière vient de face)
-	var st2 := SurfaceTool.new()
-	st2.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var wc := Vector3(-0.14, 0.003, 0.1)
-	for q in 12:
-		var a0 := TAU * float(q) / 12.0
-		var a1 := TAU * float(q + 1) / 12.0
-		st2.add_vertex(wc)
-		st2.add_vertex(wc + Vector3(cos(a1) * 0.26, 0, sin(a1) * 0.15))
-		st2.add_vertex(wc + Vector3(cos(a0) * 0.26, 0, sin(a0) * 0.15))
-	st2.commit(mesh)
-	# craquelures : quatre fils brisés du centre vers le bord
-	var st3 := SurfaceTool.new()
-	st3.begin(Mesh.PRIMITIVE_TRIANGLES)
-	for k in 4:
-		var a := TAU * float(k) / 4.0 + rng.randf_range(-0.4, 0.4)
-		var p := Vector3(0, 0.004, 0)
-		for seg in 3:
-			var a2 := a + rng.randf_range(-0.5, 0.5)
-			var q := p + Vector3(cos(a2), 0, sin(a2)) * rng.randf_range(0.18, 0.3)
-			var side := Vector3(-sin(a2), 0, cos(a2)) * (0.016 - 0.004 * float(seg))
-			_quad(st3, p - side, p + side, q + side, q - side)
-			p = q
-	st3.commit(mesh)
-	_meshes[key] = mesh
-	return mesh
-
-
-## Tache d'encre au sol en `g` (rayon r), vie `life` s, posée après `delay` s : s'étale depuis le centre en 0,25 s,
-## brille humide puis sèche (mat), se craquèle et s'évapore sur les 0,4 dernières secondes.
+## Tache d'encre au sol en `g` (rayon r), vie `life` s, posée après `delay` s : encre liquide (ink_stain) qui
+## jaillit, brille humide, sèche (auréole au bord, intérieur pâle) et s'efface par érosion.
 ## sc : étirement (traces de pas) ; dir : orientation ; game : vie en temps du jeu (tache d'une zone de powers).
 func blot(g: Vector3, r: float, life: float, delay := 0.0, sc := Vector3.ONE, dir := Vector3.ZERO, game := false) -> void:
-	var node := Node3D.new()
-	add_child(node)
-	node.position = Vector3(g.x, 0.05, g.z)
-	node.rotation.y = randf() * TAU if dir.length_squared() < 0.001 else atan2(-dir.x, -dir.z)
-	node.visible = delay <= 0.0
-	var mi := _mi(node, _blot_mesh(randi() % 4), null)
-	var rb := _sramp("blot_body", Color(Toon.SUMI, 0.82), -4)
-	var rw := _sramp("blot_wet", Color(0.56, 0.58, 0.66, 0.6), -3)
-	var rc := _sramp("blot_crack", Color(Toon.WASHI, 0.85), -3)
-	mi.set_surface_override_material(0, rb[0])
-	mi.set_surface_override_material(1, rw[0])
-	mi.set_surface_override_material(2, rc[FADE_N - 1])
-	node.scale = _safe_scale(sc * r * 0.1)
-	_fx.append({"node": node, "t": 0.0, "life": life + delay, "kind": "blot", "d": delay, "r": r, "sc": sc, "mi": mi,
-		"rb": rb, "rw": rw, "rc": rc, "ib": 0, "iw": 0, "ic": FADE_N - 1})
-	if game:
-		_fx[_fx.size() - 1]["game"] = true
+	# encre liquide (ink_liquid) : même vie, même retard, même temps (jeu ou réel) qu'avant
+	var step := sc != Vector3.ONE
+	var mi := ink_stain(g, r, Color(Toon.SUMI, 0.8), life, dir, 0.0 if step else 0.55,
+		Vector4(1.0, 0.0, 1.35, 0.4 if step else 0.9), delay, game)
+	if step:
+		# trace de pas : étirée dans le sens de la marche (+x local = dir)
+		mi.scale = _safe_scale(Vector3(mi.scale.x * sc.z, 1.0, mi.scale.z * sc.x))
 	if delay <= 0.0 and not _warming:
 		_play("ink", randf_range(1.1, 1.3), -12.0)
-
-
-func _blot_step(fx: Dictionary, node: Node3D, dt: float) -> void:
-	var u := float(fx["t"]) - float(fx["d"])
-	if u < 0.0:
-		return
-	if not node.visible:
-		node.visible = true
-		_play("ink", randf_range(1.1, 1.3), -12.0)
-	var r: float = fx["r"]
-	var sc: Vector3 = fx["sc"]
-	var mi: MeshInstance3D = fx["mi"]
-	# étalement : le centre d'abord, les lobes suivent (ease-out), léger surplus puis la tache se pose
-	var ks := UiKit.ease_out(minf(u / 0.25, 1.0))
-	var grow := 0.18 + 0.82 * ks + 0.06 * sin(minf(u / 0.25, 1.0) * PI)
-	var left := float(fx["life"]) - float(fx["t"])
-	var q := 0.0
-	if left < 0.4:
-		q = 1.0 - clampf(left / 0.4, 0.0, 1.0)
-	node.scale = _safe_scale(sc * r * grow * (1.0 - 0.12 * q))
-	# reflet humide : plein à la pose, séché après 0,8 s
-	var iw := clampi(int(clampf(u / 0.8, 0.0, 1.0) * float(FADE_N - 1)), 0, FADE_N - 1)
-	if iw != int(fx["iw"]):
-		fx["iw"] = iw
-		mi.set_surface_override_material(1, fx["rw"][iw])
-	if q > 0.0:
-		# fin : les craquelures paraissent puis tout s'évapore
-		var ib := clampi(int(q * float(FADE_N)), 0, FADE_N - 1)
-		if ib != int(fx["ib"]):
-			fx["ib"] = ib
-			mi.set_surface_override_material(0, fx["rb"][ib])
-		var ic := clampi(int(absf(q * 2.0 - 1.0) * float(FADE_N - 1)), 0, FADE_N - 1)
-		if ic != int(fx["ic"]):
-			fx["ic"] = ic
-			mi.set_surface_override_material(2, fx["rc"][ic])
 
 
 ## Trace de pas d'encre d'un ennemi englué : petite tache étirée dans le sens de la marche, décalée à gauche
@@ -3713,8 +3632,6 @@ func _process(delta: float) -> void:
 		match fx.kind:  # déjà une String : pas de copie par effet et par image
 			"anim":
 				_anim_step(fx, node, k, sdt)
-			"blot":
-				_blot_step(fx, node, sdt)
 			"crackle":
 				_crackle_step(fx, node, k, sdt)
 			"pulse":
@@ -3758,13 +3675,23 @@ func _process(delta: float) -> void:
 				var b_grow := 1.0 - pow(1.0 - clampf(k / 0.35, 0.0, 1.0), 3.0)
 				var b_gone := clampf((1.0 - k) / 0.45, 0.0, 1.0)
 				node.scale = Vector3.ONE * maxf(bsz * (0.3 + 0.8 * b_grow) * b_gone, 0.01)
-			"pool":
-				var pr: float = fx.r
-				var kd := clampf((float(fx.t) - float(fx.d)) / maxf(float(fx.life) - float(fx.d), 0.01), 0.0, 1.0)
-				var p_open := 1.0 - pow(1.0 - clampf(kd / 0.3, 0.0, 1.0), 3.0)
-				var p_shut := clampf((1.0 - kd) / 0.45, 0.0, 1.0)
-				var pz := maxf(pr * p_open * p_shut, 0.01)
-				node.scale = Vector3(pz, pz, 1.0)
+			"ink":
+				var iu := float(fx.t) - float(fx.d)
+				if iu >= 0.0:
+					if not node.visible:
+						node.visible = true
+						_play("ink", randf_range(1.1, 1.3), -12.0)
+					ink_age(node as GeometryInstance3D, iu)
+			"inkpool":
+				# flaque d'un yōkai : s'ouvre (jaillissement), reste mouillée, puis se résorbe (rétrécit)
+				var pr2: float = fx.r
+				var pa := float(fx.t) - float(fx.d)
+				var kd2 := clampf(pa / maxf(float(fx.life) - float(fx.d), 0.01), 0.0, 1.0)
+				var p_shut2 := clampf((1.0 - kd2) / 0.45, 0.0, 1.0)
+				var pz2 := maxf(pr2 * INK_EXT * (1.0 - 0.8 * (1.0 - p_shut2) * (1.0 - p_shut2)), 0.01)
+				node.scale = Vector3(pz2, 1.0, pz2)
+				node.visible = pa >= 0.0 and p_shut2 > 0.03
+				ink_age(node as GeometryInstance3D, clampf(pa, 0.0, 0.6))
 			"iai":
 				var mi := node.get_child(0) as MeshInstance3D
 				mi.scale = Vector3(1.3 * sqrt(maxf(1.0 - k, 0.0)), 1, float(fx.l))

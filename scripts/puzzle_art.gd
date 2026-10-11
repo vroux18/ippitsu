@@ -9,6 +9,7 @@ const SHOW_EMA := false
 
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const Vfx = preload("res://scripts/vfx.gd")  # taches d'encre liquide (ink_quad)
 const KANJI_FONT = preload("res://assets/fonts/ShipporiMincho-ExtraBold.ttf")
 const INK_SHADER := "res://shaders/puzzle_ink.gdshader"
 
@@ -853,15 +854,15 @@ static func unseal(pk: Dictionary, root: Node3D) -> void:
 			drops.append(li.position)
 	if not drops.is_empty():
 		_drops(root, drops, Toon.SUMI, 14 if Toon.lite else 30)
-	var bm := Toon.flat(Color(Toon.SUMI, 0.72))
 	for k in (3 if Toon.lite else 5):
+		# gouttes qui tachent le sol : encre liquide (Vfx.ink_quad, matière partagée), même durée qu'avant
 		var bp := Vector3(randf_range(-0.6, 0.6), 0.022 + 0.001 * float(k), randf_range(0.5, 0.85))
-		var blot := _part_flat(root, _mesh("disc"), bm, bp, Vector3(0.01, 1, 0.01))
 		var r := randf_range(0.07, 0.14)
+		var blot := Vfx.ink_quad(root, bp, r, Color(Toon.SUMI, 0.72), 2.08, Vector3.ZERO, 0.4, Vector4(1.0, 0.0, 1.5, 0.7))
+		blot.visible = false
 		var tb := blot.create_tween()
-		tb.tween_property(blot, "scale", Vector3(r, 1, r * randf_range(0.7, 1.0)), 0.18).set_delay(0.35 + 0.08 * float(k)).set_ease(Tween.EASE_OUT)
-		tb.tween_interval(1.4)
-		tb.tween_property(blot, "scale", Vector3(0.001, 1, 0.001), 0.5)
+		tb.tween_callback(blot.show).set_delay(0.35 + 0.08 * float(k))
+		tb.tween_method(Vfx.ink_age_tw.bind(blot), 0.0, 2.08, 2.08)
 		tb.tween_callback(blot.queue_free)
 	# ofuda : déchiré au joint, les deux morceaux s'envolent en tournoyant et rapetissent
 	var ofs: Array = pk.get("ofuda", [])
