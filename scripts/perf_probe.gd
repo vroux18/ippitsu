@@ -179,14 +179,33 @@ func _scan_materials() -> void:
 		return
 	# premier passage après le préchauffage : sa miniature (ennemis, effets) est encore là, tout compte comme vu
 	var report := _warm_done
-	var stack: Array = [main]
+	# lumières ponctuelles allumées (boîte de portée, comme l'appariement du moteur) : un objet qu'elles touchent
+	# prend la variante « lanterne » de ses shaders (une compilation de plus)
+	var lamps: Array = []
+	for l in main.find_children("*", "OmniLight3D", true, false):
+		var ol := l as OmniLight3D
+		if ol.is_visible_in_tree() and ol.light_energy > 0.0:
+			var r := ol.omni_range * ol.global_basis.get_scale().abs().x
+			lamps.append(AABB(ol.global_position - Vector3.ONE * r, Vector3.ONE * r * 2.0))
+	var stack: Array = [[main, false]]
 	while not stack.is_empty():
-		var n: Node = stack.pop_back()
+		var e: Array = stack.pop_back()
+		var n: Node = e[0]
+		# préchauffage (miniature de main._warmup, décor de decor_warm.gd) : ses matières comptent comme vues,
+		# sans être signalées (méta « warm »)
+		var quiet: bool = e[1] or n.has_meta("warm")
 		for c in n.get_children():
-			stack.append(c)
+			stack.append([c, quiet])
 		var gi := n as GeometryInstance3D
 		if gi == null or not gi.is_visible_in_tree():
 			continue
+		var lit := ""
+		if not lamps.is_empty():
+			var box := gi.global_transform * gi.get_aabb()
+			for lb in lamps:
+				if (lb as AABB).intersects(box):
+					lit = "|omni"
+					break
 		var mats: Array = []
 		var inst := gi is MultiMeshInstance3D or gi is CPUParticles3D or gi is GPUParticles3D
 		if gi.material_override != null:
@@ -208,12 +227,18 @@ func _scan_materials() -> void:
 				var mm: Material = mesh.surface_get_material(si)
 				if mm != null:
 					mats.append(mm)
+		# contour d'encre et autres passes suivantes : chacune son shader
+		for i in mats.size():
+			var nx: Material = (mats[i] as Material).next_pass
+			while nx != null and mats.size() < 16:
+				mats.append(nx)
+				nx = nx.next_pass
 		for m in mats:
-			var sig := _mat_sig(m, inst)
+			var sig := _mat_sig(m, inst) + lit
 			if _mat_seen.has(sig):
 				continue
 			_mat_seen[sig] = true
-			if report:
+			if report and not quiet:
 				print("PERF NOUVEAU SHADER [%s] image %d : %s (%s)" % [_where(), _frames, _chain(n), sig.left(160)])
 	if bool(main.get("warmed")) and not _warm_done:
 		_warm_done = true
