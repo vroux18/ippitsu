@@ -39,7 +39,8 @@ const LAVIS := Color("#BDB19A")  # trait d'un pinceau à gagner
 const GO_OFF := Color("#CFC4AE")
 const GO_OFF_INK := Color("#7A6E58")
 const DW := 390.0  # repère de la maquette
-const DH := 844.0
+const ASP_CUT := 130.0  # bloc ASPECTS de la maquette retiré : ce qui suit remonte d'autant
+const DH := 844.0 - ASP_CUT
 
 ## Nom affiché et devise de chaque pinceau (maquette) ; règles et aspects restent dans gear_data.
 const TAG := {"fude": ["FUDE", "LE PINCEAU DU MAÎTRE"], "hake": ["HAKE", "LE PINCEAU LARGE"],
@@ -85,7 +86,7 @@ func _ready() -> void:
 func open() -> void:
 	var g: Dictionary = meta.gear_now() if meta != null else {"brush": "fude", "aspect": 0, "charm": ""}
 	bi = maxi(0, Gear.ORDER.find(String(g["brush"])))
-	ak = int(g["aspect"])
+	ak = 0  # (aspects retirés de l'écran : le trait de référence)
 	cid = String(g["charm"])
 	_t = 0.0
 	_bt = 0.0
@@ -116,9 +117,7 @@ func show_brush(id: String) -> void:
 	if i != bi:
 		_bt = _t
 	bi = i
-	ak = int(meta.aspect_sel.get(id, 0)) if meta != null else 0
-	if meta != null and not bool(meta.aspect_owned(id, ak)):
-		ak = 0
+	ak = 0
 
 
 func brush_open() -> bool:
@@ -251,6 +250,8 @@ func _gui_input(event: InputEvent) -> void:
 ## y de la maquette -> écran : sous l'encoche, resserré ; la place en trop (écran haut) aère avant les omamori
 ## et avant PARTIR (aucune forme ne chevauche ces coupures).
 func _Y(y: float) -> float:
+	if y >= 590.0:
+		y -= ASP_CUT
 	var off := 0.0
 	if y >= 775.0:
 		off = _extra
@@ -416,8 +417,6 @@ func _draw() -> void:
 	var rl := _lines(String(bd["rule"]), 12.5, 346.0)
 	for li in mini(rl.size(), 2):
 		_txt(UiKit.UI_FONT, 0.0, rl[li], 22.0, 430.0 + 15.0 * li - (6.0 if rl.size() > 1 else 0.0), 12.5, INK_TEXT)
-	_txt(UiKit.UI_FONT, 3.0, "ASPECTS", 22.0, 462.0, 10.0, CAPTION)
-	_draw_aspects(bid, bopen, bd)
 	_txt(UiKit.UI_FONT, 3.0, "OMAMORI · UN SEUL", 22.0, 598.0, 10.0, CAPTION)
 	_draw_charms()
 	_draw_card()

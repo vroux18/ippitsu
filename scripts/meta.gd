@@ -1341,7 +1341,7 @@ func charm_owned(id: String) -> bool:
 	return charms_won.has(id)
 
 
-## Vrai s'il y a un vrai choix avant de partir : un autre pinceau, un autre aspect ou un omamori gagné.
+## Vrai s'il y a un vrai choix avant de partir : un autre pinceau ou un omamori gagné.
 ## Sinon l'écran AVANT LE DÉPART est sauté (premières parties : Fude Maître, sans charme).
 func has_gear_choice() -> bool:
 	if not charms_won.is_empty():
@@ -1349,7 +1349,7 @@ func has_gear_choice() -> bool:
 	for b in Gear.BRUSHES:
 		if String(b) != "fude" and brush_unlocked(String(b)):
 			return true
-	return int(aspects_won.get("fude", 1)) > 1
+	return false
 
 
 ## Équipement de la partie qui commence : le choix gardé, ramené à ce qui est possédé (sauf gear_force).
