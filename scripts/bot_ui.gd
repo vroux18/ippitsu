@@ -1378,6 +1378,15 @@ func _step_sanctuary() -> bool:
 ## choix puis l'échoppe revient, un article trop cher refuse l'achat ; PARTIR rend la main sans la rouvrir.
 func _step_merchant() -> bool:
 	await _settle_play("avant le marchand")
+	# un ennemi resté en vie (renfort, combat de la salle) empêche l'exploration : achevé par le vrai chemin
+	var tk := Time.get_ticks_msec()
+	while not bool(main.exploring()) and Time.get_ticks_msec() - tk < int(TIMEOUT * 1000.0):
+		main._waves_left.clear()
+		for e in main.enemies:
+			if is_instance_valid(e) and not e.dead and not e.dummy:
+				main.damage_enemy(e, 999.0, false)
+		await _frames(2)
+		await _settle_play("marchand : après les ennemis achevés")
 	if not await _until(func(): return String(main.state) == "play" and _hero_still() and bool(main._explore), "marchand : héros posé hors combat"):
 		return false
 	var pk: Dictionary = main._spawn_merchant(main._shrine_spot())
