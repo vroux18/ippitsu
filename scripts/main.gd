@@ -185,7 +185,7 @@ var cam_tilt := 48.0
 const CAM_FOV := 44.0
 const CAM_LEAD := 0.6  # la caméra regarde à peine devant le héros (il reste au centre de l'écran)
 const CAM_LEAD_PAD := 2.4  # mode pad : l'arène est cadrée au-dessus du pad, on voit plus loin devant
-const SETTINGS_V := 1  # version des réglages : 1 = contrôle « sur l'écran » par défaut (anciens « pad » remis à zéro)
+const SETTINGS_V := 2  # version des réglages : 2 = pad (taille M) par défaut, posé une fois sur les sauvegardes existantes
 const PAD_STROKES := 12  # pad « au début » : il s'efface après ces premiers traits de la session
 const KIND_COST := {"oni": 1, "kappa": 2, "brute": 3, "tate": 3, "funa": 2,
 	"umibozu": 2, "kitsunebi": 3, "yukionna": 3, "kasha": 3, "kagebo": 3,
@@ -401,7 +401,7 @@ var gentle := false  # première partie du tutoriel : les deux premiers combats 
 # contrôles : ctrl_mode est lu une fois au lancement (cadrage, entrée) ; ctrl_pref est le choix des options,
 # appliqué au prochain lancement
 var ctrl_mode := "screen"  # screen | pad
-var ctrl_pref := "screen"
+var ctrl_pref := "pad"
 var pad_size := "m"  # s | m | l
 var pad_show := "start"  # always | start | never
 var _strokes_done := 0
@@ -1536,13 +1536,14 @@ func _load() -> void:
 		record = int(cfg.get_value("game", "best", 0))
 		menu.muted = bool(cfg.get_value("game", "muted", false))
 		sfx.haptics = String(cfg.get_value("settings", "vibration", "on")) == "on"
-		# avant la version 1, le pad était le contrôle par défaut : on repasse une fois « sur l'écran »
-		if int(cfg.get_value("settings", "version", 0)) >= SETTINGS_V:
-			ctrl_pref = String(cfg.get_value("settings", "control", "screen"))
-		pad_size = String(cfg.get_value("settings", "pad_size", "m"))
+		# avant la version 2 : on passe une fois au pad, taille M (le choix du joueur est gardé ensuite)
+		var sv := int(cfg.get_value("settings", "version", 0))
+		if sv >= SETTINGS_V:
+			ctrl_pref = String(cfg.get_value("settings", "control", "pad"))
+		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
 	if not ctrl_pref in ["screen", "pad"]:
-		ctrl_pref = "screen"
+		ctrl_pref = "pad"
 	if not pad_size in ["s", "m", "l"]:
 		pad_size = "m"
 	if not pad_show in ["always", "start", "never"]:

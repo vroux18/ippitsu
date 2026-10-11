@@ -31,7 +31,7 @@ const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sou
 const ROW_STEP := 84.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
-var values := {"sound": "on", "vibration": "on", "control": "screen", "pad_size": "m", "pad_show": "start"}
+var values := {"sound": "on", "vibration": "on", "control": "pad", "pad_size": "m", "pad_show": "start"}
 var active_control := "screen"  # mode de contrôle de la session en cours (lu par main au lancement)
 
 var _t := 0.0

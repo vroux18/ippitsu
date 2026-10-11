@@ -18,6 +18,8 @@ var _fails := 0
 
 func run() -> void:
 	await _frames(5)
+	# le robot joue au doigt sur l'écran (main l'impose) : ses contrôles des options partent de ce choix
+	main.ctrl_pref = "screen"
 	# premier lancement : intro puis monde 1 avec le coach, comme une sauvegarde neuve
 	main.meta.intro_done = false
 	main.meta.coach_reset()
