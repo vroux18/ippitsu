@@ -782,22 +782,35 @@ func _step_atelier() -> bool:
 # ------------------------------------------------------------------ garde-robe
 
 ## Toucher une cible de la garde-robe (onglet, élément) à son rectangle, sinon par la même suite.
-func _wd_tap(key: String) -> void:
+## Un élément hors de la fenêtre de la grille : on la fait défiler jusqu'au bout avant de le chercher.
+func _wd_tap(key: String) -> bool:
 	var wd = main.wardrobe
 	await _frame()
-	var r := Rect2()
-	for hr in wd._hits:
-		if String(hr[1]) == key:
-			r = hr[0]
-	if r.has_area() and String(wd._target_at(r.get_center())) == key:
+	var r := _wd_rect(key)
+	if not r.has_area() and key.begins_with("item:") and float(wd._scroll_max) > 0.0:
+		wd._scroll = float(wd._scroll_max)
+		await _frames(2)
+		r = _wd_rect(key)
+	var hit := r.has_area() and String(wd._target_at(r.get_center())) == key
+	if hit:
 		_tap(wd, r.get_center())
 	else:
 		wd.tap(key)
 	await _frames(2)
+	return hit
 
 
-## Garde-robe : une apparence par type (écharpe, sillage, encre : gagnées par les Vues, accordées ici),
-## thème Nuit acheté en pétales (l'encre n'y est pas touchée) et appliqué à l'accueil, retour au Washi, puis RETOUR.
+func _wd_rect(key: String) -> Rect2:
+	var r := Rect2()
+	for hr in main.wardrobe._hits:
+		if String(hr[1]) == key:
+			r = hr[0]
+	return r
+
+
+## Garde-robe : un élément par catégorie (chapeau, lame, écharpe, sillage, encre : accordés ici), le sabre tiré
+## à l'onglet LAME, la grille qui défile (écharpes : trois rangées), thème Nuit acheté en pétales (l'encre n'y est
+## pas touchée) et appliqué à l'accueil, retour au Washi, puis RETOUR.
 func _step_wardrobe() -> bool:
 	var meta = main.meta
 	var wd = main.wardrobe
@@ -806,16 +819,26 @@ func _step_wardrobe() -> bool:
 	if not await _until(func(): return bool(wd.visible) and float(wd._t) >= 0.4 and wd._hits.size() > 0, "GARDE-ROBE ouvre la garde-robe"):
 		return false
 	_ok("garde-robe ouverte")
-	# (plus d'onglet TENUE depuis a1ca132 : le hakama est fixe ; les onglets sont écharpe, sillage, encre, thème)
-	for i in range(0, 3):
+	# onglets : chapeau, lame, écharpe, sillage, encre, thème (plus d'onglet TENUE depuis a1ca132 : le hakama est fixe)
+	for i in range(0, 5):
 		var kind := String(wd.CATS[i])
 		await _wd_tap("tab:%d" % i)
+		_check(int(wd.cat) == i, "garde-robe : onglet %s" % kind, "onglet %d" % int(wd.cat))
 		var ids: Array = meta.cosmetic_ids(kind)
 		var pid := String(ids[ids.size() - 1])
-		meta._grant(pid)
-		await _wd_tap("item:" + pid)
+		meta.grant_cosmetic(kind, pid)
+		var seen_hit: bool = await _wd_tap("item:" + pid)
 		_check(bool(meta.cosmetic_worn(kind, pid)), "garde-robe : %s porté (%s)" % [kind, pid], "non porté")
-	await _wd_tap("tab:3")
+		if kind == "cape":
+			_check(seen_hit and float(wd._scroll) > 0.0, "garde-robe : la grille défile jusqu'au dernier élément",
+				"défilement %.0f / %.0f" % [float(wd._scroll), float(wd._scroll_max)])
+		if kind == "blade":
+			await _frames(6)
+			_check(bool(main.hero.preview_drawn) and String(main.hero._blade_id) == pid, "garde-robe : sabre tiré (%s)" % pid,
+				"tiré %s, sabre %s" % [str(main.hero.preview_drawn), String(main.hero._blade_id)])
+		if kind == "hat":
+			_check(String(main.hero._hat_id) == pid, "garde-robe : chapeau sur le héros (%s)" % pid, String(main.hero._hat_id))
+	await _wd_tap("tab:5")
 	await _wd_tap("item:nuit")
 	if not bool(meta.cosmetic_owned("theme", "nuit")):
 		var s0 := int(meta.sumi)

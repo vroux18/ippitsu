@@ -168,6 +168,28 @@ const OUTFIT_PAL := {
 		"band": Color("#E2B04A"), "wrap": Color("#E2B04A"), "plate": Color("#FFD873"), "saya": Color("#7A5420")},
 }
 
+## Couvre-chefs du ronin (garde-robe, meta.HATS) : la forme est modelée dans la tête (_hat_ronin).
+const HAT_STYLES := ["kasa", "jingasa", "amigasa", "shu", "hachimaki", "kitsune", "oni", "zukin"]
+## Sabres du ronin (garde-robe, meta.BLADES) : saya (fourreau), tsuka (tressage de la poignée), fit (tsuba,
+## embouchure, kashira), sageo (cordon), steel (lame), glow (lueur de la lame tirée, hero.gd ; absente : acier nu),
+## tsuba (faux : shirasaya, sans garde).
+const BLADE_PAL := {
+	"sumi": {},
+	"shirasaya": {"saya": Color("#D8BF92"), "tsuka": Color("#D8BF92"), "fit": Color("#B89A68"), "sageo": Color("#D8BF92"),
+		"tsuba": false},
+	"shu": {"saya": Color("#B8261C"), "tsuka": Color("#1E1B22"), "fit": Color("#C49A45"), "sageo": Color("#1E1B22")},
+	"same": {"saya": Color("#1F2D4A"), "tsuka": Color("#2F5D8A"), "fit": Color("#CBD2DA"), "sageo": Color("#EFE6D2"),
+		"steel": Color("#F4F7FA")},
+	"mizu": {"saya": Color("#1F3A5F"), "tsuka": Color("#DCEBF4"), "fit": Color("#8EC0DE"), "sageo": Color("#5AA0E6"),
+		"steel": Color("#D8F0FF"), "glow": Color("#4FB8FF")},
+	"braise": {"saya": Color("#2A1A1E"), "tsuka": Color("#9E2A22"), "fit": Color("#E2A93B"), "sageo": Color("#FF5A1F"),
+		"steel": Color("#FFE0C4"), "glow": Color("#FF6A1F")},
+	"kin": {"saya": Color("#1B1A1E"), "tsuka": Color("#E2B04A"), "fit": Color("#FFD873"), "sageo": Color("#E2B04A"),
+		"steel": Color("#FFF1C4"), "glow": Color("#FFC93B")},
+	"kage": {"saya": Color("#2A2034"), "tsuka": Color("#4E3A63"), "fit": Color("#9A8CB4"), "sageo": Color("#A05CFF"),
+		"steel": Color("#5A4878"), "glow": Color("#A05CFF")},
+}
+
 ## Clan des ninjas (enemy.gd NINJA_KINDS) : shinobi indigo, lanceur gris, fumée glycine, kunoichi cramoisie.
 const ENEMY_PAL := {
 	"shinobi": {"cloth": Color("#2B3A66"), "dark": Color("#1E2A4A"), "under": Color("#C9D1E6"), "accent": Color("#B8352B"),
@@ -235,11 +257,25 @@ var _last_gp := Vector3.ZERO
 
 ## Palette du héros (Ronin de papier) : fixe (décision : seule l'écharpe change, voir meta « cape »). Les tenues
 ## de la garde-robe (meta.OUTFITS) ne teintent plus le hakama ; l'argument est gardé pour l'appelant.
-static func hero_config(_outfit := "sumi") -> Dictionary:
+## `hat`, `blade` : couvre-chef (HAT_STYLES) et sabre (BLADE_PAL) de la garde-robe.
+static func hero_config(_outfit := "sumi", hat := "kasa", blade := "sumi") -> Dictionary:
 	var d := {"weapon": "katana", "ponytail": true, "combat": false, "ronin": true}
 	for k in RONIN_PAL:
 		d[k] = RONIN_PAL[k]
+	d["hat_style"] = hat if hat in HAT_STYLES else "kasa"
+	var bs := blade if BLADE_PAL.has(blade) else "sumi"
+	d["blade_style"] = bs
+	var bp: Dictionary = BLADE_PAL[bs]
+	for k in bp:
+		d[k] = bp[k]
 	return d
+
+
+## Lueur de la lame tirée (sabre de la garde-robe) ; transparente si l'acier est nu.
+static func blade_glow(blade: String) -> Color:
+	var bp: Dictionary = BLADE_PAL.get(blade, {})
+	var c: Color = bp.get("glow", Color(1, 1, 1, 0))
+	return c
 
 
 ## Palette d'un ninja ennemi (shinobi, shuriken, kemuri, kunoichi).
@@ -264,6 +300,7 @@ static func _pal_key(cfg: Dictionary) -> String:
 	s += "p" if bool(cfg.get("ponytail", false)) else "-"
 	s += "R" if bool(cfg.get("ronin", false)) else "N"
 	s += "L" if Toon.lite else "F"
+	s += String(cfg.get("hat_style", "")) + "/" + String(cfg.get("blade_style", ""))
 	return s
 
 
@@ -1189,6 +1226,19 @@ static func collar_mesh() -> ArrayMesh:
 	return _collar
 
 
+## Halo de la lame tirée (sabres qui luisent, hero.gd) : la lame du katana, plus épaisse, en blanc (le matériau
+## additif donne la couleur) ; même repère que la pièce « weapon_r » (main droite).
+static func blade_glow_mesh() -> ArrayMesh:
+	var a := Builder.new()
+	var xf := Transform3D(Basis.from_euler(Vector3(-PI * 0.5, 0, 0)), Vector3(0, -0.045, 0))
+	a.style(1.0, 1.0)
+	a.bend = 0.045
+	a.lathe(_pv([1.0, 0.13, 1.0, 0.72, 0.8, 0.82, 0.0, 0.89]), Color.WHITE, 6, xf, 0.03, 0.062)
+	var m := ArrayMesh.new()
+	a.add_to(m)
+	return m
+
+
 static func _pv(f: Array) -> PackedVector2Array:
 	var p := PackedVector2Array()
 	var i := 0
@@ -1387,11 +1437,14 @@ static func _build_ronin(id: String, a: Builder, d: Builder, cfg: Dictionary, li
 			var rot := Basis.from_euler(HIP_SAYA_ROT)
 			var xf := Transform3D(rot, HIP_SAYA_POS + rot * Vector3(0, 0.36, 0))
 			a.style(0.85, 1.0)
-			a.lathe(_pv([0.0, 0.0, 0.05, 0.003, 0.052, 0.012, 0.0, 0.016]), _c(cfg, "gold"), 10, xf, 1.0, 0.82)
+			if bool(cfg.get("tsuba", true)):
+				a.lathe(_pv([0.0, 0.0, 0.05, 0.003, 0.052, 0.012, 0.0, 0.016]), _fit(cfg), 10, xf, 1.0, 0.82)
 			_tsuka(a, xf, 0.02, 0.24, cfg, lite)
 		"weapon_r":
 			_b_weapon(a, d, cfg, lite, "katana")
 		"pony":
+			if String(cfg.get("hat_style", "")) == "zukin":
+				return  # la capuche couvre la nuque
 			# queue de cheval nouée (cordon clair), mèches marquées, tombe sur la nuque
 			a.style(0.78, 1.0)
 			a.ell(Vector3(0, -0.025, 0), Vector3(0.034, 0.03, 0.034), _c(cfg, "under"), Vector3.ZERO, 8, 4)
@@ -1443,30 +1496,13 @@ static func _b_head_ronin(a: Builder, d: Builder, cfg: Dictionary, lite: bool) -
 	var hs := 12 if lite else 18
 	var hr := 7 if lite else 10
 	var skin := _c(cfg, "skin")
-	var hair := _c(cfg, "hair")
-	var hat := _c(cfg, "hat")
-	var hatd := _c(cfg, "hatd")
 	var ink := _c(cfg, "eye")
 	a.style(0.8, 1.0)
 	a.ell(Vector3(0, 0.25, 0.01), Vector3(0.258, 0.265, 0.252), skin, Vector3.ZERO, hs, hr)
 	for s in [-1.0, 1.0]:
 		var sx := float(s)
 		a.ell(Vector3(sx * 0.252, 0.225, 0.03), Vector3(0.022, 0.045, 0.03), skin, Vector3.ZERO, 8, 4)
-	# chevelure : calotte qui déborde sur les tempes et la nuque, front dégagé
-	a.style(0.7, 1.0)
-	a.ell(Vector3(0, 0.32, 0.07), Vector3(0.262, 0.225, 0.262), hair, Vector3(0.1, 0, 0), hs, hr)
-	# sandogasa : cône de paille à large bord, un peu en arrière ; dessus tressé (anneaux), dessous sombre
-	var hxf := Transform3D(Basis.from_euler(Vector3(0.42, 0, 0)), Vector3(0, 0.425, 0.075))
-	a.style(0.86, 1.0)
-	a.bands = PackedFloat32Array([0.78, 1.0, 0.9, 1.0, 0.9, 1.0, 0.92, 1.0])
-	a.lathe(_pv([0.385, 0.0, 0.39, 0.022, 0.345, 0.07, 0.28, 0.135, 0.205, 0.2, 0.13, 0.27, 0.055, 0.33, 0.0, 0.355]),
-		hat, hs, hxf, 1.0, 1.0)
-	a.style(0.6, 0.75)
-	a.lathe(_pv([0.0, 0.325, 0.13, 0.255, 0.28, 0.125, 0.385, 0.0]), hatd, hs, hxf, 1.0, 1.0)
-	if not lite:
-		# cordon du chapeau noué sous le menton
-		a.style(0.9, 1.0)
-		a.ell(Vector3(0, 0.005, -0.1), Vector3(0.2, 0.009, 0.012), _c(cfg, "hem"), Vector3.ZERO, 10, 3)
+	_hat_ronin(a, d, cfg, lite, hs, hr)
 	# traits d'encre (sans contour) : sourcils froncés, yeux fendus, nez, bouche
 	d.style(1.0, 1.0)
 	for s in [-1.0, 1.0]:
@@ -1475,6 +1511,176 @@ static func _b_head_ronin(a: Builder, d: Builder, cfg: Dictionary, lite: bool) -
 		d.ell(Vector3(sx * 0.082, 0.258, -0.248), Vector3(0.046, 0.013, 0.012), ink, Vector3(0, -sx * 0.32, sx * 0.05), 8, 3)
 	d.ell(Vector3(0.012, 0.212, -0.258), Vector3(0.007, 0.03, 0.01), skin.darkened(0.3), Vector3(0, 0, 0.1), 6, 3)
 	d.ell(Vector3(0.0, 0.162, -0.244), Vector3(0.036, 0.0065, 0.012), ink, Vector3.ZERO, 8, 3)
+
+
+## Couvre-chef du ronin (garde-robe, `hat_style`) et chevelure : sandogasa de paille (d'origine), jingasa laqué
+## noir au mon d'or, amigasa tressé, kasa vermillon ; bandeau hachimaki ; masque de kitsune ou d'oni relevé sur
+## le côté de la tête ; capuche de shinobi (zukin) qui laisse les yeux libres. Les chapeaux sont penchés en
+## arrière : vu d'en haut, le disque du chapeau est la tache la plus lisible du héros.
+static func _hat_ronin(a: Builder, d: Builder, cfg: Dictionary, lite: bool, hs: int, hr: int) -> void:
+	var style := String(cfg.get("hat_style", "kasa"))
+	var hair := _c(cfg, "hair")
+	var hem := _c(cfg, "hem")
+	if style != "zukin":
+		# chevelure : calotte qui déborde sur les tempes et la nuque, front dégagé
+		a.style(0.7, 1.0)
+		a.ell(Vector3(0, 0.32, 0.07), Vector3(0.262, 0.225, 0.262), hair, Vector3(0.1, 0, 0), hs, hr)
+	match style:
+		"jingasa":
+			# chapeau de guerre plat, laque noire au reflet, bord et mon d'or, dessous laqué de rouge
+			var xf := Transform3D(Basis.from_euler(Vector3(0.2, 0, 0)), Vector3(0, 0.47, 0.05))
+			var lac := Color("#1E1C24")
+			var gold := _c(cfg, "gold").lightened(0.15)
+			a.style(0.72, 1.0)
+			a.side_dark = 0.3
+			a.lathe(_pv([0.405, 0.0, 0.41, 0.016, 0.37, 0.045, 0.29, 0.088, 0.19, 0.13, 0.09, 0.158, 0.0, 0.168]), lac, hs,
+				xf, 1.0, 1.0)
+			a.style(0.6, 0.8)
+			a.lathe(_pv([0.0, 0.15, 0.18, 0.11, 0.31, 0.06, 0.405, 0.0]), Color("#5E1A16"), hs, xf, 1.0, 1.0)
+			a.style(0.9, 1.0)
+			a.lathe(_pv([0.398, -0.004, 0.418, 0.008, 0.405, 0.02]), gold, hs, xf, 1.0, 1.0)
+			# mon d'or au sommet (disque), trois virgules d'encre (tomoe) dessus
+			a.style(0.95, 1.0)
+			a.ell(xf * Vector3(0, 0.168, 0), Vector3(0.085, 0.014, 0.085), gold, xf.basis.get_euler(), 14, 3)
+			d.style(1.0, 1.0)
+			for i in 3:
+				var ang := TAU * float(i) / 3.0
+				var p := Vector3(cos(ang) * 0.036, 0.183, sin(ang) * 0.036)
+				d.ell(xf * p, Vector3(0.02, 0.006, 0.012), lac, (xf.basis * Basis(Vector3.UP, -ang + 0.6)).get_euler(), 8, 3)
+			_chin_cord(a, hem, lite)
+		"amigasa":
+			# chapeau tressé en dôme, côtes rayonnantes et rangs de vannerie, bord roulé, cordon brun
+			var xf := Transform3D(Basis.from_euler(Vector3(0.36, 0, 0)), Vector3(0, 0.43, 0.07))
+			var straw := Color("#E6CF98")
+			a.style(0.82, 1.0)
+			a.pleats = 14
+			a.pleat = 0.1
+			a.bands = PackedFloat32Array([0.78, 1.0, 0.84, 1.0, 0.84, 1.0, 0.86, 1.0, 0.9])
+			a.lathe(_pv([0.35, 0.0, 0.362, 0.028, 0.34, 0.08, 0.3, 0.14, 0.24, 0.192, 0.17, 0.226, 0.1, 0.246, 0.04, 0.254,
+				0.0, 0.256]), straw, hs, xf, 1.0, 1.0)
+			a.style(0.6, 0.75)
+			a.lathe(_pv([0.0, 0.23, 0.2, 0.17, 0.3, 0.09, 0.35, 0.0]), straw.darkened(0.35), hs, xf, 1.0, 1.0)
+			a.style(0.85, 1.0)
+			a.lathe(_pv([0.352, 0.05, 0.36, 0.062, 0.35, 0.074]), Color("#6E4A2C"), hs, xf, 1.0, 1.0)
+			_chin_cord(a, hem, lite)
+		"hachimaki":
+			# bandeau blanc au soleil levant, noué derrière, deux pans qui tombent sur la nuque
+			var band := Color("#F6F1E6")
+			var bxf := Transform3D(Basis.from_euler(Vector3(-0.06, 0, 0)), Vector3(0, 0, 0.03))
+			a.style(0.86, 1.0)
+			a.lathe(_pv([0.258, 0.352, 0.27, 0.36, 0.272, 0.39, 0.262, 0.41, 0.245, 0.418]), band, hs, bxf, 1.0, 0.985)
+			a.ell(Vector3(0, 0.4, 0.29), Vector3(0.05, 0.04, 0.035), band.darkened(0.08), Vector3.ZERO, 10, 5)
+			for sx in [-1.0, 1.0]:
+				a.ell(Vector3(float(sx) * 0.045, 0.3, 0.315), Vector3(0.03, 0.095, 0.012), band,
+					Vector3(0.35, 0, float(sx) * 0.3), 8, 4)
+			d.style(1.0, 1.0)
+			d.ell(Vector3(0, 0.383, -0.247), Vector3(0.034, 0.03, 0.012), Toon.VERMILION, Vector3(-0.5, 0, 0), 12, 4)
+		"kitsune", "oni":
+			_side_mask(a, d, style, hs, lite)
+		"zukin":
+			# capuche de shinobi indigo : couvre le crâne et la nuque, cadre le visage, masque sur le nez
+			var cl := Color("#272A40")
+			a.style(0.72, 1.0)
+			a.pleats = 4
+			a.pleat = 0.06
+			a.ell(Vector3(0, 0.285, 0.065), Vector3(0.288, 0.29, 0.262), cl, Vector3(0.12, 0, 0), hs, hr)
+			a.style(0.7, 0.95)
+			a.ell(Vector3(0, 0.12, 0.2), Vector3(0.2, 0.15, 0.11), cl, Vector3(-0.3, 0, 0), hs, hr)
+			a.style(0.74, 0.95)
+			a.ell(Vector3(0, 0.15, -0.165), Vector3(0.17, 0.1, 0.105), cl, Vector3(0.2, 0, 0), hs, hr)
+			# nœud du bandeau vermillon sur la nuque, ses deux pans
+			a.style(0.85, 1.0)
+			a.lathe(_pv([0.275, 0.33, 0.29, 0.342, 0.292, 0.36, 0.28, 0.376]), Toon.VERMILION, hs,
+				Transform3D(Basis.from_euler(Vector3(-0.1, 0, 0)), Vector3(0, 0, 0.06)), 1.0, 0.92)
+			for sx in [-1.0, 1.0]:
+				a.ell(Vector3(float(sx) * 0.04, 0.29, 0.33), Vector3(0.026, 0.08, 0.01), Toon.VERMILION,
+					Vector3(0.4, 0, float(sx) * 0.35), 8, 4)
+		_:
+			# sandogasa : cône de paille à large bord, un peu en arrière ; dessus tressé (anneaux), dessous sombre
+			# (kasa vermillon : même forme, laque vermillon)
+			var hat := _c(cfg, "hat")
+			var hatd := _c(cfg, "hatd")
+			if style == "shu":
+				hat = Color("#C8392B")
+				hatd = Color("#6E1C16")
+			var hxf := Transform3D(Basis.from_euler(Vector3(0.42, 0, 0)), Vector3(0, 0.425, 0.075))
+			a.style(0.86, 1.0)
+			a.bands = PackedFloat32Array([0.78, 1.0, 0.9, 1.0, 0.9, 1.0, 0.92, 1.0])
+			a.lathe(_pv([0.385, 0.0, 0.39, 0.022, 0.345, 0.07, 0.28, 0.135, 0.205, 0.2, 0.13, 0.27, 0.055, 0.33, 0.0, 0.355]),
+				hat, hs, hxf, 1.0, 1.0)
+			a.style(0.6, 0.75)
+			a.lathe(_pv([0.0, 0.325, 0.13, 0.255, 0.28, 0.125, 0.385, 0.0]), hatd, hs, hxf, 1.0, 1.0)
+			if style == "shu":
+				# liseré d'encre au bord et pointe d'or
+				a.style(0.9, 1.0)
+				a.lathe(_pv([0.38, -0.004, 0.395, 0.01, 0.384, 0.024]), Color("#1E1B22"), hs, hxf, 1.0, 1.0)
+				a.ell(hxf * Vector3(0, 0.352, 0), Vector3(0.03, 0.026, 0.03), _c(cfg, "gold"), hxf.basis.get_euler(), 8, 4)
+			_chin_cord(a, hem, lite)
+
+
+## Cordon du chapeau noué sous le menton.
+static func _chin_cord(a: Builder, col: Color, lite: bool) -> void:
+	if lite:
+		return
+	a.style(0.9, 1.0)
+	a.ell(Vector3(0, 0.005, -0.1), Vector3(0.2, 0.009, 0.012), col, Vector3.ZERO, 10, 3)
+
+
+## Masque de théâtre relevé sur le côté droit de la tête (kitsune blanc aux traits vermillon, ou oni rouge cornu),
+## tenu par un cordon autour du crâne. Repère du masque : -Z = visage du masque, tourné vers l'extérieur et le ciel.
+static func _side_mask(a: Builder, d: Builder, kind: String, hs: int, lite: bool) -> void:
+	var cord := Color("#7A1E16") if kind == "kitsune" else Color("#1E1B22")
+	a.style(0.85, 1.0)
+	a.lathe(_pv([0.255, 0.37, 0.264, 0.378, 0.265, 0.39, 0.255, 0.4]), cord, hs,
+		Transform3D(Basis.from_euler(Vector3(-0.06, 0, -0.12)), Vector3(0, 0, 0.03)), 1.0, 0.985)
+	var face := Vector3(0.7, 0.35, -0.62).normalized()
+	var mb := Basis.looking_at(face, Vector3(0, 1, 0)) * Basis(Vector3(0, 0, 1), -0.3)
+	var c := Vector3(0.215, 0.39, -0.12)
+	var sd := 10 if lite else 14
+	const K := 1.25  # taille du masque (lisible vu d'en haut)
+	if kind == "kitsune":
+		var white := Color("#F7F2E8")
+		var red := Color("#C8392B")
+		a.style(0.82, 1.0)
+		a.ell(c + mb * Vector3(0, 0, 0) * K, Vector3(0.1, 0.115, 0.05) * K, white, mb.get_euler(), sd, 6)
+		# museau effilé, oreilles pointues
+		a.ell(c + mb * Vector3(0, -0.05, -0.05) * K, Vector3(0.05, 0.075, 0.05) * K, white, (mb * Basis(Vector3.RIGHT, 0.7)).get_euler(), sd, 5)
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			a.ell(c + mb * Vector3(x * 0.062, 0.11, 0.0) * K, Vector3(0.03, 0.06, 0.02) * K, white,
+				(mb * Basis(Vector3(0, 0, 1), -x * 0.32)).get_euler(), 8, 4)
+		# traits vermillon (sans contour) : yeux en amande, intérieur des oreilles, front ; truffe d'encre
+		d.style(1.0, 1.0)
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			d.ell(c + mb * Vector3(x * 0.042, 0.022, -0.046) * K, Vector3(0.032, 0.009, 0.008) * K, red,
+				(mb * Basis(Vector3(0, 0, 1), x * 0.35)).get_euler(), 8, 3)
+			d.ell(c + mb * Vector3(x * 0.062, 0.115, -0.017) * K, Vector3(0.014, 0.036, 0.006) * K, red,
+				(mb * Basis(Vector3(0, 0, 1), -x * 0.32)).get_euler(), 6, 3)
+		d.ell(c + mb * Vector3(0, 0.07, -0.048) * K, Vector3(0.012, 0.022, 0.006) * K, red, mb.get_euler(), 6, 3)
+		d.ell(c + mb * Vector3(0, -0.105, -0.085) * K, Vector3(0.016, 0.012, 0.01) * K, Color("#1E1B22"), mb.get_euler(), 6, 3)
+	else:
+		var red := Color("#B8352B")
+		var ivory := Color("#EFE2C0")
+		a.style(0.78, 1.0)
+		a.ell(c, Vector3(0.105, 0.12, 0.055) * K, red, mb.get_euler(), sd, 6)
+		# nez épaté, mâchoire, cornes d'ivoire
+		a.ell(c + mb * Vector3(0, -0.005, -0.05) * K, Vector3(0.032, 0.026, 0.026) * K, red.darkened(0.08), mb.get_euler(), 8, 4)
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			var hb := mb * Basis(Vector3(0, 0, 1), -x * 0.45)
+			a.style(0.85, 1.0)
+			a.lathe(_pv([0.026, 0.0, 0.022, 0.03, 0.013, 0.06, 0.0, 0.085]), ivory, 8,
+				Transform3D(hb, c + mb * Vector3(x * 0.06, 0.085, 0.0) * K), 1.0, 1.0)
+		# sourcils broussailleux, yeux d'or, gueule d'encre aux crocs blancs (sans contour)
+		d.style(1.0, 1.0)
+		for sx in [-1.0, 1.0]:
+			var x := float(sx)
+			d.ell(c + mb * Vector3(x * 0.045, 0.05, -0.05) * K, Vector3(0.04, 0.013, 0.01) * K, Color("#1E1B22"),
+				(mb * Basis(Vector3(0, 0, 1), -x * 0.4)).get_euler(), 8, 3)
+			d.ell(c + mb * Vector3(x * 0.042, 0.024, -0.052) * K, Vector3(0.018, 0.012, 0.008) * K, Color("#F2C54A"), mb.get_euler(), 8, 3)
+			d.ell(c + mb * Vector3(x * 0.03, -0.062, -0.05) * K, Vector3(0.008, 0.018, 0.006) * K, ivory, mb.get_euler(), 6, 3)
+		d.ell(c + mb * Vector3(0, -0.05, -0.048) * K, Vector3(0.05, 0.016, 0.01) * K, Color("#1E1B22"), mb.get_euler(), 10, 3)
 
 
 ## Buste du ronin : kimono washi croisé (plis, col et pans marqués à l'encre, juban blanc dans le V).
@@ -1526,10 +1732,13 @@ static func _b_hips_ronin(a: Builder, cfg: Dictionary, lite: bool) -> void:
 	a.side_dark = 0.25
 	a.lathe(_pv([0.0, -0.4, 0.026, -0.395, 0.03, -0.35, 0.032, 0.32, 0.03, 0.355, 0.0, 0.36]), _c(cfg, "saya"), sd, xf,
 		1.0, 0.62)
+	# montures et cordon (sageo) : couleurs du sabre de la garde-robe (BLADE_PAL)
+	var fit := _fit(cfg)
+	var sageo: Color = cfg.get("sageo", Toon.VERMILION.darkened(0.2))
 	a.style(0.8, 1.0)
-	a.lathe(_pv([0.034, 0.3, 0.038, 0.315, 0.038, 0.335, 0.034, 0.35]), gold, sd, xf, 1.0, 0.66)
-	a.lathe(_pv([0.034, 0.2, 0.038, 0.21, 0.034, 0.22]), Toon.VERMILION.darkened(0.2), sd, xf, 1.0, 0.66)
-	a.ell(HIP_SAYA_POS + rot * Vector3(0, -0.38, 0), Vector3(0.034, 0.03, 0.024), gold, HIP_SAYA_ROT, 8, 4)
+	a.lathe(_pv([0.034, 0.3, 0.038, 0.315, 0.038, 0.335, 0.034, 0.35]), fit, sd, xf, 1.0, 0.66)
+	a.lathe(_pv([0.034, 0.2, 0.038, 0.21, 0.034, 0.22]), sageo, sd, xf, 1.0, 0.66)
+	a.ell(HIP_SAYA_POS + rot * Vector3(0, -0.38, 0), Vector3(0.034, 0.03, 0.024), fit, HIP_SAYA_ROT, 8, 4)
 
 
 ## Tête : cagoule (zukin), bosse du masque, fente des yeux, hachimaki et plaque, nœud ; yeux sans contour.
@@ -1645,22 +1854,30 @@ static func _tsuka(a: Builder, xf: Transform3D, y0: float, y1: float, cfg: Dicti
 	bands.append(0.3)
 	a.style(1.0, 1.0)
 	a.bands = bands
-	a.lathe(prof, _c(cfg, "under"), 8, xf, 1.0, 0.85)
+	var wrap: Color = cfg.get("tsuka", _c(cfg, "under"))
+	a.lathe(prof, wrap, 8, xf, 1.0, 0.85)
 	a.style(0.85, 1.0)
-	a.ell(xf * Vector3(0, y1 + 0.01, 0), Vector3(0.028, 0.02, 0.025), _c(cfg, "gold"), xf.basis.get_euler(), 8, 4)
+	a.ell(xf * Vector3(0, y1 + 0.01, 0), Vector3(0.028, 0.02, 0.025), _fit(cfg), xf.basis.get_euler(), 8, 4)
+
+
+## Métal des montures du sabre (tsuba, embouchure, kashira) : or, sauf sabre de la garde-robe (« fit »).
+static func _fit(cfg: Dictionary) -> Color:
+	var c: Color = cfg.get("fit", _c(cfg, "gold"))
+	return c
 
 
 ## Arme en main droite (repère de la main : poignet à l'origine, poing en (0, -0.045, 0), devant = -Z).
 static func _b_weapon(a: Builder, d: Builder, cfg: Dictionary, lite: bool, weapon: String) -> void:
 	var steel := _c(cfg, "steel")
-	var gold := _c(cfg, "gold")
+	var gold := _fit(cfg)
 	# axe de l'arme : +Y du repère `xf` = devant la main
 	var xf := Transform3D(Basis.from_euler(Vector3(-PI * 0.5, 0, 0)), Vector3(0, -0.045, 0))
 	match weapon:
 		"katana":
 			_tsuka(a, xf, -0.1, 0.105, cfg, lite)
 			a.style(0.85, 1.0)
-			a.lathe(_pv([0.0, 0.106, 0.048, 0.109, 0.05, 0.118, 0.0, 0.122]), gold, 10, xf, 1.0, 0.8)
+			if bool(cfg.get("tsuba", true)):
+				a.lathe(_pv([0.0, 0.106, 0.048, 0.109, 0.05, 0.118, 0.0, 0.122]), gold, 10, xf, 1.0, 0.8)
 			a.lathe(_pv([0.018, 0.118, 0.02, 0.13, 0.018, 0.148, 0.0, 0.15]), gold, 6, xf, 0.7, 1.0)
 			# lame : section en losange, légère courbure (sori), reflet sur un flanc ; sans contour
 			d.style(0.8, 1.0)
