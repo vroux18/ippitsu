@@ -9,6 +9,7 @@ const Meta = preload("res://scripts/meta.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Options = preload("res://scripts/options.gd")
+const Gear = preload("res://scripts/gear_data.gd")
 const TIMEOUT := 15.0  # secondes réelles
 
 var bot: Node
@@ -290,6 +291,101 @@ func _intro_to_last() -> bool:
 	return true
 
 
+## Pause, mode mesure : panneau CAMÉRA. + sur l'inclinaison (caméra déplacée, sol sous le héros toujours retrouvé
+## par la conversion écran -> sol), VOIR puis un toucher, COPIER (rapport), RÉINITIALISER, retour sur la pause.
+func _step_cam_panel() -> bool:
+	var cp = main.cam_panel
+	if not await _press(main.menu._rep_cam, "CAMÉRA"):
+		return false
+	if not await _until(func(): return bool(cp.visible) and not bool(main.menu.visible) and String(main.state) == "paused", "CAMÉRA ouvre le panneau"):
+		return false
+	await _frames(2)
+	var tr0: Transform3D = main.cam.global_transform
+	var full0: Transform3D = main._cam_full
+	var t0 := float(main.cam_tilt)
+	await _press(cp._plus["tilt"], "INCLINAISON +")
+	await _press(cp._minus["fov"], "FOCALE −")
+	await _press(cp._plus["recul"], "RECUL +")
+	await _frames(2)
+	var hp: Vector3 = main.hero.position
+	var g: Vector3 = main._ground(main.cam.unproject_position(Vector3(hp.x, 0.0, hp.z)))
+	var moved: bool = not main.cam.global_transform.is_equal_approx(tr0)
+	_check(is_equal_approx(float(main.cam_tilt), t0 + 2.0) and is_equal_approx(float(main.cam_fov), float(main.CAM_FOV) - 2.0)
+			and is_equal_approx(float(main.cam_recul), float(main.CAM_RECUL) + 0.05) and moved and is_equal_approx(float(main.cam.fov), float(main.cam_fov))
+			and g.distance_to(Vector3(hp.x, 0.0, hp.z)) < 0.05 and float(main._cam_pref["tilt"]) == float(main.cam_tilt),
+		"panneau CAMÉRA : %s (image suivie, sol retrouvé, réglage gardé)" % String(main.cam_line()),
+		"tilt %.0f fov %.0f recul %.2f, caméra %s, écart au sol %.3f" % [float(main.cam_tilt), float(main.cam_fov), float(main.cam_recul),
+			"déplacée" if moved else "immobile", g.distance_to(Vector3(hp.x, 0.0, hp.z))])
+	await _press(cp._copy, "COPIER (caméra)")
+	var line := String(main.cam_line())
+	_check(line in main.measure.cam_notes and ("Caméra : " + line) in String(main.measure.report()) and String(main.measure._toast).begins_with("Copié"),
+		"panneau CAMÉRA : COPIER (%s, ajouté au rapport)" % line, "notes %s, toast « %s »" % [str(main.measure.cam_notes), String(main.measure._toast)])
+	await _press(cp._see, "VOIR")
+	var hid: bool = bool(cp.peek) and not bool(cp._copy.visible)
+	_tap(cp, cp.size / 2.0)
+	await _frame()
+	_check(hid and not bool(cp.peek) and bool(cp._copy.visible), "panneau CAMÉRA : VOIR puis un toucher", "peek %s" % str(cp.peek))
+	await _press(cp._reset, "RÉINITIALISER")
+	_check(is_equal_approx(float(main.cam_tilt), float(main.CAM_TILT)) and is_equal_approx(float(main.cam_fov), float(main.CAM_FOV))
+			and is_equal_approx(float(main.cam_recul), float(main.CAM_RECUL)) and (main._cam_full as Transform3D).is_equal_approx(full0),
+		"panneau CAMÉRA : RÉINITIALISER (caméra du jeu)", "réglage %s" % String(main.cam_line()))
+	await _press(cp._close, "retour (caméra)")
+	return await _until(func(): return not bool(cp.visible) and String(main.menu.mode) == "pause" and bool(main.menu.visible), "panneau CAMÉRA -> pause")
+
+
+## Pause, section DEV : GOD MODE (éteint pour le robot ; allumé : dégâts ×10, le coup ne passe pas ; puis remis à
+## NON), TOUT DÉBLOQUER (second toucher : CONFIRMER ; la sauvegarde de test reçoit tout, puis elle est rétablie).
+func _step_dev_extras() -> bool:
+	var mn = main.menu
+	var m = main.meta
+	_check(not bool(main.god) and not bool(main.god_active()), "GOD MODE éteint pour le robot", "god %s" % str(main.god))
+	var k0 := float(main.curse_dmg_mult())
+	if not await _press(mn._rep_god, "GOD MODE"):
+		return false
+	var hp0 := int(main.hero.hp)
+	var st0 := String(main.state)
+	main.state = "play"  # (un coup n'est testé qu'en combat : un instant hors pause, sans image jouée)
+	Engine.time_scale = 1.0
+	main._hurt_hero(1)
+	main.state = st0
+	_check(bool(main.god_active()) and bool(mn.god_on) and String(mn._rep_god.text) == "GOD MODE : OUI"
+			and is_equal_approx(float(main.curse_dmg_mult()), k0 * float(main.GOD_DMG)) and int(main.hero.hp) == hp0 and not bool(main.game_over),
+		"GOD MODE : OUI (dégâts ×%d, coup ignoré)" % int(main.GOD_DMG), "god %s, ×%.1f, cœurs %d -> %d" % [str(main.god_active()),
+			float(main.curse_dmg_mult()) / maxf(k0, 0.001), hp0, int(main.hero.hp)])
+	await _press(mn._rep_god, "GOD MODE (NON)")
+	_check(not bool(main.god) and not bool(mn.god_on) and String(mn._rep_god.text) == "GOD MODE : NON"
+			and is_equal_approx(float(main.curse_dmg_mult()), k0), "GOD MODE remis à NON", "god %s" % str(main.god))
+	# TOUT DÉBLOQUER : premier toucher = demande de confirmation, second = tout débloqué
+	var snap: Dictionary = m.snapshot()
+	await _press(mn._rep_unlock, "TOUT DÉBLOQUER")
+	_check(String(mn._confirm) == "unlock" and bool(mn._rep_unlock.accent) and int(m.purse_rank) == int(snap["purse_rank"]),
+		"TOUT DÉBLOQUER demande confirmation", "confirmation « %s »" % String(mn._confirm))
+	await _press(mn._rep_unlock, "TOUT DÉBLOQUER (confirmé)")
+	var all_tree := true
+	for id in Meta.TREE_ORDER:
+		all_tree = all_tree and bool(m.learned(String(id)))
+	var all_cos := true
+	for cat in ["outfit", "theme", "hat", "blade", "cape", "trail", "ink"]:
+		for id in m.cosmetic_ids(cat):
+			all_cos = all_cos and bool(m.cosmetic_owned(cat, String(id)))
+	var all_gear := true
+	for bid in Gear.ORDER:
+		all_gear = all_gear and bool(m.aspect_owned(String(bid), 2))
+	for cid in Gear.CHARM_ORDER:
+		all_gear = all_gear and bool(m.charm_owned(String(cid)))
+	_check(all_tree and all_cos and all_gear and int(m.unlocked) == Meta.WORLD_COUNT and int(m.master_worlds()) == Meta.WORLD_COUNT
+			and int(m.purse_rank) == Meta.PURSE_COSTS.size() and int(m.prints) == Meta.PRINT_ORDER.size() and int(m.sumi) >= 9999 and int(m.petals) >= 9999
+			and String(main.measure._toast) == "Tout est débloqué",
+		"TOUT DÉBLOQUER : mondes (Maître), arbre, pinceaux, omamori, Vues, garde-robe, encre et pétales",
+		"arbre %s, garde-robe %s, pinceaux/omamori %s, mondes %d, maîtres %d, Vues %d, encre %d" % [str(all_tree), str(all_cos), str(all_gear),
+			int(m.unlocked), int(m.master_worlds()), int(m.prints), int(m.sumi)])
+	m.restore(snap)
+	main.menu.sumi = m.sumi
+	_check(int(m.purse_rank) == int(snap["purse_rank"]) and int(m.sumi) == int(snap["sumi"]) and int(m.prints) == int(snap["prints"]),
+		"TOUT DÉBLOQUER : sauvegarde de test rétablie", "encre %d" % int(m.sumi))
+	return true
+
+
 ## Mode mesure : appui long (1,5 s) sur le titre IPPITSU de l'accueil, qui le met en marche ou l'arrête.
 func _step_measure(on: bool) -> bool:
 	var mn = main.menu
@@ -315,7 +411,8 @@ func _step_measure(on: bool) -> bool:
 		"sauvegarde %s, toast « %s », mode %s" % [str(main.meta.measure_mode), String(main.measure._toast), String(mn.mode)])
 
 
-## Mode mesure en jeu : l'encart paraît et relève ; la pause porte COPIER LE RAPPORT et REMETTRE À ZÉRO.
+## Mode mesure (développeur) en jeu : l'encart paraît et relève ; la section DEV de la pause porte COPIER LES DONNÉES,
+## REMETTRE À ZÉRO et CAMÉRA (panneau de réglage : − / +, VOIR, COPIER, RÉINITIALISER, retour sur la pause).
 func _step_measure_pause() -> bool:
 	var ms = main.measure
 	if not bool(ms.active):
@@ -326,20 +423,25 @@ func _step_measure_pause() -> bool:
 	await _press(main.hud._pause, "pause")
 	if not await _until(func(): return String(main.state) == "paused" and String(main.menu.mode) == "pause", "pause (mode mesure)"):
 		return false
-	if not await _press(main.menu._rep_copy, "COPIER LE RAPPORT"):
+	if not await _press(main.menu._rep_copy, "COPIER LES DONNÉES"):
 		return false
 	var rep := String(ms.last_report)
 	var rf := FileAccess.open("user://mesure_rapport.txt", FileAccess.WRITE)  # (exemple de rapport, hors presse-papiers)
 	if rf != null:
 		rf.store_string(rep + "\n")
 	var missing := ""
-	for k in ["Appareil :", "Système :", "Rendu :", "Durée mesurée :", "Global :", "Par état (ms) :\n- ", "Pires images"]:
+	for k in ["Build :", "Partie : monde", "Réglages :", "Caméra : tilt=", "Appareil :", "Système :", "Rendu :", "Durée mesurée :",
+			"Global :", "Par état (ms) :\n- ", "Pires images"]:
 		if not k in rep:
 			missing += " « %s »" % k
-	_check(rep.length() > 200 and rep.length() <= 3000 and missing == "" and String(ms._toast) == "Rapport copié",
-		"mode mesure : rapport copié (%d caractères)" % rep.length(), "rubriques manquantes :%s ; toast « %s »" % [missing, String(ms._toast)])
+	_check(rep.length() > 200 and rep.length() <= 4000 and missing == "" and String(ms._toast) == "Copié",
+		"mode mesure : données copiées (%d caractères)" % rep.length(), "rubriques manquantes :%s ; toast « %s »" % [missing, String(ms._toast)])
 	await _press(main.menu._rep_reset, "REMETTRE À ZÉRO")
 	_check(int(ms.frames()) < 5, "mode mesure : remise à zéro", "%d images après la remise à zéro" % int(ms.frames()))
+	if not await _step_cam_panel():
+		return false
+	if not await _step_dev_extras():
+		return false
 	await _press(main.menu._resume, "REPRENDRE")
 	return await _until(func(): return String(main.state) == "play", "REPRENDRE (mode mesure)")
 
@@ -498,6 +600,10 @@ func _option_applied(key: String, val: String) -> bool:
 			return String(main.pad_size) == val
 		"pad_show":
 			return String(main.pad_show) == val
+		"dev":
+			# mode développeur = mode mesure (sauvegardé), la pause le suit
+			return bool(main.measure.active) == (val == "on") and bool(main.meta.measure_mode) == (val == "on") \
+				and bool(main.menu.measure_on) == (val == "on")
 	return false
 
 
@@ -535,7 +641,7 @@ func _step_options(from: String) -> bool:
 	var keys: Array = []
 	for row in Options.ROWS:
 		keys.append(String(row["key"]))
-	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "tuto"] and String(opt.values.get("control", "")) == "screen"
+	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "tuto", "dev"] and String(opt.values.get("control", "")) == "screen"
 		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
 	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable
@@ -567,7 +673,8 @@ func _step_options(from: String) -> bool:
 	main.coach.clear()
 	if done0:
 		opt.values.erase("tuto")
-	_check(bool(main.menu.muted) == (String(orig["sound"]) == "off") and bool(main.sfx.haptics) == (String(orig["vibration"]) == "on"), "options (%s) : valeurs rétablies" % from, "réglages non rétablis")
+	_check(bool(main.menu.muted) == (String(orig["sound"]) == "off") and bool(main.sfx.haptics) == (String(orig["vibration"]) == "on")
+		and _option_applied("dev", String(orig["dev"])), "options (%s) : valeurs rétablies (mode développeur %s)" % [from, String(orig["dev"])], "réglages non rétablis")
 	var back: Rect2 = opt._back
 	_tap(opt, back.get_center())
 	if not await _until(func(): return not bool(opt.visible), "options : RETOUR"):

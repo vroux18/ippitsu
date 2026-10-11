@@ -5,6 +5,7 @@ extends Node3D
 ## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 const Mesure = preload("res://scripts/mesure.gd")  # mode mesure caché (appui long sur le titre de l'accueil)
+const CamPanel = preload("res://scripts/cam_panel.gd")  # mode mesure : réglage de la caméra (pause, CAMÉRA)
 
 const Toon = preload("res://scripts/toon.gd")
 const Lueurs = preload("res://scripts/lueurs.gd")  # lueurs des lanternes (flaques et halos additifs)
@@ -181,8 +182,21 @@ const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14]
 const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du héros)
 ## Plongée de la caméra (degrés au-dessus de l'horizon). Caméra « relief » (retenue) : un peu moins zénithale,
 ## focale un peu plus courte (CAM_FOV), les volumes (piliers, monstres, tranches des plateformes) se lisent mieux.
-var cam_tilt := 48.0
+const CAM_TILT := 48.0
 const CAM_FOV := 44.0
+const CAM_RECUL := 1.0
+## Réglage de la caméra (mode mesure seulement, panneau CAMÉRA de la pause : cam_panel.gd) : plongée, focale et
+## recul (facteur sur la distance du cadrage). Hors mode mesure : toujours les valeurs du jeu ci-dessus.
+const CAM_RANGE := {"tilt": [35.0, 70.0, 2.0], "fov": [30.0, 60.0, 2.0], "recul": [0.7, 1.6, 0.05]}  # min, max, pas
+var cam_tilt := CAM_TILT
+var cam_fov := CAM_FOV  # focale de jeu (l'accueil, la barque et la carte gardent CAM_FOV)
+var cam_recul := CAM_RECUL
+var _cam_pref := {"tilt": CAM_TILT, "fov": CAM_FOV, "recul": CAM_RECUL}  # réglage du propriétaire (sauvegardé)
+var cam_panel: Control
+## GOD MODE (développeur, section DEV de la pause ; sauvegardé, effectif seulement en mode développeur, toujours
+## éteint au lancement du robot) : héros intouchable, encre et ultime pleins, dégâts du héros ×GOD_DMG.
+var god := false
+const GOD_DMG := 10.0
 const CAM_LEAD := 0.6  # la caméra regarde à peine devant le héros (il reste au centre de l'écran)
 const CAM_LEAD_PAD := 2.4  # mode pad : l'arène est cadrée au-dessus du pad, on voit plus loin devant
 const SETTINGS_V := 2  # version des réglages : 2 = pad (taille M) par défaut, posé une fois sur les sauvegardes existantes
@@ -592,6 +606,9 @@ func _ready() -> void:
 	menu.measure_toggled.connect(_on_measure_toggled)
 	menu.report_copy_pressed.connect(_on_report_copy)
 	menu.report_reset_pressed.connect(_on_report_reset)
+	menu.camera_pressed.connect(_open_cam_panel)
+	menu.god_pressed.connect(_on_god_toggle)
+	menu.unlock_all_pressed.connect(_on_unlock_all)
 	var ref_layer := CanvasLayer.new()
 	ref_layer.layer = 4
 	add_child(ref_layer)
@@ -650,6 +667,12 @@ func _ready() -> void:
 	recap = PowersRecap.new()
 	opt_layer.add_child(recap)
 	recap.closed.connect(_on_recap_closed)
+	cam_panel = CamPanel.new()
+	opt_layer.add_child(cam_panel)
+	cam_panel.connect("step", _on_cam_step)
+	cam_panel.connect("reset_pressed", _on_cam_reset)
+	cam_panel.connect("copy_pressed", _on_cam_copy)
+	cam_panel.connect("closed", _on_cam_panel_closed)
 	menu.powers_pressed.connect(_open_recap)
 	menu.options_pressed.connect(_open_options)
 	tuto = Tutorial.new()
@@ -706,6 +729,12 @@ func _ready() -> void:
 			tree_coach.auto = false
 	# mode mesure : choix sauvegardé, ou `?mesure` / `--q=mesure` (captures : forcé, rien n'est sauvegardé)
 	measure.set_active(bool(meta.measure_mode) or "mesure" in wsearch)
+	# caméra : le réglage du propriétaire en mode mesure, sinon celui du jeu ; `&cam=48,44,1` (captures) l'impose
+	_apply_cam_pref()
+	_cam_query(wsearch)
+	# `&godmode` (captures, avec `mesure`) : GOD MODE allumé, sans rien sauvegarder
+	if "godmode" in wsearch:
+		god = true
 	hud.show_fps = "fps" in wsearch
 	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
 	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
@@ -947,6 +976,9 @@ func _ready() -> void:
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
+		# `?mesure&pause&panneaucam` (captures) : le panneau CAMÉRA ouvert par-dessus la partie figée
+		if "panneaucam" in wsearch:
+			_open_cam_panel()
 	# `?room=3&fig=wave` (captures) : le héros trace cette figure (bot_shapes) vers les ennemis toutes les 2,6 s,
 	# sa technique débloquée (`&figlv=2` : niveau 2, et ses améliorations rares au niveau 1)
 	var fq := wsearch.find("fig=")
@@ -1251,26 +1283,175 @@ func perf_mark(label: String, usec: int) -> void:
 
 ## Appui long sur le titre de l'accueil : mode mesure activé ou désactivé (gardé dans la sauvegarde).
 func _on_measure_toggled() -> void:
-	var on := not bool(measure.active)
+	_set_dev_mode(not bool(measure.active))
+
+
+## Mode développeur (= mode mesure) : appui long sur le titre, ou OPTIONS > MODE DÉVELOPPEUR ; sauvegardé.
+## Actif : encart de fluidité en jeu, section DEV de la pause (CAMÉRA, COPIER LES DONNÉES, REMETTRE À ZÉRO),
+## réglage de caméra du propriétaire. Inactif : la caméra du jeu.
+func _set_dev_mode(on: bool) -> void:
 	measure.set_active(on)
+	_apply_cam_pref()
 	meta.measure_mode = on
 	meta.save_data()
 	menu.measure_on = on
-	measure.toast("Mode mesure activé" if on else "Mode mesure désactivé")
+	menu.god_on = god_active()
+	measure.toast("Mode développeur activé" if on else "Mode développeur désactivé")
 	sfx.play("levelup" if on else "whoosh", 1.0, -6.0)
 
 
-## Pause, mode mesure : le rapport va dans le presse-papiers.
+## Pause, mode développeur : COPIER LES DONNÉES (contexte, réglages, caméra, puis le rapport de fluidité) va
+## dans le presse-papiers.
 func _on_report_copy() -> void:
-	var txt: String = measure.report()
+	var txt := dev_data()
 	measure.last_report = txt
 	DisplayServer.clipboard_set(txt)
-	measure.toast("Rapport copié")
+	measure.toast("Copié")
+
+
+## Données de développement : version (et commit du build s'il est connu), appareil, écran, partie en cours,
+## réglages, caméra, puis le rapport de fluidité (mesure.gd).
+func dev_data() -> String:
+	var ver := str(ProjectSettings.get_setting("application/config/version", ""))
+	var sha := str(ProjectSettings.get_setting("application/config/commit", ""))
+	var vs := get_viewport().get_visible_rect().size
+	var lines: Array = ["IPPITSU — données de développement"]
+	lines.append("Build : %s%s" % [ver if ver != "" else "dev", (" · commit " + sha.left(10)) if sha != "" else ""])
+	lines.append("Appareil : %s · %s · vue %d×%d" % [OS.get_model_name(), OS.get_name(), int(vs.x), int(vs.y)])
+	lines.append("Partie : monde %d · étape %d · salle %d · état %s%s" % [current_world, stage_i + 1, room, state,
+		" (sanctuaire)" if in_hub else ""])
+	lines.append("Réglages : contrôle %s (choix %s) · pad %s, %s · son %s · vibrations %s" % [ctrl_mode, ctrl_pref, pad_size,
+		pad_show, "non" if menu.muted else "oui", "oui" if sfx.haptics else "non"])
+	lines.append("God mode : %s" % ("oui" if god_active() else "non"))
+	lines.append("Caméra : %s (jeu : tilt=%d fov=%d recul=%.2f)" % [cam_line(), int(CAM_TILT), int(CAM_FOV), CAM_RECUL])
+	return "\n".join(lines) + "\n\n" + String(measure.report())
 
 
 func _on_report_reset() -> void:
 	measure.reset()
 	measure.toast("Mesure remise à zéro")
+
+
+# ------------------------------------------------------------------ réglage de la caméra (mode mesure)
+
+## Plongée, focale et recul de la caméra de jeu (bornés à CAM_RANGE). Le cadrage est recalculé (cache vidé,
+## celui du disque repris s'il correspond) et, en pause, l'image suit tout de suite.
+func set_cam(tilt: float, fov: float, recul: float) -> void:
+	tilt = clampf(tilt, CAM_RANGE.tilt[0], CAM_RANGE.tilt[1])
+	fov = clampf(fov, CAM_RANGE.fov[0], CAM_RANGE.fov[1])
+	recul = clampf(snappedf(recul, 0.01), CAM_RANGE.recul[0], CAM_RANGE.recul[1])
+	var reframe := not is_equal_approx(tilt, cam_tilt) or not is_equal_approx(fov, cam_fov)
+	cam_tilt = tilt
+	cam_fov = fov
+	cam_recul = recul
+	if reframe:
+		_frame_cache.clear()
+		_load_frames()
+	var keep_fov := cam.fov
+	var keep_tr := cam.global_transform
+	_fit_camera()
+	if state in ST_HUD or state in ST_SCENE or state == "dying":
+		cam.global_transform = _cam_base.translated(Vector3(0, 0, _cam_dz))
+		arena.follow_camera(_cam_dz)
+	else:
+		# accueil, barque, carte : leur plan et leur focale (la caméra de jeu servira à l'arrivée)
+		cam.fov = keep_fov
+		cam.global_transform = keep_tr
+	if cam_panel != null:
+		cam_panel.call("set_values", cam_values(), {"tilt": CAM_TILT, "fov": CAM_FOV, "recul": CAM_RECUL})
+
+
+## GOD MODE en vigueur : l'interrupteur, et le mode développeur.
+func god_active() -> bool:
+	return god and measure != null and measure.active
+
+
+## Pause, section DEV : GOD MODE OUI / NON (sauvegardé).
+func _on_god_toggle() -> void:
+	god = not god
+	menu.god_on = god_active()
+	_save()
+	measure.toast("God mode activé" if god else "God mode désactivé")
+	sfx.play("levelup" if god else "whoosh", 1.0, -6.0)
+
+
+## Pause, section DEV : TOUT DÉBLOQUER (confirmé) : la sauvegarde reçoit toute la progression (meta.unlock_all).
+func _on_unlock_all() -> void:
+	if not measure.active:
+		return
+	meta.unlock_all()
+	menu.sumi = meta.sumi
+	measure.toast("Tout est débloqué")
+	sfx.play("levelup", 1.0, -4.0)
+
+
+func cam_values() -> Dictionary:
+	return {"tilt": cam_tilt, "fov": cam_fov, "recul": cam_recul}
+
+
+## « tilt=48 fov=44 recul=1.00 » : le réglage tel qu'il se copie (rapport de mesure, presse-papiers).
+func cam_line() -> String:
+	return "tilt=%d fov=%d recul=%.2f" % [int(round(cam_tilt)), int(round(cam_fov)), cam_recul]
+
+
+## Réglage en vigueur : celui du propriétaire en mode mesure, sinon les valeurs du jeu (les autres joueurs
+## ne sont jamais déréglés).
+func _apply_cam_pref() -> void:
+	if measure != null and measure.active:
+		set_cam(float(_cam_pref.tilt), float(_cam_pref.fov), float(_cam_pref.recul))
+	else:
+		set_cam(CAM_TILT, CAM_FOV, CAM_RECUL)
+
+
+## `&cam=tilt,fov,recul` (captures) : ce réglage, sans rien sauvegarder.
+func _cam_query(q: String) -> void:
+	var i := q.find("cam=")
+	if i < 0:
+		return
+	var parts := q.substr(i + 4).get_slice("&", 0).split(",")
+	var t := float(parts[0]) if parts.size() > 0 and parts[0] != "" else CAM_TILT
+	var f := float(parts[1]) if parts.size() > 1 and parts[1] != "" else CAM_FOV
+	var r := float(parts[2]) if parts.size() > 2 and parts[2] != "" else CAM_RECUL
+	set_cam(t, f, r)
+
+
+## Pause, mode mesure : CAMÉRA ouvre le panneau de réglage (la pause s'efface, le jeu figé reste visible).
+func _open_cam_panel() -> void:
+	if state != "paused" or not measure.active:
+		return
+	menu.show_mode("hidden")
+	sfx.play("whoosh", 1.1, -6.0)
+	cam_panel.call("set_values", cam_values(), {"tilt": CAM_TILT, "fov": CAM_FOV, "recul": CAM_RECUL})
+	cam_panel.call("open")
+
+
+func _on_cam_panel_closed() -> void:
+	if state == "paused":
+		menu.show_mode("pause")
+
+
+func _on_cam_step(key: String, dir: int) -> void:
+	var v := cam_values()
+	var rg: Array = CAM_RANGE[key]
+	v[key] = clampf(snappedf(float(v[key]) + float(dir) * float(rg[2]), float(rg[2]) * 0.5), float(rg[0]), float(rg[1]))
+	set_cam(float(v.tilt), float(v.fov), float(v.recul))
+	_cam_pref = cam_values()
+	_save()
+	sfx.play("empty", 1.4 if dir > 0 else 1.2, -8.0)
+
+
+func _on_cam_reset() -> void:
+	set_cam(CAM_TILT, CAM_FOV, CAM_RECUL)
+	_cam_pref = cam_values()
+	_save()
+	measure.toast("Caméra réinitialisée")
+
+
+func _on_cam_copy() -> void:
+	var line := cam_line()
+	DisplayServer.clipboard_set(line)
+	measure.call("note_cam", line)
+	measure.toast("Copié : " + line)
 
 
 func _on_arena_perf(label: String, usec: int) -> void:
@@ -1558,6 +1739,10 @@ func _load() -> void:
 			ctrl_pref = String(cfg.get_value("settings", "control", "pad"))
 		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
+		god = bool(cfg.get_value("settings", "god", false))
+		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
+		for k in _cam_pref.keys():
+			_cam_pref[k] = float(cfg.get_value("camera", k, _cam_pref[k]))
 	if not ctrl_pref in ["screen", "pad"]:
 		ctrl_pref = "pad"
 	if not pad_size in ["s", "m", "l"]:
@@ -1567,6 +1752,7 @@ func _load() -> void:
 	ctrl_mode = ctrl_pref  # le seul moment où le mode change : au lancement
 	if "--bot" in OS.get_cmdline_user_args():
 		ctrl_mode = "screen"  # le robot du CI joue toujours au doigt sur l'écran (sans toucher au choix enregistré)
+		god = false  # jamais de GOD MODE pour le robot
 	hud.pad_alpha = 0.0 if pad_show == "never" else 1.0
 	menu.best = stage_of(record)
 	menu.sumi = meta.sumi
@@ -1582,6 +1768,9 @@ func _save() -> void:
 	cfg.set_value("settings", "control", ctrl_pref)
 	cfg.set_value("settings", "pad_size", pad_size)
 	cfg.set_value("settings", "pad_show", pad_show)
+	cfg.set_value("settings", "god", god)
+	for k in _cam_pref.keys():
+		cfg.set_value("camera", k, float(_cam_pref[k]))
 	cfg.save(SAVE_PATH)
 
 
@@ -1710,6 +1899,7 @@ func _on_pause() -> void:
 	menu.stat_time = run_time
 	menu.pause_powers = powers.levels.keys()
 	menu.measure_on = measure.active
+	menu.god_on = god_active()
 	hud.pause_enabled = false
 	state = "paused"
 	menu.show_mode("pause")
@@ -1724,7 +1914,9 @@ func _notification(what: int) -> void:
 			_pause_pending = true  # pause dès que la partie reprend la main
 		if menu == null or hud == null:
 			return
-		if what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
+		if what == NOTIFICATION_WM_GO_BACK_REQUEST and cam_panel != null and cam_panel.visible:
+			cam_panel.call("close")
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
 			recap.visible = false
 			_on_recap_closed()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and opening != null and opening.visible:
@@ -1891,7 +2083,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show}
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dev": "on" if measure.active else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
@@ -1914,6 +2106,9 @@ func _on_option(key: String, value: String) -> void:
 				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
 		"pad_show":
 			pad_show = value
+		"dev":
+			_set_dev_mode(value == "on")
+			return  # (son et vibration du mode, sauvegardé dans meta)
 		"tuto":
 			# « Revoir le tutoriel » : les bulles du coach reviendront (JOUER mène droit au monde 1)
 			meta.coach_reset()
@@ -2938,12 +3133,26 @@ func _fit_camera() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	if vs.x <= 0 or vs.y <= 0:
 		return
-	_cam_full = _frame(vs)
+	cam.fov = cam_fov
+	_cam_full = _recul(_frame(vs), CAM_FOCUS_Y)
 	_cam_base = _cam_full
 	if ctrl_mode == "pad":
-		_cam_pad = _frame_pad(vs, pad_rect().position.y / vs.y)
+		_cam_pad = _recul(_frame_pad(vs, pad_rect().position.y / vs.y), 0.0)
 		_cam_base = _cam_mix()
 	cam.global_transform = _cam_base
+
+
+## Recul (réglage de la caméra) : la caméra glisse sur son axe de visée, le point visé (à la hauteur focus_y)
+## reste au même endroit de l'écran ; 1 : le cadrage calculé tel quel.
+func _recul(tr: Transform3D, focus_y: float) -> Transform3D:
+	if absf(cam_recul - 1.0) < 0.001:
+		return tr
+	var back := tr.basis.z.normalized()
+	if back.y < 0.05:
+		return tr
+	var d := (tr.origin.y - focus_y) / back.y
+	tr.origin += back * d * (cam_recul - 1.0)
+	return tr
 
 
 ## Cadrage de jeu : en mode pad, mélange des deux cadrages selon la visibilité du pad (l'arène descend
@@ -2971,7 +3180,7 @@ func _frame_pad(vs: Vector2, bottom_k: float) -> Transform3D:
 	var best := Transform3D()
 	var found := false
 	var dist := 12.0
-	while dist < 70.0 and not found:
+	while dist < 120.0 and not found:
 		# à cette distance, garde le cadrage qui centre l'arène verticalement dans la bande
 		var best_gap := INF
 		for zi in 41:
@@ -3025,7 +3234,7 @@ func _frame(vs: Vector2) -> Transform3D:
 	var best := Transform3D()
 	var found := false
 	var dist := 12.0
-	while dist < 70.0 and not found:
+	while dist < 120.0 and not found:
 		var pos := focus + Vector3(0, sin(tilt), cos(tilt)) * dist
 		var tr := Transform3D(Basis(), pos).looking_at(focus, Vector3.UP)
 		cam.global_transform = tr
@@ -3050,7 +3259,7 @@ func _frame(vs: Vector2) -> Transform3D:
 
 ## Cadrages des lancements précédents (même version du jeu, même écran) : la recherche est évitée.
 func _load_frames() -> void:
-	_frame_disk_key = "%s|%s|%.2f|%.1f|2" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam.fov, cam_tilt]
+	_frame_disk_key = "%s|%s|%.2f|%.1f|2" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam_fov, cam_tilt]
 	var cfg := ConfigFile.new()
 	if cfg.load(FRAMES_PATH) != OK:
 		return
@@ -5978,7 +6187,7 @@ func heal(n: int, sealed := false) -> void:
 
 ## Dégâts du héros multipliés par les pactes (Serment du rōnin : +30 %).
 func curse_dmg_mult() -> float:
-	return (1.3 if "ronin" in curses else 1.0) * (Gear.ASCETE_DMG if charm == "ascete" else 1.0)
+	return (1.3 if "ronin" in curses else 1.0) * (Gear.ASCETE_DMG if charm == "ascete" else 1.0) * (GOD_DMG if god_active() else 1.0)
 
 
 ## Malus permanents d'un yōkai qui paraît (pactes) : vie, vitesse, annonces plus courtes.
@@ -6793,7 +7002,7 @@ func _launch(s: MeshInstance3D) -> void:
 func _brush_launch(s: MeshInstance3D) -> void:
 	if brush == "chi":
 		var over := float(s.length) - Gear.CHI_FREE
-		if over > 0.0:
+		if over > 0.0 and not god_active():
 			_blood += over * Gear.CHI_COST
 			while _blood >= 1.0:
 				if int(hero.hp) <= 1:
@@ -7019,6 +7228,8 @@ func _break_chain() -> void:
 ## Coup reçu par le héros (`n` cœurs). Ruée : intouchable en entier aux mondes 1-2, puis seulement au
 ## début de chaque ruée (hero.dash_safe) ; temps d'invincibilité après un coup raccourci dans les mondes avancés.
 func _hurt_hero(n := 1) -> void:
+	if god_active():
+		return  # GOD MODE : aucun coup, aucune mort
 	if hero.dash_safe() or hero.invuln > 0.0 or hero.protected() or game_over:
 		return
 	# temps figé (choix de rouleau, pause, arrêt sur image) ou hors combat : les coups de contact, testés par
@@ -7264,7 +7475,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 func _tresse_burst(p: Vector3) -> void:
 	var c := Vector3(p.x, 0.06, p.z)
 	vfx.ring(c, Gear.BRUSHES["warefude"]["col"], Gear.TRESSE_R)
-	var d: float = Gear.TRESSE_DMG * chain_mult() * meta.dmg_mult(chain)
+	var d: float = Gear.TRESSE_DMG * chain_mult() * meta.dmg_mult(chain) * curse_dmg_mult()
 	for o in nearest_enemies(p, Gear.TRESSE_R, 99, null):
 		damage_enemy(o, d)
 	damage_bosses(p, Gear.TRESSE_R, d, false)
@@ -7604,6 +7815,11 @@ func _process(_delta: float) -> void:
 	if state == "tuto":
 		elan = elan_max()
 		_update_moves(dt)
+	elif god_active() and state in ST_FIGHT and is_instance_valid(hero):
+		# GOD MODE (développeur) : encre toujours pleine, ultime toujours prêt, cœurs pleins
+		elan = maxf(elan, elan_max())
+		ult = 1.0
+		hero.hp = maxi(int(hero.hp), int(hero.max_hp))
 	# un boss vient d'apparaître : son entrée en scène avant le combat
 	if state == "play" and _intro_boss != null:
 		_start_boss_intro()
@@ -7770,7 +7986,8 @@ func _process(_delta: float) -> void:
 	# barque (accueil, carte, départ) : pas d'anneau au sol sous le héros
 	if is_instance_valid(hero):
 		hero.ring_off = state in ST_RING_OFF or (state == "intro" and not _intro_swapped)
-	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
+	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu (focale de l'accueil, ou celle du jeu)
+	cam.fov = CAM_FOV if state in ["menu", "sail", "worlds"] or (state == "intro" and _state_t < 0.42 and not _intro_swapped) else cam_fov
 	if state == "menu":
 		# la barque tangue doucement, le héros avec elle ; garde-robe : la caméra glisse vers la proue
 		_rock_boat(real)

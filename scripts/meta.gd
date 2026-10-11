@@ -469,6 +469,62 @@ func _retro_charms() -> void:
 			charms_won[cid] = true
 
 
+## Mode développeur, TOUT DÉBLOQUER : les mondes vaincus au rang Maître, l'Arbre appris (Bourse au max), les
+## pinceaux et leurs aspects, les omamori, les Vues, toute la garde-robe, 9999 encre et pétales ; sauvegardé.
+func unlock_all() -> void:
+	unlocked = WORLD_COUNT
+	won_top = WORLD_COUNT
+	power_tier = Data.UNLOCK_MAX
+	wins = maxi(wins, WORLD_COUNT)
+	runs = maxi(runs, 50)
+	best_room = maxi(best_room, 15)
+	for wid in range(1, WORLD_COUNT + 1):
+		world_best[wid] = maxi(int(world_best.get(wid, 0)), 15)
+		var top := int(ceil(float(Score.RANK_PTS[Score.RANK_PTS.size() - 1]) * (1.0 + 0.12 * float(wid - 1))))
+		world_score[wid] = maxi(int(world_score.get(wid, 0)), top)
+		world_chain[wid] = maxi(int(world_chain.get(wid, 0)), 50)
+		clean_wins[wid] = true
+	for id in TREE_ORDER:
+		tree[String(id)] = true
+	purse_rank = PURSE_COSTS.size()
+	coach_seen["arbre"] = true
+	if not Data.POWERS.has(start_power_id):
+		start_power_id = _first_choice()
+	for id in PRINT_ORDER:
+		owned_prints[String(id)] = true
+	prints = owned_prints.size()
+	for bid in Gear.ORDER:
+		aspects_won[bid] = 3
+	for cid in Gear.CHARM_ORDER:
+		charms_won[cid] = true
+	for cat in ["outfit", "theme", "hat", "blade"] + LOOK_KINDS:
+		for id in cosmetic_ids(String(cat)):
+			if String(id) != "" and not cosmetic_owned(String(cat), String(id)):
+				grant_cosmetic(String(cat), String(id))
+	elite_total = maxi(elite_total, 99)
+	clean_bosses = maxi(clean_bosses, 99)
+	sumi = maxi(sumi, 9999)
+	petals = maxi(petals, 9999)
+	save_data()
+
+
+## Toute la progression (variables du script, copiées en profondeur) : le robot UI la rétablit après TOUT DÉBLOQUER.
+func snapshot() -> Dictionary:
+	var d := {}
+	for p in get_property_list():
+		if int(p["usage"]) & PROPERTY_USAGE_SCRIPT_VARIABLE:
+			var v: Variant = get(p["name"])
+			d[p["name"]] = v.duplicate(true) if v is Dictionary or v is Array else v
+	return d
+
+
+func restore(d: Dictionary) -> void:
+	for k in d.keys():
+		var v: Variant = d[k]
+		set(k, v.duplicate(true) if v is Dictionary or v is Array else v)
+	save_data()
+
+
 func save_data() -> void:
 	var cf := ConfigFile.new()
 	cf.set_value("gear", "version", GEAR_VERSION)

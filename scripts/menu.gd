@@ -46,6 +46,9 @@ signal wardrobe_pressed
 signal world_step(dir: int)
 signal measure_toggled  # appui long (1,5 s) sur le titre IPPITSU : mode mesure (mesure.gd)
 signal report_copy_pressed  # pause, mode mesure : COPIER LE RAPPORT
+signal camera_pressed  # pause, mode mesure : CAMÉRA (réglage de la caméra, cam_panel.gd)
+signal unlock_all_pressed  # pause, mode développeur : TOUT DÉBLOQUER (confirmé par un second toucher)
+signal god_pressed  # pause, mode développeur : GOD MODE (interrupteur)
 signal report_reset_pressed  # pause, mode mesure : REMETTRE À ZÉRO  # accueil : monde précédent (-1) ou suivant (+1), chevrons ou glissé
 
 var mode := "home"  # home | over | pause | hidden
@@ -144,6 +147,12 @@ var _lp_t := -1.0  # durée de l'appui sur le titre (< 0 : aucun)
 var _lp_p := Vector2.ZERO
 var _rep_copy: Control
 var _rep_reset: Control
+var _rep_cam: Control  # mode développeur : CAMÉRA (panneau de réglage, cam_panel.gd)
+var _rep_unlock: Control  # mode développeur : TOUT DÉBLOQUER (second toucher : CONFIRMER)
+var _rep_god: Control  # mode développeur : GOD MODE OUI / NON
+var god_on := false  # GOD MODE (main) : l'étiquette s'allume en vermillon
+const DEV_H := 154.0  # section DEV sous la feuille de pause (u) : titre, deux rangées d'étiquettes, REMETTRE À ZÉRO
+const DEV_ROW := 24.0  # haut des étiquettes DEV sous la feuille (u)
 
 
 func _ready() -> void:
@@ -226,7 +235,7 @@ func _ready() -> void:
 	_quit.danger = true
 	_quit.font = _tag_font
 	_quit.pressed.connect(func(): _confirm_press("quit"))
-	_rep_copy = _button("COPIER LE RAPPORT", "label")
+	_rep_copy = _button("COPIER LES DONNÉES", "label")
 	_rep_copy.font = _tag_font
 	_rep_copy.icon = "brush"
 	_rep_copy.pressed.connect(func(): report_copy_pressed.emit())
@@ -234,6 +243,19 @@ func _ready() -> void:
 	_rep_reset.font = _tag_font
 	_rep_reset.icon = "replay"
 	_rep_reset.pressed.connect(func(): report_reset_pressed.emit())
+	_rep_cam = _button("CAMÉRA", "label")
+	_rep_cam.font = _tag_font
+	_rep_cam.icon = "gear"
+	_rep_cam.pressed.connect(func(): camera_pressed.emit())
+	_rep_god = _button("GOD MODE : NON", "label")
+	_rep_god.font = _tag_font
+	_rep_god.icon = "play"
+	_rep_god.pressed.connect(func(): god_pressed.emit())
+	_rep_unlock = _button("TOUT DÉBLOQUER", "label")
+	_rep_unlock.font = _tag_font
+	_rep_unlock.icon = "dojo"
+	_rep_unlock.danger = true
+	_rep_unlock.pressed.connect(func(): _confirm_press("unlock"))
 	show_mode("home")
 
 
@@ -335,6 +357,8 @@ func _confirm_press(which: String) -> void:
 		_confirm_t = 0.0
 		if which == "quit":
 			home_pressed.emit()
+		elif which == "unlock":
+			unlock_all_pressed.emit()
 		else:
 			restart_pressed.emit()
 		return
@@ -407,6 +431,9 @@ func _process(_delta: float) -> void:
 	_powers_btn.visible = mode == "pause"
 	_rep_copy.visible = mode == "pause" and measure_on
 	_rep_reset.visible = mode == "pause" and measure_on
+	_rep_cam.visible = mode == "pause" and measure_on
+	_rep_god.visible = mode == "pause" and measure_on
+	_rep_unlock.visible = mode == "pause" and measure_on
 	_sound.visible = mode == "home"  # en pause, le son se règle dans OPTIONS (planche Pause v2)
 	_atelier.visible = mode == "home"
 	_dojo.visible = mode == "home"
@@ -427,7 +454,7 @@ func _process(_delta: float) -> void:
 		sig = [mode, size, _safe, th_paper, th_wash, th_ink, sel_world, sel_name, sel_kanji, sel_color, sel_locked, sumi]
 	elif mode == "pause" and _t > 0.7 + 0.04 * float(pause_powers.size()):
 		sig = [mode, size, _safe, th_paper, th_ink, world_color, world_kanji, stat_room, rooms_total, stat_time, stat_score,
-			pause_powers.duplicate()]
+			pause_powers.duplicate(), measure_on]
 	if sig.is_empty() or sig != _home_sig:
 		_home_sig = sig
 		queue_redraw()
@@ -594,19 +621,32 @@ func _layout_pause(u: float) -> void:
 	for b in [_gear, _quit, _restart]:
 		var lb: Control = b
 		lb.font_size = int(13 * u)
-	# mode mesure : deux étiquettes sous la feuille (au-dessus de la barre de geste)
+	# mode développeur : section DEV sous la feuille (remontée d'autant) : CAMÉRA et COPIER LES DONNÉES,
+	# REMETTRE À ZÉRO (mesure de fluidité) dessous
 	if measure_on:
 		var gap := 10.0 * u
 		var mw := (pc.size.x - gap) / 2.0
 		var mh := 40.0 * u
-		var my := minf(pc.end.y + 10.0 * u, size.y - _safe.y - 6.0 * u - mh)
+		var my := pc.end.y + DEV_ROW * u
+		_rep_cam.size = Vector2(mw, mh)
+		_rep_cam.position = Vector2(pc.position.x, my)
 		_rep_copy.size = Vector2(mw, mh)
-		_rep_copy.position = Vector2(pc.position.x, my)
-		_rep_reset.size = Vector2(mw, mh)
-		_rep_reset.position = Vector2(pc.position.x + mw + gap, my)
-		for b in [_rep_copy, _rep_reset]:
+		_rep_copy.position = Vector2(pc.position.x + mw + gap, my)
+		var my2 := my + mh + 8.0 * u
+		_rep_god.text = "GOD MODE : OUI" if god_on else "GOD MODE : NON"
+		_rep_god.accent = god_on
+		_rep_god.size = Vector2(mw, mh)
+		_rep_god.position = Vector2(pc.position.x, my2)
+		_rep_unlock.text = "CONFIRMER" if _confirm == "unlock" else "TOUT DÉBLOQUER"
+		_rep_unlock.accent = _confirm == "unlock"
+		_rep_unlock.size = Vector2(mw, mh)
+		_rep_unlock.position = Vector2(pc.position.x + mw + gap, my2)
+		var zw := 176.0 * u
+		_rep_reset.size = Vector2(zw, 34.0 * u)
+		_rep_reset.position = Vector2(pc.get_center().x - zw / 2.0, my2 + mh + 8.0 * u)
+		for b in [_rep_cam, _rep_copy, _rep_god, _rep_unlock, _rep_reset]:
 			var rb: Control = b
-			rb.font_size = _fit_font(rb, int(12 * u), mw - 24.0 * u)
+			rb.font_size = _fit_font(rb, int(12 * u), (rb.size.x - 52.0 * u * rb.size.y / (46.0 * u)) - 8.0 * u)
 
 
 func _draw() -> void:
@@ -1279,14 +1319,16 @@ func _arrow(c: Vector2, u: float, col: Color) -> void:
 
 
 ## Carte de la pause (planche Pause v2 : 352 × 560 u, au centre de l'écran, dans les marges de sécurité).
+## Mode développeur : la carte remonte pour laisser la section DEV dessous (DEV_H).
 func _pause_card() -> Rect2:
 	var w := size.x
 	var h := size.y
 	var u := w / 400.0
+	var dev := DEV_H * u if measure_on else 0.0
 	var cw := minf(w - 32.0 * u, 352.0 * u)
-	var ch := minf(560.0 * u, maxf(510.0 * u, h - _safe.x - _safe.y - 24.0 * u))
+	var ch := minf(560.0 * u, maxf(510.0 * u, h - _safe.x - _safe.y - 24.0 * u - dev))
 	var lo := _safe.x + 12.0 * u
-	var cy := clampf(h * 0.5 - ch / 2.0, lo, maxf(lo, h - _safe.y - 12.0 * u - ch))
+	var cy := clampf((h - dev) * 0.5 - ch / 2.0, lo, maxf(lo, h - _safe.y - 12.0 * u - ch - dev))
 	return Rect2(Vector2((w - cw) / 2.0, cy), Vector2(cw, ch))
 
 
@@ -1371,6 +1413,15 @@ func _draw_pause() -> void:
 	var lw := _band_font.get_string_size("POUVOIRS", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs).x
 	var lx := chev.x - 16.0 * u - lw
 	draw_string(_band_font, Vector2(lx, pr.get_center().y + float(lfs) * 0.36), "POUVOIRS", HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, Color(UIColors.WASHI, a))
+	if measure_on:
+		# section DEV : petit titre entre deux filets, sous la feuille
+		var dy := card.end.y + 14.0 * u
+		var dfs := int(UiKit.FS_CAPTION * u)
+		var dw := _band_font.get_string_size("DÉVELOPPEUR", HORIZONTAL_ALIGNMENT_LEFT, -1, dfs).x
+		var dc := Color(UIColors.WASHI, 0.75 * a)
+		draw_string(_band_font, Vector2(cx - dw / 2.0, dy + float(dfs) * 0.36), "DÉVELOPPEUR", HORIZONTAL_ALIGNMENT_LEFT, -1, dfs, dc)
+		draw_line(Vector2(card.position.x + 8.0 * u, dy), Vector2(cx - dw / 2.0 - 10.0 * u, dy), Color(dc, 0.4 * a), maxf(1.0, u))
+		draw_line(Vector2(cx + dw / 2.0 + 10.0 * u, dy), Vector2(card.end.x - 8.0 * u, dy), Color(dc, 0.4 * a), maxf(1.0, u))
 	var ids: Array = pause_powers
 	var ms := 34.0 * u
 	var step := ms + 8.0 * u
