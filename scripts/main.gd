@@ -780,6 +780,14 @@ func _ready() -> void:
 		var bq := wsearch.find("brise=")
 		if bq >= 0:
 			get_tree().create_timer(float(wsearch.substr(bq + 6).get_slice("&", 0)), true, false, true).timeout.connect(_capture_seal_stroke.bind(true))
+	# `?encre` (captures de l'encre liquide) : planche de taches à différents âges (jaillissement, frais, séchage,
+	# sec) et deux traits (frais, en train de sécher), puis l'image se fige ; `figer=N` : n'importe quelle partie
+	# (combat `fig=plain`…) se fige au bout de N s (temps réel)
+	if "encre" in wsearch and state == "play":
+		_capture_ink()
+	var fz := wsearch.find("figer=")
+	if fz >= 0:
+		get_tree().create_timer(float(wsearch.substr(fz + 6).get_slice("&", 0)), true, false, true).timeout.connect(func() -> void: _cap_frozen = true)
 	if "autel" in wsearch and state == "play":
 		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
 		for zi in arena.zones.size():
@@ -985,6 +993,67 @@ func _ready() -> void:
 	perf_mark("boot_ready", _ticks - t_ready)
 	# la suite (squelettes, boss, préchauffage) vient après l'affichage de l'accueil
 	_boot_async(t_ready)
+
+
+## Captures `?encre` : 4 rangées de taches (mise à mort sumi, tache vermillon, encre épaisse, éclaboussures) à
+## 4 âges (jaillissement, frais et humide, séchage, sec) ; un trait frais en cours (bas) et un trait qui sèche
+## (haut). Tout est posé à rebours de l'instant figé (T), sans ennemi.
+func _capture_ink() -> void:
+	meta.tuto_done = true
+	const T := 7.0
+	var tree := get_tree()
+	await tree.create_timer(T - 3.0, true, false, true).timeout
+	for e in enemies:
+		if is_instance_valid(e):
+			e.visible = false
+			e.process_mode = Node.PROCESS_MODE_DISABLED
+	hero.invuln = 99.0
+	var o: Vector3 = hero.position
+	var xs := [-1.7, -0.4, 0.9, 2.2]
+	var rows := [  # [z, vie, sorte]
+		[-2.0, 1.3, "kill"], [-3.7, 2.5, "verm"], [-5.4, 3.0, "thick"], [-7.1, 1.2, "spat"]]
+	var jobs: Array = []  # [instant de pose, callable]
+	for row in rows:
+		var life: float = row[1]
+		var ages := [0.06, 0.35, life * 0.55, life * 0.8]
+		for c in 4:
+			var g: Vector3 = o + Vector3(xs[c], 0, float(row[0]))
+			var kind: String = row[2]
+			var cb: Callable
+			match kind:
+				"kill":
+					cb = func() -> void: vfx.kill_burst(g, Vector3(1, 0, -0.4), false)
+				"verm":
+					cb = func() -> void: _blot(g, Toon.VERMILION, 0.55, life)
+				"thick":
+					cb = func() -> void: vfx.blot(g, 0.6, life)
+				"spat":
+					cb = func() -> void: vfx.call("_spatter", g, 0.75, vfx.INK, life)
+			jobs.append([T - float(ages[c]), cb])
+	# trait qui sèche (0,9 s de séchage) en haut, trait frais en bas (le pinceau est encore posé)
+	jobs.append([T - 2.0, func() -> void: _cap_stroke(o + Vector3(-2.6, 0, -8.6), 5.2, 1.1)])
+	jobs.append([T - 0.6, func() -> void: _cap_stroke(o + Vector3(-2.6, 0, -0.6), 5.2, -1.0)])
+	# minuteries toutes lancées au même instant (des attentes en chaîne prendraient chacune une image de retard)
+	for j in jobs:
+		tree.create_timer(float(j[0]) - (T - 3.0), true, false, true).timeout.connect(j[1] as Callable)
+	await tree.create_timer(3.0, true, false, true).timeout
+	_cap_frozen = true
+
+
+## Trait de capture : une vague de `w` m tracée en ~0,5 s (le pinceau ralentit au milieu) ; dry >= 0 : sèche
+## au bout de `dry` s.
+func _cap_stroke(a: Vector3, w: float, dry: float) -> void:
+	var s := InkStroke.new(a, stroke_layer)
+	stroke_layer += 1
+	add_child(s)
+	var n := 14
+	for i in range(1, n + 1):
+		var u := float(i) / float(n)
+		s.extend_to(a + Vector3(w * u, 0, 0.45 * sin(u * TAU)), 40.0)
+		await get_tree().create_timer(0.02 if i < 5 or i > 9 else 0.07, true, false, true).timeout
+	if dry >= 0.0:
+		await get_tree().create_timer(maxf(dry - 0.6, 0.0), true, false, true).timeout
+		s.start_drying()
 
 
 ## Captures `?fig=<figure>` : toutes les 2,6 s, le héros (intouchable) trace la figure vers l'ennemi le plus proche,
@@ -7117,19 +7186,8 @@ func _recycle_splash(node: Node3D) -> bool:
 
 
 func _blot(pos: Vector3, color: Color, r: float, life: float) -> void:
-	var n := Node3D.new()
-	add_child(n)
-	n.position = Vector3(pos.x, 0, pos.z)
-	# disque unité partagé, mis à l'échelle ; une seule matière par tache (elle s'efface d'un bloc)
-	var mt := Toon.flat(color)
-	var main_disc := _disc(n, r, mt, 0.015)
-	main_disc.scale = Vector3(r, 1, r * randf_range(0.7, 1.0))
-	main_disc.rotation.y = randf() * TAU
-	for i in 4:
-		var a := randf() * TAU
-		var dd := _disc(n, r * randf_range(0.12, 0.25), mt, 0.016)
-		dd.position += Vector3(cos(a), 0, sin(a)) * r * randf_range(1.1, 1.8)
-	effects.append({"node": n, "t": 0.0, "life": life, "kind": "fade", "mats": [mt], "alpha": color.a})
+	# encre liquide (vfx.ink_stain, shaders/ink_liquid.gdshader) : matière partagée, même vie qu'avant
+	vfx.ink_stain(Vector3(pos.x, 0.015, pos.z), r, color, life, Vector3.ZERO, 0.7)
 
 
 ## Disque plat au sol de rayon `r`, sur un maillage unité partagé.
@@ -7179,10 +7237,6 @@ func _update_effects(dt: float, real: float) -> void:
 		fx.t += real if fx.kind == "label" or fx.kind == "dmg" or fx.kind == "icon" else dt
 		var k: float = fx.t / fx.life
 		match fx.kind:
-			"fade":
-				var a: float = fx.alpha * clampf((1.0 - k) * 2.0, 0.0, 1.0)
-				for m in fx.mats:
-					m.albedo_color.a = a
 			"slash":
 				node.scale = Vector3(1, 1, 1.0 + k)
 				for m in fx.mats:
