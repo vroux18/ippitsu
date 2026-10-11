@@ -47,7 +47,7 @@ var wash_c := Vector2.ZERO
 var wash_out := false  # vrai : l'encre se retire (fondu) après la reconstruction
 var hurt_flash := 0.0
 var dying := 0.0  # 0..1 : l'écran se délave pendant la mort
-var world_kanji := "波"  # clé du monde (main) : sert à choisir son picto (UIColors.WORLD_ICON), jamais affiché
+var world_kanji := "波"  # clé du monde (main) : sert à choisir son kamon (Kamon.WORLD), jamais affiché
 var world_color := Toon.PRUSSIAN
 var combo := 0
 var chain := 0  # ruées réussies d'affilée sans prendre de coup
@@ -787,8 +787,7 @@ func warm() -> void:
 		nf.get_string_size("0123456789/×+-.%", HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 		UiKit.UI_FONT.get_string_size("ÉTAPE NETTOYÉE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 		await get_tree().process_frame
-	for k in UIColors.WORLD_ICON.values():
-		UiKit.icon(String(k), 18.9 * u, {"*": UIColors.hex(UIColors.WASHI)})
+	UiKit.warm_world_icons()
 
 
 ## Bas de la zone du haut, en pixels écran (barre haute, ou barre du gardien) : le coach pose ses bulles dessous.
@@ -1052,7 +1051,7 @@ func _draw_stage(u: float) -> void:
 	# picto du monde dans un rond (cachet), cerné de papier
 	_ci.draw_circle(sq.get_center(), 15.0 * u + maxf(1.0, 1.5 * u), UIColors.WASHI)
 	_ci.draw_circle(sq.get_center(), 15.0 * u, world_color)
-	UiKit.draw_icon(_ci, String(UIColors.WORLD_ICON.get(world_kanji, "hud/vague")), sq.get_center(), 18.9 * u, 1.0, UIColors.WASHI)
+	UiKit.world_icon(_ci, world_kanji, sq.get_center(), 21.0 * u, 1.0, UIColors.WASHI)  # (kamon plein : un peu plus grand que l'ancien picto au trait)
 	var tx := sq.end.x + 9.0 * u
 	var by: float = (cy - 1.0 * u) if crans > 0 else (cy + nfs * 0.36)
 	_ci.draw_string(nf, Vector2(tx, by), _wave_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, UIColors.WASHI)

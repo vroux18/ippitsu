@@ -9,9 +9,9 @@ extends Node3D
 ## et rouleau rare ou épique garanti.
 ##
 ## Lecture (gabarit validé avec Victor, Seal.dc.html) : anneau sumi, disque washi, filet de la couleur du
-## sceau, glyphe au centre ; dos de laque comme le torii de sortie ; incliné vers la caméra plongeante (54°)
-## pour se lire en entier. Le seul vermillon est le petit glyphe du feu, sur washi cerné de sumi, en hauteur :
-## rien à voir avec un disque d'annonce au sol.
+## sceau, son kamon au centre (blason plein, DA de l'Arbre du pinceau) ; dos de laque comme le torii de sortie ;
+## incliné vers la caméra plongeante (54°) pour se lire en entier. Le seul vermillon est le kamon du feu, sur washi
+## cerné de sumi, en hauteur : rien à voir avec un disque d'annonce au sol.
 ##
 ## Approche (`hover`, 0..1 par porte) : quand le héros s'approche d'un torii, son sceau grossit (×1,22), s'éclaire,
 ## son halo s'ouvre ; les ofuda des piliers s'allument, la corde luit, des rayons coulent sous l'arche.
@@ -20,6 +20,7 @@ const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
+const Kamon = preload("res://scripts/kamon.gd")  # glyphes des sceaux (kamon « seal_* »)
 
 const SCHOOLS := ["fire", "water", "bolt", "wind", "shadow", "ink", "fig"]
 const GATE_DX := 2.3  # demi-écart des deux torii (m) : l'arène visible fait ±4.6
@@ -351,19 +352,9 @@ static func seal_key(kind: String) -> String:
 const SEAL_COL := {"feu": "#D7372B", "eau": "#1F3A5F", "foudre": "#C49A45", "vent": "#5F8F86", "ombre": "#3A3846",
 	"encre": "#6E5A44", "figure": "#A8436B", "or": "#C49A45", "coeur": "#C8463A", "oni": "#3A3846"}
 
-## Glyphes du gabarit 120 (chemins SVG exacts de la maquette ; %s = couleur du sceau).
-const SEAL_GLYPH := {
-	"feu": '<path d="M60 34 C70 48 76 54 76 66 A16 16 0 0 1 44 66 C44 56 52 52 52 44 C56 50 58 50 60 34 Z" fill="%s"/><path d="M60 56 C64 62 67 64 67 69 A7 7 0 0 1 53 69 C53 64 57 62 60 56 Z" fill="#F2A33A"/>',
-	"eau": '<path d="M36 70 C38 54 50 45 62 47 C73 49 78 59 72 64 C66 68 59 62 64 57" fill="none" stroke="%s" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><path d="M34 80 C44 74 52 84 62 78 C70 74 76 78 84 78" fill="none" stroke="%s" stroke-width="5" stroke-linecap="round"/>',
-	"foudre": '<path d="M65 32 L47 63 L59 63 L53 88 L75 55 L63 55 L70 32 Z" fill="%s" stroke="#1B1A1E" stroke-width="1.5" stroke-linejoin="round"/>',
-	"vent": '<path d="M38 58 C36 44 54 38 62 46 C67 52 61 60 54 56" fill="none" stroke="%s" stroke-width="5" stroke-linecap="round"/><path d="M36 68 L82 68" stroke="%s" stroke-width="5" stroke-linecap="round"/><path d="M44 79 L74 79" stroke="%s" stroke-width="5" stroke-linecap="round"/>',
-	"ombre": '<path d="M68 34 A27 27 0 1 0 85 74 A21 21 0 1 1 68 34 Z" fill="%s"/>',
-	"encre": '<path d="M60 32 C67 45 75 53 75 64 A15 15 0 0 1 45 64 C45 53 53 45 60 32 Z" fill="%s"/><path d="M54 64 A6 6 0 0 0 60 70" fill="none" stroke="#F5EEDD" stroke-width="3" stroke-linecap="round"/>',
-	"figure": '<path d="M60 60 m-4 0 a4 4 0 1 1 8 0 a10 10 0 1 1 -19 -3 a18 18 0 1 1 33 11" fill="none" stroke="%s" stroke-width="5" stroke-linecap="round"/>',
-	"or": '<ellipse cx="60" cy="60" rx="18" ry="25" fill="#1B1A1E"/><ellipse cx="60" cy="60" rx="16" ry="23" fill="#E2A93B"/><ellipse cx="60" cy="60" rx="12" ry="19" fill="none" stroke="#1B1A1E" stroke-opacity="0.45" stroke-width="1.6"/><rect x="55" y="45" width="10" height="9" fill="#1B1A1E" fill-opacity="0.7"/><rect x="54.5" y="61" width="11" height="2.6" fill="#1B1A1E" fill-opacity="0.7"/><rect x="54.5" y="67" width="11" height="2.6" fill="#1B1A1E" fill-opacity="0.7"/>',
-	"coeur": '<path d="M60 84 C45 72 37 63 37 52 A11.5 11.5 0 0 1 60 47 A11.5 11.5 0 0 1 83 52 C83 63 75 72 60 84 Z" fill="%s"/><path d="M50 54 A6 6 0 0 1 55 49" fill="none" stroke="#F5EEDD" stroke-width="3" stroke-linecap="round"/>',
-	"oni": '<path d="M44 48 L40 30 L53 43 Z" fill="#C49A45" stroke="#1B1A1E" stroke-width="1.5" stroke-linejoin="round"/><path d="M76 48 L80 30 L67 43 Z" fill="#C49A45" stroke="#1B1A1E" stroke-width="1.5" stroke-linejoin="round"/><path d="M40 52 C40 40 80 40 80 52 C80 72 70 84 60 84 C50 84 40 72 40 52 Z" fill="%s"/><path d="M46 56 L56 60 L46 62 Z" fill="#E2A93B"/><path d="M74 56 L64 60 L74 62 Z" fill="#E2A93B"/><path d="M50 72 L54 69 L58 72 L62 69 L66 72 L70 69" fill="none" stroke="#F5EEDD" stroke-width="2.4" stroke-linejoin="round"/>',
-}
+## Glyphe : le kamon du sceau (Kamon.PATHS « seal_<clé> », même DA que l'Arbre du pinceau), plein, à la couleur
+## du sceau, centré dans le gabarit 120 (rayon utile ~13 × GLYPH_K : il tient dans le filet r36.5).
+const GLYPH_K := 2.25
 
 
 ## Petit sceau qui flotte au-dessus d'une récompense de sceau (source du cœur, défi de l'oni) : on reconnaît
@@ -393,8 +384,9 @@ static func marker(parent: Node3D, kind: String, y := 1.7, size := 0.62) -> Mesh
 static func face_tex(kind: String, px := FACE_PX) -> Texture2D:
 	var k := seal_key(kind)
 	var col := String(SEAL_COL.get(k, "#1B1A1E"))
-	var g := String(SEAL_GLYPH.get(k, ""))
-	g = g.replace("%s", col)
+	var g := ""
+	if Kamon.PATHS.has("seal_" + k):
+		g = '<path d="%s" fill="%s" transform="translate(60 60) scale(%s)"/>' % [Kamon.PATHS["seal_" + k], col, str(GLYPH_K)]
 	var src := '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">' \
 		+ '<circle cx="60" cy="60" r="46" fill="#1B1A1E"/><circle cx="60" cy="60" r="42" fill="#F5EEDD"/>' \
 		+ '<circle cx="60" cy="60" r="36.5" fill="none" stroke="%s" stroke-width="3"/>' % col + g + '</svg>'
