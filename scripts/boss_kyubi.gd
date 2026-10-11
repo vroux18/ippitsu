@@ -134,7 +134,7 @@ func _ready() -> void:
 	_fur = Toon.mat(Color.WHITE, true, 0.03)
 	_fur.vertex_color_use_as_albedo = true
 	_fur.vertex_color_is_srgb = true
-	_fur.rim = 0.35
+	_fur.rim = 0.45  # liseré des monstres plus franc (éclairage)
 	_fur.rim_tint = 0.5
 	_ash = Toon.mat_shared(ASH)
 	_fox = _build_fox(self, true)

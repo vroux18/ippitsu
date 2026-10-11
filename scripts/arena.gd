@@ -228,6 +228,9 @@ var _void_mat: ShaderMaterial
 var _t := 0.0
 var _batches := {}  # matériau -> transformations des tuiles du sol
 var _sbatches := {}  # matériau -> transformations des bosses (sphères) du sol
+## Matériaux du sol dont les tuiles projettent une ombre : corps des plateformes (leur ombre portée sur l'eau
+## et dans les fosses détache les plateformes du vide) ; les tuiles du dessus et les liserés n'en portent pas.
+var _casters := {}
 var _ink_mat: StandardMaterial3D = null  # traits d'encre sèche du sol de papier
 var _deco_rng := RandomNumberGenerator.new()  # habillage du sol (n'entame pas les tirages de la salle)
 var _accent_mat: Material = null  # planches de laque rares (accent du monde), null : aucune
@@ -285,6 +288,7 @@ func set_world(id: int) -> void:
 	_world_holder.add_child(_far_root)
 	Worlds.build_backdrop(id, _far_root)
 	Worlds.build_particles(id, _far_root)
+	Worlds.build_rays(id, _far_root)  # rayons de soleil (quads additifs, 1 draw call)
 
 
 ## Décalage de la caméra le long de l'étape (main) : le lointain garde son cadrage.
@@ -2348,6 +2352,7 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 	for col in w.get("bridge_wood", WOOD):  # bois des ponts teinté par monde (design/PALETTES.md)
 		woods.append(_ground_mat(col, "wood", look))
 	var under := _ground_mat(w.under, "under", look)
+	_casters[under] = true
 	var deck := _ground_mat(Color("#3E2C1C"), "wood", look)
 	# tirages du décor du sol à part : la forme de la salle et ses recoins ne changent pas
 	_deco_rng = RandomNumberGenerator.new()
@@ -2423,11 +2428,11 @@ func _ground_mat(col: Color, style: String, look: Dictionary) -> ShaderMaterial:
 	var p := [0.07, 0.25, 0.08, 0.4, 0.06, Vector2(5, 5), 0.18, 1.0, 1.0, 1.0]
 	match style:
 		"planks":
-			p = [0.07, 0.3, 0.06, 0.45, 0.09, Vector2(22, 1.5), 0.1, 1.0, 0.4, 1.0]  # fil du bois le long des planches
+			p = [0.11, 0.3, 0.06, 0.45, 0.09, Vector2(22, 1.5), 0.1, 1.0, 0.4, 1.0]  # fil du bois le long des planches
 		"stones":
-			p = [0.08, 0.32, 0.1, 0.45, 0.06, Vector2(5, 5), 0.16, 1.0, 1.0, 0.8]
+			p = [0.12, 0.32, 0.1, 0.45, 0.06, Vector2(5, 5), 0.16, 1.0, 1.0, 0.8]
 		"basalt":
-			p = [0.1, 0.35, 0.1, 0.45, 0.07, Vector2(6, 6), 0.0, 1.0, 0.0, 1.0]
+			p = [0.13, 0.35, 0.1, 0.45, 0.07, Vector2(6, 6), 0.0, 1.0, 0.0, 1.0]
 		"snow":
 			p = [0.03, 0.16, 0.25, 0.3, 0.025, Vector2(3, 3), 0.03, 0.6, 0.0, 0.0]
 		"paper":
@@ -2436,6 +2441,8 @@ func _ground_mat(col: Color, style: String, look: Dictionary) -> ShaderMaterial:
 			p = [0.09, 0.28, 0.05, 0.45, 0.08, Vector2(6, 6), 0.06, 0.6, 0.3, 0.6]
 		"under":
 			p = [0.0, 0.0, 0.08, 0.55, 0.05, Vector2(4, 4), 0.0, 0.0, 0.0, 0.0]
+		"lip":
+			p = [0.0, 0.0, 0.08, 0.8, 0.05, Vector2(4, 4), 0.0, 0.0, 0.0, 0.0]
 	m.set_shader_parameter("tile_var", float(p[0]))
 	m.set_shader_parameter("edge_ao", float(p[1]))
 	m.set_shader_parameter("edge_w", float(p[2]))
@@ -2448,6 +2455,11 @@ func _ground_mat(col: Color, style: String, look: Dictionary) -> ShaderMaterial:
 	m.set_shader_parameter("moss", look.get("moss", col))
 	m.set_shader_parameter("moss_k", float(look.get("moss_k", 0.0)) * float(p[8]))
 	m.set_shader_parameter("wear_k", float(look.get("wear", 0.0)) * float(p[9]))
+	if style == "lip":
+		m.set_shader_parameter("top_ink", 1.0)
+		m.set_shader_parameter("bevel", 0.0)
+	elif style == "under" or style == "snow":
+		m.set_shader_parameter("bevel", 0.0 if style == "under" else 0.18)  # neige : arrondi large
 	_mat_cache[key] = m
 	return m
 
@@ -2608,7 +2620,10 @@ func _build_edges(dec: Dictionary, w: Dictionary, beam: Material) -> void:
 	var kinds: Array = dec["kinds"]
 	var nx := xs.size() - 1
 	var nz := zs.size() - 1
-	var ink := _shared_mat(w.edge, false)
+	# flanc des plateformes : liseré d'encre au sommet (le cadre d'estampe), puis la tranche de la dalle, claire
+	# en haut et qui s'assombrit vers l'eau (on lit l'épaisseur de la plateforme au-dessus du vide)
+	var ink := _ground_mat(Color(w.under).lerp(Color(w.edge), 0.25), "lip", Worlds.floor_look(world_id))
+	ink.set_shader_parameter("ink", w.edge)
 	# bords le long de x, sur chaque ligne de la grille
 	for jl in nz + 1:
 		var i := 0
@@ -2880,7 +2895,7 @@ func _flush_tiles() -> void:
 			var mi := MultiMeshInstance3D.new()
 			mi.multimesh = mm
 			mi.material_override = m
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if _casters.has(m) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_room_root.add_child(mi)
 	_batches.clear()
 	_sbatches.clear()

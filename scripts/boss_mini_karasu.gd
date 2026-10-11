@@ -205,7 +205,7 @@ static func _ink_mat() -> StandardMaterial3D:
 	var m := Toon.mat(Color.WHITE, true, 0.03)
 	m.vertex_color_use_as_albedo = true
 	m.vertex_color_is_srgb = true
-	m.rim = 0.35
+	m.rim = 0.45  # liseré des monstres plus franc (éclairage)
 	m.rim_tint = 0.5
 	return m
 

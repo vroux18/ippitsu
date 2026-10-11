@@ -110,7 +110,8 @@ void fragment() {
 	float outside = step(0.0, sd);
 	float od = max(sd, 0.0);
 	float close = (1.0 - smoothstep(0.0, 1.6, od)) * outside;
-	col *= 1.0 - 0.3 * close * close;
+	// (plus sombre au pied des plateformes : l'eau passe sous leur ombre, la dalle se détache du vide)
+	col *= 1.0 - 0.45 * close * close;
 	float rf = od * 1.4 - t * 0.3;
 	float rw = fwidth(rf);
 	float rip = abs(fract(rf) - 0.5);

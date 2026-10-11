@@ -1350,6 +1350,7 @@ static func ink_flat_mat() -> StandardMaterial3D:
 		_ink_flat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_ink_flat.vertex_color_use_as_albedo = true
 		_ink_flat.vertex_color_is_srgb = true
+		Toon.eye_mat_register(_ink_flat, Color.WHITE, 0.5)  # (aussi l'eau des yōkai : demi-éclat) yeux qui luisent dans les mondes sombres
 	return _ink_flat
 
 

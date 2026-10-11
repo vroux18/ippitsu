@@ -7,6 +7,7 @@ const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --p
 const Mesure = preload("res://scripts/mesure.gd")  # mode mesure caché (appui long sur le titre de l'accueil)
 
 const Toon = preload("res://scripts/toon.gd")
+const Lueurs = preload("res://scripts/lueurs.gd")  # lueurs des lanternes (flaques et halos additifs)
 const Hero = preload("res://scripts/hero.gd")
 const Enemy = preload("res://scripts/enemy.gd")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
@@ -176,6 +177,10 @@ const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fin
 # étapes du monde : combats (numéros de `room`) réunis sur une même longue carte ; [8] et [15] : arènes
 const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
 const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du héros)
+## Plongée de la caméra (degrés au-dessus de l'horizon). Variante « relief » à l'essai (`camera=relief` dans
+## `--q=` / `?…`) : caméra un peu moins zénithale et focale un peu plus courte, les volumes (piliers, monstres,
+## tranches des plateformes) se lisent mieux ; non retenue par défaut, au choix du propriétaire.
+var cam_tilt := 54.0
 const CAM_LEAD := 0.6  # la caméra regarde à peine devant le héros (il reste au centre de l'écran)
 const CAM_LEAD_PAD := 2.4  # mode pad : l'arène est cadrée au-dessus du pad, on voit plus loin devant
 const SETTINGS_V := 1  # version des réglages : 1 = contrôle « sur l'écran » par défaut (anciens « pad » remis à zéro)
@@ -346,6 +351,7 @@ var _mood_next_flash := 6.0
 const MOOD_FADE := 2.5
 const MOOD_INK := Color("#14111A")
 var _light_mode := false  # rendu allégé (téléphone)
+var _veil_mat: ShaderMaterial  # voile d'estampe (vignette, grain, brume du lointain : _haze)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
 const SPLASH_POOL_MAX := 10  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup)
 var _splash_pool := {}  # "drop" + couleur -> Array de CPUParticles3D éteints et cachés
@@ -556,6 +562,13 @@ func _ready() -> void:
 		if String(a).begins_with("--seed="):
 			seed(int(String(a).substr(7)))
 	_build_world()
+	for a in OS.get_cmdline_user_args():
+		if "camera=relief" in String(a):
+			cam_tilt = 48.0
+			cam.fov = 44.0
+	if OS.has_feature("web") and "camera=relief" in str(JavaScriptBridge.eval("location.search", true)):
+		cam_tilt = 48.0
+		cam.fov = 44.0
 	_load_frames()
 	sfx = Sfx.new()
 	add_child(sfx)
@@ -944,6 +957,17 @@ func _ready() -> void:
 			me.process_mode = Node.PROCESS_MODE_DISABLED
 			enemies.append(me)
 			_mannequins.append(me)
+	# `&combat` (captures de rendu) : le héros, intouchable, est posé dans la première zone de combat (les
+	# ennemis surgissent aussitôt), pour comparer la lumière d'un monde en plein combat
+	if "combat" in wsearch and state == "play":
+		meta.tuto_done = true
+		var cg: Vector3 = arena.next_goal()
+		if cg != Vector3.INF:
+			hero.position = cg
+			_prev_hero = cg
+			_cam_dz = _cam_target()
+			arena.follow_camera(_cam_dz)
+		hero.invuln = 999.0
 	# `?carnet` (captures) : le dojo, carnet des figures ouvert
 	if "carnet" in wsearch:
 		_start_dojo()
@@ -1472,6 +1496,10 @@ func _warmup() -> void:
 	vfx.kill_burst(fxp, Vector3.FORWARD, true)
 	vfx.warm(fxp)  # effets riches des pouvoirs (pinceau, additifs, crête de vague)
 	preload("res://scripts/boss_shrine.gd").warm(w)  # arènes de gardien et de boss : motif du sol, lots, halos, tōrō
+	# éclairage : rayons de soleil (quads additifs, gardent l'échelle du nœud), lueur de touche au sol des
+	# monstres ; les lueurs des lanternes (flaques, halos face caméra à l'échelle gardée) viennent des tōrō ci-dessus
+	Worlds.build_rays(1, w)
+	Toon.part(w, Toon.blob_mesh(), Toon.hit_glow_mat(), Vector3(0, 0, 9.0))
 	coach.warm()  # bulles du tutoriel : pictos des sceaux et glyphes des titres prêts avant la première bulle
 	hud.warm()  # chiffres et pictos du HUD de jeu (sa première image est celle de la première bulle)
 	_warm_shrink(w)
@@ -2513,10 +2541,13 @@ func _home_scene(id: int) -> void:
 	_env.background_color = w.sky
 	_env.fog_light_color = w.fog
 	_env.fog_density = float(w.fog_density) * 0.7
-	_env.ambient_light_color = w.ambient_color
-	_env.ambient_light_energy = float(w.ambient_energy) * (1.6 if _light_mode else 1.25)
+	_env.ambient_light_color = w.get("shade", w.ambient_color)
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.05)  # moins d'ambiante, plus de soleil : volumes plus contrastés
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy) * 0.98
+	_sun.light_energy = float(w.sun_energy) * lerpf(1.0, 1.2, _day_of(w))  # ombres plus froides et sombres (shade) : plus de soleil le jour garde la clarté du sol ; la nuit reste sombre (les lanternes y comptent)
+	Lueurs.set_world(_day_of(w))
+	_haze(w)
+	Toon.set_eye_glow(lerpf(1.7, 1.0, _day_of(w)))  # yeux des monstres : luisent dans les mondes sombres
 	arena.set_world(id)
 	arena.hide_shore(true)
 
@@ -2694,12 +2725,16 @@ func _build_world() -> void:
 
 	# soleil chaud et rasant qui projette de vraies ombres
 	var sun := DirectionalLight3D.new()
-	sun.rotation = Vector3(deg_to_rad(-52), deg_to_rad(-38), 0)
+	# soleil plus bas (40° au lieu de 52°) : ombres portées plus longues et dirigées (piliers, lanternes,
+	# torii, monstres), qui donnent du relief à une vue presque de dessus ; ombres plus franches (0,72)
+	sun.rotation = Vector3(deg_to_rad(-40), deg_to_rad(-38), 0)
 	sun.light_energy = 0.72
 	sun.light_color = Color(1.0, 0.9, 0.78)
 	sun.shadow_enabled = true
-	sun.shadow_blur = 1.5
-	sun.shadow_opacity = 0.5
+	sun.shadow_blur = 1.2
+	sun.shadow_opacity = 0.72
+	sun.shadow_bias = 0.06
+	sun.shadow_normal_bias = 1.4
 	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_ORTHOGONAL
 	sun.directional_shadow_max_distance = 45.0
 	add_child(sun)
@@ -2730,6 +2765,7 @@ func _build_world() -> void:
 	veil_mat.shader = load("res://shaders/print_veil.gdshader")
 	veil_mat.set_shader_parameter("fine", not _light_mode)
 	veil.material = veil_mat
+	_veil_mat = veil_mat
 	veil_layer.add_child(veil)
 
 	cam = Camera3D.new()
@@ -2756,15 +2792,36 @@ func apply_world(id: int) -> void:
 	_env.background_color = w.sky
 	_env.fog_light_color = w.fog
 	_env.fog_density = float(w.fog_density) * 0.7  # brume plus légère : couleurs moins délavées
-	_env.ambient_light_color = w.ambient_color
+	_env.ambient_light_color = w.get("shade", w.ambient_color)
 	# sans contre-jour (téléphone), un peu plus de lumière ambiante compense
-	_env.ambient_light_energy = float(w.ambient_energy) * (1.6 if _light_mode else 1.25)
+	_env.ambient_light_energy = float(w.ambient_energy) * (1.35 if _light_mode else 1.05)  # moins d'ambiante, plus de soleil : volumes plus contrastés
 	_sun.light_color = w.sun_color
-	_sun.light_energy = float(w.sun_energy) * 0.98
+	_sun.light_energy = float(w.sun_energy) * lerpf(1.0, 1.2, _day_of(w))  # ombres plus froides et sombres (shade) : plus de soleil le jour garde la clarté du sol ; la nuit reste sombre (les lanternes y comptent)
+	Lueurs.set_world(_day_of(w))
+	_haze(w)
+	Toon.set_eye_glow(lerpf(1.7, 1.0, _day_of(w)))  # yeux des monstres : luisent dans les mondes sombres
 	_mood_capture(w)
 	arena.set_world(id)
 	if fresh:
 		perf_mark("world_build", Time.get_ticks_usec() - t0)  # lointain du monde (ou monde gardé en mémoire)
+
+
+## Brume du lointain du monde (voile d'estampe) : couleur de sa brume, un peu refroidie par ses ombres ;
+## plus dense dans les mondes à brume épaisse.
+func _haze(w: Dictionary) -> void:
+	if _veil_mat == null:
+		return
+	var fog: Color = w.fog
+	var sh: Color = w.get("shade", w.ambient_color)
+	var c := fog.lerp(Color(fog.r * sh.r, fog.g * sh.g, fog.b * sh.b), 0.45)
+	_veil_mat.set_shader_parameter("haze_col", c)
+	_veil_mat.set_shader_parameter("haze_k", clampf(0.1 + float(w.fog_density) * 16.0, 0.14, 0.22))
+
+
+## Clarté d'un monde (0 : nuit, 1 : plein jour), d'après son ciel : force des lueurs des lanternes.
+func _day_of(w: Dictionary) -> float:
+	var sky: Color = w.sky
+	return clampf((sky.get_luminance() - 0.2) / 0.55, 0.0, 1.0)
 
 
 ## Valeurs de lumière du monde (base de l'ambiance de boss) ; l'ambiance repart de zéro.
@@ -2772,7 +2829,7 @@ func _mood_capture(w: Dictionary) -> void:
 	_mood_base = {"sky": _env.background_color, "fog": _env.fog_light_color, "fog_d": _env.fog_density,
 		"amb_e": _env.ambient_light_energy, "sun_c": _sun.light_color, "sun_e": _sun.light_energy,
 		"contrast": _env.adjustment_contrast, "bright": _env.adjustment_brightness,
-		"sat": _env.adjustment_saturation, "tint": w.get("color", MOOD_INK)}
+		"sat": _env.adjustment_saturation, "tint": w.get("color", MOOD_INK), "day": _day_of(w)}
 	_mood_k = 0.0
 	_mood_to = 0.0
 	_mood_flash = 0.0
@@ -2812,6 +2869,10 @@ func _update_mood(real: float) -> void:
 	_env.adjustment_brightness = float(_mood_base["bright"]) * (1.0 - 0.1 * k + 0.12 * fl)
 	_env.adjustment_saturation = float(_mood_base["sat"]) * (1.0 - 0.1 * k)
 	hud.mood = k
+	# le ciel se ferme : les lanternes et les feux du décor prennent le dessus, les yeux des monstres luisent
+	var day := float(_mood_base.get("day", 1.0)) * (1.0 - 0.75 * k)
+	Lueurs.set_world(day)
+	Toon.set_eye_glow(lerpf(1.7, 1.0, day))
 	hud.mood_tint = dark
 
 
@@ -2846,7 +2907,7 @@ func _frame_pad(vs: Vector2, bottom_k: float) -> Transform3D:
 	if _frame_cache.has(key):
 		var cached: Transform3D = _frame_cache[key]
 		return cached
-	var tilt := deg_to_rad(54.0)
+	var tilt := deg_to_rad(cam_tilt)
 	var corners := [Vector3(-HALF.x - 0.15, 0, -HALF.y - 0.2), Vector3(HALF.x + 0.15, 0, -HALF.y - 0.2),
 		Vector3(-HALF.x - 0.15, 0, HALF.y + 0.2), Vector3(HALF.x + 0.15, 0, HALF.y + 0.2),
 		Vector3(0, 2.2, -HALF.y - 0.4)]
@@ -2898,7 +2959,7 @@ func _frame(vs: Vector2) -> Transform3D:
 	if _frame_cache.has(key):
 		var cached: Transform3D = _frame_cache[key]
 		return cached
-	var tilt := deg_to_rad(54.0)
+	var tilt := deg_to_rad(cam_tilt)
 	# marges serrées : caméra un peu plus proche (le haut du torii peut toucher le bandeau)
 	var corners := [Vector3(-HALF.x - 0.15, 0, -HALF.y - 0.2), Vector3(HALF.x + 0.15, 0, -HALF.y - 0.2),
 		Vector3(-HALF.x - 0.15, 0, HALF.y + 0.2), Vector3(HALF.x + 0.15, 0, HALF.y + 0.2),
@@ -2934,7 +2995,7 @@ func _frame(vs: Vector2) -> Transform3D:
 
 ## Cadrages des lancements précédents (même version du jeu, même écran) : la recherche est évitée.
 func _load_frames() -> void:
-	_frame_disk_key = "%s|%s|%.2f|2" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam.fov]
+	_frame_disk_key = "%s|%s|%.2f|%.1f|2" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam.fov, cam_tilt]
 	var cfg := ConfigFile.new()
 	if cfg.load(FRAMES_PATH) != OK:
 		return

@@ -53,7 +53,7 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 		if "Eyes" in String(mi.name):
 			var em := StandardMaterial3D.new()
 			em.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-			em.albedo_color = eyes
+			Toon.eye_mat_register(em, eyes)  # luisent dans les mondes sombres (Toon.eye_glow)
 			mi.material_override = em
 			continue
 		var tex: Texture2D = null
@@ -67,10 +67,11 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 			m.albedo_texture = tex if tex else (src as BaseMaterial3D).albedo_texture if src is BaseMaterial3D else null
 			m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
 			m.specular_mode = BaseMaterial3D.SPECULAR_TOON
-			m.roughness = 0.9
+			m.roughness = Toon.TOON_ROUGH  # vrai côté ombre (toon.gd)
+			m.metallic_specular = 0.35
 			m.rim_enabled = true
-			m.rim = 0.35
-			m.rim_tint = 0.5
+			m.rim = 0.45
+			m.rim_tint = 0.4
 			m.emission_enabled = true
 			m.emission = Color.WHITE
 			m.emission_energy_multiplier = 0.0
