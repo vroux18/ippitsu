@@ -74,6 +74,11 @@ const ORDER := ["stroke", "cut", "figures", "seal", "ult", "figure", "ink", "run
 # leçons hors tutoriel (meta.COACH_EXTRA) : elles viennent une fois, même le tutoriel fini (le premier yōkai scellé
 # arrive à l'étape 2, souvent après la fin du tutoriel)
 const EXTRA := ["seal"]
+# montée en compétences : chaque leçon attend son étape (index de main.STAGE_PLAN), et une seule leçon nouvelle par
+# combat (« cut », la technique gagnée et l'encre, réponses directes à ce qui se passe, ne comptent pas)
+const STAGE_MIN := {"ult": 1, "run": 1, "figures": 2}
+const UNPACED := ["cut", "figure", "ink"]
+var _pace := ""  # moment (monde/étape/combat) de la dernière leçon finie
 var _lesson_bottom := -1.0  # bas de la planche des figures à cette image (< 0 : pas de planche)
 const GAP := 0.8  # silence entre deux bulles
 const SLOW := 0.3  # temps ralenti tant que le premier trait n'est pas tracé
@@ -234,6 +239,7 @@ func clear() -> void:
 	_fz_want = false
 	_veil = 0.0
 	_big = 1.0
+	_pace = ""
 	# tutoriel (re)commencé : les arrêts sur image reviendront
 	if main != null and main.meta != null and main.meta.coach_seen.is_empty():
 		_froze = {}
@@ -286,6 +292,8 @@ func _finish() -> void:
 		return
 	main.meta.coach_see(mark)
 	main.meta.save_data()
+	if not UNPACED.has(mark):
+		_pace = _moment()
 	if mark == "figure":
 		_fig = ""
 	mark = ""
@@ -293,6 +301,13 @@ func _finish() -> void:
 	_fz_want = false
 	_gap = GAP
 	main.sfx.play("shot", 1.6, -10.0)
+
+
+## Moment de jeu (monde, étape, combats finis) : sert à n'ouvrir qu'une leçon nouvelle par combat.
+func _moment() -> String:
+	var ar = main.arena
+	var zd: int = int(ar.zones_done()) if ar != null and bool(ar.stage) else 0
+	return "%d/%d/%d/%d" % [int(main.current_world), int(main.stage_i), int(main.room), zd]
 
 
 func _show(id: String) -> void:
@@ -411,6 +426,10 @@ func _process(_delta: float) -> void:
 				var sid := String(id)
 				if bool(main.meta.tuto_done) and not EXTRA.has(sid):
 					continue  # tutoriel fini : seules les leçons hors tutoriel
+				if int(main.stage_i) < int(STAGE_MIN.get(sid, 0)):
+					continue
+				if not UNPACED.has(sid) and _pace == _moment():
+					continue  # une leçon par combat : on la garde pour le suivant
 				if not seen(sid) and _wanted(sid):
 					_show(sid)
 					break
