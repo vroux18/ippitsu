@@ -1381,6 +1381,8 @@ func _on_unlock_all() -> void:
 		return
 	meta.unlock_all()
 	menu.sumi = meta.sumi
+	menu.best = stage_of(record)
+	_home_select(_home_sel)  # sélecteur de l'accueil : plus aucun monde scellé
 	measure.toast("Tout est débloqué")
 	sfx.play("levelup", 1.0, -4.0)
 
@@ -6518,6 +6520,8 @@ func _touch_move(sp: Vector2) -> void:
 	var was_empty: bool = stroke.exhausted
 	# hors combat : encre illimitée, trait deux fois plus long ; en combat, l'encre plus les mètres offerts (Plume)
 	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan + powers.free_ink(float(stroke.length))
+	if god_active():
+		budget = 999.0  # GOD MODE : trait sans limite, en combat comme hors combat
 	var used: float = stroke.extend_to(target, budget)
 	if stroke.lead_n < 0 and used > 0.0 and ctrl_mode != "pad":
 		# (mode pad : pas d'amorce, le geste part du héros ; lead_n reste à -1, tout le trait est lu)
