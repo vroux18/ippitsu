@@ -615,7 +615,9 @@ func _bot_loop(h: Vector3, c: Vector3, r: float) -> PackedVector3Array:
 		for k in [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6]:
 			var th := phi + deg_to_rad(30.0) * float(k)
 			var q := c + Vector3(cos(th), 0, sin(th)) * r
-			if _bot_inside(q, 0.25):
+			# trait de placement d'au moins 0,9 m : plus court que 0,7 m, bot.make_stroke le refuse et plus rien ne
+			# bouge (héros juste hors de la bande r ± 0,6 : le point du cercle en face n'est qu'à 0,6–0,7 m)
+			if _bot_inside(q, 0.25) and Vector2(q.x - h.x, q.z - h.z).length() >= 0.9:
 				return _bot_dense([h, q])
 		return PackedVector3Array()
 	var way: Array = [h]
