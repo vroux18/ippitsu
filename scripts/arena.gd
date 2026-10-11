@@ -20,25 +20,6 @@ const HALF := Vector2(4.6, 8.6)  # bornes de l'arène (comme main.gd)
 
 signal perf(label: String, usec: int)  # mesure d'une construction différée (robot du CI : « BOT PERF »)
 
-# Construction étalée : sous le rideau d'encre (main), build_stage / build_hub / build_room reçoivent
-# `sliced` et rendent la main entre deux morceaux dès que l'image a dépensé `_slice_us` (main prolonge le
-# rideau jusqu'à la fin). Sans `sliced`, tout se fait d'un bloc comme avant (tests, accueil, captures).
-# Le décor différé des tronçons lointains s'étale de même, en jeu, avec un budget plus petit.
-const SLICE_US := 4000  # calcul de construction par image sous le rideau (µs)
-const DECOR_SLICE_US := 2500  # décor différé, en jeu (µs par image)
-signal _abandoned  # jamais émis : une construction remplacée en cours de route ne reprend jamais
-var _cutter := Callable()  # _cut pendant une construction étalée, sinon vide (tout d'un bloc)
-var _slice_us := SLICE_US
-var _slice_t0 := 0
-var _build_gen := 0  # change à chaque construction : une construction étalée dépassée s'arrête
-var slice_cpu := 0  # µs de calcul de la construction étalée en cours (hors attente entre les images)
-var slice_max := 0  # plus longue tranche (µs)
-var slice_frames := 0
-var _draining := false  # décor différé en cours (coroutine _drain)
-var _gate_spread := 0.0  # écart des portes à sceaux de la salle (Worlds.gate_spread, reposé avant chaque décor)
-var hold := Callable()  # préchauffage du décor (decor_warm.gd) : vrai tant que le jeu charge, ses découpes attendent
-var _pit_tasks: Array = []  # plans de fosses en cours sur des fils de calcul (WorkerThreadPool)
-
 # Rect2 : position = (x min, z min), size = (largeur x, profondeur z)
 const LAYOUTS := {
 	"full": [Rect2(-4.6, -8.6, 9.2, 17.2)],
@@ -174,6 +155,8 @@ var _barriers: Array = []  # {j, node, k, want, mode, …} : haies sacrées aux 
 var _bar_meshes := {}  # maillages partagés des haies (bambou, traverse, tache, goutte, ofuda par monde)
 var _bar_noise: NoiseTexture2D = null  # texture de la brume des haies
 var _pending: Array = []  # tronçons dont le décor reste à construire (un morceau par image)
+var _pending_us := 0  # temps passé sur le décor différé de l'étape (mesure)
+var _pending_max := 0
 var _pit_states: Array = []
 var _stage_seed := 0
 var pieces: Array = []  # sol découpé sans recouvrement : [Rect2, passerelle ?]
@@ -259,8 +242,8 @@ func _ready() -> void:
 	add_child(_world_root)
 	_room_root = Node3D.new()
 	add_child(_room_root)
-	# vérification automatique (CI) : formes de salle cohérentes (pas pour les échantillons du préchauffage)
-	if "--autoplay" in OS.get_cmdline_user_args() and not has_meta("warm"):
+	# vérification automatique (CI) : formes de salle cohérentes
+	if "--autoplay" in OS.get_cmdline_user_args():
 		var fails: Array = check_layouts()
 		if not fails.is_empty():
 			print("SCRIPT ERROR: formes de salle : ", fails)
@@ -343,9 +326,7 @@ func hide_shore(on: bool) -> void:
 
 
 ## Construit la salle : forme, sol, bords, décor, torii de sortie (caché).
-func build_room(room: int, rooms: int, rng_seed: int, mini_room := 8, sliced := false) -> void:
-	if not sliced:
-		_cutter = Callable()
+func build_room(room: int, rooms: int, rng_seed: int, mini_room := 8) -> void:
 	_clear_room()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = rng_seed
@@ -361,7 +342,7 @@ func build_room(room: int, rooms: int, rng_seed: int, mini_room := 8, sliced := 
 		shrine = 1
 	elif room >= rooms:
 		shrine = 2
-	await _finish_room(Worlds.world(world_id), rng, rng_seed, shrine)
+	_finish_room(Worlds.world(world_id), rng, rng_seed, shrine)
 
 
 ## Oublie la salle ou l'étape précédente (décor, haies, zones).
@@ -369,11 +350,8 @@ func _clear_room() -> void:
 	for ch in _room_root.get_children():
 		ch.queue_free()
 	_pending.clear()
-	_build_gen += 1  # décor différé (ou construction étalée) d'avant : abandonné là où il attend
-	_draining = false
-	for id in _pit_tasks:
-		WorkerThreadPool.wait_for_task_completion(int(id))  # (plans de l'étape quittée : jamais utilisés)
-	_pit_tasks.clear()
+	_pending_us = 0
+	_pending_max = 0
 	_barriers.clear()
 	_pit_states.clear()
 	_pits = {}
@@ -417,9 +395,7 @@ func _set_bounds(b: Rect2) -> void:
 ## empilés vers le fond. Passages larges entre tronçons, haies d'encre qui ferment les zones,
 ## torii de sortie au nord du dernier tronçon. `first` : première étape du monde (formes faciles au départ).
 ## Les formes générées et les pièces de décor tirent à part (`grng`) : la suite de `rng` garde son ordre.
-func build_stage(n_enc: int, rng_seed: int, first: bool, sliced := false) -> void:
-	if not sliced:
-		_cutter = Callable()
+func build_stage(n_enc: int, rng_seed: int, first: bool) -> void:
 	_clear_room()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = rng_seed
@@ -473,7 +449,6 @@ func build_stage(n_enc: int, rng_seed: int, first: bool, sliced := false) -> voi
 				mir = false
 				extra = {}
 				local = _layout_rects(key, mir)
-		await slice()
 		_used[key] = int(_used.get(key, 0)) + 1
 		_last = key
 		last_fam = _family(key)
@@ -500,10 +475,6 @@ func build_stage(n_enc: int, rng_seed: int, first: bool, sliced := false) -> voi
 	# portes à deux sceaux : parvis élargi au nord de la plateforme du haut (sinon un seul torii)
 	var two := gate_kinds.size() >= 2 and _add_parvis(per_chunk[chunks - 1], gate_kinds.size())
 	floor_rects = rects.duplicate()
-	# grilles des fosses (le plus gros du calcul de l'étape) : sur des fils de calcul, pendant le reste
-	var pit_jobs: Array = []
-	for i in chunks:
-		pit_jobs.append(_plan_pits(per_chunk[i], -float(i) * CHUNK_L, _stage_seed + i * 7919))
 	mirrored = false
 	var top := -HALF.y - float(chunks - 1) * CHUNK_L
 	stage_rect = Rect2(-HALF.x, top, HALF.x * 2.0, HALF.y - top)
@@ -515,15 +486,13 @@ func build_stage(n_enc: int, rng_seed: int, first: bool, sliced := false) -> voi
 		zone_state.append(0)
 	_set_bounds(_roam_bounds())
 	var w: Dictionary = Worlds.world(world_id)
-	await _build_floor(w, rng)
-	await _flush_tiles()
+	_build_floor(w, rng)
+	_flush_tiles()
 	var ends: Array = _ends(floor_rects)
 	start = ends[0]
 	gate_pos = ends[1]
 	_set_gate_spots(two)
-	await slice()
 	_build_gate(w)
-	await slice()
 	# recoins à l'écart du chemin, un par tronçon (tests sur toute l'étape)
 	_set_bounds(stage_rect)
 	pocket_spots = []
@@ -544,16 +513,14 @@ func build_stage(n_enc: int, rng_seed: int, first: bool, sliced := false) -> voi
 	# haies d'encre aux passages entre tronçons
 	for j in joins.size():
 		_build_barrier(j)
-		await slice()
-	await refresh_barriers(true)
+	refresh_barriers(true)
 	# décor et fosses : les deux premiers tronçons tout de suite, les suivants une image après l'autre
 	# (et en deux temps : décor, puis fosses, pour de plus petites images)
 	var high: Rect2 = ends[3]
 	for i in chunks:
-		var job := {"i": i, "rs": per_chunk[i], "high": high if i == chunks - 1 else Rect2(), "pieces": chunk_pieces[i], "pit_job": pit_jobs[i]}
+		var job := {"i": i, "rs": per_chunk[i], "high": high if i == chunks - 1 else Rect2(), "pieces": chunk_pieces[i]}
 		if i < 2:
-			await slice()
-			await _build_chunk_decor(job)
+			_build_chunk_decor(job)
 		else:
 			var props := job.duplicate()
 			props["part"] = "props"
@@ -574,10 +541,9 @@ func _build_chunk_decor(job: Dictionary) -> void:
 	_room_root.add_child(holder)
 	var seed_i := _stage_seed + i * 7919
 	if part != "pits":
-		await _chunk_props(job, holder, dz, seed_i)
+		_chunk_props(job, holder, dz, seed_i)
 	if part != "props":
-		await slice()
-		await _chunk_pits(job, holder, dz, seed_i)
+		_chunk_pits(job, holder, dz, seed_i)
 
 
 func _chunk_props(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> void:
@@ -590,8 +556,7 @@ func _chunk_props(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> vo
 	# une seule lumière ponctuelle par tronçon (une étape en compte 3 ou 4 à l'écran au plus) ;
 	# les pièces de décor du tronçon partagent les lots (matériaux) du décor
 	var pcs: Array = job.get("pieces", [])
-	Worlds.gate_spread = _gate_spread  # (un autre décor a pu se construire entre-temps : préchauffage)
-	await Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1, pcs, false, _cutter)
+	Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1, pcs)
 
 
 func _chunk_pits(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> void:
@@ -599,53 +564,9 @@ func _chunk_pits(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> voi
 	for r in job["rs"]:
 		var rr: Rect2 = r
 		local.append(Rect2(rr.position.x, rr.position.y - dz, rr.size.x, rr.size.y))
-	var plan := {}
-	var pj: Dictionary = job.get("pit_job", {})
-	if pj.has("task"):
-		var id: int = pj["task"]
-		# étalée : on attend le fil de calcul image après image ; d'un bloc : on l'attend tout de suite
-		while _cutter.is_valid() and not WorkerThreadPool.is_task_completed(id):
-			await _next_frame()
-		WorkerThreadPool.wait_for_task_completion(id)
-		_pit_tasks.erase(id)
-		var box: Array = pj["box"]
-		plan = box[0]
-	var ps: Dictionary = await Worlds.build_pits(world_id, holder, local, void_rects(local), seed_i, _cutter, plan)
+	var ps: Dictionary = Worlds.build_pits(world_id, holder, local, void_rects(local), seed_i)
 	if not ps.is_empty():
 		_pit_states.append(ps)
-
-
-## Plan des fosses d'un tronçon (Worlds.pit_plan, calcul pur) lancé sur un fil de calcul : {"task", "box"}
-## (le plan arrive dans box[0] quand le fil a fini). Sans fils (web) ou sans vide : {} (calcul sur place).
-func _plan_pits(rs: Array, dz: float, seed_i: int) -> Dictionary:
-	if OS.has_feature("nothreads"):
-		return {}
-	var local: Array = []
-	for r in rs:
-		var rr: Rect2 = r
-		local.append(Rect2(rr.position.x, rr.position.y - dz, rr.size.x, rr.size.y))
-	var voids := void_rects(local)
-	var out := {}
-	if voids.is_empty():
-		return out
-	var wid := world_id
-	var box: Array = [{}]  # seule case écrite par le fil (taille fixe : rien n'est réalloué)
-	out["box"] = box
-	out["task"] = WorkerThreadPool.add_task(func() -> void: box[0] = Worlds.pit_plan(wid, local, voids, seed_i), false, "fosses")
-	_pit_tasks.append(int(out["task"]))
-	return out
-
-
-## Image suivante d'une construction étalée (comme _cut, sans condition de budget).
-func _next_frame() -> void:
-	var gen := _build_gen
-	_slice_note(Time.get_ticks_usec() - _slice_t0)
-	await get_tree().process_frame
-	while hold.is_valid() and bool(hold.call()):
-		await get_tree().process_frame
-	if gen != _build_gen:
-		await _abandoned
-	_slice_t0 = Time.get_ticks_usec()
 
 
 ## Morceaux de passage (Vector2(x0, x1)) entre le bord nord du tronçon `lower` et le bord sud de `upper`
@@ -1316,7 +1237,6 @@ func refresh_barriers(snap := false) -> void:
 				_barrier_show(b)
 				b["mode"] = "rise"
 				_barrier_pose(b, true)
-				await slice()  # (construction étalée de l'étape : une haie par morceau)
 			else:
 				_barrier_hide(b)
 
@@ -1418,9 +1338,7 @@ func join_center(j: int) -> Vector3:
 ## Le sanctuaire de départ du monde (HUBS) : le héros pose le pied sur l'arrivée, en bas, et remonte le
 ## chemin jusqu'au torii, en haut. Pas de fosse : l'eau du monde de part et d'autre, l'écume au pied du
 ## chemin, le décor d'arrivée du monde posé dans l'eau (Worlds.build_hub). Torii ouvert côté main.
-func build_hub(rng_seed: int, sliced := false) -> void:
-	if not sliced:
-		_cutter = Callable()
+func build_hub(rng_seed: int) -> void:
 	_clear_room()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = rng_seed
@@ -1438,8 +1356,8 @@ func build_hub(rng_seed: int, sliced := false) -> void:
 	_shore_extra = rects.slice(0, SHORE_KEYS.size())
 	_single_frame()
 	var w: Dictionary = Worlds.world(world_id)
-	await _build_floor(w, rng)
-	await _flush_tiles()
+	_build_floor(w, rng)
+	_flush_tiles()
 	# départ au bas de l'arrivée (face au torii), torii au haut du parvis
 	var ends: Array = _ends(floor_rects)
 	start = ends[0]
@@ -1450,20 +1368,17 @@ func build_hub(rng_seed: int, sliced := false) -> void:
 	# décor du monde hors du cadre (comme une salle), puis le décor d'arrivée dans l'eau du sanctuaire :
 	# rendu allégé, une seule lumière ponctuelle en tout
 	var lights: int = 1 if Toon.lite else Worlds.MAX_LIGHTS - 1
-	Worlds.gate_spread = _gate_spread
-	await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights, [], false, _cutter)
-	await slice()
-	await Worlds.build_hub(world_id, _room_root, floor_rects, rng_seed, not Toon.lite, _cutter)
+	Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights)
+	Worlds.build_hub(world_id, _room_root, floor_rects, rng_seed, not Toon.lite)
 	_pits = {}
-	await slice()
 	_build_gate(w)
 
 
 ## Sol, décor, départ et torii pour les `rects` courants. `shrine` : 0 = salle, 1 = arène de gardien,
 ## 2 = arène de boss (le paysage des abords cède la place au sanctuaire, voir boss_shrine.gd).
 func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int, shrine := 0) -> void:
-	await _build_floor(w, rng)
-	await _flush_tiles()
+	_build_floor(w, rng)
+	_flush_tiles()
 	# départ au sud de la plateforme la plus basse, sortie au nord de la plus haute
 	var ends: Array = _ends(floor_rects)
 	start = ends[0]
@@ -1476,18 +1391,14 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int, shri
 	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
 	# rendu allégé : une seule lumière ponctuelle comme un tronçon d'étape (en compatibilité, chaque lumière
 	# refait une passe sur chaque objet qu'elle touche, sol de l'arène compris)
-	Worlds.gate_spread = _gate_spread
 	if shrine > 0:
 		# sanctuaire : sa seule lumière ponctuelle remplace celles des abords (le paysage n'en garde aucune)
-		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 0, [], true, _cutter)
-		await slice()
-		await BossShrine.build(world_id, shrine == 2, _room_root, rng_seed, _cutter)
+		Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 0, [], true)
+		BossShrine.build(world_id, shrine == 2, _room_root, rng_seed)
 	else:
-		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 1 if Toon.lite else Worlds.MAX_LIGHTS, [], false, _cutter)
-	await slice()
+		Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 1 if Toon.lite else Worlds.MAX_LIGHTS)
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
-	_pits = await Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed, _cutter)
-	await slice()
+	_pits = Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed)
 	_build_gate(w)
 
 
@@ -2461,9 +2372,7 @@ func _build_floor(w: Dictionary, rng: RandomNumberGenerator) -> void:
 			_tile(Vector3(r.size.x, 0.46, r.size.y), Vector3(c.x, -0.27, c.y), under)
 			_floor_piece(r, style, mats, rng)
 			_floor_dressing(r, style, look)
-		await slice()
 	_build_edges(dec, w, woods[2])
-	await slice()
 	_build_steps(w)
 
 
@@ -2988,7 +2897,6 @@ func _flush_tiles() -> void:
 			mi.material_override = m
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if _casters.has(m) else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			_room_root.add_child(mi)
-			await slice()
 	_batches.clear()
 	_sbatches.clear()
 
@@ -3314,74 +3222,7 @@ func _set_gate_spots(two: bool) -> void:
 	else:
 		gate_spots = [gate_pos]
 		gate_kinds = []
-	_gate_spread = SealGate.spread(gate_kinds.size()) if two else 0.0
-	Worlds.gate_spread = _gate_spread
-
-
-## Ouvre une construction étalée (main : avant build_* avec `sliced`, puis ses propres morceaux via slice()).
-func begin_slices(us := SLICE_US) -> void:
-	_build_gen += 1
-	_cutter = _cut
-	_slice_us = us
-	_slice_t0 = Time.get_ticks_usec()
-	slice_cpu = 0
-	slice_max = 0
-	slice_frames = 0
-
-
-## Ferme la construction étalée : la dernière tranche compte, la suite se construit d'un bloc.
-func end_slices() -> void:
-	if _cutter.is_valid():
-		_slice_note(Time.get_ticks_usec() - _slice_t0)
-	_cutter = Callable()
-
-
-## Point de découpe pour main (recoins de l'étape) : rend la main si l'image a assez travaillé.
-func slice() -> void:
-	if _cutter.is_valid():
-		await _cut()
-
-
-## Vrai pendant une construction étalée (le décor différé attend qu'elle soit finie).
-func slicing() -> bool:
-	return _cutter.is_valid()
-
-
-func _slice_note(spent: int) -> void:
-	slice_cpu += spent
-	slice_max = maxi(slice_max, spent)
-	slice_frames += 1
-
-
-## Découpe : au-delà du budget de l'image, on attend l'image suivante. Si une autre construction a commencé
-## entre-temps (nouvelle partie, abandon…), celle-ci ne reprend jamais (ses nœuds sont déjà libérés).
-func _cut() -> void:
-	var spent := Time.get_ticks_usec() - _slice_t0
-	if spent < _slice_us:
-		return
-	_slice_note(spent)
-	var gen := _build_gen
-	await get_tree().process_frame
-	while hold.is_valid() and bool(hold.call()):
-		await get_tree().process_frame
-	if gen != _build_gen:
-		await _abandoned
-	_slice_t0 = Time.get_ticks_usec()
-
-
-## Décor différé des tronçons lointains (décor, puis fosses), étalé à DECOR_SLICE_US par image.
-func _drain() -> void:
-	_draining = true
-	begin_slices(DECOR_SLICE_US)
-	while not _pending.is_empty():
-		var job: Dictionary = _pending.pop_front()
-		await _build_chunk_decor(job)
-		await _cut()
-	end_slices()
-	_draining = false
-	# mesures : tout le décor différé de l'étape, et sa plus longue image
-	perf.emit("stage_decor_deferred", slice_cpu)
-	perf.emit("stage_decor_frame_max", slice_max)
+	Worlds.gate_spread = SealGate.spread(gate_kinds.size()) if two else 0.0
 
 
 func _process(delta: float) -> void:
@@ -3391,9 +3232,20 @@ func _process(delta: float) -> void:
 		Worlds.animate_pits(_pits, _t)
 	for ps in _pit_states:
 		Worlds.animate_pits(ps, _t)
-	# décor des tronçons lointains : étalé sur les images qui suivent l'arrivée (une fois le rideau levé)
-	if not _pending.is_empty() and not _draining and not _cutter.is_valid():
-		_drain()
+	# décor des tronçons lointains : un morceau par image, après l'arrivée
+	if not _pending.is_empty():
+		var job: Dictionary = _pending.pop_front()
+		var t0 := Time.get_ticks_usec()
+		_build_chunk_decor(job)
+		var spent := Time.get_ticks_usec() - t0
+		_pending_us += spent
+		_pending_max = maxi(_pending_max, spent)
+		if _pending.is_empty():
+			# mesures : tout le décor différé de l'étape, et sa plus longue image
+			perf.emit("stage_decor_deferred", _pending_us)
+			perf.emit("stage_decor_frame_max", _pending_max)
+			_pending_us = 0
+			_pending_max = 0
 	# haies sacrées : elles se dressent ou brûlent et s'enfoncent
 	_animate_barriers(delta)
 	if is_instance_valid(_gate):
