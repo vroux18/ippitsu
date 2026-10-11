@@ -1017,7 +1017,7 @@ func _depart(what: String) -> bool:
 	return _check(not bool(dp.visible), "%s : PARTIR (un toucher)" % what, "l'écran reste ouvert")
 
 
-## Rectangle d'une cible de l'écran de départ (« prev », « asp:1 », « charm:garde », « go »…).
+## Rectangle d'une cible de l'écran de départ (« brush:hake », « asp:1 », « charm:garde », « go »…).
 func _dep_rect(key: String) -> Rect2:
 	for hr in main.departure._hits:
 		if String(hr[1]) == key:
@@ -1035,7 +1035,7 @@ func _dep_tap(key: String) -> void:
 
 
 ## Écran AVANT LE DÉPART : progression de démonstration (mondes 1 et 2 vaincus, omamori de la garde), JOUER
-## l'ouvre sur le dernier choix ; flèches -> Hake ; aspect non gagné, pinceau verrouillé et charme verrouillé
+## l'ouvre sur le dernier choix ; pinceau du râtelier touché -> Hake ; aspect non gagné, pinceau verrouillé et charme verrouillé
 ## refusent PARTIR ; Hake · Large + Garde part, et la partie porte bien ce pinceau et ce charme.
 func _step_departure() -> bool:
 	var mt = main.meta
@@ -1077,22 +1077,20 @@ func _departure_body(dp) -> bool:
 		if r.size.x < 44.0 or r.size.y < 44.0:
 			small += " %s %s" % [String(hr[1]), str(r.size)]
 	_check(small == "", "départ : zones tactiles ≥ 44 px", "trop petites :%s" % small)
-	await _dep_tap("next")
-	_check(String(dp.brush_id()) == "hake" and bool(dp.can_go()), "départ : ▶ -> Hake (boss du monde 1 vaincu), partir permis", "pinceau %s, %s" % [String(dp.brush_id()), String(dp.go_label())])
+	await _dep_tap("brush:hake")
+	_check(String(dp.brush_id()) == "hake" and bool(dp.can_go()), "départ : râtelier -> Hake (boss du monde 1 vaincu), partir permis", "pinceau %s, %s" % [String(dp.brush_id()), String(dp.go_label())])
 	await _dep_tap("asp:1")
 	_check(not bool(dp.can_go()) and String(dp.go_label()) == "ASPECT À GAGNER", "départ : aspect Mur non gagné grisé", String(dp.go_label()))
 	await _dep_tap("go")
 	_check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un aspect à gagner", "état %s" % String(main.state))
 	await _dep_tap("asp:0")
-	await _dep_tap("next")
-	await _dep_tap("next")
-	_check(String(dp.brush_id()) == "warefude" and String(dp.go_label()) == "PINCEAU VERROUILLÉ", "départ : Warefude verrouillé (boss du monde 4)", "%s, %s" % [String(dp.brush_id()), String(dp.go_label())])
+	await _dep_tap("brush:warefude")
+	_check(String(dp.brush_id()) == "warefude" and String(dp.go_label()) == "PINCEAU À GAGNER", "départ : Warefude verrouillé (boss du monde 4)", "%s, %s" % [String(dp.brush_id()), String(dp.go_label())])
 	await _dep_tap("go")
 	_check(bool(dp.visible), "départ : PARTIR refusé sur un pinceau verrouillé", "écran fermé")
-	await _dep_tap("prev")
-	await _dep_tap("prev")
+	await _dep_tap("brush:hake")
 	await _dep_tap("charm:portes")
-	_check(String(dp.cid) == "portes" and String(dp.go_label()) == "CHARME VERROUILLÉ", "départ : omamori des portes verrouillé (Maître · monde 3)", "%s, %s" % [String(dp.cid), String(dp.go_label())])
+	_check(String(dp.cid) == "portes" and String(dp.go_label()) == "CHARME À GAGNER", "départ : omamori des portes verrouillé (Maître · monde 3)", "%s, %s" % [String(dp.cid), String(dp.go_label())])
 	await _dep_tap("go")
 	if not _check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un charme verrouillé", "écran fermé, état %s" % String(main.state)):
 		return false
