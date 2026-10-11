@@ -177,10 +177,10 @@ const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fin
 # étapes du monde : combats (numéros de `room`) réunis sur une même longue carte ; [8] et [15] : arènes
 const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
 const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du héros)
-## Plongée de la caméra (degrés au-dessus de l'horizon). Variante « relief » à l'essai (`camera=relief` dans
-## `--q=` / `?…`) : caméra un peu moins zénithale et focale un peu plus courte, les volumes (piliers, monstres,
-## tranches des plateformes) se lisent mieux ; non retenue par défaut, au choix du propriétaire.
-var cam_tilt := 54.0
+## Plongée de la caméra (degrés au-dessus de l'horizon). Caméra « relief » (retenue) : un peu moins zénithale,
+## focale un peu plus courte (CAM_FOV), les volumes (piliers, monstres, tranches des plateformes) se lisent mieux.
+var cam_tilt := 48.0
+const CAM_FOV := 44.0
 const CAM_LEAD := 0.6  # la caméra regarde à peine devant le héros (il reste au centre de l'écran)
 const CAM_LEAD_PAD := 2.4  # mode pad : l'arène est cadrée au-dessus du pad, on voit plus loin devant
 const SETTINGS_V := 1  # version des réglages : 1 = contrôle « sur l'écran » par défaut (anciens « pad » remis à zéro)
@@ -562,13 +562,6 @@ func _ready() -> void:
 		if String(a).begins_with("--seed="):
 			seed(int(String(a).substr(7)))
 	_build_world()
-	for a in OS.get_cmdline_user_args():
-		if "camera=relief" in String(a):
-			cam_tilt = 48.0
-			cam.fov = 44.0
-	if OS.has_feature("web") and "camera=relief" in str(JavaScriptBridge.eval("location.search", true)):
-		cam_tilt = 48.0
-		cam.fov = 44.0
 	_load_frames()
 	sfx = Sfx.new()
 	add_child(sfx)
@@ -2772,7 +2765,7 @@ func _build_world() -> void:
 	veil_layer.add_child(veil)
 
 	cam = Camera3D.new()
-	cam.fov = 38.0
+	cam.fov = CAM_FOV
 	cam.keep_aspect = Camera3D.KEEP_WIDTH
 	add_child(cam)
 	cam.current = true
