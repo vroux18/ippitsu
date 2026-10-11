@@ -2449,6 +2449,9 @@ func _home_play() -> void:
 func _ask_departure(id: int, from_map: bool) -> void:
 	_dep_world = id
 	_dep_from_map = from_map
+	if not meta.has_gear_choice() and not meta.gear_force:
+		_on_departure_go()  # rien à choisir encore : on part directement, avec le Fude
+		return
 	departure.call("open")
 
 

@@ -1006,6 +1006,10 @@ func _map_pick(w: int) -> bool:
 ## Écran AVANT LE DÉPART ouvert (JOUER, PARTIR de la carte) : un seul toucher sur PARTIR repart avec le dernier choix.
 func _depart(what: String) -> bool:
 	var dp = main.departure
+	if not bool(main.meta.has_gear_choice()):
+		# rien à choisir (ni autre pinceau, ni aspect, ni omamori) : l'écran est sauté, on part directement
+		await _frames(2)
+		return _check(not bool(dp.visible) and String(main.state) != "menu", "%s : écran de départ sauté (rien à choisir)" % what, "écran ouvert ou resté à l'accueil (état %s)" % String(main.state))
 	if not await _until(func(): return bool(dp.visible), "%s -> écran AVANT LE DÉPART" % what):
 		return false
 	if not await _until(func(): return float(dp._t) >= 0.3 and dp._hits.size() > 0, "%s : écran de départ prêt" % what, 5.0):
