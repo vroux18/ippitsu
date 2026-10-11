@@ -1011,8 +1011,8 @@ func _slow(sec: float, scale: float) -> void:
 func boss_dmg(d: float) -> float:
 	var out := d * _global_mult()
 	if lvl("ink_ippitsu") > 0 and int(main.combo) > 1:
-		out *= 1.0 + 0.25 * float(int(main.combo) - 1)
-	return out * _crit(main.hero.position)
+		out *= minf(2.0, 1.0 + 0.25 * float(int(main.combo) - 1))  # (plafonné sur les boss)
+	return out * minf(_crit(main.hero.position), main.BOSS_CRIT_CAP)
 
 
 func _global_mult() -> float:
