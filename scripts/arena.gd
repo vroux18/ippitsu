@@ -636,6 +636,14 @@ func _plan_pits(rs: Array, dz: float, seed_i: int) -> Dictionary:
 	return out
 
 
+## Sortie de l'arbre (fin du jeu, échantillon du préchauffage libéré) : les plans de fosses encore sur un fil
+## de calcul sont attendus ici (sinon le moteur s'arrêtait avec des tâches en cours : plantage à la sortie).
+func _exit_tree() -> void:
+	for id in _pit_tasks:
+		WorkerThreadPool.wait_for_task_completion(int(id))
+	_pit_tasks.clear()
+
+
 ## Image suivante d'une construction étalée (comme _cut, sans condition de budget).
 func _next_frame() -> void:
 	var gen := _build_gen
