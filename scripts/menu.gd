@@ -77,6 +77,7 @@ var stat_shapes := {}  # figure -> nombre réalisé
 var build := {}  # pouvoir -> niveau (powers.levels)
 var affinities := {}  # école -> [nombre de pouvoirs, palier] (powers.affinities())
 var new_prints: Array = []  # Vues gagnées à cette partie (ids de meta.PRINTS)
+var new_looks: Array = []  # garde-robe : éléments gagnés par exploit à cette partie ({name, col, col2})
 var killer_kind := ""  # type d'ennemi du coup fatal (vide : inconnu ou boss)
 var killer_name := ""  # nom du boss du coup fatal
 # victoire : bouton principal vers le monde suivant ("" : REJOUER reste le bouton principal)
@@ -1144,6 +1145,28 @@ func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -
 			f -= 1
 		UiKit.text(self, nf, nm, Vector2(th.get_center().x, th.end.y + 11.0 * u), f, Color(th_ink, 0.8 * a * pk))
 		px += tw + 14.0 * u
+	# garde-robe : pastilles des éléments gagnés par exploit (chapeau, lame, apparence), cernées d'or, nom dessous
+	var np := mini(new_prints.size(), 3)
+	for i in new_looks.size():
+		var lk: Dictionary = new_looks[i]
+		if px + 30.0 * u > x1:
+			break
+		var pk := UiKit.ease_out(clampf((_t - 1.7 - 0.25 * float(np + i)) / 0.3, 0.0, 1.0))
+		if pk <= 0.0:
+			break
+		var lc := Vector2(px + 15.0 * u, cy - 5.0 * u)
+		var col: Color = lk.get("col", Toon.SUMI)
+		var col2: Color = lk.get("col2", Color(0, 0, 0, 0))
+		draw_circle(lc, 15.0 * u, Color(col, a * pk))
+		if col2.a > 0.0:
+			draw_arc(lc, 8.0 * u, PI * 0.15, PI * 0.85, 10, Color(col2, a * pk), 4.0 * u, true)
+		draw_arc(lc, 16.0 * u, 0.0, TAU, 32, Color(UIColors.GOLD_DARK, a * pk), maxf(1.0, 2.0 * u), true)
+		var nm := UiKit.plain(String(lk.get("name", "")))
+		var f := nfs
+		while f > 5 and nf.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > 46.0 * u:
+			f -= 1
+		UiKit.text(self, nf, nm, Vector2(lc.x, lc.y + 26.0 * u), f, Color(th_ink, 0.8 * a * pk))
+		px += 50.0 * u
 
 
 ## Déblocages (victoire) : tuiles qui glissent en place : le monde ouvert (son picto, « monde N »), la famille

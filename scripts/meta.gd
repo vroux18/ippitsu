@@ -1,7 +1,7 @@
 extends RefCounted
 ## Progression permanente, sauvegardée entre les parties :
 ## - sumi (encre) : l'Arbre du pinceau (quatre branches de nœuds appris une fois, sommets légendaires) ;
-## - pétales (sakura) : seconde monnaie, rare, réservée à la garde-robe (tenues, thèmes) ;
+## - pétales (sakura) : seconde monnaie, rare, réservée à la garde-robe (chapeaux, sabres, apparences, thèmes) ;
 ## - Vues : collection d'estampes ; chacune débloque une apparence (écharpe, sillage de lame, encre du trait).
 
 const Toon = preload("res://scripts/toon.gd")
@@ -183,6 +183,58 @@ const THEMES := {
 	"indigo": {"name": "Indigo", "paper": Color("#E6ECF4"), "wash": Color("#D5DEEA"), "ink": Color("#13213A"), "accent": Color("#2F5D8A"), "prints": 6},
 }
 
+## Couvre-chefs et sabres du ronin (garde-robe, onglets CHAPEAU et LAME) : la forme et les couleurs sont modelées
+## par ninja_rig (HAT_STYLES, BLADE_PAL, mêmes ids) ; « col » / « col2 » : pastille de la garde-robe.
+## Obtention (comme les tenues) : « free », « petals », ou un exploit (voir feat_ok) :
+## « boss » = boss du monde N vaincu ; « master » = un monde au rang Maître ; « elite » = N défis d'élite relevés
+## (cumul) ; « clean_boss » = N boss du monde vaincus sans une égratignure ; « clean_win » = N mondes remportés sans
+## perdre un cœur ; « prints » = N Vues ; « kills » = N yōkai tranchés (bestiaire) ; « runs » = N parties.
+const HAT_ORDER := ["kasa", "amigasa", "shu", "jingasa", "hachimaki", "kitsune", "oni", "zukin"]
+const HATS := {
+	"kasa": {"name": "Kasa de paille", "col": Color("#D8BE88"), "col2": Color("#8F7646"), "free": true},
+	"amigasa": {"name": "Amigasa tressé", "col": Color("#E6CF98"), "col2": Color("#6E4A2C"), "petals": 12},
+	"shu": {"name": "Kasa vermillon", "col": Color("#C8392B"), "col2": Color("#1E1B22"), "petals": 20},
+	"jingasa": {"name": "Jingasa laqué", "col": Color("#1E1C24"), "col2": Color("#E2B04A"), "petals": 32},
+	"hachimaki": {"name": "Hachimaki", "col": Color("#F6F1E6"), "col2": Color("#D7372B"), "boss": 1},
+	"kitsune": {"name": "Masque de kitsune", "col": Color("#F7F2E8"), "col2": Color("#C8392B"), "boss": 2},
+	"oni": {"name": "Masque d'oni", "col": Color("#B8352B"), "col2": Color("#EFE2C0"), "boss": 3},
+	"zukin": {"name": "Capuche de shinobi", "col": Color("#272A40"), "col2": Color("#D7372B"), "boss": 6},
+}
+const BLADE_ORDER := ["sumi", "shirasaya", "shu", "same", "braise", "mizu", "kage", "kin"]
+## « col » : fourreau ; « col2 » : poignée ; « glow » : lueur de la lame (teinte aussi l'éclat de coupe, main).
+const BLADES := {
+	"sumi": {"name": "Sabre du rōnin", "col": Color("#2A1A1E"), "col2": Color("#FBF6EA"), "free": true},
+	"shirasaya": {"name": "Shirasaya", "col": Color("#D8BF92"), "col2": Color("#D8BF92"), "petals": 10},
+	"shu": {"name": "Saya vermillon", "col": Color("#B8261C"), "col2": Color("#1E1B22"), "petals": 18},
+	"same": {"name": "Galuchat d'argent", "col": Color("#1F2D4A"), "col2": Color("#2F5D8A"), "petals": 26},
+	"braise": {"name": "Lame de braise", "col": Color("#2A1A1E"), "col2": Color("#9E2A22"), "glow": Color("#FF6A1F"), "boss": 4},
+	"mizu": {"name": "Lame de l'eau", "col": Color("#1F3A5F"), "col2": Color("#DCEBF4"), "glow": Color("#4FB8FF"), "boss": 7},
+	"kage": {"name": "Lame d'ombre", "col": Color("#2A2034"), "col2": Color("#4E3A63"), "glow": Color("#A05CFF"), "boss": 8},
+	"kin": {"name": "Lame d'or", "col": Color("#1B1A1E"), "col2": Color("#E2B04A"), "glow": Color("#FFC93B"), "master": true},
+}
+## Apparences en plus des Vues (écharpe, sillage, encre) : même rôle que l'apparence d'une Vue (« kind », « col »),
+## obtenues en pétales ou par exploit (mêmes clés que HATS). Ids préfixés pour ne jamais croiser ceux des Vues.
+const EXTRA_LOOK_ORDER := ["c_kurenai", "c_yamabuki", "c_ume", "c_asagi", "c_gin",
+	"t_sakura", "t_hotaru", "t_raiko", "t_yomi",
+	"i_ume", "i_koke", "i_hai", "i_kin"]
+const EXTRA_LOOKS := {
+	"c_kurenai": {"kind": "cape", "name": "Écharpe pourpre", "col": Color("#8E1B3A"), "petals": 14},
+	"c_yamabuki": {"kind": "cape", "name": "Écharpe yamabuki", "col": Color("#F2B33D"), "petals": 22},
+	"c_ume": {"kind": "cape", "name": "Écharpe de prunier", "col": Color("#B0457A"), "elite": 25},
+	"c_asagi": {"kind": "cape", "name": "Écharpe asagi", "col": Color("#4FB0C6"), "boss": 5},
+	"c_gin": {"kind": "cape", "name": "Écharpe d'argent", "col": Color("#C3CAD3"), "clean_boss": 1},
+	"t_sakura": {"kind": "trail", "name": "Sillage de pétales", "col": Color("#F7A8C0"), "petals": 16},
+	"t_hotaru": {"kind": "trail", "name": "Sillage de lucioles", "col": Color("#C8F26A"), "petals": 28},
+	"t_raiko": {"kind": "trail", "name": "Sillage de foudre", "col": Color("#FFE45C"), "elite": 10},
+	"t_yomi": {"kind": "trail", "name": "Sillage de Yomi", "col": Color("#D23C8C"), "clean_win": 1},
+	"i_ume": {"kind": "ink", "name": "Encre de prune", "col": Color("#7A2448"), "petals": 15},
+	"i_koke": {"kind": "ink", "name": "Encre de mousse", "col": Color("#4E6A2A"), "petals": 24},
+	"i_hai": {"kind": "ink", "name": "Encre de cendre", "col": Color("#5E636E"), "kills": 1000},
+	"i_kin": {"kind": "ink", "name": "Encre d'or", "col": Color("#B8871E"), "prints": MAX_PRINTS},
+}
+const ALL_WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "Trente-six Vues", "Kurama",
+	"Ryūgū-jō", "Yomi"]
+
 var sumi := 0  # encre, permanente : l'Arbre du pinceau (et la Bourse)
 var petals := 0  # pétales (sakura), permanents : la garde-robe seulement
 var prints := 0  # Vues collectionnées (= owned_prints.size(), max 24)
@@ -212,6 +264,13 @@ var start_power_id := ""  # rouleau de départ choisi (nœud « v3 » de l'arbre
 var outfit := "sumi"  # tenue portée (OUTFITS)
 var theme := "washi"  # thème de l'interface (THEMES)
 var bought := {}  # « outfit:kaki », « theme:nuit »… -> true : achats de la garde-robe
+var hat := "kasa"  # couvre-chef porté (HATS)
+var blade := "sumi"  # sabre porté (BLADES)
+var wardrobe_new := {}  # « hat:oni », « cape:c_gin »… -> true : gagné par exploit, pas encore vu (pastille)
+var feats_known := {}  # « cat:id » -> true : exploits déjà constatés (refresh_new)
+var elite_total := 0  # défis d'élite relevés, toutes parties (exploits de la garde-robe)
+var clean_bosses := 0  # boss du monde vaincus sans une égratignure
+var clean_wins := {}  # monde -> true : remporté sans perdre un cœur
 # pinceaux et omamori (gear_data.gd) : choix de l'écran de départ et déblocages
 const GEAR_VERSION := 1  # sauvegarde : 0 = avant les pinceaux (Fude · Maître acquis, charmes rendus d'après les rangs)
 var brush_sel := "fude"  # pinceau choisi pour la prochaine partie
@@ -267,15 +326,32 @@ func load_data() -> void:
 	for id in PRINT_ORDER:
 		if bool(cf.get_value("vues", id, false)):
 			owned_prints[id] = true
+	# apparences portées : vérifiées plus bas, une fois Vues, achats et exploits relus
 	for kind in LOOK_KINDS:
-		var pid := String(cf.get_value("look", kind, ""))
-		look[kind] = pid if _look_ok(pid, kind) else ""
+		look[kind] = String(cf.get_value("look", kind, ""))
 	var bl = cf.get_value("wardrobe", "bought", [])
 	if bl is Array or bl is PackedStringArray:
 		for b in bl:
 			bought[String(b)] = true
 	outfit = String(cf.get_value("wardrobe", "outfit", "sumi"))
 	theme = String(cf.get_value("wardrobe", "theme", "washi"))
+	# chapeau, sabre et compteurs d'exploits : absents des anciennes sauvegardes (kasa, sabre du rōnin, zéro)
+	hat = String(cf.get_value("wardrobe", "hat", "kasa"))
+	blade = String(cf.get_value("wardrobe", "blade", "sumi"))
+	var wn = cf.get_value("wardrobe", "new", [])
+	if wn is Array or wn is PackedStringArray:
+		for k in wn:
+			wardrobe_new[String(k)] = true
+	var fk = cf.get_value("wardrobe", "known", [])
+	if fk is Array or fk is PackedStringArray:
+		for k in fk:
+			feats_known[String(k)] = true
+	elite_total = maxi(0, int(cf.get_value("feats", "elite", 0)))
+	clean_bosses = maxi(0, int(cf.get_value("feats", "clean_bosses", 0)))
+	var cw = cf.get_value("feats", "clean_wins", [])
+	if cw is Array or cw is PackedInt32Array:
+		for w in cw:
+			clean_wins[int(w)] = true
 	# bestiaire (section absente des anciennes sauvegardes : rien de vu)
 	if cf.has_section("bestiary"):
 		for k in cf.get_section_keys("bestiary"):
@@ -310,6 +386,13 @@ func load_data() -> void:
 	if not cosmetic_owned("theme", theme):
 		theme = "washi"
 	_migrate_progress()
+	for kind in LOOK_KINDS:
+		if not _look_ok(String(look[kind]), kind):
+			look[kind] = ""
+	if not cosmetic_owned("hat", hat):
+		hat = "kasa"
+	if not cosmetic_owned("blade", blade):
+		blade = "sumi"
 	# rouleau de départ : on garde le choix même s'il n'est pas encore débloqué (start_power() le vérifie)
 	if learned("v3") and not Data.POWERS.has(start_power_id):
 		start_power_id = _first_choice()
@@ -425,6 +508,13 @@ func save_data() -> void:
 	cf.set_value("wardrobe", "outfit", outfit)
 	cf.set_value("wardrobe", "theme", theme)
 	cf.set_value("wardrobe", "bought", bought.keys())
+	cf.set_value("wardrobe", "hat", hat)
+	cf.set_value("wardrobe", "blade", blade)
+	cf.set_value("wardrobe", "new", wardrobe_new.keys())
+	cf.set_value("wardrobe", "known", feats_known.keys())
+	cf.set_value("feats", "elite", elite_total)
+	cf.set_value("feats", "clean_bosses", clean_bosses)
+	cf.set_value("feats", "clean_wins", clean_wins.keys())
 	for k in seen.keys():
 		cf.set_value("bestiary", String(k), seen[k])
 	cf.save(SAVE_PATH)
@@ -741,6 +831,9 @@ func print_how(id: String, short := false) -> String:
 
 
 func _look_ok(pid: String, kind: String) -> bool:
+	if EXTRA_LOOKS.has(pid):
+		var x: Dictionary = EXTRA_LOOKS[pid]
+		return String(x["kind"]) == kind and cosmetic_owned(kind, pid)
 	if pid == "" or not PRINTS.has(pid) or not has_print(pid):
 		return false
 	var p: Dictionary = PRINTS[pid]
@@ -773,7 +866,8 @@ func look_on(kind: String) -> bool:
 ## Couleur portée pour un type d'apparence (couleur d'origine si rien n'est porté).
 func look_color(kind: String) -> Color:
 	if look_on(kind):
-		var p: Dictionary = PRINTS[String(look[kind])]
+		var lid := String(look[kind])
+		var p: Dictionary = EXTRA_LOOKS[lid] if EXTRA_LOOKS.has(lid) else PRINTS[lid]
 		return p["col"]
 	match kind:
 		"cape":
@@ -785,7 +879,10 @@ func look_color(kind: String) -> Color:
 
 func look_name(kind: String) -> String:
 	if look_on(kind):
-		var p: Dictionary = PRINTS[String(look[kind])]
+		var lid := String(look[kind])
+		if EXTRA_LOOKS.has(lid):
+			return String(EXTRA_LOOKS[lid]["name"])
+		var p: Dictionary = PRINTS[lid]
 		return String(p["look"])
 	return "d'origine"
 
@@ -820,33 +917,52 @@ func _grant_runs() -> Array:
 
 
 # --- Garde-robe ---------------------------------------------------------------
-## Catégories : outfit (tenue), cape, trail, ink (apparences des Vues), theme (interface).
-## Pour cape / trail / ink, l'id est celui d'une Vue ("" = d'origine).
+## Catégories : hat (chapeau), blade (lame), cape, trail, ink (apparences des Vues et en plus), theme (interface),
+## outfit (tenue, plus proposée : le hakama est fixe).
+## Pour cape / trail / ink, l'id est celui d'une Vue, ou d'une apparence en plus (EXTRA_LOOKS) ; "" = d'origine.
 
 func _cosmetic(cat: String, id: String) -> Dictionary:
-	if cat == "outfit":
-		return OUTFITS.get(id, {})
-	if cat == "theme":
-		return THEMES.get(id, {})
+	match cat:
+		"outfit":
+			return OUTFITS.get(id, {})
+		"theme":
+			return THEMES.get(id, {})
+		"hat":
+			return HATS.get(id, {})
+		"blade":
+			return BLADES.get(id, {})
+	if cat in LOOK_KINDS and EXTRA_LOOKS.has(id):
+		var x: Dictionary = EXTRA_LOOKS[id]
+		if String(x["kind"]) == cat:
+			return x
 	return {}
 
 
 ## Ids proposés dans une catégorie, dans l'ordre d'affichage.
 func cosmetic_ids(cat: String) -> Array:
-	if cat == "outfit":
-		return OUTFIT_ORDER.duplicate()
-	if cat == "theme":
-		return THEME_ORDER.duplicate()
+	match cat:
+		"outfit":
+			return OUTFIT_ORDER.duplicate()
+		"theme":
+			return THEME_ORDER.duplicate()
+		"hat":
+			return HAT_ORDER.duplicate()
+		"blade":
+			return BLADE_ORDER.duplicate()
 	var out: Array = [""]
 	for pid in PRINT_ORDER:
 		var p: Dictionary = PRINTS[pid]
 		if String(p["kind"]) == cat:
 			out.append(String(pid))
+	for xid in EXTRA_LOOK_ORDER:
+		var x: Dictionary = EXTRA_LOOKS[xid]
+		if String(x["kind"]) == cat:
+			out.append(String(xid))
 	return out
 
 
 func cosmetic_name(cat: String, id: String) -> String:
-	if cat in LOOK_KINDS:
+	if cat in LOOK_KINDS and not EXTRA_LOOKS.has(id):
 		if id == "":
 			return "D'origine"
 		var p: Dictionary = PRINTS.get(id, {})
@@ -857,7 +973,7 @@ func cosmetic_name(cat: String, id: String) -> String:
 
 ## Couleur de la pastille.
 func cosmetic_color(cat: String, id: String) -> Color:
-	if cat in LOOK_KINDS:
+	if cat in LOOK_KINDS and not EXTRA_LOOKS.has(id):
 		if id == "":
 			match cat:
 				"cape":
@@ -874,6 +990,20 @@ func cosmetic_color(cat: String, id: String) -> Color:
 	return d.get("col", Toon.SUMI)
 
 
+## Seconde couleur de la pastille (chapeau, lame) ; transparente sinon.
+func cosmetic_color2(cat: String, id: String) -> Color:
+	var d := _cosmetic(cat, id)
+	var c: Color = d.get("col2", Color(0, 0, 0, 0))
+	return c
+
+
+## Lueur d'une lame (transparente : acier nu).
+func cosmetic_glow(cat: String, id: String) -> Color:
+	var d := _cosmetic(cat, id)
+	var c: Color = d.get("glow", Color(1, 1, 1, 0))
+	return c
+
+
 ## Prix en pétales (-1 : ne s'achète pas).
 func cosmetic_cost(cat: String, id: String) -> int:
 	var d := _cosmetic(cat, id)
@@ -881,7 +1011,7 @@ func cosmetic_cost(cat: String, id: String) -> int:
 
 
 func cosmetic_owned(cat: String, id: String) -> bool:
-	if cat in LOOK_KINDS:
+	if cat in LOOK_KINDS and not EXTRA_LOOKS.has(id):
 		return id == "" or (has_print(id) and _look_ok(id, cat))
 	var d := _cosmetic(cat, id)
 	if d.is_empty():
@@ -890,9 +1020,73 @@ func cosmetic_owned(cat: String, id: String) -> bool:
 		return true
 	if d.has("print"):
 		return has_print(String(d["print"]))
+	if d.has("petals"):
+		return false
+	return feat_ok(d)
+
+
+## Exploit rempli (clés « boss », « master », « elite », « clean_boss », « clean_win », « prints », « kills », « runs »).
+func feat_ok(d: Dictionary) -> bool:
+	if d.has("boss"):
+		return world_cleared(int(d["boss"]))
+	if d.has("master"):
+		return master_worlds() > 0
+	if d.has("elite"):
+		return elite_total >= int(d["elite"])
+	if d.has("clean_boss"):
+		return clean_bosses >= int(d["clean_boss"])
+	if d.has("clean_win"):
+		return clean_wins.size() >= int(d["clean_win"])
 	if d.has("prints"):
 		return prints >= int(d["prints"])
+	if d.has("kills"):
+		return kills_total() >= int(d["kills"])
+	if d.has("runs"):
+		return runs >= int(d["runs"])
 	return false
+
+
+## Exploit en clair, avec l'avancée quand elle se compte.
+func feat_how(d: Dictionary) -> String:
+	if d.has("boss"):
+		var w := int(d["boss"])
+		var wn: String = ALL_WORLD_NAMES[w - 1] if w >= 1 and w <= ALL_WORLD_NAMES.size() else ""
+		return "Bats le boss du monde %d, %s." % [w, wn]
+	if d.has("master"):
+		return "Remporte un monde au rang Maître."
+	if d.has("elite"):
+		return "Relève %d défis d'élite (%d / %d)." % [int(d["elite"]), mini(elite_total, int(d["elite"])), int(d["elite"])]
+	if d.has("clean_boss"):
+		return "Bats un boss de monde sans une égratignure."
+	if d.has("clean_win"):
+		return "Remporte un monde sans perdre un cœur."
+	if d.has("prints"):
+		if int(d["prints"]) >= MAX_PRINTS:
+			return "Collectionne les %d Vues (%d / %d)." % [MAX_PRINTS, prints, MAX_PRINTS]
+		return "Collectionne %d Vues (tu en as %d)." % [int(d["prints"]), prints]
+	if d.has("kills"):
+		return "Tranche %d yōkai (%d / %d)." % [int(d["kills"]), mini(kills_total(), int(d["kills"])), int(d["kills"])]
+	if d.has("runs"):
+		return "Joue %d parties (tu en as joué %d)." % [int(d["runs"]), runs]
+	return ""
+
+
+## Mondes remportés au rang Maître.
+func master_worlds() -> int:
+	var n := 0
+	for wid in range(1, WORLD_COUNT + 1):
+		if Score.rank_of(world_score_of(wid), wid, world_cleared(wid)) >= Score.RANK_PTS.size():
+			n += 1
+	return n
+
+
+## Yōkai tranchés, toutes parties : la somme des victoires du bestiaire.
+func kills_total() -> int:
+	var n := 0
+	for k in seen:
+		var v: Array = seen[k]
+		n += int(v[0])
+	return n
 
 
 func cosmetic_worn(cat: String, id: String) -> bool:
@@ -901,6 +1095,10 @@ func cosmetic_worn(cat: String, id: String) -> bool:
 			return outfit == id
 		"theme":
 			return theme == id
+		"hat":
+			return hat == id
+		"blade":
+			return blade == id
 	if cat in LOOK_KINDS:
 		var cur := String(look.get(cat, "")) if look_on(cat) else ""
 		return cur == id
@@ -911,7 +1109,7 @@ func cosmetic_worn(cat: String, id: String) -> bool:
 func cosmetic_how(cat: String, id: String) -> String:
 	if cosmetic_owned(cat, id):
 		return ""
-	if cat in LOOK_KINDS:
+	if cat in LOOK_KINDS and not EXTRA_LOOKS.has(id):
 		return print_how(id)
 	var d := _cosmetic(cat, id)
 	if d.has("petals"):
@@ -920,9 +1118,61 @@ func cosmetic_how(cat: String, id: String) -> String:
 		var pid := String(d["print"])
 		var p: Dictionary = PRINTS.get(pid, {})
 		return "Vue « %s » : %s" % [String(p.get("name", pid)), print_how(pid)]
-	if d.has("prints"):
+	if d.has("prints") and int(d["prints"]) < MAX_PRINTS:
 		return "Collectionne %d Vues (tu en as %d)." % [int(d["prints"]), prints]
-	return ""
+	return feat_how(d)
+
+
+## Éléments gagnés par exploit (pas les achats ni les Vues) : « cat:id ».
+func _feat_owned() -> Dictionary:
+	var out := {}
+	for c in ["hat", "blade"] + LOOK_KINDS:
+		for id in cosmetic_ids(String(c)):
+			var d := _cosmetic(String(c), String(id))
+			if d.is_empty() or d.has("petals") or bool(d.get("free", false)):
+				continue
+			if cosmetic_owned(String(c), String(id)):
+				out["%s:%s" % [String(c), String(id)]] = true
+	return out
+
+
+## Éléments gagnés par exploit depuis le dernier passage (fin de partie, ouverture de la garde-robe) : marqués
+## « nouveaux » (pastille), renvoyés (« cat:id ») ; sauvegarde s'il y en a. Les anciennes sauvegardes voient ainsi
+## d'un coup ce que leurs exploits passés leur ont déjà valu.
+func refresh_new() -> Array:
+	var out: Array = []
+	for k in _feat_owned():
+		if not feats_known.has(k):
+			feats_known[k] = true
+			wardrobe_new[k] = true
+			out.append(String(k))
+	if not out.is_empty():
+		save_data()
+	return out
+
+
+## Pastille « nouveau » : l'élément, ou n'importe lequel de la catégorie (id vide).
+func cosmetic_new(cat: String, id := "") -> bool:
+	if id != "":
+		return wardrobe_new.has("%s:%s" % [cat, id])
+	for k in wardrobe_new:
+		if String(k).begins_with(cat + ":"):
+			return true
+	return false
+
+
+## L'élément a été vu (touché dans la garde-robe) : plus de pastille.
+func cosmetic_seen(cat: String, id: String) -> void:
+	if wardrobe_new.erase("%s:%s" % [cat, id]):
+		save_data()
+
+
+## Robot et captures : accorde un élément (Vue, ou achat sans prix).
+func grant_cosmetic(cat: String, id: String) -> void:
+	if cat in LOOK_KINDS and PRINTS.has(id):
+		_grant(id)
+	elif not _cosmetic(cat, id).is_empty():
+		bought["%s:%s" % [cat, id]] = true
 
 
 func can_buy_cosmetic(cat: String, id: String) -> bool:
@@ -950,12 +1200,24 @@ func wear_cosmetic(cat: String, id: String) -> bool:
 			outfit = id
 		"theme":
 			theme = id
+		"hat":
+			hat = id
+		"blade":
+			blade = id
 		_:
 			if not (cat in LOOK_KINDS):
 				return false
 			look[cat] = id
 	save_data()
 	return true
+
+
+## Teinte de l'éclat de coupe (main._slash_mark) : blanc, légèrement teinté par une lame qui luit.
+func blade_tint() -> Color:
+	var g := cosmetic_glow("blade", blade)
+	if g.a <= 0.0:
+		return Color(1, 1, 1)
+	return Color(1, 1, 1).lerp(g, 0.45)
 
 
 ## Couleurs du thème porté : {paper, wash, ink, accent}.
@@ -971,13 +1233,15 @@ func outfit_texture() -> Texture2D:
 	return tex
 
 
-## Apparence complète sur le héros (tenue, écharpe, sillage) et encre du trait : début de partie,
+## Apparence complète sur le héros (tenue, écharpe, sillage, chapeau, sabre) et encre du trait : début de partie,
 ## accueil et garde-robe (aperçu immédiat).
 func apply_look(hero) -> void:
 	if hero != null and hero.has_method("set_look"):
 		hero.set_look(look_color("cape"), look_on("cape"), look_color("trail"), look_on("trail"))
 	if hero != null and hero.has_method("set_outfit"):
 		hero.set_outfit(outfit_texture())
+	if hero != null and hero.has_method("set_gear"):
+		hero.set_gear(hat, blade)
 	# encre du trait : variable statique « ink » de ink_stroke.gd (sans effet tant qu'elle n'existe pas).
 	# Le trait multiplie la teinte par elle-même : on passe la racine pour retrouver la couleur voulue.
 	var ink := Toon.SUMI
@@ -1150,7 +1414,14 @@ func apply_run_start(m) -> void:
 ## 1 par malédiction portée (3 au plus), 2 à la toute première victoire ; « seals » vaut toujours 0. Vues : selon le monde joué (world_id) et le nombre de parties.
 ## Pétales (garde-robe) : PETALS_MINI par gardien, PETALS_BOSS par boss, PETALS_WIN pour une victoire, 1 par défi
 ## relevé (challenges : élites des recoins) et 1 par Vue nouvelle.
-func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, victory: bool, mini_boss_kills := 0, world_id := 0, challenges := 0) -> Dictionary:
+## Exploits de la garde-robe : défis d'élite cumulés ; « clean_boss » (boss du monde vaincu sans une égratignure)
+## et « untouched » (aucun cœur perdu de toute la partie) comptent pour une victoire.
+func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, victory: bool, mini_boss_kills := 0, world_id := 0, challenges := 0, clean_boss := false, untouched := false) -> Dictionary:
+	elite_total += maxi(0, challenges)
+	if victory and clean_boss:
+		clean_bosses += 1
+	if victory and untouched and world_id >= 1:
+		clean_wins[world_id] = true
 	var base := float(floori(maxi(0, kills) / 5.0) + 10 * mini_boss_kills + 30 * boss_kills + SUMI_PER_ROOM * rooms_cleared)
 	base *= 1.0 + 0.15 * maxi(0, curses)
 	var gained := maxi(0, int(round(base * sumi_mult())))

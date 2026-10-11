@@ -321,6 +321,7 @@ const BOAT_BEAM := 0.62
 const BOAT_HERO_Z := -1.0
 const RING_LIFE := 3.0  # durée d'une ride sur l'eau
 const WARDROBE_DIR := Vector3(0.958, 0.0, -0.287)  # garde-robe : la caméra sur le flanc de la proue
+const WARDROBE_BLADE_TURN := -0.75  # garde-robe, onglet LAME : le héros se tourne (rad) pour montrer son sabre
 const Decor = preload("res://scripts/decor.gd")
 var menu_boat: Node3D
 var _boat_lantern: Node3D
@@ -340,6 +341,7 @@ var _new_kind_t := 0.0
 var _bestiary_dirty := false  # victoires comptées depuis la dernière sauvegarde
 var _wardrobe_on := false
 var _wardrobe_k := 0.0
+var _wd_cam := Vector3(3.3, 1.05, 0.1)  # caméra de la garde-robe : recul, hauteur, point visé (selon l'onglet)
 var _env: Environment
 # ambiance de boss : ciel assombri vers l'encre du monde, brume plus dense, soleil bas et chaud, contraste,
 # éclairs lointains (boss du monde seulement) ; fondue à l'entrée en scène, retirée à la mort du boss
@@ -497,6 +499,7 @@ var _cap_oni_fige := -1.0  # captures (`figeoni=X`) : image figée X s après le
 var _cap_oni_win := false  # captures (`vaincu`) : l'élite du sanctuaire d'oni meurt aussitôt parue
 # combat de boss sans dégât
 var _scratched := false
+var _run_scratched := false  # un cœur perdu dans la partie (exploit « sans perdre un cœur » de la garde-robe)
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
 # portes à deux sceaux (fin d'étape, SealGate) : le sceau de la porte franchie vaut pour l'étape qui suit
 const SealGate = preload("res://scripts/seal_gate.gd")
@@ -696,6 +699,14 @@ func _ready() -> void:
 	# `&pinceau=hake&aspect=1&charme=garde` (captures) : équipement imposé, même verrouillé ; `&won=N` : progression
 	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés) pour l'écran de départ ; rien n'est sauvegardé
 	_gear_query(wsearch)
+	# `&chapeau=oni&lame=mizu&echarpe=c_gin&sillage=t_raiko&trait=i_kin` (captures) : ces éléments de la garde-robe
+	# accordés et portés (les captures tournent sur une sauvegarde à part)
+	for qa in [["chapeau=", "hat"], ["lame=", "blade"], ["echarpe=", "cape"], ["sillage=", "trail"], ["trait=", "ink"]]:
+		var qp := wsearch.find(String(qa[0]))
+		if qp >= 0:
+			var qid := wsearch.substr(qp + String(qa[0]).length()).get_slice("&", 0)
+			meta.grant_cosmetic(String(qa[1]), qid)
+			meta.wear_cosmetic(String(qa[1]), qid)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
@@ -967,7 +978,7 @@ func _ready() -> void:
 		tuto.dojo.call("_toggle_book")
 	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
 	if "garderobe" in wsearch:
-		# `&cat=N` : l'onglet N ouvert (3 : interface, les prix) ; `&petales=N` : N pétales (captures)
+		# `&cat=N` : l'onglet N ouvert (0 chapeau, 1 lame, 2 écharpe, 3 sillage, 4 encre, 5 thème) ; `&petales=N` : N pétales
 		var wpq := wsearch.find("petales=")
 		if wpq >= 0:
 			meta.petals = maxi(0, int(wsearch.substr(wpq + 8).get_slice("&", 0)))
@@ -1004,6 +1015,11 @@ func _ready() -> void:
 		_finish_run()
 		menu.new_prints = ["w1_room"]  # estampe de démo (vignette des gains)
 		if "gain" in wsearch:
+			# garde-robe : deux éléments gagnés par exploit (pastilles des gains)
+			menu.new_looks.clear()
+			for nk in [["hat", "hachimaki"], ["blade", "braise"]]:
+				menu.new_looks.append({"name": String(meta.cosmetic_name(nk[0], nk[1])), "col": meta.cosmetic_color(nk[0], nk[1]),
+					"col2": meta.cosmetic_color2(nk[0], nk[1])})
 			# `&gain` : aspect, pinceau et omamori gagnés (tuiles de la rangée DÉBLOQUÉ)
 			menu.unlock_gear = [{"kind": "aspect", "id": "fude", "k": 1}, {"kind": "brush", "id": "hake", "k": 0}, {"kind": "charm", "id": "garde", "k": 0}]
 			if _ending_victory:
@@ -1914,8 +1930,8 @@ func _menu_transform() -> Transform3D:
 ## Garde-robe : la caméra passe sur le flanc de la proue, le héros se tourne vers elle (haut de l'écran).
 func _wardrobe_transform() -> Transform3D:
 	var hp := hero.position if is_instance_valid(hero) else MENU_BOAT
-	var pos := hp + WARDROBE_DIR * 3.3 + Vector3(0, 1.05, 0)
-	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0, 0.1, 0), Vector3.UP)
+	var pos := hp + WARDROBE_DIR * _wd_cam.x + Vector3(0, _wd_cam.y, 0)
+	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0, _wd_cam.z, 0), Vector3.UP)
 
 
 ## Barque de l'accueil (sampan) : coque courbe, pont de planches, toit de natte (tomaya) sur quatre
@@ -2611,6 +2627,7 @@ func _on_wardrobe_closed() -> void:
 	menu.sumi = meta.sumi
 	if is_instance_valid(hero):
 		hero.face(Vector3(0, 0, -1))
+		hero.preview_drawn = false
 	if state == "menu":
 		menu.show_mode("home")
 
@@ -3089,6 +3106,7 @@ func _start(hub := true, tutorial := false) -> void:
 	boss_kills = 0
 	mini_kills = 0
 	defi_kills = 0
+	_run_scratched = false
 	run_time = 0.0
 	xp = 0
 	level = 1
@@ -5620,9 +5638,19 @@ func _slowmo_w() -> float:
 
 func _award(victory: bool) -> void:
 	var cleared := room if victory or _room_done else room - 1
-	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world, defi_kills)
+	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world, defi_kills,
+		_flawless_boss, not _run_scratched)
 	var open_before: Dictionary = meta.brushes_open()
 	var un: Dictionary = meta.record_world(current_world, room, victory)
+	# garde-robe : ce que les exploits de la partie viennent d'offrir (chapeau, lame, apparences), sur la feuille
+	menu.new_looks.clear()
+	for k in meta.refresh_new():
+		var kc := String(k).get_slice(":", 0)
+		var kid := String(k).get_slice(":", 1)
+		menu.new_looks.append({"name": String(meta.cosmetic_name(kc, kid)), "col": meta.cosmetic_color(kc, kid),
+			"col2": meta.cosmetic_color2(kc, kid)})
+	if _bot != null and not menu.new_looks.is_empty():
+		print("BOT GARDE-ROBE gagné : %d élément(s)" % menu.new_looks.size())
 	# pinceaux : le boss vaincu avec ce pinceau donne son aspect suivant ; le monde ouvre peut-être un pinceau
 	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory else []
 	if _bot != null and not menu.unlock_gear.is_empty():
@@ -6960,6 +6988,7 @@ func _hurt_hero(n := 1) -> void:
 	if hero.hp <= n and not _last_breath_used and meta.learned("p6"):
 		# Dernier souffle (Arbre du pinceau) : une fois par partie, le coup mortel laisse 1 cœur
 		_last_breath_used = true
+		_run_scratched = true
 		hero.hp = 1
 		hero.invuln = 1.5
 		_break_chain()
@@ -6974,6 +7003,7 @@ func _hurt_hero(n := 1) -> void:
 	if "cursed_ink" in curses:
 		_ink_lock = INK_LOCK_T  # Encre maudite : la recharge d'encre se fige
 	_scratched = true
+	_run_scratched = true
 	_break_chain()
 	score.on_hurt()
 	hud.hurt_flash = 1.0
@@ -7339,7 +7369,8 @@ func _slash_mark(pos: Vector3, dir: Vector3) -> void:
 	n.rotation.y = atan2(-d.x, -d.z) + randf_range(-0.5, 0.5)
 	if not _fx_cache.has("slash"):
 		_fx_cache["slash"] = Toon.box(Vector3(0.06, 0.02, 1.5))
-	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(1, 1, 1, 0.95)), Vector3.ZERO)
+	# blanc, teinté par une lame qui luit (garde-robe : eau, braise, ombre, or)
+	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(meta.blade_tint(), 0.95)), Vector3.ZERO)
 	bar.rotation.x = randf_range(-0.25, 0.25)
 	bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	effects.append({"node": n, "t": 0.0, "life": 0.14, "kind": "slash", "mats": [bar.material_override], "alpha": 0.95})
@@ -7689,6 +7720,19 @@ func _process(_delta: float) -> void:
 		var sway := Vector3(sin(_state_t * 0.35) * 0.18, sin(_state_t * 0.5) * 0.06, 0)
 		var mt := _menu_transform().translated(sway)
 		var w_on := _wardrobe_on and wardrobe != null and wardrobe.visible
+		if is_instance_valid(hero):
+			# onglet CHAPEAU : la caméra s'approche de la tête, un peu au-dessus ; onglet LAME : le héros tire son
+			# sabre et se tourne de trois quarts pour le montrer de profil
+			var wcat := String(wardrobe.call("cat_id")) if w_on else ""
+			hero.preview_drawn = wcat == "blade"
+			if w_on:
+				hero.face(WARDROBE_DIR.rotated(Vector3.UP, WARDROBE_BLADE_TURN) if wcat == "blade" else WARDROBE_DIR)
+			var want := Vector3(3.3, 1.05, 0.1)
+			if wcat == "hat":
+				want = Vector3(2.6, 2.3, 0.7)
+			elif wcat == "blade":
+				want = Vector3(3.0, 1.3, 0.2)
+			_wd_cam = _wd_cam.lerp(want, minf(1.0, real * 5.0))
 		_home_scene_tick(real)
 		_wardrobe_k = move_toward(_wardrobe_k, 1.0 if w_on else 0.0, real * 1.4)
 		if _wardrobe_k > 0.0:
