@@ -199,6 +199,7 @@ var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers
 var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passées (anciennes sauvegardes : ancien tutoriel fait)
 const COACH_MARKS := ["stroke", "cut", "ink", "figure", "ult", "run", "figures"]  # bulles du coach (coach.gd)
 const COACH_EXTRA := ["seal"]  # bulles hors tutoriel (coach.EXTRA) : vues une fois, sans compter pour sa fin
+const COACH_HOME := ["arbre"]  # tutoriels de l'accueil (tree_coach.gd : l'Arbre du pinceau), une fois, hors « Passer »
 var coach_seen := {}  # id de bulle -> true : déjà montrée
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var measure_mode := false  # mode mesure (caché : appui long sur le titre de l'accueil, mesure.gd)
@@ -241,7 +242,7 @@ func load_data() -> void:
 	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
 	won_top = clampi(int(cf.get_value("meta", "won_top", 0)), 0, WORLD_COUNT)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
-	for id in COACH_MARKS + COACH_EXTRA:
+	for id in COACH_MARKS + COACH_EXTRA + COACH_HOME:
 		if bool(cf.get_value("coach", id, false)):
 			coach_seen[id] = true
 	# anciennes sauvegardes : qui a déjà fait le tutoriel n'a pas besoin de l'intro
@@ -263,6 +264,9 @@ func load_data() -> void:
 		for id in TREE_ORDER:
 			if bool(cf.get_value("tree", id, false)):
 				tree[id] = true
+	# anciennes sauvegardes : qui a déjà appris un nœud (ou monté la Bourse) connaît l'arbre, pas de tutoriel
+	if not tree.is_empty() or purse_rank > 0:
+		coach_seen["arbre"] = true
 	var had_vues := cf.has_section("vues")
 	for id in PRINT_ORDER:
 		if bool(cf.get_value("vues", id, false)):
@@ -403,7 +407,7 @@ func save_data() -> void:
 	cf.set_value("meta", "power_tier", power_tier)
 	cf.set_value("meta", "won_top", won_top)
 	cf.set_value("meta", "tuto_done", tuto_done)
-	for id in COACH_MARKS + COACH_EXTRA:
+	for id in COACH_MARKS + COACH_EXTRA + COACH_HOME:
 		cf.set_value("coach", id, coach_seen.has(id))
 	cf.set_value("meta", "intro_done", intro_done)
 	cf.set_value("meta", "opening_done", opening_done)
@@ -562,6 +566,15 @@ func learn(id: String) -> bool:
 		start_power_id = _first_choice()
 	save_data()
 	return true
+
+
+## Prix du nœud disponible le moins cher (-1 : aucun nœud disponible).
+func cheapest_open_cost() -> int:
+	var best := -1
+	for id in TREE_ORDER:
+		if node_open(String(id)) and (best < 0 or node_cost(String(id)) < best):
+			best = node_cost(String(id))
+	return best
 
 
 ## Vrai si un nœud au moins est à la portée de l'encre actuelle (pastille sur l'onglet).

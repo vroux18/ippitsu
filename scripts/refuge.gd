@@ -749,6 +749,33 @@ func select_node(id: String) -> void:
 		_seg = 0.0
 
 
+## Rectangle tactile (écran) d'une cible dessinée à l'image précédente (« node:e1 », « learn », « tab:0 »…), vide
+## sinon : le tutoriel de l'arbre (tree_coach.gd) y pose son projecteur.
+func hit_rect(key: String) -> Rect2:
+	for i in range(_hits.size() - 1, -1, -1):
+		var hr: Array = _hits[i]
+		if String(hr[1]) == key:
+			return hr[0]
+	return Rect2()
+
+
+## Centre (écran) d'un nœud de l'arbre, tel que dessiné (Vector2.INF : pas encore posé).
+func node_center(id: String) -> Vector2:
+	return _node_pos.get(id, Vector2.INF)
+
+
+## Jeton d'encre (en haut) et panneau du bas de l'arbre, en coordonnées de l'écran.
+func ink_chip_rect() -> Rect2:
+	var gap := 8.0 * _u
+	var nc := CHIP_LABELS.size()
+	var cw := (size.x - 28.0 * _u - gap * float(nc - 1)) / float(nc)
+	return Rect2(Vector2(14 * _u, _top + COUNTERS_Y * _u), Vector2(cw, UiKit.CHIP_H * _u))
+
+
+func detail_rect() -> Rect2:
+	return _detail_rect
+
+
 ## APPRENDRE : débite l'encre et apprend le nœud choisi ; refus (secousse du bouton) sinon.
 func _learn() -> void:
 	var id := _tree_sel

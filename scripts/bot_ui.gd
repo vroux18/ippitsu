@@ -33,6 +33,9 @@ func run() -> void:
 		await _recover()
 	if not await _step_options("accueil"):
 		await _recover()
+	if not await _step_tree_coach():
+		main.tree_coach.call("_end")
+		await _recover()
 	if not await _step_atelier():
 		await _recover()
 	if not await _step_wardrobe():
@@ -630,6 +633,68 @@ func _ref_scroll() -> void:
 	await _drag(ref, view.get_center(), view.get_center() + Vector2(0.0, -view.size.y * 0.3))
 	var s2: float = ref._scroll
 	_check(s1 > s0 and absf(s2 - s1) > 0.5, "atelier : défilement de l'onglet %d (molette, glissé)" % int(ref._tab), "%.0f -> %.0f -> %.0f" % [s0, s1, s2])
+
+
+## Tutoriel de l'Arbre du pinceau (tree_coach.gd) : une partie jouée, de quoi apprendre un nœud, arbre vide ; le
+## robot le laisse se déclencher de lui-même à l'accueil, puis suit ses projecteurs : ATELIER, le nœud, APPRENDRE ;
+## le nœud est appris, le drapeau sauvegardé, et il ne revient pas au retour à l'accueil.
+func _step_tree_coach() -> bool:
+	var meta = main.meta
+	var tc = main.tree_coach
+	var mn = main.menu
+	var ref = main.refuge
+	meta.tree = {}
+	meta.purse_rank = 0
+	meta.sumi = 120
+	meta.runs = maxi(1, int(meta.runs))
+	meta.coach_seen.erase("arbre")
+	meta.save_data()
+	mn.sumi = meta.sumi
+	if not await _until(func(): return String(main.state) == "menu" and String(mn.mode) == "home", "arbre (tuto) : accueil"):
+		return false
+	_check(bool(tc.due()), "arbre (tuto) : dû (encre %d, nœud à %d)" % [int(meta.sumi), int(meta.cheapest_open_cost())], "pas dû")
+	tc.auto = true  # le robot le demande : déclenchement ordinaire
+	var trig := await _until(func(): return int(tc.step) == 1 and (tc.spot as Rect2).has_area(), "arbre (tuto) : déclenché à l'accueil")
+	tc.auto = false
+	if not trig:
+		return false
+	var ar: Rect2 = (mn._atelier as Control).get_global_rect()
+	if not _check((tc.spot as Rect2).is_equal_approx(ar), "arbre (tuto) : projecteur sur ATELIER", "%s au lieu de %s" % [str(tc.spot), str(ar)]):
+		return false
+	_check(bool(meta.coach_seen.has("arbre")), "arbre (tuto) : drapeau posé dès l'affichage", "drapeau absent")
+	await _frames(10)  # (garde-fou du toucher : la cible répond après 0,15 s)
+	await _press(mn._atelier, "ATELIER (tuto)")
+	if not await _until(func(): return int(tc.step) == 2 and bool(ref.visible) and (tc.spot as Rect2).has_area(), "arbre (tuto) : étape du nœud"):
+		return false
+	var nid := String(tc.target)
+	var nr: Rect2 = ref.hit_rect("node:" + nid)
+	if not _check(nid != "" and bool(meta.can_learn(nid)) and (tc.spot as Rect2).is_equal_approx(nr) and int(ref._tab) == 0,
+			"arbre (tuto) : projecteur sur le nœud %s (onglet ARBRE)" % nid, "cible %s, %s au lieu de %s, onglet %d" % [nid, str(tc.spot), str(nr), int(ref._tab)]):
+		return false
+	await _frames(10)
+	await _ref_tap("node:" + nid)
+	if not await _until(func(): return int(tc.step) == 3 and (tc.spot as Rect2).has_area(), "arbre (tuto) : étape APPRENDRE"):
+		return false
+	var lr: Rect2 = ref.hit_rect("learn")
+	if not _check((tc.spot as Rect2).is_equal_approx(lr) and String(ref._tree_sel) == nid, "arbre (tuto) : projecteur sur APPRENDRE", "%s au lieu de %s" % [str(tc.spot), str(lr)]):
+		return false
+	var s0 := int(meta.sumi)
+	await _frames(10)
+	await _ref_tap("learn")
+	if not await _until(func(): return int(tc.step) == 4, "arbre (tuto) : bulle finale"):
+		return false
+	_check(bool(meta.learned(nid)) and int(meta.sumi) == s0 - int(meta.node_cost(nid)), "arbre (tuto) : nœud %s appris" % nid, "appris %s, encre %d -> %d" % [str(meta.learned(nid)), s0, int(meta.sumi)])
+	if not await _until(func(): return int(tc.step) == 0, "arbre (tuto) : la bulle finale part seule"):
+		return false
+	var cf := ConfigFile.new()
+	_check(cf.load(Meta.SAVE_PATH) == OK and bool(cf.get_value("coach", "arbre", false)), "arbre (tuto) : drapeau sauvegardé", "absent de la sauvegarde")
+	await _ref_tap("back")
+	if not await _until(func(): return not bool(ref.visible) and String(main.state) == "menu" and float(mn._t) > 2.2, "arbre (tuto) : retour à l'accueil"):
+		return false
+	tc.auto = true
+	await _frames(20)
+	tc.auto = false
+	return _check(int(tc.step) == 0 and not bool(tc.due()), "arbre (tuto) : pas de réapparition", "étape %d" % int(tc.step))
 
 
 func _step_atelier() -> bool:
