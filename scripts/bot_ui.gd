@@ -1457,6 +1457,8 @@ func _step_merchant() -> bool:
 	if not await _until(func(): return String(main.state) == "play" and _hero_still() and bool(main._explore), "marchand : héros posé hors combat"):
 		return false
 	var pk: Dictionary = main._spawn_merchant(main._shrine_spot())
+	pk["shown"] = true  # (posé pour le test au milieu de l'étape : debout tout de suite)
+	(pk["node"] as Node3D).visible = true
 	var its: Array = []
 	for id in ["heal", "reroll", "scroll"]:
 		its.append({"id": id, "price": int(main.shop_price(id)), "sold": false})

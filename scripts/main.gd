@@ -125,6 +125,7 @@ const Shop = preload("res://scripts/shop.gd")  # échoppe du marchand tanuki
 # [monde 1, + par monde]. Robot de campagne (graine 101) : ~150 pièces en poche à la fin de l'étape 3 (de 50 à 600
 # selon le sceau d'or et le refus d'un pacte), ~430 sur tout un monde : de quoi prendre un ou deux articles.
 const MERCHANT_STAGE := 2  # étape (index) du marchand : la dernière avant celle du gardien (MINI_ROOM)
+const MERCHANT_RISE := 0.55  # l'étal surgit du sol en fin d'étape (s)
 const MERCHANT_R := 1.75  # = PuzzleArt.YATAI_RING_R : l'échoppe s'ouvre dans l'anneau d'or
 const SHOP_PRICE := {"reroll": [25, 5], "heal": [40, 5], "scroll": [60, 10], "upgrade": [75, 10], "charm": [90, 10]}
 const SHOP_HEAL := 2  # cœurs rendus par l'onigiri
@@ -852,6 +853,8 @@ func _ready() -> void:
 			arena.clear_zone(zi)
 		arena.open_gate()
 		var mpk := _spawn_merchant(_shrine_spot())
+		mpk["shown"] = true  # (capture : déjà debout)
+		mpk["node"].visible = true
 		var mp: Vector3 = mpk["pos"]
 		hero.position = arena.clamp_walk(mp + Vector3(0.4, 0, 3.0), 0.5)
 		hero.hp = maxi(1, hero.max_hp - 2)
@@ -5030,6 +5033,7 @@ func _spawn_merchant(p: Vector3) -> Dictionary:
 	add_child(n)
 	n.position = c
 	PuzzleArt.build_yatai(n)
+	n.visible = false  # (montré à la fin des combats de l'étape, _update_merchant)
 	var pk := {"kind": "merchant", "pos": c, "used": false, "node": n, "items": [], "away": false, "visited": false,
 		"hinted": false, "t": randf() * TAU}
 	_pockets.append(pk)
@@ -5042,6 +5046,20 @@ func _spawn_merchant(p: Vector3) -> Dictionary:
 ## Chaque image : le tanuki respire et agite son koban, le chōchin se balance ; le héros posé dans l'anneau d'or,
 ## hors combat, ouvre l'échoppe (une fois refermée, il faut sortir de l'anneau pour la rouvrir).
 func _update_merchant(pk: Dictionary, n: Node3D, d: float) -> void:
+	# l'étal n'apparaît qu'une fois les combats de l'étape finis : il surgit du sol (comme les portes à sceaux)
+	if not bool(pk.get("shown", false)):
+		if arena.stage and arena.zones_left() > 0:
+			n.visible = false
+			return
+		pk["shown"] = true
+		pk["rise"] = 0.0
+		n.visible = true
+		sfx.play("shrine", 1.3, -8.0)
+	if float(pk.get("rise", 1.0)) < 1.0:
+		pk["rise"] = minf(1.0, float(pk["rise"]) + get_process_delta_time() / MERCHANT_RISE)
+		var e := 1.0 - pow(1.0 - float(pk["rise"]), 3.0)
+		n.position.y = -1.4 * (1.0 - e)
+		n.scale = Vector3(1.0, maxf(0.05, e), 1.0)
 	var t := run_time + float(pk["t"])
 	if not pk.has("tk"):
 		pk["tk"] = n.get_node_or_null("Tanuki")
@@ -5606,7 +5624,7 @@ func bot_goal() -> Vector3:
 			continue
 		if String(pk["kind"]) == "spring" and hero.hp >= hero.max_hp:
 			continue
-		if String(pk["kind"]) == "merchant" and bool(pk.get("visited", false)):
+		if String(pk["kind"]) == "merchant" and (bool(pk.get("visited", false)) or not bool(pk.get("shown", false))):
 			continue  # échoppe déjà vue : le robot n'y retourne pas
 		if int(pk.get("bot_try", 0)) >= 4:
 			continue  # énigme (ou coffre scellé) ratée plusieurs fois : le robot la laisse
