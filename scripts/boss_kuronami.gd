@@ -750,8 +750,11 @@ func _phase_prog() -> float:
 	return clampf((top - hp) / third, 0.0, 1.0)
 
 
-func _deal(d: float) -> void:
-	if dead or d <= 0.0 or _phase == 0 or _state == "shift" or _state == "intro":
+func _deal(d_in: float) -> void:
+	if dead or d_in <= 0.0 or _phase == 0 or _state == "shift" or _state == "intro":
+		return
+	var d: float = main.boss_gate(self, d_in)  # garde anti-rafale (main.BOSS_FLOOR_T ; paliers : les siens)
+	if d <= 0.0:
 		return
 	var floor_hp := max_hp * float(3 - _phase) / 3.0
 	hp = maxf(hp - d, floor_hp)

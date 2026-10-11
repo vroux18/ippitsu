@@ -255,6 +255,23 @@ const HITSTOP_BOSS := 0.05
 ## Dégâts du héros sur les gardiens et les boss, multipliés par ce facteur (ruée, pouvoirs, ultime) : à 1,0 ils
 ## tombaient trop vite ; il faut maintenant tenir deux ou trois fenêtres de vulnérabilité.
 const BOSS_TOUGH := 0.55
+## Garde des boss et gardiens contre les rafales (boss_gate, appelée par chaque boss avant de perdre des PV).
+## Rythme : une réserve (BURST, part des PV max) se remplit de max_hp / FLOOR_T par seconde ; tant qu'il en
+## reste, les coups portent à plein (la fenêtre de vulnérabilité en profite), au-delà ils s'émoussent (OVER_K).
+## Une fenêtre ôte ainsi ~1/4 des PV d'un boss (~1/3 d'un gardien), un peu plus pour un gros build.
+## Paliers : un coup ne franchit pas un palier de PV (2/3 et 1/3 pour un boss de monde, la moitié pour un
+## gardien) ; le palier atteint, la fenêtre se referme, le bouclier se reforme et le boss tient PHASE_GUARD
+## secondes : chaque phase se joue à sa mécanique. Mesures (robot campagne, graines 101 à 505) : boss
+## 53-79 s, gardiens 35-42 s en moyenne ; arbre plein + calame + ascète : boss 36-54 s, gardiens 24-37 s
+## (avant : boss 7-22 s, gardiens 7-11 s ; 4-20 s avec l'arbre plein).
+const BOSS_FLOOR_T := 54.0
+const MINI_FLOOR_T := 32.0
+const BOSS_BURST := 0.18
+const MINI_BURST := 0.18
+const BOSS_OVER_K := 0.065
+const BOSS_PHASE_GUARD := 1.5
+const BOSS_CRIT_CAP := 1.25  # Coup net et critiques d'ombre plafonnés sur les boss et gardiens
+const BOSS_OWN_PHASES := ["kyubi", "kuronami"]  # paliers déjà tenus par le boss lui-même
 const HITSTOP_STEP := 0.01
 const HITSTOP_MAX := 0.12
 const HITSTOP_STROKE := 0.3  # arrêt cumulé maximal sur un trait
@@ -735,6 +752,14 @@ func _ready() -> void:
 		var sl2 := wsearch.find("sel=")
 		if sl2 >= 0:
 			picker.set("_sel", clampi(int(wsearch.substr(sl2 + 4).get_slice("&", 0)), 0, PACT_OFFER - 1))
+	# `?room=15&palier=6` (captures) : au bout de 6 s, le boss en place encaisse de quoi franchir son premier
+	# palier (boss_gate : PHASE 2, anneau bleu)
+	var plq := wsearch.find("palier=")
+	if plq >= 0:
+		get_tree().create_timer(float(wsearch.substr(plq + 7).get_slice("&", 0)), true, false, true).timeout.connect(func() -> void:
+			for bo in bosses:
+				if is_instance_valid(bo) and not bo.dead:
+					bo.call("_damage", float(bo.max_hp) * 4.0))  # (émoussé par la garde : franchit juste le palier)
 	# `?autel` (captures) : l'autel du sanctuaire posé dans la salle en cours (avec `room=N`)
 	# `?enigme=stele` (captures) : cette énigme de recoin (stele, lanterns, spirit) posée devant le héros
 	# `?coffre` ou `?enigme=chest` (captures) : un coffre scellé devant le héros ; `fig=hook` sa figure,
@@ -3378,6 +3403,55 @@ func _boss_reinforce() -> void:
 			hud.toast("RENFORTS")
 			sfx.play("strike", 0.8, -4.0)
 		return
+
+
+## Garde anti-rafale (voir BOSS_FLOOR_T) : dégâts `d` qu'un boss accepte vraiment maintenant. Tenue sur le
+## boss lui-même (méta « gate » : [réserve consommée, instant, fin de la garde de palier, palier suivant]), à
+## l'horloge du boss (_t, figée pendant son entrée en scène).
+func boss_gate(bo: Node3D, d: float) -> float:
+	if d <= 0.0 or not is_instance_valid(bo):
+		return d
+	var mh := float(bo.max_hp)
+	if mh <= 0.0:
+		return d
+	var mini := is_mini_boss(String(bo.kind))
+	var now := float(bo.get("_t"))
+	var st: Array = bo.get_meta("gate", [0.0, now, -1.0, 0])
+	if now < float(st[2]):
+		return 0.0  # garde de palier : le coup glisse
+	var rate := mh / (MINI_FLOOR_T if mini else BOSS_FLOOR_T)
+	var acc := maxf(0.0, float(st[0]) - rate * maxf(0.0, now - float(st[1])))
+	var room := maxf(0.0, mh * (MINI_BURST if mini else BOSS_BURST) - acc)
+	var out := minf(d, room) + maxf(0.0, d - room) * BOSS_OVER_K
+	acc += out
+	var guard := float(st[2])
+	var step := int(st[3])
+	if not String(bo.kind) in BOSS_OWN_PHASES:
+		var marks: Array = [0.5] if mini else [2.0 / 3.0, 1.0 / 3.0]
+		var hp := float(bo.hp)
+		if step < marks.size():
+			var mark := mh * float(marks[step])
+			if hp - out <= mark and hp > mark + 0.001:
+				out = hp - mark
+				step += 1
+				guard = now + BOSS_PHASE_GUARD
+				_boss_phase_fx(bo, step + 1)
+			elif hp <= mark + 0.001:
+				step += 1  # (palier déjà passé par la mécanique du boss)
+	bo.set_meta("gate", [acc, now, guard, step])
+	return out
+
+
+## Palier franchi : la fenêtre de vulnérabilité se referme (le bouclier se reforme au tic suivant), le boss
+## se redresse dans un anneau bleu.
+func _boss_phase_fx(bo: Node3D, phase: int) -> void:
+	if float(bo.get("vulnerable_t")) > 0.0:
+		bo.set("vulnerable_t", 0.001)
+	var p: Vector3 = bo.position
+	vfx.ring(Vector3(p.x, 0.1, p.z), Color("#6FB7FF"), 2.6)
+	float_text(p + Vector3(0, 2.4, 0), "PHASE %d" % phase, Toon.GOLD)
+	sfx.play("torii", 1.1, -4.0)
+	shake = maxf(shake, 0.5)
 
 
 func _spawn_boss(k: String) -> Node3D:
@@ -6913,7 +6987,7 @@ func _check_slashes() -> void:
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
 			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0)) * curse_dmg_mult()
-			bd *= meta.dmg_mult(chain) * _net_crit(bo.position)
+			bd *= meta.dmg_mult(chain) * minf(_net_crit(bo.position), BOSS_CRIT_CAP)
 			# pinceau : ses dégâts ; les boss gardent le chemin du héros (leurs mécaniques le lisent), le pinceau
 			# fendu y porte ses deux lignes (2 × 60 %)
 			bd *= brush_dmg() * (2.0 * Gear.SPLIT_DMG if brush == "warefude" else 1.0)

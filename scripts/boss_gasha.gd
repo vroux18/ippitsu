@@ -1,5 +1,5 @@
 extends Node3D
-## Boss du monde 3 (Cent Contes, design/UNIVERS.md) — Gashadokuro, squelette géant (32 PV).
+## Boss du monde 3 (Cent Contes, design/UNIVERS.md) — Gashadokuro, squelette géant (34 PV).
 ## Rythme bouclier → vulnérable : une gangue de givre (bouclier 12) ; bouclier levé, un coup
 ## n'effleure (10 % des dégâts) et use un peu la gangue ; brisée, il est vulnérable 6 s (×2), puis elle se reforme.
 ##  Buste qui sort du sol au fond de l'arène (z ≈ -7), deux mains (2 PV de main chacune) :
@@ -146,7 +146,7 @@ func setup(k: String, m: Node) -> void:
 
 
 func _ready() -> void:
-	hp = 32.0
+	hp = 34.0  # (32 avant : il tombait sous Kyūbi, le boss du monde précédent ; courbe des PV de boss par monde)
 	hp *= max_hp_mult
 	max_hp = hp
 	_hand_hp_max = HAND_HP
@@ -723,8 +723,11 @@ func _puff(delta: float, color: Color) -> void:
 		main.splash(Vector3(randf_range(-1.8, 1.8), 0.2, Z_BUST + randf_range(-0.4, 1.4)), color, 6)
 
 
-func _damage(d: float) -> void:
-	if dead or d <= 0.0:
+func _damage(d_in: float) -> void:
+	if dead or d_in <= 0.0:
+		return
+	var d: float = main.boss_gate(self, d_in)  # garde anti-rafale et paliers (main.BOSS_FLOOR_T)
+	if d <= 0.0:
 		return
 	hp -= d
 	_flash = maxf(_flash, 0.15)
