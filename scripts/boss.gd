@@ -136,7 +136,7 @@ func _build_okappa() -> void:
 	_mat = Toon.mat(Color.WHITE, true, 0.03)
 	_mat.vertex_color_use_as_albedo = true
 	_mat.vertex_color_is_srgb = true
-	_mat.rim = 0.35
+	_mat.rim = 0.45  # liseré des monstres plus franc (éclairage)
 	_mat.rim_tint = 0.5
 	_mat.emission_enabled = true
 	_mat.emission = Color.WHITE

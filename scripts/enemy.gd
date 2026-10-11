@@ -122,6 +122,8 @@ var _zone: Node3D
 var _tele: Node3D  # visuel partagé de l'annonce (vfx.tele_disc)
 var _zone_r := 1.0
 var _shadow: MeshInstance3D
+var _shadow_h := -1.0  # hauteur du corps au dernier réglage de l'ombre de contact
+var _hit_pool: MeshInstance3D = null  # lueur de touche au sol (visible le temps de l'éclat)
 
 # funa : cycle émerge → visible → plonge → caché
 const FUNA_TINT := Color("#7FB2C8")
@@ -506,7 +508,7 @@ func _ready() -> void:
 	if _glow_a > 0.0:
 		_base_glow()
 	ch.idle = "Blocking" if kind == "tate" else ("Idle" if kind == "kagebo" or _rogue else "Idle_Combat")
-	_shadow = Toon.blob(self, radius * 1.1, 0.3)  # ombre de contact douce
+	_shadow = Toon.blob(self, radius * 1.1, 0.4)  # ombre de contact douce (s'éclaircit et rétrécit en l'air : _contact_shadow)
 	# (pas pour les modèles de préchauffage, accrochés en miniature à la caméra)
 	if kind != "funa" and kind != "umibozu" and kind != "tanuki_d" and get_parent() == main:
 		# il sort d'une flaque d'encre qui s'ouvre puis se résorbe
@@ -1574,6 +1576,39 @@ func _exit_tree() -> void:
 		_thaw()
 
 
+## Ombre de contact : suit la hauteur du corps (volants, bonds) ; plus petite et plus pâle en l'air.
+## Matières partagées par opacité (Toon.blob_mat, pas de 0,04) : réglée seulement quand la hauteur change.
+func _contact_shadow() -> void:
+	if _shadow == null or body == null:
+		return
+	var hy := maxf(body.position.y, 0.0)
+	if absf(hy - _shadow_h) < 0.03:
+		return
+	_shadow_h = hy
+	var k := clampf(hy / 2.4, 0.0, 1.0)
+	var sr := radius * 1.1 * (1.0 - 0.4 * k)
+	_shadow.scale = Vector3(sr, 1.0, sr)
+	_shadow.material_override = Toon.blob_mat(snappedf(0.4 * (1.0 - 0.6 * k), 0.04))
+
+
+## Lueur de touche : la lumière de l'éclat (Toon.hit_glow_mat) tombe aussi au sol sous le monstre.
+func _hit_light(fa: float) -> void:
+	if fa <= 0.01:
+		if _hit_pool != null:
+			_hit_pool.visible = false
+		return
+	if _hit_pool == null:
+		_hit_pool = MeshInstance3D.new()
+		_hit_pool.mesh = Toon.blob_mesh()
+		_hit_pool.material_override = Toon.hit_glow_mat()
+		_hit_pool.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_hit_pool.position = Vector3(0, 0.02, 0)
+		add_child(_hit_pool)
+	_hit_pool.visible = true
+	var r := radius * (1.4 + 0.8 * fa)
+	_hit_pool.scale = Vector3(r, 1.0, r)
+
+
 func _process(delta: float) -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	# Rapide / Enragé : tout le rythme (marche, annonces, repos) accéléré
@@ -1586,6 +1621,7 @@ func _process(delta: float) -> void:
 		# bouclier de départ : posé une fois les PV du monde appliqués
 		give_shield(float(get_meta("max_hp", hp)) * _shield_frac)
 		_shield_frac = 0.0
+	_contact_shadow()
 	if _flash > 0.0:
 		_flash -= delta
 		# éclat blanc franc (plein éclat d'abord), puis qui retombe
@@ -1594,6 +1630,7 @@ func _process(delta: float) -> void:
 			fa = 1.0
 		elif _flash > 0.0:
 			fa = 0.35 + 0.65 * clampf(_flash / (FLASH_T - FLASH_FULL), 0.0, 1.0)
+		_hit_light(fa)
 		if _flash > 0.0 and flash_c != Color.WHITE:
 			ch.set_glow(fa * 1.6, flash_c)  # éclat à la couleur de l'élément
 		else:

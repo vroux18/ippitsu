@@ -13,6 +13,12 @@ uniform vec4 band_col : source_color = vec4(0.12, 0.23, 0.37, 1.0);
 uniform float band_k = 0.2;  // force de la bande du haut (0 : aucune)
 uniform float band_h = 0.07;  // hauteur de la bande (fraction de l'écran)
 uniform bool fine = true;
+// perspective atmosphérique : la caméra plonge à angle fixe, le haut de l'image est le plus loin. Une brume
+// teintée (couleur du lointain du monde) monte vers le haut, nulle sur la moitié basse : profondeur sans
+// passe de plus (ce voile est déjà dessiné) ; le cœur de l'arène et les zones d'attaque restent nets.
+uniform vec4 haze_col : source_color = vec4(0.5, 0.55, 0.7, 1.0);
+uniform float haze_k = 0.0;
+uniform float haze_from = 0.62;  // hauteur (UV.y) où la brume commence (0 : haut de l'écran)
 
 float hash12(vec2 p) {
 	vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
@@ -47,5 +53,7 @@ void fragment() {
 	}
 	// bande du haut : se fond dans l'image, n'empiète jamais sur le cœur de l'arène
 	float bk = band_k * (1.0 - smoothstep(0.0, band_h, UV.y));
-	COLOR = vec4(ink.rgb * v + lift + band_col.rgb * bk, clamp(dark + bk, 0.0, 1.0));
+	float hz = haze_k * pow(1.0 - smoothstep(0.0, haze_from, UV.y), 1.6);
+	hz *= 1.0 - clamp(dark + bk, 0.0, 1.0);
+	COLOR = vec4(ink.rgb * v + lift + band_col.rgb * bk + haze_col.rgb * hz, clamp(dark + bk + hz, 0.0, 1.0));
 }

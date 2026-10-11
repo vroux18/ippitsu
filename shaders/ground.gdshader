@@ -21,6 +21,14 @@ uniform float grain = 0.06;
 uniform vec2 grain_scale = vec2(5.0, 5.0);
 uniform float speckle = 0.2;
 uniform bool fine = true;
+// biseau des arêtes du dessus (m) : la normale s'incline vers le bord, la lumière du soleil fait le reste
+// (arête tournée vers lui claire, arête opposée dans l'ombre) : relief des dalles et des planches sans géométrie
+uniform float bevel = 0.09;
+uniform float bevel_k = 1.1;
+uniform float bevel_shade = 0.7;  // le biseau marque aussi la couleur (arête au soleil claire, arête opposée sombre)
+uniform vec3 sun_dir = vec3(0.47, -0.64, -0.6);  // sens de la lumière du soleil (main : rotation -40°, -38°)
+// dessus encré (bords des plateformes : liseré d'encre au sommet, flanc en dégradé dessous)
+uniform float top_ink = 0.0;
 
 varying vec3 v_local;
 varying vec3 v_scale;
@@ -85,6 +93,19 @@ void fragment() {
 		col = mix(col, ink.rgb, dots * 0.6);
 	}
 	col *= 1.0 - edge_ao * joint * top;
+	col = mix(col, ink.rgb, top_ink * top);
+	// biseau : près d'un bord du dessus, la normale penche vers ce bord (repère du monde, puis de la vue)
+	if (bevel > 0.0 && top > 0.5) {
+		vec2 hs = 0.5 * v_scale.xz;
+		vec2 q = v_local.xz * v_scale.xz;  // position sur la face (m), centre en 0
+		vec2 dist = hs - abs(q);  // distance à chaque bord
+		vec2 tilt = sign(q) * (1.0 - smoothstep(0.0, bevel, dist));
+		vec3 nl = normalize(vec3(tilt.x * bevel_k, 1.0, tilt.y * bevel_k));
+		vec3 nw = normalize(mat3(MODEL_MATRIX) * (nl / max(v_scale, vec3(0.0001))));
+		NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
+		vec3 ls = -normalize(sun_dir);
+		col *= 1.0 + clamp((dot(nw, ls) - ls.y) * bevel_shade, -0.4, 0.3);
+	}
 	ALBEDO = col;
 	ROUGHNESS = 0.85;
 }

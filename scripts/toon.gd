@@ -22,6 +22,57 @@ static var ui_rev := 0  # change à chaque thème : les écrans qui ne se redess
 # rendu allégé (téléphone) : posé par main avant de bâtir le monde ; coupe grain, détails des shaders, poussières
 static var lite := false
 
+## Éclat des yeux des monstres (aplats lumineux) : > 1 dans les mondes sombres, les yeux passent le seuil du
+## glow et luisent dans la pénombre (main.apply_world -> set_eye_glow).
+static var eye_glow := 1.0
+static var _eye_mats: Array[WeakRef] = []
+static var _hit_glow: StandardMaterial3D = null
+
+
+## Matière d'yeux lumineux (aplat) inscrite pour suivre l'éclat du monde : `base` est sa couleur d'origine.
+## `amp` : part de l'éclat reçue (aplats partagés avec autre chose que des yeux : moins).
+static func eye_mat_register(m: BaseMaterial3D, base: Color, amp := 1.0) -> void:
+	m.set_meta(&"eye_base", base)
+	m.set_meta(&"eye_amp", amp)
+	var k := 1.0 + (eye_glow - 1.0) * amp
+	m.albedo_color = Color(base.r * k, base.g * k, base.b * k, base.a)
+	if _eye_mats.size() >= 256:
+		set_eye_glow(eye_glow)  # oublie les matières des monstres disparus
+	_eye_mats.append(weakref(m))
+
+
+static func set_eye_glow(k: float) -> void:
+	eye_glow = k
+	var keep: Array[WeakRef] = []
+	for w in _eye_mats:
+		var m := w.get_ref() as BaseMaterial3D
+		if m == null:
+			continue
+		var base: Color = m.get_meta(&"eye_base", Color.WHITE)
+		var ka := 1.0 + (k - 1.0) * float(m.get_meta(&"eye_amp", 1.0))
+		m.albedo_color = Color(base.r * ka, base.g * ka, base.b * ka, base.a)
+		keep.append(w)
+	_eye_mats = keep
+
+
+## Lueur de touche : dégradé radial additif au sol sous un monstre frappé (partagée, jamais modifiée).
+static func hit_glow_mat() -> StandardMaterial3D:
+	if _hit_glow == null:
+		blob_mesh()
+		_hit_glow = StandardMaterial3D.new()
+		_hit_glow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_hit_glow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_hit_glow.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_hit_glow.albedo_texture = _blob_tex
+		_hit_glow.albedo_color = Color(1.0, 0.92, 0.78, 0.55)
+		_hit_glow.disable_fog = true
+		_hit_glow.render_priority = -1
+	return _hit_glow
+
+
+## Largeur de la rampe toon (voir mat) : partagée par les personnages (character.gd) et les rigs.
+const TOON_ROUGH := 0.55
+
 static var _blob_mesh: PlaneMesh = null
 static var _blob_tex: GradientTexture2D = null
 static var _blob_mats := {}  # alpha ("%.2f") -> matériau
@@ -69,10 +120,14 @@ static func mat(color: Color, outline := true, outline_size := 0.035) -> Standar
 	m.albedo_color = color
 	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
 	m.specular_mode = BaseMaterial3D.SPECULAR_TOON
-	m.roughness = 0.85
+	# rugosité = largeur de la transition ombre / lumière du toon (smoothstep de -r à r sur N·L) : 0,85 fondait
+	# l'ombre propre dans un dégradé mou (volumes plats) ; 0,55 donne une rampe courte mais douce, un vrai côté
+	# ombre (teinté par la lumière ambiante du monde : « shade » de worlds.gd), et un reflet toon discret
+	m.roughness = TOON_ROUGH
+	m.metallic_specular = 0.35
 	m.rim_enabled = true
-	m.rim = 0.25
-	m.rim_tint = 0.6
+	m.rim = 0.4  # liseré de lumière sur les silhouettes (côté soleil), plus franc
+	m.rim_tint = 0.4
 	if outline:
 		m.next_pass = outline_mat(outline_size)
 	return m

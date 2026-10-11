@@ -16,6 +16,7 @@
 extends RefCounted
 
 const Toon = preload("res://scripts/toon.gd")
+const Lueurs = preload("res://scripts/lueurs.gd")
 const Decor = preload("res://scripts/decor.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 
@@ -787,7 +788,7 @@ static func _terraces(ctx: Dictionary) -> void:
 			while z < z1 - 0.5:
 				var sc := 1.1 if ri == 0 else 1.2
 				Worlds._inst(ctx, "toro", lmesh, null, Worlds._at(Vector3(x, TERR_Y, z), Vector3(0, PI * 0.5 * s, 0), Vector3.ONE * sc))
-				_halo(ctx, Vector3(x, TERR_Y + 0.02, z), 0.75)
+				_halo(ctx, Vector3(x, TERR_Y + 0.02, z), 0.75, 0.82 * sc)
 				z += 2.9
 	# nobori : banderoles du monde, entre lanternes (gardien) ou sur la rangée extérieure (boss)
 	var nc: Array = Worlds._nobori_colors(wid)
@@ -966,8 +967,12 @@ static func _lantern_mesh(wid: int) -> ArrayMesh:
 
 ## Flaque de lumière chaude au pied d'un feu (dégradé radial additif en MultiMesh) : vus d'en haut, les
 ## tōrō cachent leur feu sous leur toit ; le halo dit qu'ils sont allumés. Plus discret en plein jour.
-static func _halo(ctx: Dictionary, pos: Vector3, r: float) -> void:
-	Worlds._inst(ctx, "halo", Toon.blob_mesh(), _halo_mat(ctx["wid"]), Worlds._at(pos, Vector3.ZERO, Vector3(r, 1.0, r)))
+## Lueur d'une source de feu (scripts/lueurs.gd) : flaque chaude au sol en `pos`, halo autour de la flamme à
+## `fh` au-dessus ; elle palpite (plus fort pour un brasero : `fire`). Dans le lot g : un MultiMesh additif.
+static func _halo(ctx: Dictionary, pos: Vector3, r: float, fh := 0.85, fire := false) -> void:
+	var p: Dictionary = ctx["p"]
+	var c: Color = p["flame"]
+	Lueurs.add(ctx["g"], pos + Vector3(0, fh, 0), pos, Lueurs.tint(c), r * 1.5, fire)
 
 
 static func _halo_mat(wid: int) -> StandardMaterial3D:
@@ -1003,7 +1008,7 @@ static func _brazier(ctx: Dictionary, pos: Vector3, s: float) -> void:
 	_put(ctx, iron, Worlds._cyl(0.24, 0.15, 0.2, 8), xf * Worlds._at(Vector3(0, 1.0, 0)))
 	_put(ctx, fire, Worlds._cyl(0.0, 0.2, 0.42, 6), xf * Worlds._at(Vector3(0, 1.3, 0)))
 	_put(ctx, core, Worlds._cyl(0.0, 0.1, 0.26, 5), xf * Worlds._at(Vector3(0.03, 1.24, 0.02)))
-	_halo(ctx, pos + Vector3(0, 0.02, 0), 1.1 * s)
+	_halo(ctx, pos + Vector3(0, 0.02, 0), 1.1 * s, 1.25 * s, true)
 
 
 ## Komainu : chien-lion de pierre assis sur un socle, la gueule ouverte (a) ou fermée (un), face au centre.

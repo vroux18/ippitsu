@@ -10,6 +10,7 @@ extends RefCounted
 ## Matériaux et maillages partagés via des caches statiques ; uniquement StandardMaterial3D (Compatibility).
 
 const Toon = preload("res://scripts/toon.gd")
+const Lueurs = preload("res://scripts/lueurs.gd")
 
 const SAKURA := [Color("#F2B8C6"), Color("#E79AB0"), Color("#F7D6DE")]
 const BARK_SAKURA := Color("#4A3530")
@@ -365,7 +366,10 @@ static func _cpu_key(mesh: Mesh, surf: int) -> String:
 
 ## Transforme chaque lot en un MeshInstance3D.
 static func _flush(b: Dictionary, parent: Node3D, shadow := true) -> void:
+	Lueurs.flush(b, parent)  # lueurs des lanternes du lot (flaques et halos, un MultiMesh additif)
 	for k in b:
+		if k is String:
+			continue  # drapeau ou lueurs, pas un lot
 		var entry: Array = b[k]
 		var st: SurfaceTool = entry[0]
 		var m: Material = entry[1]
@@ -787,6 +791,7 @@ static func _lantern_build(b: Dictionary, small: Dictionary, xf: Transform3D) ->
 	_add(b, stone, cyl(0.24, 0.14, 0.1, 6), xf * _at(Vector3(0, 0.65, 0)))
 	# chambre à feu : cœur lumineux entre 6 montants
 	_add(small, glow, cyl(0.12, 0.12, 0.22, 6), xf * _at(Vector3(0, 0.81, 0)))
+	Lueurs.add(b, xf * Vector3(0, 0.81, 0), xf * Vector3.ZERO, Lueurs.tint(GLOW), 1.5 * xf.basis.get_scale().x)
 	for k in 6:
 		var a := TAU * k / 6.0
 		_add(b, stone, box(Vector3(0.05, 0.22, 0.05)),
@@ -833,6 +838,7 @@ static func _chochin_build(b: Dictionary, small: Dictionary, xf: Transform3D, co
 	var hx := 0.4
 	_limb(small, black, Vector3(hx, 1.84, 0), Vector3(hx, 1.72, 0), 0.008, 0.008, 4, xf)
 	var cy := 1.47
+	Lueurs.add(b, xf * Vector3(hx, cy, 0), xf * Vector3(hx, 0, 0), Lueurs.tint(color), 1.3 * xf.basis.get_scale().x)
 	_add(b, body, ball(0.18, 0.42, 10, 6), xf * _at(Vector3(hx, cy, 0)))
 	_add(small, black, cyl(0.1, 0.1, 0.05, 10), xf * _at(Vector3(hx, cy + 0.225, 0)))
 	_add(small, black, cyl(0.1, 0.1, 0.05, 10), xf * _at(Vector3(hx, cy - 0.225, 0)))
