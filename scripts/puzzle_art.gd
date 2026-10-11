@@ -1003,6 +1003,141 @@ static func build_altar(n: Node3D, world_id: int) -> void:
 		_part_flat(ln, _mesh("lamp_halo"), _mat("altar_lamp_halo"), Vector3(0, 0.8, 0))
 
 
+# ------------------------------------------------------------------ étal du marchand (main._spawn_merchant)
+
+const YATAI_RING_R := 1.75  # anneau d'approche au sol (= rayon où l'échoppe s'ouvre, main._update_pockets)
+const YATAI_SCALE := 1.25  # charrette agrandie (lisible de la caméra haute) ; l'anneau garde son rayon
+const TANUKI_BROWN := Color("#8A6646")
+const TANUKI_DARK := Color("#3B2E27")
+const TANUKI_CREAM := Color("#EAD9B4")
+const STRAW := Color("#D9B76C")
+const NOREN := Color("#2B4A6E")
+
+## Étal (yatai) du marchand tanuki, posé dans un recoin de l'étape qui précède le gardien : charrette de bois à deux
+## roues, comptoir cerclé d'un bandeau vermillon, auvent d'encre sur deux montants (relevé vers le chemin : la
+## caméra haute voit le comptoir), noren indigo à trois pans (mon d'or au milieu), chōchin vermillon allumé à l'angle,
+## nobori d'or plantée derrière ; sur le comptoir, jarres, pile de koban, rouleau et omamori. Devant, le tanuki
+## (chapeau de paille repoussé sur la nuque, feuille dessus), ventre clair, masque sombre, un koban à la patte. Au
+## sol, comme l'autel, un anneau d'or marque la zone d'approche. Nœuds animés par main._update_merchant : « Tanuki »
+## (il respire), « Tanuki/Arm » (il agite son koban) et « Yatai/Lantern » (balancement). ≈ 1 500 triangles.
+static func build_yatai(n: Node3D) -> void:
+	var wood := Toon.mat_shared(Color("#9C7346"), true, 0.02)
+	var wood_dark := Toon.mat_shared(Color("#5E4029"), true, 0.02)
+	var wood_light := Toon.mat_shared(Color("#A87B4C"), true, 0.02)
+	var sumi := Toon.mat_shared(Color("#2A2428"), true, 0.02)
+	var red := Toon.mat_shared(Toon.VERMILION, true, 0.02)
+	var gold := Toon.mat_shared(Color("#E0B04E"), true, 0.015)
+	var cloth := Toon.mat_shared(NOREN, true, 0.012)
+	var paper := Toon.mat_shared(Toon.PAPER, true, 0.012)
+	# ombre douce, lavis d'or et anneau d'approche
+	Toon.blob(n, 1.7, 0.3)
+	_part_flat(n, _mesh("disc"), _mat("yatai_wash"), Vector3(0, 0.014, 0), Vector3(YATAI_RING_R, 1, YATAI_RING_R))
+	_part_flat(n, _mesh("yatai_ring"), _mat("yatai_gold"), Vector3(0, 0.018, 0))
+	var cart := Node3D.new()
+	cart.name = "Yatai"
+	n.add_child(cart)
+	cart.position = Vector3(0.18, 0, -0.25)
+	cart.scale = Vector3.ONE * YATAI_SCALE
+	# deux grandes roues de bois cerclées d'encre, moyeu d'or
+	for sx in [-1.0, 1.0]:
+		var wh := Toon.part(cart, Toon.cyl(0.33, 0.33, 0.08, 16), wood_dark, Vector3(float(sx) * 0.8, 0.33, 0.02))
+		wh.rotation.z = PI / 2.0
+		var hub := Toon.part(cart, Toon.cyl(0.08, 0.08, 0.1, 10), gold, Vector3(float(sx) * 0.82, 0.33, 0.02))
+		hub.rotation.z = PI / 2.0
+	# caisse, bandeau vermillon en façade, plateau du comptoir
+	Toon.part(cart, Toon.box(Vector3(1.5, 0.5, 0.7)), wood, Vector3(0, 0.48, 0))
+	Toon.part(cart, Toon.box(Vector3(1.52, 0.09, 0.02)), red, Vector3(0, 0.62, 0.36))
+	Toon.part(cart, Toon.box(Vector3(1.66, 0.06, 0.82)), wood_light, Vector3(0, 0.76, 0.02))
+	# deux montants à l'arrière, auvent d'encre relevé vers le chemin (le comptoir reste visible de la caméra
+	# haute), faîtage vermillon au fond
+	for sx in [-1.0, 1.0]:
+		Toon.part(cart, Toon.cyl(0.035, 0.04, 1.16, 6), wood_dark, Vector3(float(sx) * 0.74, 1.34, -0.34))
+	var roof := Toon.part(cart, Toon.box(Vector3(1.9, 0.07, 0.7)), sumi, Vector3(0, 1.92, -0.2))
+	roof.rotation.x = -0.22
+	var ridge := Toon.part(cart, Toon.box(Vector3(1.96, 0.09, 0.12)), red, Vector3(0, 1.86, -0.54))
+	ridge.rotation.x = -0.22
+	# noren : trois pans indigo sous le bord de l'auvent, mon d'or sur le pan du milieu
+	for k in 3:
+		var pan := Toon.part(cart, Toon.box(Vector3(0.46, 0.3, 0.015)), cloth, Vector3(-0.49 + 0.49 * float(k), 1.84, 0.15))
+		pan.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mon := Toon.part(cart, Toon.cyl(0.08, 0.08, 0.01, 18), gold, Vector3(0, 1.84, 0.16))
+	mon.rotation.x = PI / 2.0
+	# sur le comptoir : jarres de saké, pile de koban, rouleau au cordon vermillon, omamori
+	for k in 2:
+		Toon.part(cart, Toon.cyl(0.07, 0.09, 0.2, 10), paper, Vector3(-0.58 + 0.17 * float(k), 0.89, -0.12))
+		Toon.part(cart, Toon.cyl(0.035, 0.035, 0.05, 8), red, Vector3(-0.58 + 0.17 * float(k), 1.01, -0.12))
+	for k in 3:
+		Toon.part(cart, Toon.cyl(0.075, 0.075, 0.03, 14), gold, Vector3(-0.12 + 0.04 * float(k % 2), 0.81 + 0.035 * float(k), 0.12), Vector3(1.25, 1, 1))
+	var scroll := Toon.part(cart, Toon.cyl(0.05, 0.05, 0.36, 10), paper, Vector3(0.3, 0.84, 0.06))
+	scroll.rotation.z = PI / 2.0
+	Toon.part(cart, Toon.box(Vector3(0.03, 0.105, 0.105)), red, Vector3(0.3, 0.84, 0.06))
+	var om := Toon.part(cart, Toon.box(Vector3(0.12, 0.17, 0.04)), red, Vector3(0.56, 0.87, 0.1))
+	om.rotation.y = -0.3
+	var knot := Toon.part(cart, Toon.box(Vector3(0.06, 0.05, 0.045)), gold, Vector3(0.56, 0.92, 0.1))
+	knot.rotation.y = -0.3
+	# chōchin vermillon allumé, pendu à l'angle avant droit du toit (il se balance : « Lantern »)
+	var lan := Node3D.new()
+	lan.name = "Lantern"
+	cart.add_child(lan)
+	lan.position = Vector3(0.9, 2.0, 0.14)
+	Toon.part(lan, Toon.cyl(0.006, 0.006, 0.16, 4), sumi, Vector3(0, -0.08, 0))
+	var glow := Toon.mat(Color("#E8574A"), false)
+	glow.emission_enabled = true
+	glow.emission = Color("#FF7A3C")
+	glow.emission_energy_multiplier = 0.9
+	Toon.part(lan, Toon.sphere(0.15), glow, Vector3(0, -0.34, 0), Vector3(1, 1.35, 1))
+	Toon.part(lan, Toon.cyl(0.08, 0.08, 0.04, 10), sumi, Vector3(0, -0.15, 0))
+	Toon.part(lan, Toon.cyl(0.08, 0.08, 0.04, 10), sumi, Vector3(0, -0.54, 0))
+	_part_flat(lan, _mesh("lamp_halo"), _mat("altar_lamp_halo"), Vector3(0, -0.34, 0))
+	# nobori d'or plantée derrière la charrette (lisible de loin)
+	Toon.part(cart, Toon.cyl(0.025, 0.03, 2.3, 6), wood_dark, Vector3(1.02, 1.15, -0.42))
+	var flag := Toon.part(cart, Toon.box(Vector3(0.32, 0.92, 0.015)), Toon.mat_shared(Color("#E2A93B"), true, 0.012), Vector3(1.2, 1.72, -0.42))
+	flag.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	Toon.part(cart, Toon.box(Vector3(0.36, 0.03, 0.03)), wood_dark, Vector3(1.2, 2.2, -0.42))
+	var fmon := Toon.part(cart, Toon.cyl(0.085, 0.085, 0.01, 16), red, Vector3(1.2, 1.86, -0.41))
+	fmon.rotation.x = PI / 2.0
+	# le tanuki, devant à gauche, tourné vers le chemin
+	var tk := Node3D.new()
+	tk.name = "Tanuki"
+	n.add_child(tk)
+	tk.position = Vector3(-1.28, 0, 0.55)
+	tk.rotation.y = 0.35
+	tk.scale = Vector3.ONE * 1.3
+	var fur := Toon.mat_shared(TANUKI_BROWN, true, 0.025)
+	var dark := Toon.mat_shared(TANUKI_DARK, true, 0.02)
+	var cream := Toon.mat_shared(TANUKI_CREAM, true, 0.02)
+	for sx in [-1.0, 1.0]:
+		Toon.part(tk, Toon.sphere(0.09), dark, Vector3(float(sx) * 0.13, 0.07, 0.06), Vector3(1, 0.7, 1.3))
+	Toon.part(tk, Toon.sphere(0.32), fur, Vector3(0, 0.4, 0), Vector3(1, 1.08, 0.92))
+	Toon.part(tk, Toon.sphere(0.24), cream, Vector3(0, 0.36, 0.16), Vector3(0.9, 1.0, 0.62))
+	# queue rayée
+	Toon.part(tk, Toon.sphere(0.13), fur, Vector3(0.05, 0.2, -0.34), Vector3(1, 0.9, 1.3))
+	Toon.part(tk, Toon.sphere(0.09), dark, Vector3(0.07, 0.17, -0.46))
+	# bras (l'un tient un koban levé)
+	Toon.part(tk, Toon.sphere(0.08), dark, Vector3(-0.27, 0.42, 0.1), Vector3(0.9, 1.3, 0.9))
+	var arm := Node3D.new()
+	arm.name = "Arm"
+	tk.add_child(arm)
+	arm.position = Vector3(0.26, 0.5, 0.08)
+	Toon.part(arm, Toon.sphere(0.08), dark, Vector3(0.03, 0.08, 0), Vector3(0.9, 1.4, 0.9))
+	var coin := Toon.part(arm, Toon.cyl(0.07, 0.07, 0.02, 14), gold, Vector3(0.05, 0.22, 0.03), Vector3(0.8, 1, 1.1))
+	coin.rotation.x = PI / 2.0
+	# tête : masque sombre, museau clair, truffe, yeux, oreilles
+	Toon.part(tk, Toon.sphere(0.23), fur, Vector3(0, 0.84, 0.02))
+	Toon.part(tk, Toon.sphere(0.12), dark, Vector3(0, 0.86, 0.15), Vector3(1.75, 0.62, 0.7))
+	Toon.part(tk, Toon.sphere(0.085), cream, Vector3(0, 0.78, 0.2), Vector3(1.1, 0.85, 1))
+	Toon.part(tk, Toon.sphere(0.035), Toon.mat_shared(Toon.SUMI, false), Vector3(0, 0.8, 0.28))
+	for sx in [-1.0, 1.0]:
+		Toon.part(tk, Toon.sphere(0.028), Toon.mat_shared(Color("#FFF6E0"), false), Vector3(float(sx) * 0.075, 0.875, 0.235))
+		Toon.part(tk, Toon.sphere(0.065), dark, Vector3(float(sx) * 0.15, 1.0, -0.02), Vector3(1, 1.1, 0.7))
+	# chapeau de paille (kasa) penché, sa feuille de tanuki
+	# (repoussé sur la nuque : de la caméra haute, on voit le visage sous le bord)
+	var hat := Toon.part(tk, Toon.cyl(0.02, 0.3, 0.13, 14), Toon.mat_shared(STRAW, true, 0.02), Vector3(0, 1.04, -0.14))
+	hat.rotation = Vector3(-0.75, 0, 0.12)
+	var leaf := Toon.part(tk, Toon.sphere(0.065), Toon.mat_shared(Color("#5F9A3C"), true, 0.012), Vector3(0.02, 1.1, -0.2), Vector3(0.6, 0.25, 1.4))
+	leaf.rotation = Vector3(-0.75, 0.6, 0)
+
+
 # ------------------------------------------------------------------ entrées (main.gd)
 
 ## Chaque image, tant que l'énigme n'est pas résolue : `lit` lanternes allumées par le trait en cours,
@@ -1387,6 +1522,8 @@ static func _mesh(key: String) -> Mesh:
 			m = Toon.box(Vector3(0.045, 0.045, 0.004))
 		"altar_ring":
 			m = ribbon_mesh([_arc(ALTAR_RING_R, 0.0, TAU, 64)], 0.05, 0.0, 0.0)
+		"yatai_ring":
+			m = ribbon_mesh([_arc(YATAI_RING_R, 0.0, TAU, 72)], 0.075, 0.0, 0.0)
 		"chain_link":
 			var tl := TorusMesh.new()
 			tl.inner_radius = 0.026
@@ -1530,6 +1667,14 @@ static func _mat(key: String) -> Material:
 			al.emission = Color(LAMP_EMIT, 1.0)
 			al.emission_energy_multiplier = 1.2
 			m = al
+		"yatai_gold":
+			var yg := Toon.flat(Color(Toon.GOLD, 0.8))
+			yg.render_priority = 1
+			m = yg
+		"yatai_wash":
+			var yw := Toon.flat(Color(Toon.GOLD, 0.14))
+			yw.render_priority = 1
+			m = yw
 		"altar_lamp_halo":
 			var ah := _glow_mat(Color(LAMP_EMIT, 0.4), true)
 			ah.render_priority = -1
