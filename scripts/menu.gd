@@ -61,6 +61,7 @@ var sumi := 0  # encre (monnaie permanente), affichée sur l'accueil
 const HOME_SETTLED := 1.4  # accueil : toutes ses arrivées (sceau 0,4 s, titre 0,6, trait 0,8, sélecteur 1,1) sont finies
 var _home_sig: Array = []  # entrées du dernier dessin de l'accueil ou de la pause posés (vide : à refaire)
 var gain_sumi := 0  # encre gagnée à la dernière partie
+var gain_petals := 0  # pétales (garde-robe) gagnés à la dernière partie
 # résultats de la partie (écran de fin)
 var stat_room := 0
 var stat_kills := 0
@@ -1099,8 +1100,8 @@ func _draw_stats(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 			draw_string(nf, Vector2(c.x + 15.0 * u, cy + fs * 0.36), String(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, ka))
 
 
-## Gains : l'encre qui monte (goutte sur pastille indigo ; les anciens sceaux y sont comptés), puis chaque estampe
-## débloquée en vignette cernée d'or, son nom dessous.
+## Gains : l'encre qui monte (goutte sur pastille indigo ; les anciens sceaux y sont comptés), les pétales à côté
+## (pétale sur pastille sakura, monnaie de la garde-robe), puis chaque estampe débloquée en vignette cernée d'or, son nom dessous.
 func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
 	var cy := y + rh / 2.0
 	var x := _row_icon(x0, cy, "hud/piece", u, a)
@@ -1115,7 +1116,16 @@ func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -
 	draw_string(nf, Vector2(dc.x + 17.0 * u, cy + fs * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up, a))
 	var nw := nf.get_string_size("+%d" % gain_sumi, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	# (plus de sceaux : depuis l'Arbre du pinceau, ils sont payés en encre et comptés dans le chiffre ci-dessus)
-	var px := dc.x + 30.0 * u + nw
+	# pétales : même pastille, couleur sakura, le chiffre monte un peu après l'encre (affichés même à +0 : on apprend
+	# qu'ils existent et ce qui les rapporte)
+	var pk0 := UiKit.ease_out(clampf((_t - 1.25) / 0.3, 0.0, 1.0))
+	var pc := Vector2(dc.x + 17.0 * u + nw + 22.0 * u, cy)
+	draw_circle(pc, 11.0 * u, Color(UIColors.SAKURA, a * pk0))
+	UiKit.glyph(self, "at_petal", pc, 7.0 * u, UIColors.WASHI, UIColors.SAKURA, a * pk0)
+	var pnum := "+%d" % int(round(float(gain_petals) * UiKit.ease_out(clampf((_t - 1.3) / 0.7, 0.0, 1.0))))
+	draw_string(nf, Vector2(pc.x + 17.0 * u, cy + fs * 0.36), pnum, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up if gain_petals > 0 else Color(th_ink, 0.55), a * pk0))
+	var pw := nf.get_string_size("+%d" % gain_petals, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var px := pc.x + 30.0 * u + pw
 	# estampes : vignette 40 × 28 cernée d'or, nom en petit dessous
 	var tw := 40.0 * u
 	var thh := 28.0 * u

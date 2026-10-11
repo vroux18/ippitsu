@@ -332,6 +332,7 @@ var hazards: Node3D
 var meta: RefCounted
 var refuge: Control
 var mini_kills := 0
+var defi_kills := 0  # défis des recoins relevés (élites) : pétales de fin de partie
 var curses: Array = []
 var _pick_mode := "upgrade"
 var _extra_picks := 0
@@ -861,7 +862,17 @@ func _ready() -> void:
 		tuto.dojo.call("_toggle_book")
 	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
 	if "garderobe" in wsearch:
+		# `&cat=N` : l'onglet N ouvert (3 : interface, les prix) ; `&petales=N` : N pétales (captures)
+		var wpq := wsearch.find("petales=")
+		if wpq >= 0:
+			meta.petals = maxi(0, int(wsearch.substr(wpq + 8).get_slice("&", 0)))
 		_open_wardrobe()
+		var wcq := wsearch.find("cat=")
+		if wcq >= 0:
+			wardrobe.call("tap", "tab:%d" % int(wsearch.substr(wcq + 4).get_slice("&", 0)))
+		var wiq := wsearch.find("item=")  # `&item=nuit` : cet élément touché (prix, ACHETER)
+		if wiq >= 0:
+			wardrobe.call("tap", "item:" + wsearch.substr(wiq + 5).get_slice("&", 0))
 	# `?depart[&voir=warefude][&sel=portes]` (captures) : l'écran AVANT LE DÉPART, ce pinceau affiché, ce charme touché
 	if "depart" in wsearch:
 		_ask_departure(current_world, false)
@@ -2866,6 +2877,7 @@ func _start(hub := true, tutorial := false) -> void:
 	kills = 0
 	boss_kills = 0
 	mini_kills = 0
+	defi_kills = 0
 	run_time = 0.0
 	xp = 0
 	level = 1
@@ -3704,6 +3716,7 @@ func _on_enemy_killed(e: Node3D) -> void:
 		pickups.drop(e.position, "coin", 8)
 		pickups.drop(e.position, "xp", 6)
 		hud.toast("DÉFI RELEVÉ")
+		defi_kills += 1
 		sfx.play("levelup", 1.2, -4.0)
 		if e.has_meta("seal_oni"):
 			_seal_picks.append({"rank": 1})  # sceau de l'oni : rouleau rare ou épique
@@ -4994,7 +5007,7 @@ func _slowmo_w() -> float:
 
 func _award(victory: bool) -> void:
 	var cleared := room if victory or _room_done else room - 1
-	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world)
+	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world, defi_kills)
 	var open_before: Dictionary = meta.brushes_open()
 	var un: Dictionary = meta.record_world(current_world, room, victory)
 	# pinceaux : le boss vaincu avec ce pinceau donne son aspect suivant ; le monde ouvre peut-être un pinceau
@@ -5016,6 +5029,7 @@ func _award(victory: bool) -> void:
 	meta.sumi += bonus
 	meta.save_data()
 	menu.gain_sumi = int(g.get("sumi", 0)) + bonus
+	menu.gain_petals = int(g.get("petals", 0))  # pétales (garde-robe), à côté de l'encre
 	if victory and _flawless_boss:
 		# boss du monde vaincu sans un coup : encre en plus (40, et les 2 anciens sceaux payés en encre)
 		var fl := 40 + 2 * Meta.SEAL_SUMI

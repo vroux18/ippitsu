@@ -1,6 +1,7 @@
 extends RefCounted
 ## Progression permanente, sauvegardée entre les parties :
 ## - sumi (encre) : l'Arbre du pinceau (quatre branches de nœuds appris une fois, sommets légendaires) ;
+## - pétales (sakura) : seconde monnaie, rare, réservée à la garde-robe (tenues, thèmes) ;
 ## - Vues : collection d'estampes ; chacune débloque une apparence (écharpe, sillage de lame, encre du trait).
 
 const Toon = preload("res://scripts/toon.gd")
@@ -12,6 +13,11 @@ const SAVE_PATH := "user://ippitsu_meta.cfg"
 const MAX_PRINTS := 24
 const SUMI_PER_ROOM := 8  # réglage d'équilibrage : bonus d'encre par salle franchie (0 = §5.1 strict)
 const MINI_ROOM := 8  # = main.MINI_ROOM (salle du gardien)
+# pétales (garde-robe) gagnés en fin de partie (award_run) : une partie correcte (gardien, un défi, parfois une Vue)
+# en rapporte 3 à 5, une victoire 7 à 9 ; un élément de la garde-robe en coûte 12 à 30
+const PETALS_MINI := 1  # par gardien vaincu
+const PETALS_BOSS := 3  # par boss du monde vaincu
+const PETALS_WIN := 2  # victoire
 const WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "Trente-six Vues"]
 
 ## --- Arbre du pinceau (méta-progression de l'Atelier) ---
@@ -153,28 +159,32 @@ const LOOK_NAMES := {"cape": "Écharpe", "trail": "Sillage", "ink": "Encre"}
 ## Garde-robe : tenues et thèmes de l'interface. Une tenue teinte le hakama (et ses vagues) et l'obi du Ronin
 ## de papier (ninja_rig.hero_config) ; le kimono washi, le chapeau et l'écharpe (pièce « cape ») ne changent
 ## pas. « tex » : atlas de l'ancien modèle KayKit, l'id de la tenue en est tiré (hero.set_outfit).
-## Obtention : « free » ; « print » = Vue possédée ; « prints » = nombre de Vues ; « cost » = encre (achat unique).
+## Obtention : « free » ; « print » = Vue possédée ; « prints » = nombre de Vues ; « petals » = pétales (achat unique).
+## Les pétales (sakura) sont la monnaie de la garde-robe, à part de l'encre (qui ne sert qu'à l'Arbre) : rares,
+## gagnés en fin de partie (award_run) ; un élément coûte environ 3 à 5 parties correctes. Les anciens prix en encre
+## (120 à 900) ont été convertis ; ce qui a déjà été acheté reste acquis (section « wardrobe », clé « bought »).
 const OUTFIT_ORDER := ["sumi", "indigo", "matcha", "kaki", "sakura", "neige", "glycine", "or"]
 const OUTFITS := {
 	"sumi": {"name": "Bleu de Prusse", "col": Color("#1F3A5C"), "tex": "res://assets/kaykit/tex/rogue_ink.png", "free": true},
-	"indigo": {"name": "Indigo d'Edo", "col": Color("#2B4C7E"), "tex": "res://assets/kaykit/tex/rogue_indigo.png", "cost": 120},
+	"indigo": {"name": "Indigo d'Edo", "col": Color("#2B4C7E"), "tex": "res://assets/kaykit/tex/rogue_indigo.png", "petals": 12},
 	"matcha": {"name": "Matcha", "col": Color("#5E7F4A"), "tex": "res://assets/kaykit/tex/rogue_matcha.png", "print": "w2_room"},
-	"kaki": {"name": "Kaki", "col": Color("#E8692A"), "tex": "res://assets/kaykit/tex/rogue_kaki.png", "cost": 250},
+	"kaki": {"name": "Kaki", "col": Color("#E8692A"), "tex": "res://assets/kaykit/tex/rogue_kaki.png", "petals": 18},
 	"sakura": {"name": "Sakura", "col": Color("#D98AA0"), "tex": "res://assets/kaykit/tex/rogue_sakura.png", "print": "w5_room"},
 	"neige": {"name": "Neige", "col": Color("#ECE8E0"), "tex": "res://assets/kaykit/tex/rogue_neige.png", "print": "w3_room"},
-	"glycine": {"name": "Glycine", "col": Color("#7A5FA0"), "tex": "res://assets/kaykit/tex/rogue_glycine.png", "cost": 400},
-	"or": {"name": "Or du maître", "col": Color("#E2B04A"), "tex": "res://assets/kaykit/tex/rogue_or.png", "cost": 900},
+	"glycine": {"name": "Glycine", "col": Color("#7A5FA0"), "tex": "res://assets/kaykit/tex/rogue_glycine.png", "petals": 24},
+	"or": {"name": "Or du maître", "col": Color("#E2B04A"), "tex": "res://assets/kaykit/tex/rogue_or.png", "petals": 30},
 }
 ## Thèmes : papier des cartes, voile de l'écran, encre du texte (contrastes gardés), liseré.
 const THEME_ORDER := ["washi", "nuit", "sakura", "indigo"]
 const THEMES := {
 	"washi": {"name": "Washi", "paper": Color("#E4D9C2"), "wash": Color("#D8CBB1"), "ink": Color("#1B1A1E"), "accent": Color("#D7372B"), "free": true},
-	"nuit": {"name": "Nuit", "paper": Color("#232A3A"), "wash": Color("#151B28"), "ink": Color("#EFE6D2"), "accent": Color("#E2A93B"), "cost": 150},
-	"sakura": {"name": "Sakura", "paper": Color("#FBEDEE"), "wash": Color("#F4DCE0"), "ink": Color("#3A1F2A"), "accent": Color("#C2456A"), "cost": 200},
+	"nuit": {"name": "Nuit", "paper": Color("#232A3A"), "wash": Color("#151B28"), "ink": Color("#EFE6D2"), "accent": Color("#E2A93B"), "petals": 14},
+	"sakura": {"name": "Sakura", "paper": Color("#FBEDEE"), "wash": Color("#F4DCE0"), "ink": Color("#3A1F2A"), "accent": Color("#C2456A"), "petals": 16},
 	"indigo": {"name": "Indigo", "paper": Color("#E6ECF4"), "wash": Color("#D5DEEA"), "ink": Color("#13213A"), "accent": Color("#2F5D8A"), "prints": 6},
 }
 
-var sumi := 0  # encre, permanente
+var sumi := 0  # encre, permanente : l'Arbre du pinceau (et la Bourse)
+var petals := 0  # pétales (sakura), permanents : la garde-robe seulement
 var prints := 0  # Vues collectionnées (= owned_prints.size(), max 24)
 var runs := 0  # parties jouées
 var best_room := 0  # meilleure salle atteinte
@@ -222,6 +232,7 @@ func load_data() -> void:
 	if cf.load(SAVE_PATH) != OK:
 		return
 	sumi = maxi(0, int(cf.get_value("meta", "sumi", 0)))
+	petals = maxi(0, int(cf.get_value("meta", "petals", 0)))  # absent des anciennes sauvegardes : 0, l'encre reste entière
 	var legacy_prints := clampi(int(cf.get_value("meta", "prints", 0)), 0, MAX_PRINTS)
 	runs = maxi(0, int(cf.get_value("meta", "runs", 0)))
 	best_room = maxi(0, int(cf.get_value("meta", "best_room", 0)))
@@ -382,6 +393,7 @@ func save_data() -> void:
 	for cid in Gear.CHARM_ORDER:
 		cf.set_value("gear_charm", cid, charms_won.has(cid))
 	cf.set_value("meta", "sumi", sumi)
+	cf.set_value("meta", "petals", petals)
 	cf.set_value("meta", "tree_version", TREE_VERSION)
 	cf.set_value("meta", "prints", prints)
 	cf.set_value("meta", "runs", runs)
@@ -862,10 +874,10 @@ func cosmetic_color(cat: String, id: String) -> Color:
 	return d.get("col", Toon.SUMI)
 
 
-## Prix en encre (-1 : ne s'achète pas).
+## Prix en pétales (-1 : ne s'achète pas).
 func cosmetic_cost(cat: String, id: String) -> int:
 	var d := _cosmetic(cat, id)
-	return int(d.get("cost", -1))
+	return int(d.get("petals", -1))
 
 
 func cosmetic_owned(cat: String, id: String) -> bool:
@@ -902,8 +914,8 @@ func cosmetic_how(cat: String, id: String) -> String:
 	if cat in LOOK_KINDS:
 		return print_how(id)
 	var d := _cosmetic(cat, id)
-	if d.has("cost"):
-		return "S'achète %d encre." % int(d["cost"])
+	if d.has("petals"):
+		return "S'achète %d pétales." % int(d["petals"])
 	if d.has("print"):
 		var pid := String(d["print"])
 		var p: Dictionary = PRINTS.get(pid, {})
@@ -915,14 +927,14 @@ func cosmetic_how(cat: String, id: String) -> String:
 
 func can_buy_cosmetic(cat: String, id: String) -> bool:
 	var c := cosmetic_cost(cat, id)
-	return c >= 0 and not cosmetic_owned(cat, id) and sumi >= c
+	return c >= 0 and not cosmetic_owned(cat, id) and petals >= c
 
 
-## Achète (encre) puis porte ; sauvegarde. Renvoie vrai si l'achat a eu lieu.
+## Achète (pétales) puis porte ; sauvegarde. Renvoie vrai si l'achat a eu lieu.
 func buy_cosmetic(cat: String, id: String) -> bool:
 	if not can_buy_cosmetic(cat, id):
 		return false
-	sumi -= cosmetic_cost(cat, id)
+	petals -= cosmetic_cost(cat, id)
 	bought["%s:%s" % [cat, id]] = true
 	wear_cosmetic(cat, id)
 	save_data()
@@ -1122,10 +1134,12 @@ func apply_run_start(m) -> void:
 
 # --- Fin de partie ----------------------------------------------------------
 
-## Calcule et crédite les gains d'une partie (§5.1), sauvegarde, renvoie {"sumi", "seals", "print", "prints"}.
+## Calcule et crédite les gains d'une partie (§5.1), sauvegarde, renvoie {"sumi", "petals", "seals", "print", "prints"}.
 ## Les anciens sceaux sont payés en encre (SEAL_SUMI chacun) : 1 par gardien, 2 par boss, et en cas de victoire
 ## 1 par malédiction portée (3 au plus), 2 à la toute première victoire ; « seals » vaut toujours 0. Vues : selon le monde joué (world_id) et le nombre de parties.
-func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, victory: bool, mini_boss_kills := 0, world_id := 0) -> Dictionary:
+## Pétales (garde-robe) : PETALS_MINI par gardien, PETALS_BOSS par boss, PETALS_WIN pour une victoire, 1 par défi
+## relevé (challenges : élites des recoins) et 1 par Vue nouvelle.
+func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, victory: bool, mini_boss_kills := 0, world_id := 0, challenges := 0) -> Dictionary:
 	var base := float(floori(maxi(0, kills) / 5.0) + 10 * mini_boss_kills + 30 * boss_kills + SUMI_PER_ROOM * rooms_cleared)
 	base *= 1.0 + 0.15 * maxi(0, curses)
 	var gained := maxi(0, int(round(base * sumi_mult())))
@@ -1162,8 +1176,12 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 			all_won = false
 	if all_won and _grant("all"):
 		new_prints.append("all")
+	var new_petals := PETALS_MINI * maxi(0, mini_boss_kills) + PETALS_BOSS * maxi(0, boss_kills) + maxi(0, challenges) + new_prints.size()
+	if victory:
+		new_petals += PETALS_WIN
+	petals += new_petals
 	save_data()
-	return {"sumi": gained, "seals": 0, "print": not new_prints.is_empty(), "prints": new_prints}
+	return {"sumi": gained, "petals": new_petals, "seals": 0, "print": not new_prints.is_empty(), "prints": new_prints}
 
 
 ## Fin d'une partie dans un monde : record du monde ; en cas de victoire, le monde suivant s'ouvre et le

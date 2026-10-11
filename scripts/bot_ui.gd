@@ -728,12 +728,11 @@ func _wd_tap(key: String) -> void:
 
 
 ## Garde-robe : une apparence par type (écharpe, sillage, encre : gagnées par les Vues, accordées ici),
-## thème Nuit acheté et appliqué à l'accueil, retour au Washi, puis RETOUR.
+## thème Nuit acheté en pétales (l'encre n'y est pas touchée) et appliqué à l'accueil, retour au Washi, puis RETOUR.
 func _step_wardrobe() -> bool:
 	var meta = main.meta
 	var wd = main.wardrobe
-	meta.sumi = maxi(int(meta.sumi), 5000)
-	main.menu.sumi = meta.sumi
+	meta.petals = maxi(int(meta.petals), 200)
 	await _press(main.menu._wardrobe, "GARDE-ROBE")
 	if not await _until(func(): return bool(wd.visible) and float(wd._t) >= 0.4 and wd._hits.size() > 0, "GARDE-ROBE ouvre la garde-robe"):
 		return false
@@ -750,7 +749,12 @@ func _step_wardrobe() -> bool:
 	await _wd_tap("tab:3")
 	await _wd_tap("item:nuit")
 	if not bool(meta.cosmetic_owned("theme", "nuit")):
+		var s0 := int(meta.sumi)
+		var p0 := int(meta.petals)
+		var pc := int(meta.cosmetic_cost("theme", "nuit"))
 		await _press(wd._buy, "ACHETER")
+		_check(int(meta.petals) == p0 - pc and int(meta.sumi) == s0, "garde-robe : Nuit payé %d pétales, encre intacte" % pc,
+			"pétales %d -> %d (prix %d), encre %d -> %d" % [p0, int(meta.petals), pc, s0, int(meta.sumi)])
 	var nuit: Dictionary = Meta.THEMES["nuit"]
 	_check(String(meta.theme) == "nuit" and main.menu.th_paper == nuit["paper"], "garde-robe : thème Nuit appliqué", "thème %s" % String(meta.theme))
 	await _wd_tap("item:washi")
