@@ -9,9 +9,6 @@ const PowerData = preload("res://scripts/power_data.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Score = preload("res://scripts/score.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
-# pictogramme d'un monde d'après son kanji (UI v2 : plus de kanji dans l'interface) : table partagée avec le HUD
-# (UIColors.WORLD_ICON). Vague, bambou, neige : planches ; feu, encre, ciel, dragon, enfers : provisoires, à valider.
-const WORLD_ICON := UIColors.WORLD_ICON
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
 # feuille de résultats (× u) : en-tête sumi, bloc score + rang, lignes à sceau ; le bas est réservé aux boutons
 const HEADER_H := 64.0
@@ -74,7 +71,7 @@ var score_rank := 0  # 0 : aucun, 1..4 : prunier, bambou, pin, maître (picto RA
 var score_next := 0  # points du rang suivant (0 : rang maximal)
 var pause_powers: Array = []  # ids des pouvoirs de la partie (rangée d'icônes de la pause)
 var world_name := ""
-var world_kanji := "波"  # clé du monde (jamais affichée) : choisit son picto (WORLD_ICON)
+var world_kanji := "波"  # clé du monde (jamais affichée) : choisit son kamon (Kamon.WORLD, via UiKit.world_icon)
 var world_color := Toon.PRUSSIAN
 var stat_shapes := {}  # figure -> nombre réalisé
 var build := {}  # pouvoir -> niveau (powers.levels)
@@ -711,7 +708,7 @@ func _draw_world_sel(w: float, h: float, u: float) -> void:
 	var seal := Rect2(sr.position + Vector2(9.0 * u, 8.0 * u), Vector2(sr.size.y - 16.0 * u, sr.size.y - 16.0 * u))
 	var scol: Color = th_ink.lerp(th_paper, 0.5) if sel_locked else sel_color
 	draw_style_box(UiKit.box(_sb, Color(scol, sa), int(6 * u)), seal)
-	UiKit.draw_icon(self, String(WORLD_ICON.get(sel_kanji, "hud/vague")), seal.get_center(), seal.size.x * 0.68, sa, Toon.WASHI)
+	UiKit.world_icon(self, sel_kanji, seal.get_center(), seal.size.x * 0.68, sa, Toon.WASHI)
 	if sel_locked:
 		var lc := seal.end - Vector2(1.0, 3.0) * u
 		draw_circle(lc, 8.0 * u, Color(th_paper, sa))
@@ -962,7 +959,7 @@ func _draw_killer(x0: float, x1: float, y: float, rh: float, u: float, a: float)
 	draw_string(_title, Vector2(tx + 30.0 * u, sq.get_center().y + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(th_ink, a))
 	var ws := Rect2(Vector2(tx, r.get_center().y + 5.0 * u), Vector2(18.0, 18.0) * u)
 	draw_style_box(UiKit.box(_sb, Color(world_color, a), int(4 * u)), ws)
-	UiKit.draw_icon(self, String(WORLD_ICON.get(world_kanji, "hud/vague")), ws.get_center(), 12.0 * u, a, UIColors.WASHI)
+	UiKit.world_icon(self, world_kanji, ws.get_center(), 12.0 * u, a, UIColors.WASHI)
 	_num_pair(Vector2(tx + 26.0 * u, ws.get_center().y), str(stat_room), "/%d" % rooms_total, int(14 * u), Color(th_ink, a), u)
 
 
@@ -1091,7 +1088,7 @@ func _draw_stats(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 		if i == 0:
 			var ws := Rect2(c - Vector2(10.0, 10.0) * u, Vector2(20.0, 20.0) * u)
 			draw_style_box(UiKit.box(_sb, Color(world_color, ka), int(4 * u)), ws)
-			UiKit.draw_icon(self, String(WORLD_ICON.get(world_kanji, "hud/vague")), c, 13.0 * u, ka, UIColors.WASHI)
+			UiKit.world_icon(self, world_kanji, c, 13.0 * u, ka, UIColors.WASHI)
 		else:
 			UiKit.draw_icon(self, String(it[0]), c, 20.0 * u, ka, th_ink)
 		if String(it[2]) != "":
@@ -1170,7 +1167,7 @@ func _draw_unlocks(x0: float, x1: float, y: float, rh: float, u: float, a: float
 		var ic := Vector2(r.get_center().x, r.position.y + th * 0.42)
 		var ws := Rect2(ic - Vector2(14.0, 14.0) * u, Vector2(28.0, 28.0) * u)
 		draw_style_box(UiKit.box(_sb, Color(unlock_world_color, a * pk), int(6 * u)), ws)
-		UiKit.draw_icon(self, String(WORLD_ICON.get(unlock_world_kanji, "hud/vague")), ic, 18.0 * u, a * pk, UIColors.WASHI)
+		UiKit.world_icon(self, unlock_world_kanji, ic, 18.0 * u, a * pk, UIColors.WASHI)
 		UiKit.text(self, nf, "monde %d" % unlock_world, Vector2(r.get_center().x, r.end.y - 7.0 * u), int(8.5 * u), Color(th_ink, 0.8 * a * pk))
 		x += step
 		i += 1
@@ -1321,7 +1318,7 @@ func _draw_pause() -> void:
 				# étape : pastille du monde (pictogramme sur sa couleur), « 5/8 » (le total plus petit et pâle)
 				var sq := Rect2(ic - Vector2(12.0, 12.0) * u, Vector2(24.0, 24.0) * u)
 				draw_style_box(UiKit.box(_sb, Color(world_color, a), int(4 * u)), sq)
-				UiKit.draw_icon(self, String(WORLD_ICON.get(world_kanji, "hud/vague")), ic, 15.0 * u, a, UIColors.WASHI)
+				UiKit.world_icon(self, world_kanji, ic, 15.0 * u, a, UIColors.WASHI)
 				var big := str(stat_room)
 				var small := "/%d" % rooms_total
 				var sfs := int(12 * u)

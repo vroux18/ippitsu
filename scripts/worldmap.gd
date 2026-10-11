@@ -994,14 +994,14 @@ func _draw_locked_info(ci: CanvasItem, i: int, r: Rect2) -> void:
 	UiKit.monster_badge(ci, _box, Rect2(Vector2(c.x + 44.0 * u - bs / 2.0, c.y - bs / 2.0), Vector2(bs, bs)), false, 1.0, u)
 
 
-## Pastille d'un monde : son picto (UIColors.WORLD_ICON, d'après sa clé) sur un carré arrondi de sa couleur,
+## Pastille d'un monde : son kamon (UiKit.world_icon, d'après sa clé) sur un carré arrondi de sa couleur,
 ## liseré papier (planche Mondes : 34, rayon 5, bord 1,5).
 func _world_badge(ci: CanvasItem, r: Rect2, key: String, col: Color, a: float) -> void:
 	var u := _u
 	UiKit.box(_box, Color(col, a), maxi(1, int(r.size.x * 0.15)), Color(Toon.WASHI, 0.9 * a), maxi(1, int(1.5 * u)))
 	ci.draw_style_box(_box, r)
 	_box.set_border_width_all(0)
-	UiKit.draw_icon(ci, String(UIColors.WORLD_ICON.get(key, "hud/vague")), r.get_center(), r.size.x * 0.6, a, Toon.WASHI)
+	UiKit.world_icon(ci, key, r.get_center(), r.size.x * 0.6, a, Toon.WASHI)
 
 
 ## Sous-titre coupé en deux lignes au plus (mis en cache par monde et largeur) ; carte du monde révélé.

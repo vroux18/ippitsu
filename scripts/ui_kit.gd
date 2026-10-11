@@ -8,6 +8,7 @@ const UI_FONT = preload("res://assets/fonts/ZenKakuGothicNew-Bold.ttf")
 const Toon = preload("res://scripts/toon.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")  # jetons de couleur du handoff UI v2 (theme.json)
 const Icons = preload("res://scripts/ui_icons.gd")  # sources SVG des pictogrammes v2 (res://ui/icons)
+const Kamon = preload("res://scripts/kamon.gd")  # blasons pleins (Arbre, mondes, sceaux des portes)
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf) : rastérisations SVG
 # UI v2 : plus de kanji dans l'interface (seul le logo 一筆 de l'accueil reste) : les sceaux à côté des titres
 # d'écran et de section ne se dessinent plus (screen_title, section)
@@ -2712,8 +2713,20 @@ static func monster_badge(ci: CanvasItem, sb: StyleBoxFlat, r: Rect2, mini: bool
 	draw_icon(ci, "hud/couronne" if mini else "hud/oni", r.get_center(), minf(r.size.x, r.size.y) * 0.62, a, Toon.WASHI)
 
 
-## Sceau de monde (UI v2) : carré arrondi à la couleur du monde, son picto (UIColors.WORLD_ICON, clé « kanji » de
+## Picto d'un monde : son kamon (Kamon.WORLD, d'après la clé « kanji » de worlds.gd), centré en c dans un gabarit
+## de côté sz (même gabarit que draw_icon), couleur col à l'opacité a.
+static func world_icon(ci: CanvasItem, key: String, c: Vector2, sz: float, a := 1.0, col := Color(1, 1, 1)) -> void:
+	Kamon.draw_world(ci, key, c, sz, a, col)
+
+
+## Maillages des kamon des mondes préparés d'avance (triangulation, une fois par partie).
+static func warm_world_icons() -> void:
+	for id in Kamon.WORLD.values():
+		Kamon.mesh(String(id))
+
+
+## Sceau de monde (UI v2) : carré arrondi à la couleur du monde, son kamon (Kamon.WORLD, clé « kanji » de
 ## worlds.gd, jamais affichée) en papier. Remplace le hanko à kanji.
 static func world_badge(ci: CanvasItem, sb: StyleBoxFlat, r: Rect2, key: String, col: Color, a: float) -> void:
 	ci.draw_style_box(box(sb, Color(col, a), int(minf(r.size.x, r.size.y) * 0.2)), r)
-	draw_icon(ci, String(UIColors.WORLD_ICON.get(key, "hud/vague")), r.get_center(), minf(r.size.x, r.size.y) * 0.66, a, Toon.WASHI)
+	world_icon(ci, key, r.get_center(), minf(r.size.x, r.size.y) * 0.66, a, Toon.WASHI)
