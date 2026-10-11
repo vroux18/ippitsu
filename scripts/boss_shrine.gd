@@ -122,23 +122,30 @@ static func open_north(wid: int, boss: bool) -> bool:
 
 ## Habille l'arène : `boss` faux = gardien (sanctuaire secondaire), vrai = boss (sanctuaire principal).
 ## Renvoie la racine (déjà accrochée à `parent`).
-static func build(wid: int, boss: bool, parent: Node3D, rng_seed: int) -> Node3D:
+static func build(wid: int, boss: bool, parent: Node3D, rng_seed: int, cut := Callable()) -> Node3D:
 	var root := Node3D.new()
 	root.name = "BossShrine"
 	parent.add_child(root)
 	var p := pal(wid)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(rng_seed * 131 + wid * 7 + (1 if boss else 0))
-	var ctx := {"vc": {}, "g": {}, "mm": {}, "root": root, "p": p, "wid": wid, "boss": boss, "rng": rng, "lights": 0}
+	var ctx := {"vc": {}, "g": {}, "mm": {}, "root": root, "p": p, "wid": wid, "boss": boss, "rng": rng, "lights": 0, "cut": cut}
+	# (construction étalée sous le rideau : arena passe sa découpe, Worlds._cut rend la main entre deux parties)
 	_floor(ctx)
+	await Worlds._cut(ctx)
 	_terraces(ctx)
+	await Worlds._cut(ctx)
 	_accents(ctx)
+	await Worlds._cut(ctx)
 	_south_steps(ctx)
+	await Worlds._cut(ctx)
 	if open_north(wid, boss):
 		_north_water(ctx)
 	else:
 		_north_court(ctx)
+	await Worlds._cut(ctx)
 	_flush_vc(ctx["vc"], root)
+	await Worlds._cut(ctx)
 	Worlds._flush(ctx["g"], root, false)
 	Worlds._flush_mm(ctx["mm"], root)
 	_ambience(ctx)
