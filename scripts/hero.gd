@@ -72,6 +72,12 @@ var _life := 0.0
 var _scarf_col := SCARF_DEF
 var _scarf_mat: StandardMaterial3D  # col de l'écharpe (sommets blancs teintés)
 var _outfit_id := "sumi"  # tenue de la garde-robe (palette du ninja procédural)
+var _hat_id := "kasa"  # couvre-chef de la garde-robe (ninja_rig.HAT_STYLES)
+var _blade_id := "sumi"  # sabre de la garde-robe (ninja_rig.BLADE_PAL)
+var _glow: MeshInstance3D = null  # halo de la lame tirée (sabres qui luisent)
+var _glow_mat: StandardMaterial3D
+var _glow_col := Color(1, 1, 1, 0)
+var preview_drawn := false  # garde-robe (onglet LAME) : sabre tiré au repos pour le montrer
 var _knot: Node3D  # nœud de l'écharpe dans la nuque : point d'attache des pans
 var _tails: MeshInstance3D
 var _tails_mesh: ImmediateMesh
@@ -105,7 +111,7 @@ func _ready() -> void:
 	if USE_NINJA_RIG:
 		ch = NinjaRig.new()
 		body.add_child(ch)
-		ch.setup(NinjaRig.hero_config(_outfit_id), 1.75)
+		ch.setup(NinjaRig.hero_config(_outfit_id, _hat_id, _blade_id), 1.75)
 		ch.spin_self = false  # la toupie fait déjà tourner le corps (_process)
 		_dress_rig()
 	else:
@@ -479,6 +485,7 @@ func _process(delta: float) -> void:
 		_update_trail(delta)
 	_life = fmod(_life + delta, 1000.0)
 	_update_pose(delta)
+	_update_glow()
 	_update_tails(delta)
 	_update_charm(delta)
 	if _pt != 0:
@@ -580,6 +587,47 @@ func set_look(cape: Color, cape_on: bool, trail: Color, trail_on: bool) -> void:
 		add_child(_trail)
 
 
+## Couvre-chef et sabre de la garde-robe (meta.apply_look) : pièces du ninja procédural remodelées (cache par
+## palette) ; une lame qui luit reçoit un halo additif qui palpite quand elle est tirée.
+func set_gear(hat: String, blade: String) -> void:
+	if not USE_NINJA_RIG or ch == null:
+		return
+	if hat == _hat_id and blade == _blade_id:
+		return
+	_hat_id = hat
+	_blade_id = blade
+	ch.set_palette(NinjaRig.hero_config(_outfit_id, _hat_id, _blade_id))
+	_glow_col = NinjaRig.blade_glow(_blade_id)
+	if _glow_col.a <= 0.0:
+		if _glow != null:
+			_glow.visible = false
+		return
+	if _glow == null and _blade_hand != null:
+		_glow_mat = StandardMaterial3D.new()
+		_glow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_glow_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_glow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_glow_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_glow_mat.no_depth_test = false
+		_glow_mat.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+		_glow = MeshInstance3D.new()
+		_glow.mesh = NinjaRig.blade_glow_mesh()
+		_glow.material_override = _glow_mat
+		_glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_blade_hand.add_child(_glow)
+	if _glow != null:
+		_glow.visible = true
+		_glow_mat.albedo_color = Color(_glow_col, 0.55)
+
+
+## Halo de la lame : palpite doucement, s'avive pendant la ruée.
+func _update_glow() -> void:
+	if _glow == null or not _glow.visible or _glow_mat == null:
+		return
+	var k := 0.34 + 0.1 * sin(_life * 5.0) + (0.3 if dashing else 0.0)
+	_glow_mat.albedo_color = Color(_glow_col, k)
+
+
 ## Tenue de la garde-robe : ninja procédural -> palette de la tenue (id tiré du nom de l'atlas,
 ## « rogue_<id>.png », cf. meta.OUTFITS) ; KayKit -> atlas recoloré (corps, bras, jambes, capuche).
 func set_outfit(tex: Texture2D) -> void:
@@ -589,7 +637,7 @@ func set_outfit(tex: Texture2D) -> void:
 		var id := tex.resource_path.get_file().get_basename().trim_prefix("rogue_")
 		_outfit_id = id if NinjaRig.OUTFIT_PAL.has(id) else "sumi"
 		if ch != null:
-			ch.set_palette(NinjaRig.hero_config(_outfit_id))
+			ch.set_palette(NinjaRig.hero_config(_outfit_id, _hat_id, _blade_id))
 		return
 	if ch == null or ch.model == null:
 		return
@@ -610,7 +658,7 @@ func set_outfit(tex: Texture2D) -> void:
 func _update_pose(delta: float) -> void:
 	if _drawn_t > 0.0:
 		_drawn_t -= delta
-	var drawn: bool = dashing or _drawn_t > 0.0 or ch._once or dead
+	var drawn: bool = dashing or _drawn_t > 0.0 or ch._once or dead or preview_drawn
 	if _blade_hand != null:
 		_blade_hand.visible = drawn
 	if _hilt != null:

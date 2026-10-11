@@ -1,6 +1,6 @@
 extends Control
 ## Options : son, vibrations, contrôles (tracer sur l'écran, ou pad en bas), taille et affichage du pad,
-## revoir le tutoriel. Carte de papier sur voile d'encre ; oui/non en interrupteurs, le reste en segments
+## revoir le tutoriel, mode développeur (mode mesure : section DEV de la pause). Carte de papier sur voile d'encre ; oui/non en interrupteurs, le reste en segments
 ## d'un mot (UI v2 : pas de phrase d'aide). main lit/écrit `values`.
 ## Le mode de contrôle ne change qu'au prochain lancement (cadrage de l'arène) : main pose `active_control`,
 ## une note le rappelle tant que le choix diffère.
@@ -21,6 +21,8 @@ const ROWS := [
 	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "DÉBUT"], ["never", "JAMAIS"]]},
 	# une seule case : revoir le tutoriel en jeu (coach)
 	{"key": "tuto", "label": "TUTORIEL", "opts": [["replay", "REVOIR"]]},
+	# mode développeur (= mode mesure, aussi par appui long sur le titre) : section DEV de la pause
+	{"key": "dev", "label": "MODE DÉVELOPPEUR", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 ]
 const INPUT_DELAY := 0.3  # le toucher qui a ouvert la carte ne doit rien choisir
 const NO_TARGET := -2
@@ -31,7 +33,7 @@ const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sou
 const ROW_STEP := 84.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
-var values := {"sound": "on", "vibration": "on", "control": "pad", "pad_size": "m", "pad_show": "start"}
+var values := {"sound": "on", "vibration": "on", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off"}
 var active_control := "screen"  # mode de contrôle de la session en cours (lu par main au lancement)
 
 var _t := 0.0
@@ -116,7 +118,11 @@ func _draw() -> void:
 	if w < 10.0:
 		return
 	# la carte grandit avec le nombre de lignes ; sur écran trop bas, tout rétrécit pour tenir
-	var card_h := ROW_TOP + float(ROWS.size()) * ROW_STEP - 18.0 - 2.0 * 30.0
+	var toggles := 0
+	for row in ROWS:
+		if bool(row.get("toggle", false)):
+			toggles += 1
+	var card_h := ROW_TOP + float(ROWS.size()) * ROW_STEP - 18.0 - float(toggles) * 30.0
 	var u := minf(w / 400.0, h / (card_h + 40.0))
 	var a := clampf(_t / 0.25, 0.0, 1.0)
 	var ka := UiKit.ease_out(a)

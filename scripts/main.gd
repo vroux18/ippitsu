@@ -5,7 +5,7 @@ extends Node3D
 ## `room` compte les combats (15 par monde, dont 8 = gardien et 15 = boss) : XP, rouleaux, records.
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 const Mesure = preload("res://scripts/mesure.gd")  # mode mesure caché (appui long sur le titre de l'accueil)
-const DecorWarm = preload("res://scripts/decor_warm.gd")  # préchauffage des shaders du décor de chaque monde
+const CamPanel = preload("res://scripts/cam_panel.gd")  # mode mesure : réglage de la caméra (pause, CAMÉRA)
 
 const Toon = preload("res://scripts/toon.gd")
 const Lueurs = preload("res://scripts/lueurs.gd")  # lueurs des lanternes (flaques et halos additifs)
@@ -182,8 +182,21 @@ const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14]
 const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du héros)
 ## Plongée de la caméra (degrés au-dessus de l'horizon). Caméra « relief » (retenue) : un peu moins zénithale,
 ## focale un peu plus courte (CAM_FOV), les volumes (piliers, monstres, tranches des plateformes) se lisent mieux.
-var cam_tilt := 48.0
+const CAM_TILT := 48.0
 const CAM_FOV := 44.0
+const CAM_RECUL := 1.0
+## Réglage de la caméra (mode mesure seulement, panneau CAMÉRA de la pause : cam_panel.gd) : plongée, focale et
+## recul (facteur sur la distance du cadrage). Hors mode mesure : toujours les valeurs du jeu ci-dessus.
+const CAM_RANGE := {"tilt": [35.0, 70.0, 2.0], "fov": [30.0, 60.0, 2.0], "recul": [0.7, 1.6, 0.05]}  # min, max, pas
+var cam_tilt := CAM_TILT
+var cam_fov := CAM_FOV  # focale de jeu (l'accueil, la barque et la carte gardent CAM_FOV)
+var cam_recul := CAM_RECUL
+var _cam_pref := {"tilt": CAM_TILT, "fov": CAM_FOV, "recul": CAM_RECUL}  # réglage du propriétaire (sauvegardé)
+var cam_panel: Control
+## GOD MODE (développeur, section DEV de la pause ; sauvegardé, effectif seulement en mode développeur, toujours
+## éteint au lancement du robot) : héros intouchable, encre et ultime pleins, dégâts du héros ×GOD_DMG.
+var god := false
+const GOD_DMG := 10.0
 const CAM_LEAD := 0.6  # la caméra regarde à peine devant le héros (il reste au centre de l'écran)
 const CAM_LEAD_PAD := 2.4  # mode pad : l'arène est cadrée au-dessus du pad, on voit plus loin devant
 const SETTINGS_V := 2  # version des réglages : 2 = pad (taille M) par défaut, posé une fois sur les sauvegardes existantes
@@ -324,6 +337,7 @@ const BOAT_BEAM := 0.62
 const BOAT_HERO_Z := -1.0
 const RING_LIFE := 3.0  # durée d'une ride sur l'eau
 const WARDROBE_DIR := Vector3(0.958, 0.0, -0.287)  # garde-robe : la caméra sur le flanc de la proue
+const WARDROBE_BLADE_TURN := -0.75  # garde-robe, onglet LAME : le héros se tourne (rad) pour montrer son sabre
 const Decor = preload("res://scripts/decor.gd")
 var menu_boat: Node3D
 var _boat_lantern: Node3D
@@ -343,6 +357,7 @@ var _new_kind_t := 0.0
 var _bestiary_dirty := false  # victoires comptées depuis la dernière sauvegarde
 var _wardrobe_on := false
 var _wardrobe_k := 0.0
+var _wd_cam := Vector3(3.3, 1.05, 0.1)  # caméra de la garde-robe : recul, hauteur, point visé (selon l'onglet)
 var _env: Environment
 # ambiance de boss : ciel assombri vers l'encre du monde, brume plus dense, soleil bas et chaud, contraste,
 # éclairs lointains (boss du monde seulement) ; fondue à l'entrée en scène, retirée à la mort du boss
@@ -388,9 +403,6 @@ var waves_total := 1
 var wave_index := 1
 var _room_done := false
 var _rebuilt := false
-var _loading := false  # construction étalée en cours sous le rideau (transition, intro) : le rideau attend
-var _load_gen := 0  # change à chaque nouvelle partie : une construction étalée dépassée ne finit pas son travail
-var _intro_gentle := false  # tout premier départ (tutoriel) : deux premiers combats adoucis, posé après _start
 var _dash_prev := Vector3.ZERO  # garde-fou des ruées bloquées
 var _dash_stall := 0.0
 var _intro_world := 0  # monde choisi sur la carte, construit sous le rideau de l'intro
@@ -504,6 +516,7 @@ var _cap_oni_fige := -1.0  # captures (`figeoni=X`) : image figée X s après le
 var _cap_oni_win := false  # captures (`vaincu`) : l'élite du sanctuaire d'oni meurt aussitôt parue
 # combat de boss sans dégât
 var _scratched := false
+var _run_scratched := false  # un cœur perdu dans la partie (exploit « sans perdre un cœur » de la garde-robe)
 var _flawless_pending := false  # rouleau « sans une égratignure » à ouvrir (gardien)
 # portes à deux sceaux (fin d'étape, SealGate) : le sceau de la porte franchie vaut pour l'étape qui suit
 const SealGate = preload("res://scripts/seal_gate.gd")
@@ -555,8 +568,6 @@ const FRAMES_MAX := 12
 var perf := {}  # étape -> [nombre, total ms, max ms]
 var _perf_on := false
 var measure: CanvasLayer  # mode mesure (mesure.gd) : inactif, il ne relève rien
-var decor_warm: Node  # préchauffage du décor des mondes (decor_warm.gd), après celui des ennemis et des effets
-var _intro_wait := false  # intro : le rideau attend que le décor du monde choisi soit préchauffé
 var warmed := false  # préchauffage fini (shaders des ennemis et des effets compilés : relevé --perf --shadercheck)
 
 
@@ -592,12 +603,12 @@ func _ready() -> void:
 	measure = Mesure.new()
 	measure.main = self
 	add_child(measure)
-	decor_warm = DecorWarm.new()
-	decor_warm.main = self
-	add_child(decor_warm)
 	menu.measure_toggled.connect(_on_measure_toggled)
 	menu.report_copy_pressed.connect(_on_report_copy)
 	menu.report_reset_pressed.connect(_on_report_reset)
+	menu.camera_pressed.connect(_open_cam_panel)
+	menu.god_pressed.connect(_on_god_toggle)
+	menu.unlock_all_pressed.connect(_on_unlock_all)
 	var ref_layer := CanvasLayer.new()
 	ref_layer.layer = 4
 	add_child(ref_layer)
@@ -656,6 +667,12 @@ func _ready() -> void:
 	recap = PowersRecap.new()
 	opt_layer.add_child(recap)
 	recap.closed.connect(_on_recap_closed)
+	cam_panel = CamPanel.new()
+	opt_layer.add_child(cam_panel)
+	cam_panel.connect("step", _on_cam_step)
+	cam_panel.connect("reset_pressed", _on_cam_reset)
+	cam_panel.connect("copy_pressed", _on_cam_copy)
+	cam_panel.connect("closed", _on_cam_panel_closed)
 	menu.powers_pressed.connect(_open_recap)
 	menu.options_pressed.connect(_open_options)
 	tuto = Tutorial.new()
@@ -712,14 +729,29 @@ func _ready() -> void:
 			tree_coach.auto = false
 	# mode mesure : choix sauvegardé, ou `?mesure` / `--q=mesure` (captures : forcé, rien n'est sauvegardé)
 	measure.set_active(bool(meta.measure_mode) or "mesure" in wsearch)
+	# caméra : le réglage du propriétaire en mode mesure, sinon celui du jeu ; `&cam=48,44,1` (captures) l'impose
+	_apply_cam_pref()
+	_cam_query(wsearch)
+	# `&godmode` (captures, avec `mesure`) : GOD MODE allumé, sans rien sauvegarder
+	if "godmode" in wsearch:
+		god = true
 	hud.show_fps = "fps" in wsearch
 	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
 	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
 		meta.test_unlock_all = true
 	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, Worlds.WORLDS.size()) if wpos >= 0 else 1)
 	# `&pinceau=hake&aspect=1&charme=garde` (captures) : équipement imposé, même verrouillé ; `&won=N` : progression
-	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés) pour l'écran de départ ; rien n'est sauvegardé
+	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés ; `&aspects=N` : N aspects par pinceau) pour l'écran
+	# de départ et l'Atelier ; rien n'est sauvegardé
 	_gear_query(wsearch)
+	# `&chapeau=oni&lame=mizu&echarpe=c_gin&sillage=t_raiko&trait=i_kin` (captures) : ces éléments de la garde-robe
+	# accordés et portés (les captures tournent sur une sauvegarde à part)
+	for qa in [["chapeau=", "hat"], ["lame=", "blade"], ["echarpe=", "cape"], ["sillage=", "trail"], ["trait=", "ink"]]:
+		var qp := wsearch.find(String(qa[0]))
+		if qp >= 0:
+			var qid := wsearch.substr(qp + String(qa[0]).length()).get_slice("&", 0)
+			meta.grant_cosmetic(String(qa[1]), qid)
+			meta.wear_cosmetic(String(qa[1]), qid)
 	_start()
 	# `-- --autoplay` : démarre directement en jeu (vérification automatique du CI)
 	var autoplay := "--autoplay" in OS.get_cmdline_user_args()
@@ -886,8 +918,9 @@ func _ready() -> void:
 	if "portes" in wsearch and state == "play":
 		load("res://scripts/seal_gate.gd").mock(self, wsearch)
 	if "atelier" in wsearch:
-		# `?atelier&tab=1` (captures) : l'onglet N ouvert (0 arbre, 1 estampes) ; `&fresh` : encre et arbre remis
-		# à zéro (prix visibles) ; `&arbre` : arbre de démonstration (640 encre, quelques nœuds appris, `&voie` : la
+		# `?atelier&tab=1` (captures) : l'onglet N ouvert (0 arbre, 1 estampes, 2 pinceaux : `&pinceau=hake&aspect=1`
+		# le montre sur cet aspect, `&won=N&aspects=2` ses aspects gagnés) ; `&fresh` : encre et arbre remis à zéro
+		# (prix visibles) ; `&arbre` : arbre de démonstration (640 encre, quelques nœuds appris, `&voie` : la
 		# branche VOIE entière, `&plein` : l'arbre entier) ;
 		# `&noeud=v2` : ce nœud choisi (panneau du bas) ; `&apprendre` : puis APPRENDRE (animation de l'achat)
 		if "fresh" in wsearch:
@@ -908,7 +941,7 @@ func _ready() -> void:
 					meta.tree[nid] = true
 		var tb := wsearch.find("tab=")
 		if tb >= 0:
-			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, 1))
+			refuge.set("_tab", clampi(int(wsearch.substr(tb + 4).get_slice("&", 0)), 0, Refuge.TABS.size() - 1))
 		_on_atelier()
 		var nq := wsearch.find("noeud=")
 		if nq >= 0:
@@ -945,6 +978,9 @@ func _ready() -> void:
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
+		# `?mesure&pause&panneaucam` (captures) : le panneau CAMÉRA ouvert par-dessus la partie figée
+		if "panneaucam" in wsearch:
+			_open_cam_panel()
 	# `?room=3&fig=wave` (captures) : le héros trace cette figure (bot_shapes) vers les ennemis toutes les 2,6 s,
 	# sa technique débloquée (`&figlv=2` : niveau 2, et ses améliorations rares au niveau 1)
 	var fq := wsearch.find("fig=")
@@ -995,7 +1031,7 @@ func _ready() -> void:
 		tuto.dojo.call("_toggle_book")
 	# `?garderobe`, `?options` (captures) : ces écrans depuis l'accueil
 	if "garderobe" in wsearch:
-		# `&cat=N` : l'onglet N ouvert (3 : interface, les prix) ; `&petales=N` : N pétales (captures)
+		# `&cat=N` : l'onglet N ouvert (0 chapeau, 1 lame, 2 écharpe, 3 sillage, 4 encre, 5 thème) ; `&petales=N` : N pétales
 		var wpq := wsearch.find("petales=")
 		if wpq >= 0:
 			meta.petals = maxi(0, int(wsearch.substr(wpq + 8).get_slice("&", 0)))
@@ -1032,6 +1068,11 @@ func _ready() -> void:
 		_finish_run()
 		menu.new_prints = ["w1_room"]  # estampe de démo (vignette des gains)
 		if "gain" in wsearch:
+			# garde-robe : deux éléments gagnés par exploit (pastilles des gains)
+			menu.new_looks.clear()
+			for nk in [["hat", "hachimaki"], ["blade", "braise"]]:
+				menu.new_looks.append({"name": String(meta.cosmetic_name(nk[0], nk[1])), "col": meta.cosmetic_color(nk[0], nk[1]),
+					"col2": meta.cosmetic_color2(nk[0], nk[1])})
 			# `&gain` : aspect, pinceau et omamori gagnés (tuiles de la rangée DÉBLOQUÉ)
 			menu.unlock_gear = [{"kind": "aspect", "id": "fude", "k": 1}, {"kind": "brush", "id": "hake", "k": 0}, {"kind": "charm", "id": "garde", "k": 0}]
 			if _ending_victory:
@@ -1244,26 +1285,177 @@ func perf_mark(label: String, usec: int) -> void:
 
 ## Appui long sur le titre de l'accueil : mode mesure activé ou désactivé (gardé dans la sauvegarde).
 func _on_measure_toggled() -> void:
-	var on := not bool(measure.active)
+	_set_dev_mode(not bool(measure.active))
+
+
+## Mode développeur (= mode mesure) : appui long sur le titre, ou OPTIONS > MODE DÉVELOPPEUR ; sauvegardé.
+## Actif : encart de fluidité en jeu, section DEV de la pause (CAMÉRA, COPIER LES DONNÉES, REMETTRE À ZÉRO),
+## réglage de caméra du propriétaire. Inactif : la caméra du jeu.
+func _set_dev_mode(on: bool) -> void:
 	measure.set_active(on)
+	_apply_cam_pref()
 	meta.measure_mode = on
 	meta.save_data()
 	menu.measure_on = on
-	measure.toast("Mode mesure activé" if on else "Mode mesure désactivé")
+	menu.god_on = god_active()
+	measure.toast("Mode développeur activé" if on else "Mode développeur désactivé")
 	sfx.play("levelup" if on else "whoosh", 1.0, -6.0)
 
 
-## Pause, mode mesure : le rapport va dans le presse-papiers.
+## Pause, mode développeur : COPIER LES DONNÉES (contexte, réglages, caméra, puis le rapport de fluidité) va
+## dans le presse-papiers.
 func _on_report_copy() -> void:
-	var txt: String = measure.report()
+	var txt := dev_data()
 	measure.last_report = txt
 	DisplayServer.clipboard_set(txt)
-	measure.toast("Rapport copié")
+	measure.toast("Copié")
+
+
+## Données de développement : version (et commit du build s'il est connu), appareil, écran, partie en cours,
+## réglages, caméra, puis le rapport de fluidité (mesure.gd).
+func dev_data() -> String:
+	var ver := str(ProjectSettings.get_setting("application/config/version", ""))
+	var sha := str(ProjectSettings.get_setting("application/config/commit", ""))
+	var vs := get_viewport().get_visible_rect().size
+	var lines: Array = ["IPPITSU — données de développement"]
+	lines.append("Build : %s%s" % [ver if ver != "" else "dev", (" · commit " + sha.left(10)) if sha != "" else ""])
+	lines.append("Appareil : %s · %s · vue %d×%d" % [OS.get_model_name(), OS.get_name(), int(vs.x), int(vs.y)])
+	lines.append("Partie : monde %d · étape %d · salle %d · état %s%s" % [current_world, stage_i + 1, room, state,
+		" (sanctuaire)" if in_hub else ""])
+	lines.append("Réglages : contrôle %s (choix %s) · pad %s, %s · son %s · vibrations %s" % [ctrl_mode, ctrl_pref, pad_size,
+		pad_show, "non" if menu.muted else "oui", "oui" if sfx.haptics else "non"])
+	lines.append("God mode : %s" % ("oui" if god_active() else "non"))
+	lines.append("Caméra : %s (jeu : tilt=%d fov=%d recul=%.2f)" % [cam_line(), int(CAM_TILT), int(CAM_FOV), CAM_RECUL])
+	return "\n".join(lines) + "\n\n" + String(measure.report())
 
 
 func _on_report_reset() -> void:
 	measure.reset()
 	measure.toast("Mesure remise à zéro")
+
+
+# ------------------------------------------------------------------ réglage de la caméra (mode mesure)
+
+## Plongée, focale et recul de la caméra de jeu (bornés à CAM_RANGE). Le cadrage est recalculé (cache vidé,
+## celui du disque repris s'il correspond) et, en pause, l'image suit tout de suite.
+func set_cam(tilt: float, fov: float, recul: float) -> void:
+	tilt = clampf(tilt, CAM_RANGE.tilt[0], CAM_RANGE.tilt[1])
+	fov = clampf(fov, CAM_RANGE.fov[0], CAM_RANGE.fov[1])
+	recul = clampf(snappedf(recul, 0.01), CAM_RANGE.recul[0], CAM_RANGE.recul[1])
+	var reframe := not is_equal_approx(tilt, cam_tilt) or not is_equal_approx(fov, cam_fov)
+	cam_tilt = tilt
+	cam_fov = fov
+	cam_recul = recul
+	if reframe:
+		_frame_cache.clear()
+		_load_frames()
+	var keep_fov := cam.fov
+	var keep_tr := cam.global_transform
+	_fit_camera()
+	if state in ST_HUD or state in ST_SCENE or state == "dying":
+		cam.global_transform = _cam_base.translated(Vector3(0, 0, _cam_dz))
+		arena.follow_camera(_cam_dz)
+	else:
+		# accueil, barque, carte : leur plan et leur focale (la caméra de jeu servira à l'arrivée)
+		cam.fov = keep_fov
+		cam.global_transform = keep_tr
+	if cam_panel != null:
+		cam_panel.call("set_values", cam_values(), {"tilt": CAM_TILT, "fov": CAM_FOV, "recul": CAM_RECUL})
+
+
+## GOD MODE en vigueur : l'interrupteur, et le mode développeur.
+func god_active() -> bool:
+	return god and measure != null and measure.active
+
+
+## Pause, section DEV : GOD MODE OUI / NON (sauvegardé).
+func _on_god_toggle() -> void:
+	god = not god
+	menu.god_on = god_active()
+	_save()
+	measure.toast("God mode activé" if god else "God mode désactivé")
+	sfx.play("levelup" if god else "whoosh", 1.0, -6.0)
+
+
+## Pause, section DEV : TOUT DÉBLOQUER (confirmé) : la sauvegarde reçoit toute la progression (meta.unlock_all).
+func _on_unlock_all() -> void:
+	if not measure.active:
+		return
+	meta.unlock_all()
+	menu.sumi = meta.sumi
+	menu.best = stage_of(record)
+	_home_select(_home_sel)  # sélecteur de l'accueil : plus aucun monde scellé
+	measure.toast("Tout est débloqué")
+	sfx.play("levelup", 1.0, -4.0)
+
+
+func cam_values() -> Dictionary:
+	return {"tilt": cam_tilt, "fov": cam_fov, "recul": cam_recul}
+
+
+## « tilt=48 fov=44 recul=1.00 » : le réglage tel qu'il se copie (rapport de mesure, presse-papiers).
+func cam_line() -> String:
+	return "tilt=%d fov=%d recul=%.2f" % [int(round(cam_tilt)), int(round(cam_fov)), cam_recul]
+
+
+## Réglage en vigueur : celui du propriétaire en mode mesure, sinon les valeurs du jeu (les autres joueurs
+## ne sont jamais déréglés).
+func _apply_cam_pref() -> void:
+	if measure != null and measure.active:
+		set_cam(float(_cam_pref.tilt), float(_cam_pref.fov), float(_cam_pref.recul))
+	else:
+		set_cam(CAM_TILT, CAM_FOV, CAM_RECUL)
+
+
+## `&cam=tilt,fov,recul` (captures) : ce réglage, sans rien sauvegarder.
+func _cam_query(q: String) -> void:
+	var i := q.find("cam=")
+	if i < 0:
+		return
+	var parts := q.substr(i + 4).get_slice("&", 0).split(",")
+	var t := float(parts[0]) if parts.size() > 0 and parts[0] != "" else CAM_TILT
+	var f := float(parts[1]) if parts.size() > 1 and parts[1] != "" else CAM_FOV
+	var r := float(parts[2]) if parts.size() > 2 and parts[2] != "" else CAM_RECUL
+	set_cam(t, f, r)
+
+
+## Pause, mode mesure : CAMÉRA ouvre le panneau de réglage (la pause s'efface, le jeu figé reste visible).
+func _open_cam_panel() -> void:
+	if state != "paused" or not measure.active:
+		return
+	menu.show_mode("hidden")
+	sfx.play("whoosh", 1.1, -6.0)
+	cam_panel.call("set_values", cam_values(), {"tilt": CAM_TILT, "fov": CAM_FOV, "recul": CAM_RECUL})
+	cam_panel.call("open")
+
+
+func _on_cam_panel_closed() -> void:
+	if state == "paused":
+		menu.show_mode("pause")
+
+
+func _on_cam_step(key: String, dir: int) -> void:
+	var v := cam_values()
+	var rg: Array = CAM_RANGE[key]
+	v[key] = clampf(snappedf(float(v[key]) + float(dir) * float(rg[2]), float(rg[2]) * 0.5), float(rg[0]), float(rg[1]))
+	set_cam(float(v.tilt), float(v.fov), float(v.recul))
+	_cam_pref = cam_values()
+	_save()
+	sfx.play("empty", 1.4 if dir > 0 else 1.2, -8.0)
+
+
+func _on_cam_reset() -> void:
+	set_cam(CAM_TILT, CAM_FOV, CAM_RECUL)
+	_cam_pref = cam_values()
+	_save()
+	measure.toast("Caméra réinitialisée")
+
+
+func _on_cam_copy() -> void:
+	var line := cam_line()
+	DisplayServer.clipboard_set(line)
+	measure.call("note_cam", line)
+	measure.toast("Copié : " + line)
 
 
 func _on_arena_perf(label: String, usec: int) -> void:
@@ -1291,10 +1483,6 @@ func _boot_async(t_ready: int) -> void:
 	perf_mark("boss_scripts", t_boss)
 	await get_tree().process_frame
 	await _warmup()
-	# puis le décor de chaque monde : celui de l'accueil d'abord, le premier ensuite, les autres dans l'ordre
-	decor_warm.want(current_world)
-	for wid in range(1, Worlds.WORLDS.size() + 1):
-		decor_warm.want(wid)
 
 
 ## Les pièces accrochées aux os (cornes, masques, armes) ne suivent pas l'échelle miniature du préchauffage :
@@ -1422,7 +1610,6 @@ func _warmup() -> void:
 	var t_max := 0
 	var t0 := Time.get_ticks_usec()
 	var w := Node3D.new()
-	w.set_meta("warm", true)  # (relevé --shadercheck : vu pendant le préchauffage)
 	# accroché à la caméra, en miniature : dessinés (donc shaders compilés) mais invisibles à l'œil,
 	# où que soit le héros (la barque de l'accueil est en pleine mer)
 	cam.add_child(w)
@@ -1504,15 +1691,6 @@ func _warmup() -> void:
 	OniShrine.warm(onw)
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
 	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
-	# étal du marchand (il ne surgit qu'à la fin des combats de l'étape) et autel du sanctuaire facultatif
-	var yat := Node3D.new()
-	w.add_child(yat)
-	yat.position = Vector3(-3.0, 0, 8.5)
-	PuzzleArt.build_yatai(yat)
-	var alt := Node3D.new()
-	w.add_child(alt)
-	alt.position = Vector3(0.0, 0, 8.5)
-	PuzzleArt.build_altar(alt, current_world)
 	# portes à deux sceaux : faces des dix sceaux rastérisées d'avance (cache de svg_tex), matières du sceau
 	# (face, halo, rayons, ofuda) compilées sur une paire éveillée, porte gauche approchée
 	for sk in SealGate.SCHOOLS + ["gold", "heart", "oni"]:
@@ -1538,20 +1716,6 @@ func _warmup() -> void:
 	coach.warm()  # bulles du tutoriel : pictos des sceaux et glyphes des titres prêts avant la première bulle
 	hud.warm()  # chiffres et pictos du HUD de jeu (sa première image est celle de la première bulle)
 	_warm_shrink(w)
-	# variante « lanterne » de chaque shader (objet éclairé par une lumière ponctuelle : un monstre près d'un tōrō,
-	# un effet sous une lanterne) : de petites lumières sur la miniature et les effets cachés, éteintes après
-	# quelques images ; la miniature reste dessinée sans elles ensuite (les deux variantes sont prêtes)
-	for lp in [[cam, w.position, 0.4], [self, fxp, 2.5], [self, _warm_hide, 2.5]]:
-		var lamp := OmniLight3D.new()
-		lamp.omni_range = float(lp[2])
-		lamp.light_energy = 0.3
-		lamp.shadow_enabled = false
-		(lp[0] as Node).add_child(lamp)
-		if lp[0] == cam:
-			lamp.position = lp[1]
-		else:
-			lamp.global_position = lp[1]
-		get_tree().create_timer(0.4, true, false, true).timeout.connect(lamp.queue_free)
 	# libéré quoi qu'il arrive (même arbre en pause ou temps ralenti : sinon la miniature restait des secondes)
 	get_tree().create_timer(1.2, true, false, true).timeout.connect(w.queue_free)
 	var spent_end := Time.get_ticks_usec() - t0
@@ -1560,8 +1724,6 @@ func _warmup() -> void:
 	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
 	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
 	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
-	# fini quand les petites lumières sont éteintes (variantes éclairées et non éclairées dessinées)
-	await get_tree().create_timer(0.45, true, false, true).timeout
 	warmed = true
 	if Perf.on:
 		print("PERF préchauffage fini t=%.1f" % Time.get_unix_time_from_system())
@@ -1581,6 +1743,10 @@ func _load() -> void:
 			ctrl_pref = String(cfg.get_value("settings", "control", "pad"))
 		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
+		god = bool(cfg.get_value("settings", "god", false))
+		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
+		for k in _cam_pref.keys():
+			_cam_pref[k] = float(cfg.get_value("camera", k, _cam_pref[k]))
 	if not ctrl_pref in ["screen", "pad"]:
 		ctrl_pref = "pad"
 	if not pad_size in ["s", "m", "l"]:
@@ -1590,6 +1756,7 @@ func _load() -> void:
 	ctrl_mode = ctrl_pref  # le seul moment où le mode change : au lancement
 	if "--bot" in OS.get_cmdline_user_args():
 		ctrl_mode = "screen"  # le robot du CI joue toujours au doigt sur l'écran (sans toucher au choix enregistré)
+		god = false  # jamais de GOD MODE pour le robot
 	hud.pad_alpha = 0.0 if pad_show == "never" else 1.0
 	menu.best = stage_of(record)
 	menu.sumi = meta.sumi
@@ -1605,6 +1772,9 @@ func _save() -> void:
 	cfg.set_value("settings", "control", ctrl_pref)
 	cfg.set_value("settings", "pad_size", pad_size)
 	cfg.set_value("settings", "pad_show", pad_show)
+	cfg.set_value("settings", "god", god)
+	for k in _cam_pref.keys():
+		cfg.set_value("camera", k, float(_cam_pref[k]))
 	cfg.save(SAVE_PATH)
 
 
@@ -1706,25 +1876,10 @@ func _intro_swap() -> void:
 	_intro_swapped = true
 	arena.hide_shore(false)
 	if _intro_world > 0:
-		var wid := _intro_world
+		if _intro_world != current_world:
+			apply_world(_intro_world)
+		_start()
 		_intro_world = 0
-		if wid != current_world:
-			apply_world(wid)
-		# le sanctuaire se construit sous le rideau, étalé sur quelques images (le rideau attend : _loading)
-		var gen := _load_gen + 1
-		await _start(true, false, true)
-		if gen != _load_gen:
-			return
-		if not decor_warm.done.has(current_world):
-			# décor du monde pas encore préchauffé (départ très rapide) : le rideau attend, sans à-coup à son lever
-			_intro_wait = true
-			await decor_warm.ensure(current_world)
-			_intro_wait = false
-			if gen != _load_gen:
-				return
-		if _intro_gentle:
-			gentle = true
-	_intro_gentle = false
 	if menu_boat != null:
 		menu_boat.visible = false
 	music.play_world(current_world)
@@ -1748,6 +1903,7 @@ func _on_pause() -> void:
 	menu.stat_time = run_time
 	menu.pause_powers = powers.levels.keys()
 	menu.measure_on = measure.active
+	menu.god_on = god_active()
 	hud.pause_enabled = false
 	state = "paused"
 	menu.show_mode("pause")
@@ -1762,7 +1918,9 @@ func _notification(what: int) -> void:
 			_pause_pending = true  # pause dès que la partie reprend la main
 		if menu == null or hud == null:
 			return
-		if what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
+		if what == NOTIFICATION_WM_GO_BACK_REQUEST and cam_panel != null and cam_panel.visible:
+			cam_panel.call("close")
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and recap != null and recap.visible:
 			recap.visible = false
 			_on_recap_closed()
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and opening != null and opening.visible:
@@ -1788,10 +1946,8 @@ func _start_first_run() -> void:
 	sfx.play("slash", 0.9, -4.0)
 	if current_world != 1:
 		apply_world(1)
-	# le sanctuaire se construit sous le rideau de l'intro (_intro_swap), comme un départ de la carte
-	_intro_world = 1
-	_intro_gentle = true
-	gentle = true  # (dès maintenant : _start le remet à zéro, _intro_swap le repose)
+	_start()
+	gentle = true
 	_set_state("intro")
 
 
@@ -1931,7 +2087,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show}
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dev": "on" if measure.active else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
@@ -1954,6 +2110,9 @@ func _on_option(key: String, value: String) -> void:
 				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
 		"pad_show":
 			pad_show = value
+		"dev":
+			_set_dev_mode(value == "on")
+			return  # (son et vibration du mode, sauvegardé dans meta)
 		"tuto":
 			# « Revoir le tutoriel » : les bulles du coach reviendront (JOUER mène droit au monde 1)
 			meta.coach_reset()
@@ -2012,8 +2171,8 @@ func _menu_transform() -> Transform3D:
 ## Garde-robe : la caméra passe sur le flanc de la proue, le héros se tourne vers elle (haut de l'écran).
 func _wardrobe_transform() -> Transform3D:
 	var hp := hero.position if is_instance_valid(hero) else MENU_BOAT
-	var pos := hp + WARDROBE_DIR * 3.3 + Vector3(0, 1.05, 0)
-	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0, 0.1, 0), Vector3.UP)
+	var pos := hp + WARDROBE_DIR * _wd_cam.x + Vector3(0, _wd_cam.y, 0)
+	return Transform3D(Basis(), pos).looking_at(hp + Vector3(0, _wd_cam.z, 0), Vector3.UP)
 
 
 ## Barque de l'accueil (sampan) : coque courbe, pont de planches, toit de natte (tomaya) sur quatre
@@ -2580,6 +2739,11 @@ func _gear_query(q: String) -> void:
 		for cid in Gear.CHARM_ORDER:
 			if int(Gear.CHARMS[cid]["world"]) <= n:
 				meta.charms_won[cid] = true
+	# `&aspects=N` : N aspects (1..3) gagnés pour chaque pinceau (ceux des pinceaux acquis comptent)
+	var nq := q.find("aspects=")
+	if nq >= 0:
+		for bid in Gear.ORDER:
+			meta.aspects_won[bid] = clampi(int(q.substr(nq + 8).get_slice("&", 0)), 1, 3)
 	var bq := q.find("pinceau=")
 	var cq := q.find("charme=")
 	if bq >= 0 or cq >= 0:
@@ -2709,6 +2873,7 @@ func _on_wardrobe_closed() -> void:
 	menu.sumi = meta.sumi
 	if is_instance_valid(hero):
 		hero.face(Vector3(0, 0, -1))
+		hero.preview_drawn = false
 	if state == "menu":
 		menu.show_mode("home")
 
@@ -2977,12 +3142,26 @@ func _fit_camera() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	if vs.x <= 0 or vs.y <= 0:
 		return
-	_cam_full = _frame(vs)
+	cam.fov = cam_fov
+	_cam_full = _recul(_frame(vs), CAM_FOCUS_Y)
 	_cam_base = _cam_full
 	if ctrl_mode == "pad":
-		_cam_pad = _frame_pad(vs, pad_rect().position.y / vs.y)
+		_cam_pad = _recul(_frame_pad(vs, pad_rect().position.y / vs.y), 0.0)
 		_cam_base = _cam_mix()
 	cam.global_transform = _cam_base
+
+
+## Recul (réglage de la caméra) : la caméra glisse sur son axe de visée, le point visé (à la hauteur focus_y)
+## reste au même endroit de l'écran ; 1 : le cadrage calculé tel quel.
+func _recul(tr: Transform3D, focus_y: float) -> Transform3D:
+	if absf(cam_recul - 1.0) < 0.001:
+		return tr
+	var back := tr.basis.z.normalized()
+	if back.y < 0.05:
+		return tr
+	var d := (tr.origin.y - focus_y) / back.y
+	tr.origin += back * d * (cam_recul - 1.0)
+	return tr
 
 
 ## Cadrage de jeu : en mode pad, mélange des deux cadrages selon la visibilité du pad (l'arène descend
@@ -3010,7 +3189,7 @@ func _frame_pad(vs: Vector2, bottom_k: float) -> Transform3D:
 	var best := Transform3D()
 	var found := false
 	var dist := 12.0
-	while dist < 70.0 and not found:
+	while dist < 120.0 and not found:
 		# à cette distance, garde le cadrage qui centre l'arène verticalement dans la bande
 		var best_gap := INF
 		for zi in 41:
@@ -3064,7 +3243,7 @@ func _frame(vs: Vector2) -> Transform3D:
 	var best := Transform3D()
 	var found := false
 	var dist := 12.0
-	while dist < 70.0 and not found:
+	while dist < 120.0 and not found:
 		var pos := focus + Vector3(0, sin(tilt), cos(tilt)) * dist
 		var tr := Transform3D(Basis(), pos).looking_at(focus, Vector3.UP)
 		cam.global_transform = tr
@@ -3089,7 +3268,7 @@ func _frame(vs: Vector2) -> Transform3D:
 
 ## Cadrages des lancements précédents (même version du jeu, même écran) : la recherche est évitée.
 func _load_frames() -> void:
-	_frame_disk_key = "%s|%s|%.2f|%.1f|2" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam.fov, cam_tilt]
+	_frame_disk_key = "%s|%s|%.2f|%.1f|2" % [str(ProjectSettings.get_setting("application/config/version", "dev")), str(HALF), cam_fov, cam_tilt]
 	var cfg := ConfigFile.new()
 	if cfg.load(FRAMES_PATH) != OK:
 		return
@@ -3113,34 +3292,8 @@ func _save_frames() -> void:
 
 ## Nouvelle partie. `hub` : on démarre dans le sanctuaire (zone d'entraînement, torii vers l'étape 1) ;
 ## sinon directement dans l'étape 1 (tests), ou dans une salle simple pour le tutoriel (`tutorial`).
-## `sliced` (intro) : la salle se construit d'abord, étalée sur plusieurs images sous le rideau ; la remise à
-## zéro (héros, partie) se fait ensuite d'un bloc.
-func _start(hub := true, tutorial := false, sliced := false) -> void:
+func _start(hub := true, tutorial := false) -> void:
 	var t0 := Time.get_ticks_usec()
-	_load_gen += 1
-	_loading = sliced
-	_intro_wait = false
-	var gen := _load_gen
-	var t_arena := Time.get_ticks_usec()
-	if sliced:
-		arena.begin_slices()
-	if hub:
-		await arena.build_hub(randi(), sliced)
-		arena.open_gate()
-	elif tutorial:
-		await arena.build_room(1, ROOMS, randi(), MINI_ROOM, sliced)
-	else:
-		await arena.build_stage(STAGE_PLAN[0].size(), randi(), true, sliced)
-	if gen != _load_gen:
-		return  # (autre partie commencée pendant la construction)
-	_loading = false
-	var t_build := Time.get_ticks_usec() - t_arena
-	if sliced:
-		arena.end_slices()
-		t_build = arena.slice_cpu  # temps de calcul seul, sans les images d'attente
-		perf_mark("hub_build_frame_max" if hub else ("room_build_frame_max" if tutorial else "stage_build_frame_max"), arena.slice_max)
-	perf_mark("hub_build" if hub else ("room_build" if tutorial else "stage_build"), t_build)
-	var t_rest := Time.get_ticks_usec()
 	for e in enemies:
 		if is_instance_valid(e):
 			e.queue_free()
@@ -3169,6 +3322,15 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	_enc = -1
 	_slowmo_t = -1.0
 	_alive_prev = 0
+	var t_arena := Time.get_ticks_usec()
+	if hub:
+		arena.build_hub(randi())
+		arena.open_gate()
+	elif tutorial:
+		arena.build_room(1, ROOMS, randi(), MINI_ROOM)
+	else:
+		arena.build_stage(STAGE_PLAN[0].size(), randi(), true)
+	perf_mark("hub_build" if hub else ("room_build" if tutorial else "stage_build"), Time.get_ticks_usec() - t_arena)
 	hero = Hero.new()
 	add_child(hero)
 	hero.position = arena.start
@@ -3204,6 +3366,7 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	boss_kills = 0
 	mini_kills = 0
 	defi_kills = 0
+	_run_scratched = false
 	run_time = 0.0
 	xp = 0
 	level = 1
@@ -3274,8 +3437,7 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	_hitstop = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
-	# nouvelle partie entière (salle, héros, remise à zéro) ; étalée : calcul seul, sans les images d'attente
-	perf_mark("start", (t_build + Time.get_ticks_usec() - t_rest + t_arena - t0) if sliced else Time.get_ticks_usec() - t0)
+	perf_mark("start", Time.get_ticks_usec() - t0)  # nouvelle partie entière (salle, héros, remise à zéro)
 
 
 func elan_max() -> float:
@@ -4497,8 +4659,6 @@ func _on_picked(id: String) -> void:
 func _transit() -> void:
 	_set_state("transit")
 	_rebuilt = false
-	_loading = false
-	_load_gen += 1  # (une construction étalée encore en cours ne finira pas : la nouvelle la remplace)
 	_cancel_stroke()
 	_reset_stroke_state(true)  # pas de technique (ensō, iai…) qui déborde sur la suite
 	hero.stop_dash()
@@ -4518,12 +4678,6 @@ func _transit() -> void:
 ## s'étend depuis le torii ; la suite se construit sous l'encre ; 0,8-1,15 s l'encre se retire.
 func _update_ritual() -> void:
 	var t := _state_t
-	if _loading:
-		# la suite se construit, étalée sur quelques images : l'encre reste posée (le rituel reprend ensuite)
-		hud.wash_out = false
-		hud.wash = 1.0
-		_state_t = 0.8
-		return
 	if not _rebuilt:
 		var k := clampf(t / 0.45, 0.0, 1.0)
 		var e := k * k * (3.0 - 2.0 * k)
@@ -4543,7 +4697,13 @@ func _update_ritual() -> void:
 		hud.wash = clampf((t - 0.35) / 0.4, 0.0, 1.0)
 		if t >= 0.8:
 			hud.wash = 1.0
-			_ritual_rebuild()
+			_rebuild_room()
+			# la suite : le héros arrive à pied depuis le sud pendant que l'encre se retire, la caméra le rattrape
+			_walk_from = arena.start + Vector3(0, 0, 2.2)
+			hero.position = _walk_from
+			_prev_hero = hero.position
+			hero.ch.play("Walking_A", 1.2)
+			_cam_dz = _cam_target() + 1.6
 	else:
 		var k2 := clampf((t - 0.8) / 0.6, 0.0, 1.0)
 		hud.wash_out = true
@@ -4560,24 +4720,8 @@ func _update_ritual() -> void:
 		_set_state("play")
 
 
-## Rituel : la suite se construit sous l'encre (étalée), puis le héros arrive à pied depuis le sud pendant
-## que l'encre se retire, la caméra le rattrape.
-func _ritual_rebuild() -> void:
-	var gen := _load_gen
-	await _rebuild_room(true)
-	if gen != _load_gen:
-		return
-	_walk_from = arena.start + Vector3(0, 0, 2.2)
-	hero.position = _walk_from
-	_prev_hero = hero.position
-	hero.ch.play("Walking_A", 1.2)
-	_cam_dz = _cam_target() + 1.6
-
-
-## Passage du torii : on quitte la salle, la suite se construit. `sliced` : étalée sur plusieurs images sous
-## le rideau (_loading tant qu'elle dure ; _rebuilt à la fin).
-func _rebuild_room(sliced := false) -> void:
-	_rebuilt = false
+func _rebuild_room() -> void:
+	_rebuilt = true
 	# porte franchie : son sceau vaut pour l'étape qui suit (aucun : torii unique, sanctuaire, gardien)
 	var seals: Array = arena.gate_seals()
 	var gp: int = arena.gate_pick
@@ -4601,18 +4745,12 @@ func _rebuild_room(sliced := false) -> void:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
-	var gen := _load_gen
-	_loading = sliced
-	await _build_segment(sliced)
-	if gen != _load_gen:
-		return
-	_loading = false
-	_rebuilt = true
+	_build_segment()
 
 
 ## Construit la suite pour le combat `room + 1` : l'étape qui le contient (on arrive au sud, les zones
 ## de combat se déclenchent en marchant) ou l'arène d'un gardien (le combat commence tout de suite).
-func _build_segment(sliced := false) -> void:
+func _build_segment() -> void:
 	var t0 := Time.get_ticks_usec()
 	var next := room + 1
 	stage_i = clampi(stage_of(next) - 1, 0, STAGE_PLAN.size() - 1)
@@ -4626,25 +4764,13 @@ func _build_segment(sliced := false) -> void:
 	# fois par monde, la première fois qu'il y a un choix, trois portes
 	var nk := 3 if charm == "portes" and not _portes_used and _gate_force.is_empty() else 2
 	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals(nk) if gate_choice(stage_i) else [])
-	var gen := _load_gen
-	var t_sl := Time.get_ticks_usec()
-	if sliced:
-		arena.begin_slices()
 	if boss_seg:
-		await arena.build_room(next, ROOMS, randi(), MINI_ROOM, sliced)
+		arena.build_room(next, ROOMS, randi(), MINI_ROOM)
 	else:
 		# (tests : `?room=N` au milieu d'une étape -> on reprend à son premier combat)
 		room = int(plan[0]) - 1
-		await arena.build_stage(plan.size(), randi(), int(plan[0]) == 1, sliced)
-		await _build_pockets(sliced)
-	if gen != _load_gen:
-		return  # (nouvelle partie pendant la construction : rien à finir ici)
-	var spread := 0
-	if sliced:
-		# temps de calcul seul (sans les images d'attente) ; la plus longue tranche à part
-		arena.end_slices()
-		spread = Time.get_ticks_usec() - t_sl - arena.slice_cpu
-		perf_mark("arena_build_frame_max" if boss_seg else "stage_build_frame_max", arena.slice_max)
+		arena.build_stage(plan.size(), randi(), int(plan[0]) == 1)
+		_build_pockets()
 	if arena.gate_spots.size() == 3:
 		_portes_used = true
 		if _bot != null:
@@ -4657,7 +4783,7 @@ func _build_segment(sliced := false) -> void:
 	_cam_dz = _cam_target()
 	arena.follow_camera(_cam_dz)
 	# (arène de boss : la mesure s'arrête avant le combat, l'apparition du boss a la sienne)
-	perf_mark("arena_build" if boss_seg else "stage_build", Time.get_ticks_usec() - t0 - spread)
+	perf_mark("arena_build" if boss_seg else "stage_build", Time.get_ticks_usec() - t0)
 	if boss_seg:
 		_begin_room()
 	elif room > 0:
@@ -4733,10 +4859,8 @@ func _cam_target() -> float:
 
 ## Recoins : un coffre au départ, puis selon le tirage une énigme de trait, une source de soin et un défi
 ## d'élite (dès l'étape 2).
-func _build_pockets(sliced := false) -> void:
+func _build_pockets() -> void:
 	_clear_pockets()
-	# étalée : chaque recoin repart d'une graine tirée ici (les images d'attente font tirer d'autres hasards)
-	var rs := randi() if sliced else 0
 	var spots: Array = arena.pocket_spots
 	var kinds: Array = []
 	for i in spots.size():
@@ -4776,9 +4900,6 @@ func _build_pockets(sliced := false) -> void:
 		var k := String(kinds[i])
 		if k == "" or p == Vector3.INF:
 			continue
-		if sliced:
-			await arena.slice()
-			seed(rs + 7919 * (i + 1))
 		if k == "puzzle":
 			spawn_puzzle("", p)
 			continue
@@ -4798,8 +4919,6 @@ func _build_pockets(sliced := false) -> void:
 			if sealed:
 				OniShrine.mark_seal(pk["oni"])  # sceau de l'oni : le sanctuaire couve déjà (lanternes rouges, braises)
 		_pockets.append(pk)
-	if sliced:
-		seed(rs + 104729)  # la suite de la partie ne dépend pas du nombre d'images d'attente
 
 
 const SPRING_RED := Color("#C8322A")  # eau de la source du sceau du cœur
@@ -5794,9 +5913,19 @@ func _slowmo_w() -> float:
 
 func _award(victory: bool) -> void:
 	var cleared := room if victory or _room_done else room - 1
-	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world, defi_kills)
+	var g: Dictionary = meta.award_run(cleared, kills, boss_kills, curses.size(), victory, mini_kills, current_world, defi_kills,
+		_flawless_boss, not _run_scratched)
 	var open_before: Dictionary = meta.brushes_open()
 	var un: Dictionary = meta.record_world(current_world, room, victory)
+	# garde-robe : ce que les exploits de la partie viennent d'offrir (chapeau, lame, apparences), sur la feuille
+	menu.new_looks.clear()
+	for k in meta.refresh_new():
+		var kc := String(k).get_slice(":", 0)
+		var kid := String(k).get_slice(":", 1)
+		menu.new_looks.append({"name": String(meta.cosmetic_name(kc, kid)), "col": meta.cosmetic_color(kc, kid),
+			"col2": meta.cosmetic_color2(kc, kid)})
+	if _bot != null and not menu.new_looks.is_empty():
+		print("BOT GARDE-ROBE gagné : %d élément(s)" % menu.new_looks.size())
 	# pinceaux : le boss vaincu avec ce pinceau donne son aspect suivant ; le monde ouvre peut-être un pinceau
 	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory else []
 	if _bot != null and not menu.unlock_gear.is_empty():
@@ -6067,7 +6196,7 @@ func heal(n: int, sealed := false) -> void:
 
 ## Dégâts du héros multipliés par les pactes (Serment du rōnin : +30 %).
 func curse_dmg_mult() -> float:
-	return (1.3 if "ronin" in curses else 1.0) * (Gear.ASCETE_DMG if charm == "ascete" else 1.0)
+	return (1.3 if "ronin" in curses else 1.0) * (Gear.ASCETE_DMG if charm == "ascete" else 1.0) * (GOD_DMG if god_active() else 1.0)
 
 
 ## Malus permanents d'un yōkai qui paraît (pactes) : vie, vitesse, annonces plus courtes.
@@ -6398,6 +6527,8 @@ func _touch_move(sp: Vector2) -> void:
 	var was_empty: bool = stroke.exhausted
 	# hors combat : encre illimitée, trait deux fois plus long ; en combat, l'encre plus les mètres offerts (Plume)
 	var budget: float = maxf(0.0, elan_max() * EXPLORE_REACH - float(stroke.length)) if _explore else elan + powers.free_ink(float(stroke.length))
+	if god_active():
+		budget = 999.0  # GOD MODE : trait sans limite, en combat comme hors combat
 	var used: float = stroke.extend_to(target, budget)
 	if stroke.lead_n < 0 and used > 0.0 and ctrl_mode != "pad":
 		# (mode pad : pas d'amorce, le geste part du héros ; lead_n reste à -1, tout le trait est lu)
@@ -6882,7 +7013,7 @@ func _launch(s: MeshInstance3D) -> void:
 func _brush_launch(s: MeshInstance3D) -> void:
 	if brush == "chi":
 		var over := float(s.length) - Gear.CHI_FREE
-		if over > 0.0:
+		if over > 0.0 and not god_active():
 			_blood += over * Gear.CHI_COST
 			while _blood >= 1.0:
 				if int(hero.hp) <= 1:
@@ -7108,6 +7239,8 @@ func _break_chain() -> void:
 ## Coup reçu par le héros (`n` cœurs). Ruée : intouchable en entier aux mondes 1-2, puis seulement au
 ## début de chaque ruée (hero.dash_safe) ; temps d'invincibilité après un coup raccourci dans les mondes avancés.
 func _hurt_hero(n := 1) -> void:
+	if god_active():
+		return  # GOD MODE : aucun coup, aucune mort
 	if hero.dash_safe() or hero.invuln > 0.0 or hero.protected() or game_over:
 		return
 	# temps figé (choix de rouleau, pause, arrêt sur image) ou hors combat : les coups de contact, testés par
@@ -7134,6 +7267,7 @@ func _hurt_hero(n := 1) -> void:
 	if hero.hp <= n and not _last_breath_used and meta.learned("p6"):
 		# Dernier souffle (Arbre du pinceau) : une fois par partie, le coup mortel laisse 1 cœur
 		_last_breath_used = true
+		_run_scratched = true
 		hero.hp = 1
 		hero.invuln = 1.5
 		_break_chain()
@@ -7148,6 +7282,7 @@ func _hurt_hero(n := 1) -> void:
 	if "cursed_ink" in curses:
 		_ink_lock = INK_LOCK_T  # Encre maudite : la recharge d'encre se fige
 	_scratched = true
+	_run_scratched = true
 	_break_chain()
 	score.on_hurt()
 	hud.hurt_flash = 1.0
@@ -7351,7 +7486,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 func _tresse_burst(p: Vector3) -> void:
 	var c := Vector3(p.x, 0.06, p.z)
 	vfx.ring(c, Gear.BRUSHES["warefude"]["col"], Gear.TRESSE_R)
-	var d: float = Gear.TRESSE_DMG * chain_mult() * meta.dmg_mult(chain)
+	var d: float = Gear.TRESSE_DMG * chain_mult() * meta.dmg_mult(chain) * curse_dmg_mult()
 	for o in nearest_enemies(p, Gear.TRESSE_R, 99, null):
 		damage_enemy(o, d)
 	damage_bosses(p, Gear.TRESSE_R, d, false)
@@ -7513,7 +7648,8 @@ func _slash_mark(pos: Vector3, dir: Vector3) -> void:
 	n.rotation.y = atan2(-d.x, -d.z) + randf_range(-0.5, 0.5)
 	if not _fx_cache.has("slash"):
 		_fx_cache["slash"] = Toon.box(Vector3(0.06, 0.02, 1.5))
-	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(1, 1, 1, 0.95)), Vector3.ZERO)
+	# blanc, teinté par une lame qui luit (garde-robe : eau, braise, ombre, or)
+	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(meta.blade_tint(), 0.95)), Vector3.ZERO)
 	bar.rotation.x = randf_range(-0.25, 0.25)
 	bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	effects.append({"node": n, "t": 0.0, "life": 0.14, "kind": "slash", "mats": [bar.material_override], "alpha": 0.95})
@@ -7690,6 +7826,11 @@ func _process(_delta: float) -> void:
 	if state == "tuto":
 		elan = elan_max()
 		_update_moves(dt)
+	elif god_active() and state in ST_FIGHT and is_instance_valid(hero):
+		# GOD MODE (développeur) : encre toujours pleine, ultime toujours prêt, cœurs pleins
+		elan = maxf(elan, elan_max())
+		ult = 1.0
+		hero.hp = maxi(int(hero.hp), int(hero.max_hp))
 	# un boss vient d'apparaître : son entrée en scène avant le combat
 	if state == "play" and _intro_boss != null:
 		_start_boss_intro()
@@ -7830,11 +7971,9 @@ func _process(_delta: float) -> void:
 		if _ritual:
 			_update_ritual()
 		else:
-			if _loading:
-				_state_t = 0.4  # la suite se construit (étalée) : le coup de pinceau reste posé
 			hud.wipe = clampf(_state_t / 0.35, 0.0, 1.0) if _state_t < 0.45 else clampf(1.0 - (_state_t - 0.45) / 0.35, 0.0, 1.0)
-			if _state_t >= 0.4 and not _rebuilt and not _loading:
-				_rebuild_room(true)
+			if _state_t >= 0.4 and not _rebuilt:
+				_rebuild_room()
 			if _state_t >= 0.8:
 				hud.wipe = 0.0
 				_set_state("play")
@@ -7858,13 +7997,27 @@ func _process(_delta: float) -> void:
 	# barque (accueil, carte, départ) : pas d'anneau au sol sous le héros
 	if is_instance_valid(hero):
 		hero.ring_off = state in ST_RING_OFF or (state == "intro" and not _intro_swapped)
-	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu
+	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu (focale de l'accueil, ou celle du jeu)
+	cam.fov = CAM_FOV if state in ["menu", "sail", "worlds"] or (state == "intro" and _state_t < 0.42 and not _intro_swapped) else cam_fov
 	if state == "menu":
 		# la barque tangue doucement, le héros avec elle ; garde-robe : la caméra glisse vers la proue
 		_rock_boat(real)
 		var sway := Vector3(sin(_state_t * 0.35) * 0.18, sin(_state_t * 0.5) * 0.06, 0)
 		var mt := _menu_transform().translated(sway)
 		var w_on := _wardrobe_on and wardrobe != null and wardrobe.visible
+		if is_instance_valid(hero):
+			# onglet CHAPEAU : la caméra s'approche de la tête, un peu au-dessus ; onglet LAME : le héros tire son
+			# sabre et se tourne de trois quarts pour le montrer de profil
+			var wcat := String(wardrobe.call("cat_id")) if w_on else ""
+			hero.preview_drawn = wcat == "blade"
+			if w_on:
+				hero.face(WARDROBE_DIR.rotated(Vector3.UP, WARDROBE_BLADE_TURN) if wcat == "blade" else WARDROBE_DIR)
+			var want := Vector3(3.3, 1.05, 0.1)
+			if wcat == "hat":
+				want = Vector3(2.6, 2.3, 0.7)
+			elif wcat == "blade":
+				want = Vector3(3.0, 1.3, 0.2)
+			_wd_cam = _wd_cam.lerp(want, minf(1.0, real * 5.0))
 		_home_scene_tick(real)
 		_wardrobe_k = move_toward(_wardrobe_k, 1.0 if w_on else 0.0, real * 1.4)
 		if _wardrobe_k > 0.0:
@@ -7872,8 +8025,6 @@ func _process(_delta: float) -> void:
 			mt = mt.interpolate_with(_wardrobe_transform(), wk)
 		cam.global_transform = mt
 	elif state == "intro":
-		if _loading or _intro_wait:
-			_state_t = 0.45  # le sanctuaire se construit (étalé) : le rideau reste fermé
 		# rideau d'encre (0,4 s), bascule dessous, puis le monde se dévoile (0,45 s) : aucun survol
 		hud.wipe = clampf(_state_t / 0.4, 0.0, 1.0) if _state_t < 0.5 else clampf(1.0 - (_state_t - 0.5) / 0.45, 0.0, 1.0)
 		if _state_t < 0.42 and not _intro_swapped:

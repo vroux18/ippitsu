@@ -2,6 +2,7 @@ extends CanvasLayer
 ## Mode mesure (caché) : fluidité mesurée sur le vrai téléphone. S'active par un appui long (1,5 s) sur le titre
 ## IPPITSU de l'accueil (menu.gd), mémorisé dans la sauvegarde (meta.measure_mode) ; `-- --q=mesure` le force
 ## (captures, sans rien sauvegarder).
+## (aussi OPTIONS > MODE DÉVELOPPEUR ; la pause porte alors la section DEV : CAMÉRA, COPIER LES DONNÉES)
 ## Actif : chaque image est relevée (temps entre deux images, part des _process, des pas physiques, le reste =
 ## rendu et attente de l'affichage) ; un petit encart en bas à gauche (zone du pouce, libre de HUD) montre les IPS,
 ## le temps d'image moyen et max de la dernière seconde, et le graphe des 120 dernières images (repères 16,7 et
@@ -31,6 +32,7 @@ const SHOW_IN := ["play", "transit", "pick", "tuto", "boss_intro", "dying"]  # �
 var main: Node
 var active := false
 var last_report := ""  # dernier rapport copié (robot UI : vérifié sans presse-papiers)
+var cam_notes: Array = []  # réglages de caméra copiés (panneau CAMÉRA), repris dans le rapport (les 4 derniers)
 
 var _view: Control
 var _sb := StyleBoxFlat.new()
@@ -155,6 +157,14 @@ func event(label: String, ms: float) -> void:
 	_events.append([_frames, label, ms])
 	if _events.size() > 12:
 		_events.pop_front()
+
+
+## Panneau CAMÉRA : COPIER ajoute le réglage (« tilt=48 fov=44 recul=1.00 ») au rapport.
+func note_cam(line: String) -> void:
+	cam_notes.erase(line)
+	cam_notes.append(line)
+	if cam_notes.size() > 4:
+		cam_notes.pop_front()
 
 
 func frames() -> int:
@@ -331,6 +341,8 @@ func report() -> String:
 	head.append("Rendu : %s · %s · %s (%s)" % [RenderingServer.get_video_adapter_name(), RenderingServer.get_video_adapter_vendor(),
 		RenderingServer.get_current_rendering_driver_name(), RenderingServer.get_current_rendering_method()])
 	head.append("Durée mesurée : %s" % _clock(float(Time.get_ticks_msec() - _t0_ms) / 1000.0))
+	if main != null and main.has_method("cam_line"):
+		head.append("Caméra : %s%s" % [String(main.cam_line()), (" · copiés : " + " ; ".join(cam_notes)) if not cam_notes.is_empty() else ""])
 	var slow := 0
 	var bad := 0
 	for st in _by_state.keys():
@@ -384,6 +396,9 @@ func _draw_view() -> void:
 		for st in _by_state.keys():
 			nslow += int(_by_state[st][2])
 		_view.draw_string(nf, r.position + Vector2(76.0 * u, 24.0 * u), ">33 %d" % nslow, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(col, 0.75))
+		if main != null and main.has_method("god_active") and bool(main.god_active()):
+			# GOD MODE : repère discret, à droite de la ligne des IPS
+			_view.draw_string(nf, r.position + Vector2(bw - 30.0 * u, 12.0 * u), "GOD", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, hot)
 		# graphe : 120 images, de la plus ancienne à la plus récente ; 0..50 ms sur la hauteur
 		var g := Rect2(r.position + Vector2(4.0 * u, 29.0 * u), Vector2(bw - 8.0 * u, bh - 33.0 * u))
 		var ky := g.size.y / 50.0

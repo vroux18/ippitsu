@@ -9,6 +9,8 @@ const Meta = preload("res://scripts/meta.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Options = preload("res://scripts/options.gd")
+const Gear = preload("res://scripts/gear_data.gd")
+const UiKit = preload("res://scripts/ui_kit.gd")
 const TIMEOUT := 15.0  # secondes réelles
 
 var bot: Node
@@ -290,6 +292,101 @@ func _intro_to_last() -> bool:
 	return true
 
 
+## Pause, mode mesure : panneau CAMÉRA. + sur l'inclinaison (caméra déplacée, sol sous le héros toujours retrouvé
+## par la conversion écran -> sol), VOIR puis un toucher, COPIER (rapport), RÉINITIALISER, retour sur la pause.
+func _step_cam_panel() -> bool:
+	var cp = main.cam_panel
+	if not await _press(main.menu._rep_cam, "CAMÉRA"):
+		return false
+	if not await _until(func(): return bool(cp.visible) and not bool(main.menu.visible) and String(main.state) == "paused", "CAMÉRA ouvre le panneau"):
+		return false
+	await _frames(2)
+	var tr0: Transform3D = main.cam.global_transform
+	var full0: Transform3D = main._cam_full
+	var t0 := float(main.cam_tilt)
+	await _press(cp._plus["tilt"], "INCLINAISON +")
+	await _press(cp._minus["fov"], "FOCALE −")
+	await _press(cp._plus["recul"], "RECUL +")
+	await _frames(2)
+	var hp: Vector3 = main.hero.position
+	var g: Vector3 = main._ground(main.cam.unproject_position(Vector3(hp.x, 0.0, hp.z)))
+	var moved: bool = not main.cam.global_transform.is_equal_approx(tr0)
+	_check(is_equal_approx(float(main.cam_tilt), t0 + 2.0) and is_equal_approx(float(main.cam_fov), float(main.CAM_FOV) - 2.0)
+			and is_equal_approx(float(main.cam_recul), float(main.CAM_RECUL) + 0.05) and moved and is_equal_approx(float(main.cam.fov), float(main.cam_fov))
+			and g.distance_to(Vector3(hp.x, 0.0, hp.z)) < 0.05 and float(main._cam_pref["tilt"]) == float(main.cam_tilt),
+		"panneau CAMÉRA : %s (image suivie, sol retrouvé, réglage gardé)" % String(main.cam_line()),
+		"tilt %.0f fov %.0f recul %.2f, caméra %s, écart au sol %.3f" % [float(main.cam_tilt), float(main.cam_fov), float(main.cam_recul),
+			"déplacée" if moved else "immobile", g.distance_to(Vector3(hp.x, 0.0, hp.z))])
+	await _press(cp._copy, "COPIER (caméra)")
+	var line := String(main.cam_line())
+	_check(line in main.measure.cam_notes and ("Caméra : " + line) in String(main.measure.report()) and String(main.measure._toast).begins_with("Copié"),
+		"panneau CAMÉRA : COPIER (%s, ajouté au rapport)" % line, "notes %s, toast « %s »" % [str(main.measure.cam_notes), String(main.measure._toast)])
+	await _press(cp._see, "VOIR")
+	var hid: bool = bool(cp.peek) and not bool(cp._copy.visible)
+	_tap(cp, cp.size / 2.0)
+	await _frame()
+	_check(hid and not bool(cp.peek) and bool(cp._copy.visible), "panneau CAMÉRA : VOIR puis un toucher", "peek %s" % str(cp.peek))
+	await _press(cp._reset, "RÉINITIALISER")
+	_check(is_equal_approx(float(main.cam_tilt), float(main.CAM_TILT)) and is_equal_approx(float(main.cam_fov), float(main.CAM_FOV))
+			and is_equal_approx(float(main.cam_recul), float(main.CAM_RECUL)) and (main._cam_full as Transform3D).is_equal_approx(full0),
+		"panneau CAMÉRA : RÉINITIALISER (caméra du jeu)", "réglage %s" % String(main.cam_line()))
+	await _press(cp._close, "retour (caméra)")
+	return await _until(func(): return not bool(cp.visible) and String(main.menu.mode) == "pause" and bool(main.menu.visible), "panneau CAMÉRA -> pause")
+
+
+## Pause, section DEV : GOD MODE (éteint pour le robot ; allumé : dégâts ×10, le coup ne passe pas ; puis remis à
+## NON), TOUT DÉBLOQUER (second toucher : CONFIRMER ; la sauvegarde de test reçoit tout, puis elle est rétablie).
+func _step_dev_extras() -> bool:
+	var mn = main.menu
+	var m = main.meta
+	_check(not bool(main.god) and not bool(main.god_active()), "GOD MODE éteint pour le robot", "god %s" % str(main.god))
+	var k0 := float(main.curse_dmg_mult())
+	if not await _press(mn._rep_god, "GOD MODE"):
+		return false
+	var hp0 := int(main.hero.hp)
+	var st0 := String(main.state)
+	main.state = "play"  # (un coup n'est testé qu'en combat : un instant hors pause, sans image jouée)
+	Engine.time_scale = 1.0
+	main._hurt_hero(1)
+	main.state = st0
+	_check(bool(main.god_active()) and bool(mn.god_on) and String(mn._rep_god.text) == "GOD MODE : OUI"
+			and is_equal_approx(float(main.curse_dmg_mult()), k0 * float(main.GOD_DMG)) and int(main.hero.hp) == hp0 and not bool(main.game_over),
+		"GOD MODE : OUI (dégâts ×%d, coup ignoré)" % int(main.GOD_DMG), "god %s, ×%.1f, cœurs %d -> %d" % [str(main.god_active()),
+			float(main.curse_dmg_mult()) / maxf(k0, 0.001), hp0, int(main.hero.hp)])
+	await _press(mn._rep_god, "GOD MODE (NON)")
+	_check(not bool(main.god) and not bool(mn.god_on) and String(mn._rep_god.text) == "GOD MODE : NON"
+			and is_equal_approx(float(main.curse_dmg_mult()), k0), "GOD MODE remis à NON", "god %s" % str(main.god))
+	# TOUT DÉBLOQUER : premier toucher = demande de confirmation, second = tout débloqué
+	var snap: Dictionary = m.snapshot()
+	await _press(mn._rep_unlock, "TOUT DÉBLOQUER")
+	_check(String(mn._confirm) == "unlock" and bool(mn._rep_unlock.accent) and int(m.purse_rank) == int(snap["purse_rank"]),
+		"TOUT DÉBLOQUER demande confirmation", "confirmation « %s »" % String(mn._confirm))
+	await _press(mn._rep_unlock, "TOUT DÉBLOQUER (confirmé)")
+	var all_tree := true
+	for id in Meta.TREE_ORDER:
+		all_tree = all_tree and bool(m.learned(String(id)))
+	var all_cos := true
+	for cat in ["outfit", "theme", "hat", "blade", "cape", "trail", "ink"]:
+		for id in m.cosmetic_ids(cat):
+			all_cos = all_cos and bool(m.cosmetic_owned(cat, String(id)))
+	var all_gear := true
+	for bid in Gear.ORDER:
+		all_gear = all_gear and bool(m.aspect_owned(String(bid), 2))
+	for cid in Gear.CHARM_ORDER:
+		all_gear = all_gear and bool(m.charm_owned(String(cid)))
+	_check(all_tree and all_cos and all_gear and int(m.unlocked) == Meta.WORLD_COUNT and int(m.master_worlds()) == Meta.WORLD_COUNT
+			and int(m.purse_rank) == Meta.PURSE_COSTS.size() and int(m.prints) == Meta.PRINT_ORDER.size() and int(m.sumi) >= 9999 and int(m.petals) >= 9999
+			and String(main.measure._toast) == "Tout est débloqué",
+		"TOUT DÉBLOQUER : mondes (Maître), arbre, pinceaux, omamori, Vues, garde-robe, encre et pétales",
+		"arbre %s, garde-robe %s, pinceaux/omamori %s, mondes %d, maîtres %d, Vues %d, encre %d" % [str(all_tree), str(all_cos), str(all_gear),
+			int(m.unlocked), int(m.master_worlds()), int(m.prints), int(m.sumi)])
+	m.restore(snap)
+	main.menu.sumi = m.sumi
+	_check(int(m.purse_rank) == int(snap["purse_rank"]) and int(m.sumi) == int(snap["sumi"]) and int(m.prints) == int(snap["prints"]),
+		"TOUT DÉBLOQUER : sauvegarde de test rétablie", "encre %d" % int(m.sumi))
+	return true
+
+
 ## Mode mesure : appui long (1,5 s) sur le titre IPPITSU de l'accueil, qui le met en marche ou l'arrête.
 func _step_measure(on: bool) -> bool:
 	var mn = main.menu
@@ -315,7 +412,8 @@ func _step_measure(on: bool) -> bool:
 		"sauvegarde %s, toast « %s », mode %s" % [str(main.meta.measure_mode), String(main.measure._toast), String(mn.mode)])
 
 
-## Mode mesure en jeu : l'encart paraît et relève ; la pause porte COPIER LE RAPPORT et REMETTRE À ZÉRO.
+## Mode mesure (développeur) en jeu : l'encart paraît et relève ; la section DEV de la pause porte COPIER LES DONNÉES,
+## REMETTRE À ZÉRO et CAMÉRA (panneau de réglage : − / +, VOIR, COPIER, RÉINITIALISER, retour sur la pause).
 func _step_measure_pause() -> bool:
 	var ms = main.measure
 	if not bool(ms.active):
@@ -326,20 +424,25 @@ func _step_measure_pause() -> bool:
 	await _press(main.hud._pause, "pause")
 	if not await _until(func(): return String(main.state) == "paused" and String(main.menu.mode) == "pause", "pause (mode mesure)"):
 		return false
-	if not await _press(main.menu._rep_copy, "COPIER LE RAPPORT"):
+	if not await _press(main.menu._rep_copy, "COPIER LES DONNÉES"):
 		return false
 	var rep := String(ms.last_report)
 	var rf := FileAccess.open("user://mesure_rapport.txt", FileAccess.WRITE)  # (exemple de rapport, hors presse-papiers)
 	if rf != null:
 		rf.store_string(rep + "\n")
 	var missing := ""
-	for k in ["Appareil :", "Système :", "Rendu :", "Durée mesurée :", "Global :", "Par état (ms) :\n- ", "Pires images"]:
+	for k in ["Build :", "Partie : monde", "Réglages :", "Caméra : tilt=", "Appareil :", "Système :", "Rendu :", "Durée mesurée :",
+			"Global :", "Par état (ms) :\n- ", "Pires images"]:
 		if not k in rep:
 			missing += " « %s »" % k
-	_check(rep.length() > 200 and rep.length() <= 3000 and missing == "" and String(ms._toast) == "Rapport copié",
-		"mode mesure : rapport copié (%d caractères)" % rep.length(), "rubriques manquantes :%s ; toast « %s »" % [missing, String(ms._toast)])
+	_check(rep.length() > 200 and rep.length() <= 4000 and missing == "" and String(ms._toast) == "Copié",
+		"mode mesure : données copiées (%d caractères)" % rep.length(), "rubriques manquantes :%s ; toast « %s »" % [missing, String(ms._toast)])
 	await _press(main.menu._rep_reset, "REMETTRE À ZÉRO")
 	_check(int(ms.frames()) < 5, "mode mesure : remise à zéro", "%d images après la remise à zéro" % int(ms.frames()))
+	if not await _step_cam_panel():
+		return false
+	if not await _step_dev_extras():
+		return false
 	await _press(main.menu._resume, "REPRENDRE")
 	return await _until(func(): return String(main.state) == "play", "REPRENDRE (mode mesure)")
 
@@ -498,6 +601,10 @@ func _option_applied(key: String, val: String) -> bool:
 			return String(main.pad_size) == val
 		"pad_show":
 			return String(main.pad_show) == val
+		"dev":
+			# mode développeur = mode mesure (sauvegardé), la pause le suit
+			return bool(main.measure.active) == (val == "on") and bool(main.meta.measure_mode) == (val == "on") \
+				and bool(main.menu.measure_on) == (val == "on")
 	return false
 
 
@@ -535,7 +642,7 @@ func _step_options(from: String) -> bool:
 	var keys: Array = []
 	for row in Options.ROWS:
 		keys.append(String(row["key"]))
-	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "tuto"] and String(opt.values.get("control", "")) == "screen"
+	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "tuto", "dev"] and String(opt.values.get("control", "")) == "screen"
 		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
 	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable
@@ -567,7 +674,8 @@ func _step_options(from: String) -> bool:
 	main.coach.clear()
 	if done0:
 		opt.values.erase("tuto")
-	_check(bool(main.menu.muted) == (String(orig["sound"]) == "off") and bool(main.sfx.haptics) == (String(orig["vibration"]) == "on"), "options (%s) : valeurs rétablies" % from, "réglages non rétablis")
+	_check(bool(main.menu.muted) == (String(orig["sound"]) == "off") and bool(main.sfx.haptics) == (String(orig["vibration"]) == "on")
+		and _option_applied("dev", String(orig["dev"])), "options (%s) : valeurs rétablies (mode développeur %s)" % [from, String(orig["dev"])], "réglages non rétablis")
 	var back: Rect2 = opt._back
 	_tap(opt, back.get_center())
 	if not await _until(func(): return not bool(opt.visible), "options : RETOUR"):
@@ -588,7 +696,7 @@ func _ref_rect(key: String) -> Rect2:
 		for hr in ref._hits:
 			if String(hr[1]) == key:
 				r = hr[0]
-		if not r.has_area() and int(ref._tab) > 0:
+		if not r.has_area() and int(ref._tab) == 1:
 			var view: Rect2 = ref._view
 			for hr in ref._list_hits:
 				var lr: Rect2 = hr[0]
@@ -782,22 +890,35 @@ func _step_atelier() -> bool:
 # ------------------------------------------------------------------ garde-robe
 
 ## Toucher une cible de la garde-robe (onglet, élément) à son rectangle, sinon par la même suite.
-func _wd_tap(key: String) -> void:
+## Un élément hors de la fenêtre de la grille : on la fait défiler jusqu'au bout avant de le chercher.
+func _wd_tap(key: String) -> bool:
 	var wd = main.wardrobe
 	await _frame()
-	var r := Rect2()
-	for hr in wd._hits:
-		if String(hr[1]) == key:
-			r = hr[0]
-	if r.has_area() and String(wd._target_at(r.get_center())) == key:
+	var r := _wd_rect(key)
+	if not r.has_area() and key.begins_with("item:") and float(wd._scroll_max) > 0.0:
+		wd._scroll = float(wd._scroll_max)
+		await _frames(2)
+		r = _wd_rect(key)
+	var hit := r.has_area() and String(wd._target_at(r.get_center())) == key
+	if hit:
 		_tap(wd, r.get_center())
 	else:
 		wd.tap(key)
 	await _frames(2)
+	return hit
 
 
-## Garde-robe : une apparence par type (écharpe, sillage, encre : gagnées par les Vues, accordées ici),
-## thème Nuit acheté en pétales (l'encre n'y est pas touchée) et appliqué à l'accueil, retour au Washi, puis RETOUR.
+func _wd_rect(key: String) -> Rect2:
+	var r := Rect2()
+	for hr in main.wardrobe._hits:
+		if String(hr[1]) == key:
+			r = hr[0]
+	return r
+
+
+## Garde-robe : un élément par catégorie (chapeau, lame, écharpe, sillage, encre : accordés ici), le sabre tiré
+## à l'onglet LAME, la grille qui défile (écharpes : trois rangées), thème Nuit acheté en pétales (l'encre n'y est
+## pas touchée) et appliqué à l'accueil, retour au Washi, puis RETOUR.
 func _step_wardrobe() -> bool:
 	var meta = main.meta
 	var wd = main.wardrobe
@@ -806,16 +927,26 @@ func _step_wardrobe() -> bool:
 	if not await _until(func(): return bool(wd.visible) and float(wd._t) >= 0.4 and wd._hits.size() > 0, "GARDE-ROBE ouvre la garde-robe"):
 		return false
 	_ok("garde-robe ouverte")
-	# (plus d'onglet TENUE depuis a1ca132 : le hakama est fixe ; les onglets sont écharpe, sillage, encre, thème)
-	for i in range(0, 3):
+	# onglets : chapeau, lame, écharpe, sillage, encre, thème (plus d'onglet TENUE depuis a1ca132 : le hakama est fixe)
+	for i in range(0, 5):
 		var kind := String(wd.CATS[i])
 		await _wd_tap("tab:%d" % i)
+		_check(int(wd.cat) == i, "garde-robe : onglet %s" % kind, "onglet %d" % int(wd.cat))
 		var ids: Array = meta.cosmetic_ids(kind)
 		var pid := String(ids[ids.size() - 1])
-		meta._grant(pid)
-		await _wd_tap("item:" + pid)
+		meta.grant_cosmetic(kind, pid)
+		var seen_hit: bool = await _wd_tap("item:" + pid)
 		_check(bool(meta.cosmetic_worn(kind, pid)), "garde-robe : %s porté (%s)" % [kind, pid], "non porté")
-	await _wd_tap("tab:3")
+		if kind == "cape":
+			_check(seen_hit and float(wd._scroll) > 0.0, "garde-robe : la grille défile jusqu'au dernier élément",
+				"défilement %.0f / %.0f" % [float(wd._scroll), float(wd._scroll_max)])
+		if kind == "blade":
+			await _frames(6)
+			_check(bool(main.hero.preview_drawn) and String(main.hero._blade_id) == pid, "garde-robe : sabre tiré (%s)" % pid,
+				"tiré %s, sabre %s" % [str(main.hero.preview_drawn), String(main.hero._blade_id)])
+		if kind == "hat":
+			_check(String(main.hero._hat_id) == pid, "garde-robe : chapeau sur le héros (%s)" % pid, String(main.hero._hat_id))
+	await _wd_tap("tab:5")
 	await _wd_tap("item:nuit")
 	if not bool(meta.cosmetic_owned("theme", "nuit")):
 		var s0 := int(meta.sumi)
@@ -1105,19 +1236,24 @@ func _dep_tap(key: String) -> void:
 	await _frames(2)
 
 
-## Écran AVANT LE DÉPART : progression de démonstration (mondes 1 et 2 vaincus, omamori de la garde), JOUER
-## l'ouvre sur le dernier choix ; pinceau du râtelier touché -> Hake ; aspect non gagné, pinceau verrouillé et charme verrouillé
-## refusent PARTIR ; Hake · Large + Garde part, et la partie porte bien ce pinceau et ce charme.
+## Écran AVANT LE DÉPART : progression de démonstration (mondes 1 et 2 vaincus, omamori de la garde, Hake avec deux
+## aspects) ; d'abord l'Atelier, onglet PINCEAUX : Hake · Mur choisi (sauvegardé), Balai à gagner refusé. JOUER ouvre
+## l'écran sur le dernier choix ; pinceau du râtelier touché -> Hake, sur l'aspect choisi à l'Atelier (sans sceaux à
+## l'écran) ; pinceau verrouillé et charme verrouillé refusent PARTIR ; Hake · Mur + Garde part, et la partie porte
+## bien ce pinceau, cet aspect et ce charme.
 func _step_departure() -> bool:
 	var mt = main.meta
 	var dp = main.departure
 	var keep := [int(mt.won_top), mt.charms_won.duplicate(), String(mt.brush_sel), mt.aspect_sel.duplicate(), String(mt.charm_sel), mt.aspects_won.duplicate()]
 	mt.test_won = 2  # seuls les mondes 1 et 2 comptent comme vaincus (la sauvegarde peut en avoir plus)
 	mt.charms_won = {"garde": true}
-	mt.aspects_won = {}
+	mt.aspects_won = {"hake": 2}
+	mt.aspect_sel = {}
 	mt.brush_sel = "fude"
 	mt.charm_sel = ""
-	var ok := await _departure_body(dp)
+	var ok := await _atelier_aspects()
+	if ok:
+		ok = await _departure_body(dp)
 	mt.test_won = -1
 	mt.won_top = int(keep[0])
 	mt.charms_won = keep[1]
@@ -1150,11 +1286,8 @@ func _departure_body(dp) -> bool:
 	_check(small == "", "départ : zones tactiles ≥ 44 px", "trop petites :%s" % small)
 	await _dep_tap("brush:hake")
 	_check(String(dp.brush_id()) == "hake" and bool(dp.can_go()), "départ : râtelier -> Hake (boss du monde 1 vaincu), partir permis", "pinceau %s, %s" % [String(dp.brush_id()), String(dp.go_label())])
-	await _dep_tap("asp:1")
-	_check(not bool(dp.can_go()) and String(dp.go_label()) == "ASPECT À GAGNER", "départ : aspect Mur non gagné grisé", String(dp.go_label()))
-	await _dep_tap("go")
-	_check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un aspect à gagner", "état %s" % String(main.state))
-	await _dep_tap("asp:0")
+	_check(int(dp.ak) == 1, "départ : Hake sur l'aspect choisi à l'Atelier (Mur)", "aspect %d" % int(dp.ak))
+	_check(_dep_rect("asp:0").size.x <= 0.0, "départ : plus de sceaux d'aspect à l'écran", "cible asp:0 encore présente")
 	await _dep_tap("brush:warefude")
 	_check(String(dp.brush_id()) == "warefude" and String(dp.go_label()) == "PINCEAU À GAGNER", "départ : Warefude verrouillé (boss du monde 4)", "%s, %s" % [String(dp.brush_id()), String(dp.go_label())])
 	await _dep_tap("go")
@@ -1166,14 +1299,59 @@ func _departure_body(dp) -> bool:
 	if not _check(bool(dp.visible) and String(main.state) == "menu", "départ : PARTIR refusé sur un charme verrouillé", "écran fermé, état %s" % String(main.state)):
 		return false
 	await _dep_tap("charm:garde")
-	_check(String(dp.cid) == "garde" and bool(dp.can_go()) and String(dp.brush_id()) == "hake", "départ : Hake · Large + omamori de la garde", "%s/%s, %s" % [String(dp.brush_id()), String(dp.cid), String(dp.go_label())])
+	_check(String(dp.cid) == "garde" and bool(dp.can_go()) and String(dp.brush_id()) == "hake", "départ : Hake · Mur + omamori de la garde", "%s/%s, %s" % [String(dp.brush_id()), String(dp.cid), String(dp.go_label())])
 	await _dep_tap("go")
 	if not await _until(func(): return String(main.state) == "play" and bool(main.in_hub), "départ : PARTIR -> monde 1"):
 		return false
 	var h = main.hero
-	return _check(String(main.brush) == "hake" and String(main.charm) == "garde" and String(main.meta.brush_sel) == "hake"
-		and h._charm != null and is_instance_valid(h._charm),
-		"départ : la partie porte Hake et l'omamori (à la ceinture), choix gardé", "pinceau %s, charme %s" % [String(main.brush), String(main.charm)])
+	return _check(String(main.brush) == "hake" and int(main.aspect) == 1 and String(main.charm) == "garde" and String(main.meta.brush_sel) == "hake"
+		and int(main.meta.aspect_sel.get("hake", 0)) == 1 and h._charm != null and is_instance_valid(h._charm),
+		"départ : la partie porte Hake · Mur et l'omamori (à la ceinture), choix gardé",
+		"pinceau %s/%d, charme %s, aspect gardé %d" % [String(main.brush), int(main.aspect), String(main.charm), int(main.meta.aspect_sel.get("hake", 0))])
+
+
+## Atelier, onglet PINCEAUX (avant l'écran de départ) : trois onglets sans texte coupé, cibles ≥ 44 px ; le râtelier
+## montre Hake ; son aspect Mur (acquis) se choisit et se sauvegarde, Balai (à gagner) est refusé ; RETOUR.
+func _atelier_aspects() -> bool:
+	var mt = main.meta
+	var ref = main.refuge
+	if not await _until(func(): return String(main.state) == "menu" and String(main.menu.mode) == "home", "accueil avant l'Atelier (pinceaux)"):
+		return false
+	await _press(main.menu._atelier, "ATELIER (pinceaux)")
+	if not await _until(func(): return bool(ref.visible) and float(ref._t) >= 0.7 and ref._hits.size() > 0, "atelier prêt (pinceaux)"):
+		return false
+	await _ref_tab(2)
+	await _frames(3)
+	# onglets : chaque mot (et le coup de pinceau de l'onglet actif) tient dans sa case
+	var tf: Font = UiKit.tab_font()
+	var fs := maxi(1, int(UiKit.FS_BODY * float(ref._u)))
+	var cut := ""
+	for i in ref.TABS.size():
+		var tr: Rect2 = ref.hit_rect("tab:%d" % i)
+		var lw := tf.get_string_size(UiKit.plain(String(ref.TABS[i])), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 30.0 * float(ref._u)
+		if not tr.has_area() or lw > tr.size.x:
+			cut += " %s (%.0f > %.0f)" % [String(ref.TABS[i]), lw, tr.size.x]
+	_check(cut == "", "atelier : trois onglets, aucun mot coupé", "trop larges :%s" % cut)
+	await _ref_tap("brush:hake")
+	_check(String(ref.brush_view()) == "hake", "atelier (pinceaux) : râtelier -> Hake", "pinceau %s" % String(ref.brush_view()))
+	await _frames(2)
+	var small := ""
+	for hr in ref._hits:
+		var r: Rect2 = hr[0]
+		var key := String(hr[1])
+		if (key.begins_with("brush:") or key.begins_with("asp:")) and (r.size.x < 44.0 or r.size.y < 44.0):
+			small += " %s %s" % [key, str(r.size)]
+	_check(small == "", "atelier (pinceaux) : zones tactiles ≥ 44 px", "trop petites :%s" % small)
+	await _ref_tap("asp:1")
+	var cf := ConfigFile.new()
+	var saved := int(cf.get_value("gear_aspect", "hake", -1)) if cf.load(Meta.SAVE_PATH) == OK else -1
+	_check(int(mt.aspect_sel.get("hake", 0)) == 1 and int(ref.chosen_aspect("hake")) == 1 and saved == 1,
+		"atelier (pinceaux) : Hake · Mur (acquis) choisi et sauvegardé", "choisi %d, sauvegardé %d" % [int(mt.aspect_sel.get("hake", 0)), saved])
+	await _ref_tap("asp:2")
+	_check(int(mt.aspect_sel.get("hake", 0)) == 1 and String(ref._shake_key) == "asp:2" and int(ref._asp_view) == 2,
+		"atelier (pinceaux) : Hake · Balai (à gagner) refusé, décrit en bas", "choisi %d, refus %s" % [int(mt.aspect_sel.get("hake", 0)), String(ref._shake_key)])
+	await _ref_tap("back")
+	return await _until(func(): return not bool(ref.visible) and String(main.state) == "menu", "atelier (pinceaux) : RETOUR -> accueil")
 
 
 func _transit_to_room1(w: int) -> bool:
