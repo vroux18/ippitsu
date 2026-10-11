@@ -327,6 +327,14 @@ func _world_stats() -> Dictionary:
 
 
 func _pick() -> void:
+	if String(main._pick_mode) == "shop":
+		# échoppe du marchand : il achète ce qui sert, puis repart (jamais bloqué : elle se referme toujours)
+		if main.shop.visible:
+			main.bot_shop()
+		elif main._last_offer.is_empty():
+			main._on_shop_closed()  # (garde-fou : échoppe cachée sans rouleau en cours)
+		if String(main._pick_mode) == "shop" or main._last_offer.is_empty():
+			return
 	if main._last_offer.is_empty():
 		return
 	var offer: Array = main._last_offer
@@ -370,6 +378,9 @@ func _choose(offer: Array) -> String:
 
 
 func _over() -> void:
+	print("BOT MARCHAND monde %d : %d marchand(s), %d achat(s), or restant %d" % [world, int(main.merchants_seen), int(main.shop_bought), int(main.run_gold)])
+	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0:
+		alert("marchand : aucun posé dans le monde %d" % world)
 	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
 	print("BOT ÉNIGMES monde %d : %d résolues sur %d posées" % [world, int(main.puzzles_solved), int(main.puzzles_seen)])
 	_pz_seen += int(main.puzzles_seen)

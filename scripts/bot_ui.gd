@@ -171,7 +171,7 @@ func _recover() -> void:
 	bot.guard_all = true
 	main.meta.intro_done = true
 	main.meta.tuto_done = true
-	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker, main.wardrobe, main.departure]:
+	for c in [main.intro, main.options, main.recap, main.refuge, main.worldmap, main.picker, main.wardrobe, main.departure, main.shop]:
 		c.visible = false
 	main._wardrobe_on = false
 	main.tuto.abort_dojo()
@@ -193,6 +193,8 @@ func _settle_play(what := "") -> int:
 		if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
 			_fail("retour en jeu impossible (état %s) %s" % [String(main.state), what])
 			return n
+		if bool(main.shop.ready_for_input()):
+			_tap(main.shop, (main.shop._leave_rect as Rect2).get_center())  # échoppe du marchand : PARTIR
 		if String(main.state) == "pick" and bool(pk.visible) and int(pk._chosen) < 0 and float(pk._t) >= float(pk._ready_time()) + 0.05 and pk._rects.size() > 0:
 			var r: Rect2 = pk._rects[0]
 			_tap(pk, r.get_center())
@@ -874,6 +876,8 @@ func _step_world(w: int) -> bool:
 			return false
 		if not await _step_sanctuary():
 			return false
+		if not await _step_merchant():
+			return false
 		if not await _step_flawless():
 			return false
 		if not await _step_puzzles():
@@ -1363,6 +1367,86 @@ func _step_sanctuary() -> bool:
 			var extra: int = int(main.run_gold) - (g0 - int(main.refuse_cost()))
 			_check(extra >= 0 and extra <= 3, "sanctuaire : REFUSER payé (or %d -> %d)" % [g0, int(main.run_gold)], "prix non retiré")
 	return true
+
+
+## Marchand tanuki : l'étal posé dans l'étape, le héros marche jusqu'à son anneau d'or, l'échoppe s'ouvre ; un
+## article sans effet (cœurs pleins) refuse l'achat, la relance s'achète (or retiré, barrée), le rouleau ouvre le
+## choix puis l'échoppe revient, un article trop cher refuse l'achat ; PARTIR rend la main sans la rouvrir.
+func _step_merchant() -> bool:
+	await _settle_play("avant le marchand")
+	if not await _until(func(): return String(main.state) == "play" and _hero_still() and bool(main._explore), "marchand : héros posé hors combat"):
+		return false
+	var pk: Dictionary = main._spawn_merchant(main._shrine_spot())
+	var its: Array = []
+	for id in ["heal", "reroll", "scroll"]:
+		its.append({"id": id, "price": int(main.shop_price(id)), "sold": false})
+	pk["items"] = its
+	var p_re: int = its[1]["price"]
+	var p_sc: int = its[2]["price"]
+	main.run_gold = p_re + p_sc + 5  # de quoi prendre la relance et le rouleau, pas l'onigiri ensuite
+	main.hero.hp = main.hero.max_hp
+	var mp: Vector3 = pk["pos"]
+	var t0 := Time.get_ticks_msec()
+	while String(main.state) == "play":
+		if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
+			_fail("marchand jamais atteint")
+			return false
+		if _hero_still():
+			bot._stroke_points(PackedVector3Array([mp]))
+		await _frames(3)
+	var sh = main.shop
+	if not await _until(func(): return String(main.state) == "pick" and String(main._pick_mode) == "shop" and bool(sh.ready_for_input()), "marchand : anneau d'or -> échoppe ouverte"):
+		return false
+	_ok("marchand : échoppe ouverte à l'approche (%d articles, or %d)" % [sh.items.size(), int(main.run_gold)])
+	var g0: int = main.run_gold
+	# cœurs pleins : l'onigiri ne s'achète pas
+	_tap(sh, (sh._tile_rects[0] as Rect2).get_center())
+	await _frames(2)
+	_check(int(main.run_gold) == g0 and not bool(its[0]["sold"]), "marchand : onigiri refusé (cœurs pleins)", "acheté quand même (or %d -> %d)" % [g0, int(main.run_gold)])
+	# la relance
+	var r0: int = main.picker.rerolls
+	_tap(sh, (sh._tile_rects[1] as Rect2).get_center())
+	await _frames(2)
+	_check(int(main.run_gold) == g0 - p_re and bool(its[1]["sold"]) and int(main.picker.rerolls) == r0 + 1 and bool(sh.items[1]["sold"]),
+		"marchand : relance achetée (or %d -> %d, relances %d)" % [g0, int(main.run_gold), int(main.picker.rerolls)], "or %d, vendue %s, relances %d" % [int(main.run_gold), str(its[1]["sold"]), int(main.picker.rerolls)])
+	# déjà vendue : un second toucher ne coûte rien
+	var g1: int = main.run_gold
+	_tap(sh, (sh._tile_rects[1] as Rect2).get_center())
+	await _frames(2)
+	_check(int(main.run_gold) == g1, "marchand : article vendu, second toucher sans effet", "or %d -> %d" % [g1, int(main.run_gold)])
+	# le rouleau : choix au toucher, puis retour à l'échoppe
+	var nlv := 0
+	for k in main.powers.levels.keys():
+		nlv += int(main.powers.levels[k])
+	_tap(sh, (sh._tile_rects[2] as Rect2).get_center())
+	if not await _until(func(): return bool(main.picker.visible) and not bool(sh.visible), "marchand : rouleau acheté -> choix ouvert"):
+		return false
+	if not await _pick_card(0, "rouleau du marchand"):
+		return false
+	if not await _until(func(): return bool(sh.ready_for_input()) and String(main.state) == "pick", "marchand : retour à l'échoppe après le rouleau"):
+		return false
+	var nlv2 := 0
+	for k in main.powers.levels.keys():
+		nlv2 += int(main.powers.levels[k])
+	_check(nlv2 == nlv + 1 and int(main.run_gold) == g1 - p_sc and bool(its[2]["sold"]), "marchand : rouleau acheté et choisi (or %d)" % int(main.run_gold), "niveaux %d -> %d, or %d" % [nlv, nlv2, int(main.run_gold)])
+	# trop cher : l'onigiri (un cœur en moins pour qu'il serve) reste en vitrine
+	main.hero.hp = main.hero.max_hp - 1
+	sh.refresh(main._shop_items(), int(main.run_gold))
+	var g2: int = main.run_gold
+	_tap(sh, (sh._tile_rects[0] as Rect2).get_center())
+	await _frames(2)
+	_check(int(main.run_gold) == g2 and not bool(its[0]["sold"]) and float(sh._shake.get(0, 0.0)) > 0.0, "marchand : or insuffisant, achat refusé (la tuile tremble)", "or %d -> %d" % [g2, int(main.run_gold)])
+	# PARTIR
+	_tap(sh, (sh._leave_rect as Rect2).get_center())
+	if not await _until(func(): return String(main.state) == "play" and not bool(sh.visible), "marchand : PARTIR -> retour en jeu"):
+		return false
+	await _frames(10)
+	var ok := _check(String(main.state) == "play" and bool(pk["away"]), "marchand : échoppe refermée, pas rouverte sur place", "état %s" % String(main.state))
+	# l'étal est retiré (les étapes suivantes marchent ailleurs)
+	main._pockets.erase(pk)
+	if is_instance_valid(pk["node"]):
+		pk["node"].queue_free()
+	return ok
 
 
 ## Course au doigt posé (sanctuaire, hors combat) : un trait, le doigt s'immobilise, la ruée part et le héros
