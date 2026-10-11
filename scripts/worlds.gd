@@ -1241,161 +1241,236 @@ static func _hp(xs: float, ys: float, z: float) -> Vector3:
 
 ## Le lointain du monde : vu surtout depuis la caméra d'accueil (basse, vers -Z ; voir HOME_EYE)
 ## et en haut de la vue de jeu. Tout est hors de |x| < 9 et |z| < 12.
-static func build_backdrop(world_id: int, parent: Node3D) -> void:
+static func build_backdrop(world_id: int, parent: Node3D, cut := Callable()) -> void:
 	var root := Node3D.new()
 	root.name = "Backdrop"
 	parent.add_child(root)
 	match clampi(world_id, 1, WORLDS.size()):
 		1:
-			_backdrop_wave(root)
+			await _backdrop_wave(root, cut)
 		2:
-			_backdrop_tanabata(root)
+			await _backdrop_tanabata(root, cut)
 		3:
-			_backdrop_contes(root)
+			await _backdrop_contes(root, cut)
 		4:
-			_backdrop_fuji_rouge(root)
+			await _backdrop_fuji_rouge(root, cut)
 		6:
-			_backdrop_kurama(root)
+			await _backdrop_kurama(root, cut)
 		7:
-			_backdrop_ryugu(root)
+			await _backdrop_ryugu(root, cut)
 		8:
-			_backdrop_yomi(root)
+			await _backdrop_yomi(root, cut)
 		_:
-			_backdrop_ink(root)
+			await _backdrop_ink(root, cut)
 
 
 ## Monde 1 : port de Kanagawa. Ciel d'aube du premier jour, soleil vermillon, chaînes bleues en couches,
 ## Fuji de Prusse coupé de kasumi, cap au pin de Hokusai, villages (un ninja court sur les faîtes), voiles
 ## et oiseaux de mer ; Grande Vague, îlots ; plus près : torii dans l'eau, entrepôts kura sur pilotis
 ## frappés du mon du clan, ponton du port, lanterne de port, pieux d'amarrage, barques.
-static func _backdrop_wave(root: Node3D) -> void:
+static func _backdrop_wave(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(11)
 	var lite: bool = Toon.lite
+	await _cut(bcut)
 	var st := _vc_begin()
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -250), Vector3(340, 30, -250), Color("#EDB48F"), Toon.WASHI)
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 30, -250), Vector3(340, 160, -250), Toon.WASHI, Color("#DCD6C6"))
 	# soleil vermillon du premier jour, à droite sous le titre : rien ne le coupe
+	await _cut(bcut)
 	_vdisc(st, _hp(0.83, 0.285, -236.0), 10.0, Toon.VERMILION, Toon.VERMILION.darkened(0.06), 32)
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -215.0, -1.0, 9.0, Color("#8597B0"), Color("#E6D8C2"), 34)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -192.0, -1.0, 6.0, Color("#5F7593"), Color("#DCD3C1"), 34)
 	# Fuji de Prusse à gauche, aux flancs concaves, neige aux coulées dentelées ; cime sous le trait du titre
+	await _cut(bcut)
 	var fuji := _hp(0.25, 0.283, -170.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(fuji.x, -1.0, -170.0), 44.0, fuji.y + 1.0, 1.7, 0.05, Color("#3F5878"), Color("#9AA8BC"), Toon.WASHI, 0.27)
 	# kasumi minces au pied du Fuji seulement, une bande basse sous le soleil
+	await _cut(bcut)
 	_kasumi(st, Vector3(fuji.x + 6.0, 3.0, -150.0), 110.0, 1.1, Color("#F7F0E2"), Toon.WASHI)
+	await _cut(bcut)
 	_kasumi(st, Vector3(fuji.x - 12.0, 7.2, -146.0), 56.0, 0.8, Color("#F7F0E2"), Toon.WASHI)
+	await _cut(bcut)
 	_kasumi(st, _hp(0.86, 0.338, -200.0), 70.0, 0.9, Color("#F7F0E2"), Color("#EFE2CE"))
+	await _cut(bcut)
 	_kasumi(st, _hp(0.6, 0.366, -140.0), 90.0, 1.0, Color("#F7F0E2"), Toon.WASHI)
+	await _cut(bcut)
 	_ridge(st, rng, -220.0, 220.0, -128.0, -1.0, 3.2, Color("#3F5878"), Color("#C9C6B8"), 30)
 	# cap au pin de Hokusai, villages de pêcheurs (faîtes où court un ninja)
+	await _cut(bcut)
 	_ridge(st, rng, -86.0, -46.0, -124.0, -1.0, 2.6, Color("#33496A"), Color("#C9C6B8"), 10)
+	await _cut(bcut)
 	_sil_pine(st, rng, Vector3(-64, 1.2, -123.5), 2.0, 0.7, Color("#22283A"), Color("#2F4A3C"), Color("#4E6E5B"))
+	await _cut(bcut)
 	_sil_roofline(st, rng, -110.0, -36.0, -126.5, -0.6, 1.8, Color("#4A5E78"), Color("#2E3B52"), Color(0, 0, 0, 0), Color("#1B2232"))
+	await _cut(bcut)
 	_sil_roofline(st, rng, -2.0, 110.0, -126.5, -0.6, 1.8, Color("#4A5E78"), Color("#2E3B52"), Color(0, 0, 0, 0), Color("#1B2232"))
 	# brumes basses entre les plans (jamais plus haut que le pied des monts)
+	await _cut(bcut)
 	for k in (3 if lite else 5):
 		_kasumi(st, Vector3(rng.randf_range(-90.0, 60.0), 1.6 + k * 0.9, -112.0 - k * 6.0),
 			rng.randf_range(40.0, 90.0), rng.randf_range(0.8, 1.4), Color("#F7F0E2"), Color("#E9DCC6"))
+	await _cut(bcut)
 	for k in (4 if lite else 7):
 		var z := rng.randf_range(-115.0, -45.0)
 		var face: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sil_boat(st, Vector3(rng.randf_range(-60.0, 60.0), VOID_Y, z), rng.randf_range(0.9, 1.5) * (1.0 - z / 260.0), Color("#2E3B52"), Color("#F4EEDF"), face)
 	# oiseaux de mer dans le ciel libre, au-dessus du titre et loin du soleil
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.24, 0.15, -95.0), 7, Vector3(9, 2.5, 4), 1.2, Color("#2B3448"))
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.7, 0.19, -120.0), 5, Vector3(7, 2, 3), 1.4, Color("#3A4660"))
+	await _cut(bcut)
 	_vc_end(st, root)
 	# rides d'écume au large
 	var foam := {}
+	await _cut(bcut)
 	var fm := _toon(Toon.FOAM, false)
+	await _cut(bcut)
 	for i in 40:
 		var x := rng.randf_range(-27.0, 27.0)
 		var z := rng.randf_range(-70.0, -13.0)
 		_add(foam, fm, Toon.box(Vector3(rng.randf_range(1.8, 6.6), 0.02, 0.14)), _at(Vector3(x, VOID_Y + 0.01, z)))
+	await _cut(bcut)
 	_flush(foam, root)
 	# la Grande Vague de Kanagawa à droite (vue de profil depuis l'accueil, la lèvre vers le Fuji, la crête
 	# sous le soleil), une plus petite au loin ; îlots à pins
+	await _cut(bcut)
 	var wv := _hp(0.88, 0.0, -58.0)
+	await _cut(bcut)
 	var w1: Node3D = Decor.great_wave(root, Vector3(wv.x, VOID_Y, -58.0), 2.3, 1)
 	w1.rotation.y = -1.2
+	await _cut(bcut)
 	var wv2 := _hp(0.97, 0.0, -95.0)
+	await _cut(bcut)
 	var w2: Node3D = Decor.great_wave(root, Vector3(wv2.x, VOID_Y, -95.0), 1.6, 2)
 	w2.rotation.y = -0.9
 	# îlots fusionnés dans un même lot (6 draw calls pour les trois)
 	var isl := {}
+	await _cut(bcut)
 	Decor.island_into(isl, _at(Vector3(14, VOID_Y, -30), Vector3.ZERO, Vector3.ONE * 1.4), 1)
+	await _cut(bcut)
 	Decor.island_into(isl, _at(Vector3(-34, VOID_Y, -70), Vector3.ZERO, Vector3.ONE * 2.4), 2)
+	await _cut(bcut)
 	Decor.island_into(isl, _at(Vector3(45, VOID_Y, -110), Vector3.ZERO, Vector3.ONE * 3.0), 3)
+	await _cut(bcut)
 	_flush(isl, root, false)
 	# le port, plus près
 	var b := {}
 	var bn := {}
 	# entrepôts kura sur pilotis, frappés du mon du clan, toits de tuiles où courent les ninjas
+	await _cut(bcut)
 	for k in 3:
 		var kx := _at(Vector3(-21.0 - k * 0.5, VOID_Y, -31.0 - k * 4.4), Vector3(0, PI * 0.5 + rng.randf_range(-0.06, 0.06), 0))
 		_kura_into(b, bn, kx, rng.randf_range(3.0, 3.6), 2.8, rng.randf_range(2.2, 2.8), k % 4)
+	await _cut(bcut)
 	Decor.torii_into(b, _at(Vector3(-14.0, VOID_Y, -27.0), Vector3(0, 0.3, 0), Vector3.ONE * 0.95), -0.7)
+	await _cut(bcut)
 	var px := _at(Vector3(13.0, 0.0, -19.0), Vector3(0, -0.12, 0))
+	await _cut(bcut)
 	Decor.pier_into(b, px, 1.7, 7.5, -0.05, VOID_Y - 0.4)
+	await _cut(bcut)
 	for k in 4:
 		Decor.sake_barrel_into(b, bn, px * _at(Vector3(rng.randf_range(-0.45, 0.45), -0.05, -2.8 + k * 0.6), Vector3(0, rng.randf() * TAU, 0)))
+	await _cut(bcut)
 	Decor.net_rack_into(b, bn, px * _at(Vector3(0, 0, 1.6), Vector3(0, PI * 0.5, 0)), -0.05)
+	await _cut(bcut)
 	_port_lantern_into(b, bn, _at(Vector3(11.0, VOID_Y, -24.5), Vector3.ZERO, Vector3.ONE * 1.3))
+	await _cut(bcut)
 	for k in 12:
 		var top := _bitt_into(b, bn, Vector3(-10.6 + rng.randf_range(-0.2, 0.2), VOID_Y - 0.3, -12.5 - k * 2.3), rng.randf_range(1.2, 1.9))
 		if rng.randf() < 0.3:
 			Decor.gull_into(bn, _at(top, Vector3(0, rng.randf() * TAU, 0)))
+	await _cut(bcut)
 	_boat_into(b, _at(Vector3(-17.5, VOID_Y, -17.0), Vector3(0, 0.5, 0), Vector3.ONE * 1.1), 2)
+	await _cut(bcut)
 	_boat_into(b, _at(Vector3(18.0, VOID_Y, -33.0), Vector3(0, -0.3, 0), Vector3.ONE * 1.2), 3)
+	await _cut(bcut)
 	_boat_into(b, _at(Vector3(-6.0, VOID_Y, -38.0), Vector3(0, 0.1, 0), Vector3.ONE * 1.3), 0)
+	await _cut(bcut)
 	_flush(b, root, false)
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
 ## Monde 2 : nuit de Tanabata, ciel en bokashi nocturne, Voie lactée, chaînes sombres, pagode aux fenêtres
 ## éclairées, nuages en bandes devant la lune, feux de renards sous une allée de torii qui gravit la colline,
 ## cascade de Kirifuri ; rideau de bambous, allée de torii, pont arqué vermillon.
-static func _backdrop_tanabata(root: Node3D) -> void:
+static func _backdrop_tanabata(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(22)
 	var lite: bool = Toon.lite
 	var sky: Array = [-2.0, Color("#2E3B4E"), 40.0, Color("#1F2A3A"), 160.0, Color("#121A26")]
+	await _cut(bcut)
 	var st := _vc_begin()
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 40, -252), Color("#2E3B4E"), Color("#1F2A3A"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 40, -252), Vector3(340, 160, -252), Color("#1F2A3A"), Color("#121A26"))
 	# Voie lactée en écharpe au-dessus du titre, halo de la lune peints dans le ciel (aplats mêlés au bokashi)
+	await _cut(bcut)
 	var mw := _hp(0.42, 0.13, -248.0)
+	await _cut(bcut)
 	_veil_band(st, mw, 420.0, 22.0, -0.3, Color(0.9, 0.9, 1.0), 0.08, sky)
+	await _cut(bcut)
 	_veil_band(st, mw + Vector3(0, 0, 1), 420.0, 8.0, -0.3, Color(0.95, 0.95, 1.0), 0.12, sky)
+	await _cut(bcut)
 	var moon := _hp(0.8, 0.27, -200.0)
+	await _cut(bcut)
 	var mh := _hp(0.8, 0.27, -244.0)
+	await _cut(bcut)
 	var halo := _sky_at(mh.y, sky)
+	await _cut(bcut)
 	_vdisc(st, mh, 17.0, halo.lerp(Color("#F4ECD2"), 0.18), halo, 32)
+	await _cut(bcut)
 	for i in (40 if lite else 70):
 		var p := Vector3(rng.randf_range(-170.0, 170.0), rng.randf_range(18.0, 150.0), rng.randf_range(-246.0, -240.0))
 		var r := rng.randf_range(0.18, 0.42)
 		_vquad(st, p + Vector3(0, -r, 0), p + Vector3(r, 0, 0), p + Vector3(0, r, 0), p + Vector3(-r, 0, 0),
 			Color("#F6F0DC"), Color("#F6F0DC"), Color("#F6F0DC"), Color("#F6F0DC"))
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -205.0, -1.0, 15.0, Color("#2C384C"), Color("#2C3848"), 30)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -178.0, -1.0, 9.0, Color("#1C2531"), Color("#283444"), 30)
 	# pleine lune de la nuit des étoiles, à droite sous le titre ; un nuage mince passe dessous
+	await _cut(bcut)
 	_vdisc(st, moon, 8.0, Color("#F4ECD2"), Color("#EAE0C2"), 32)
+	await _cut(bcut)
 	_band(st, _hp(0.78, 0.332, -170.0), 40.0, 0.9, Color("#5A6880"), Color("#3B475C"))
+	await _cut(bcut)
 	_band(st, _hp(0.9, 0.342, -170.0), 26.0, 0.7, Color("#5A6880"), Color("#3B475C"))
 	# mont sombre de la bambouseraie à gauche (crête pâle sous la lune), collines basses ailleurs
+	await _cut(bcut)
 	var pk := _hp(0.27, 0.29, -150.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(pk.x, -1.0, -150.0), 34.0, pk.y + 1.0, 1.25, 0.04, Color("#34425A"), Color("#222C3A"), Color("#3E4C66"), 0.1, 18)
+	await _cut(bcut)
 	for hx: float in [0.04, 0.52, 0.66, 0.95]:
 		var hp := _hp(hx, rng.randf_range(0.33, 0.345), -130.0)
 		_sil_mount(st, Vector3(hp.x, -1.0, -130.0), rng.randf_range(16.0, 22.0), hp.y + 1.0, 1.15, 0.03, Color("#26313F"), Color("#26313F"), Color(0, 0, 0, 0), 0.0, 14)
+	await _cut(bcut)
 	_kasumi(st, _hp(0.35, 0.362, -140.0), 70.0, 1.1, Color("#3E4A60"), Color("#2C3848"))
 	# pagode aux fenêtres éclairées à droite, sous la lune
+	await _cut(bcut)
 	var pg := _hp(0.9, 0.0, -105.5)
+	await _cut(bcut)
 	_ridge(st, rng, pg.x - 16.0, pg.x + 40.0, -106.0, -1.0, 5.0, Color("#18202A"), Color("#202B38"), 12)
+	await _cut(bcut)
 	_sil_pagoda(st, Vector3(pg.x, 2.6, -105.5), 2.6, 5, Color("#141A22"), Color("#0F141B"), Color("#F2C46A"))
 	# allée de torii (Fushimi Inari) qui monte la colline, chaque porche tenant un feu de renard
+	await _cut(bcut)
 	for k in 7:
 		var t := float(k) / 6.0
 		var tp := Vector3(lerpf(-44.0, -8.0, t), 1.4 + 5.0 * t + sin(t * 9.0) * 1.2, -96.5)
 		_sil_torii(st, tp, 0.55, Color("#6E2420"))
+	await _cut(bcut)
 	for i in 22:
 		var t := float(i) / 21.0
 		var c := Vector3(lerpf(-46.0, -6.0, t), 2.0 + 5.0 * t + sin(t * 9.0) * 1.2, -96.0)
@@ -1403,12 +1478,15 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 	# cascade de Kirifuri au bord gauche de l'accueil : falaise, filets d'eau digités, brume au pied (aplats)
 	var fo := Vector3(_hp(0.04, 0.0, -90.0).x, VOID_Y, -90.0)
 	var cliff := Color("#2F3B45")
+	await _cut(bcut)
 	_vrect(st, fo + Vector3(-8, 0, 0), fo + Vector3(8, 30, 0), cliff, cliff)
 	var hi := Color("#3A4752")
 	var cb := Basis(Vector3(0, 0, 1), 0.08)
 	var cc := fo + Vector3(-0.5, 29, 4.0)
+	await _cut(bcut)
 	_vquad(st, cc + cb * Vector3(-6.5, -2, 0), cc + cb * Vector3(6.5, -2, 0), cc + cb * Vector3(6.5, 2, 0), cc + cb * Vector3(-6.5, 2, 0), hi, hi, hi, hi)
 	var water := Color("#DCE7EF")
+	await _cut(bcut)
 	for k in 6:
 		var x := -4.0 + k * 1.6 + rng.randf_range(-0.3, 0.3)
 		var w := rng.randf_range(0.5, 1.2)
@@ -1419,14 +1497,20 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 			var hw2 := w * 0.175
 			_vquad(st, sc + sb * Vector3(-hw2, -3, 0), sc + sb * Vector3(hw2, -3, 0), sc + sb * Vector3(hw2, 3, 0), sc + sb * Vector3(-hw2, 3, 0), water, water, water, water)
 	var mist := cliff.lerp(Color(0.92, 0.95, 1.0), 0.5)
+	await _cut(bcut)
 	for k in 4:
 		_vellipse(st, fo + Vector3(-4.0 + k * 2.8, 0.6, 1.5 + k * 0.05), 4.0, 2.5, mist, mist.darkened(0.06), 12)
+	await _cut(bcut)
 	_vc_end(st, root)
 	# rideau lointain de tiges (aplats) et leurs feuillages sombres
 	var far := {}
+	await _cut(bcut)
 	var g1 := _flat(Color("#2C4434"))
+	await _cut(bcut)
 	var g2 := _flat(Color("#38563F"))
+	await _cut(bcut)
 	var gl := _flat(Color("#27402F"))
+	await _cut(bcut)
 	for i in 56:
 		var x := rng.randf_range(-34.0, 34.0)
 		var z := rng.randf_range(-40.0, -24.0)
@@ -1440,10 +1524,12 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 		var gm: StandardMaterial3D = g1 if rng.randf() < 0.5 else g2
 		_add(far, gm, Toon.cyl(w * 0.8, w, h, 5), _at(Vector3(x, VOID_Y + h * 0.5, z), Vector3(0, 0, rng.randf_range(-0.04, 0.04))))
 		_add(far, gl, _ball(rng.randf_range(1.2, 2.2), rng.randf_range(0.8, 1.4), 7, 3), _at(Vector3(x, VOID_Y + h, z)))
+	await _cut(bcut)
 	_flush(far, root)
 	# bosquets de bambous géants, allée de torii vermillon, pont arqué
 	var b := {}
 	var bn := {}
+	await _cut(bcut)
 	for k in 9:
 		var bx := -12.0 + k * 3.0 + rng.randf_range(-0.6, 0.6)
 		var bz := rng.randf_range(-16.5, -13.5)
@@ -1451,19 +1537,27 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 		if absf(bx) < 7.5:
 			continue  # le lointain suit la caméra : au milieu, ces géants se dresseraient sur le chemin du haut
 		Decor.bamboo_into(b, bn, _at(Vector3(bx, VOID_Y, bz), Vector3.ZERO, Vector3.ONE * bsc), 200 + k)
+	await _cut(bcut)
 	for k in 5:
 		Decor.bamboo_into(b, bn, _at(Vector3(rng.randf_range(10.5, 12.5), VOID_Y, -11.0 + k * 3.8), Vector3.ZERO, Vector3.ONE * rng.randf_range(2.4, 3.2)), 220 + k)
+	await _cut(bcut)
 	for k in 3:
 		Decor.bamboo_into(b, bn, _at(Vector3(rng.randf_range(-15.0, -14.0), VOID_Y, -10.0 + k * 5.0), Vector3.ZERO, Vector3.ONE * rng.randf_range(2.4, 3.0)), 240 + k)
+	await _cut(bcut)
 	for k in 9:
 		Decor.torii_into(b, _at(Vector3(-11.0, VOID_Y, -12.5 - k * 2.3), Vector3.ZERO, Vector3.ONE * 0.8), 0.0)
+	await _cut(bcut)
 	var bxf := _at(Vector3(16.5, VOID_Y + 0.3, -23.0), Vector3(0, -0.35, 0))
+	await _cut(bcut)
 	Decor.arched_bridge_into(b, bxf, 7.0, 1.4, Toon.VERMILION.darkened(0.08), Color("#3B2E25"), -0.7)
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		var e := bxf * Vector3(sx * 4.0, -0.3, 0.0)
 		Decor.rock_into(b, _at(Vector3(e.x, VOID_Y, e.z), Vector3.ZERO, Vector3.ONE * 1.4), 300 + int(sx))
 		Decor.stone_lantern_into(b, bn, _at(Vector3(e.x, VOID_Y + 0.45, e.z), Vector3.ZERO, Vector3.ONE * 0.9))
+	await _cut(bcut)
 	_flush(b, root, false)
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
@@ -1471,59 +1565,91 @@ static func _backdrop_tanabata(root: Node3D) -> void:
 ## lisière de conifères enneigés, toits de temples, ville d'Edo aux toits blancs et son donjon,
 ## pont de la Sumida sous la neige, corbeaux ;
 ## berges, pagode, cimetière, pins, beffroi, torii enneigé, lanternes flottantes.
-static func _backdrop_contes(root: Node3D) -> void:
+static func _backdrop_contes(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(33)
+	await _cut(bcut)
 	var st := _vc_begin()
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 24, -252), Color("#E2E7EC"), Color("#D3D9E2"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 24, -252), Vector3(340, 160, -252), Color("#D3D9E2"), Color("#6F7896"))
 	# pâle soleil d'hiver, à gauche sous le titre
+	await _cut(bcut)
 	_vdisc(st, _hp(0.14, 0.29, -236.0), 9.0, Color("#F6E2D8"), Color("#EDD3C8"), 28)
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -222.0, -1.0, 17.0, Color("#F2F5F8"), Color("#A9AFC2"), 34)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -196.0, -1.0, 11.0, Color("#E9EDF2"), Color("#9AA1B6"), 30)
 	# grand mont blanc à droite du héros (pied lavande, calotte de neige jusqu'à mi-pente), collines basses
+	await _cut(bcut)
 	var pk := _hp(0.7, 0.285, -172.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(pk.x, -1.0, -172.0), 40.0, pk.y + 1.0, 1.45, 0.04, Color("#C9CEDC"), Color("#A9AFC2"), Color("#F4F7FA"), 0.5, 26)
+	await _cut(bcut)
 	for i in 7:
 		var h := rng.randf_range(9.0, 15.0)
 		_sil_mount(st, Vector3(-120.0 + i * 33.0 + rng.randf_range(-6.0, 6.0), -1.0, rng.randf_range(-165.0, -140.0)),
 			h * 1.6, h, 1.2, 0.02, Color("#B9BFD0"), Color("#A9AFC2"), Color("#EEF2F6"), 0.5, 14)
+	await _cut(bcut)
 	_kasumi(st, Vector3(pk.x - 4.0, 3.0, -150.0), 90.0, 1.1, Color("#F2F5F8"), Color("#DDE2EA"))
+	await _cut(bcut)
 	_sil_trees(st, rng, -160.0, 160.0, -138.0, -1.0, (40 if Toon.lite else 70), 6.0, Color("#3E4656"), SNOW)
+	await _cut(bcut)
 	for k in 3:
 		_sil_temple(st, Vector3(-70.0 + k * 62.0 + rng.randf_range(-8.0, 8.0), 0.5, -134.0), rng.randf_range(4.0, 6.0), Color("#4A4652"), Color("#2E2C33"), SNOW)
+	await _cut(bcut)
 	_sil_bridge(st, Vector3(-26.0, VOID_Y, -74.0), 48.0, 3.4, 0.8, Color("#3A3A48"), SNOW, 6)
 	# ville d'Edo sous la neige le long de la berge (toits blancs, un ninja d'un faîte à l'autre) et son
 	# donjon blanc devant le flanc du mont
+	await _cut(bcut)
 	_sil_roofline(st, rng, -120.0, -40.0, -112.0, -0.6, 1.7, Color("#5A5868"), Color("#34323C"), SNOW, Color("#1E1C24"))
+	await _cut(bcut)
 	_sil_roofline(st, rng, 6.0, 120.0, -112.0, -0.6, 1.7, Color("#5A5868"), Color("#34323C"), SNOW, Color("#1E1C24"))
+	await _cut(bcut)
 	var cs := _hp(0.9, 0.0, -116.0)
+	await _cut(bcut)
 	_sil_castle(st, Vector3(cs.x, -0.6, -116.0), 3.0, Color("#ECEEF2"), Color("#34323C"), Color("#7E7B86"), Color("#2A2830"), Color("#B9B3A6"), SNOW)
+	await _cut(bcut)
 	_kasumi(st, Vector3(-20, 3.6, -104), 120.0, 1.2, Color("#F2F5F8"), Color("#DDE2EA"))
 	# corbeaux dans le ciel libre
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.3, 0.16, -80.0), 7, Vector3(8, 2.5, 4), 1.0, Color("#2B2A30"))
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.86, 0.2, -110.0), 5, Vector3(6, 2, 3), 1.4, Color("#3A3942"))
+	await _cut(bcut)
 	_vc_end(st, root)
 	# berges enneigées : (x, z, rayon)
 	var banks: Array[Vector3] = [Vector3(-11, -20, 7), Vector3(10, -19, 6), Vector3(0, -33, 10),
 		Vector3(-12.5, -4, 3.5), Vector3(12.5, 1, 3.5)]
 	var sb := {}
+	await _cut(bcut)
 	var snow := _toon(SNOW, false)
+	await _cut(bcut)
 	var shade := _toon(SNOW_SHADE, false)
+	await _cut(bcut)
 	for bk in banks:
 		_add(sb, snow, Toon.sphere(1.0), _at(Vector3(bk.x, VOID_Y, bk.y), Vector3.ZERO, Vector3(bk.z, bk.z * 0.15, bk.z)))
 		_add(sb, shade, Toon.cyl(bk.z * 1.03, bk.z * 1.06, 0.05, 18), _at(Vector3(bk.x, VOID_Y + 0.02, bk.y)))
 	# pagode sur la berge de gauche, beffroi et torii enneigé sur la berge du fond
 	var b := {}
 	var bn := {}
+	await _cut(bcut)
 	_pagoda_into(sb, _at(Vector3(-11, VOID_Y + 7.0 * 0.15 - 0.08, -20), Vector3(0, 0.3, 0), Vector3.ONE * 1.5))
+	await _cut(bcut)
 	Decor.bell_tower_into(sb, bn, _at(Vector3(-2.5, _dome_y(0, -33, 10, -2.5, -36) - 0.05, -36.0), Vector3(0, 0.2, 0), Vector3.ONE * 1.25), true)
+	await _cut(bcut)
 	_snow_torii(sb, bn, _at(Vector3(2.5, _dome_y(0, -33, 10, 2.5, -29) - 0.08, -29.0), Vector3(0, -0.15, 0), Vector3.ONE * 0.75))
+	await _cut(bcut)
 	for k in 4:
 		var lx := 1.2 + k * 0.9
 		var lz := -25.5 + k * 0.3
 		Decor.stone_lantern_into(b, bn, _at(Vector3(lx, _dome_y(0, -33, 10, lx, lz) - 0.04, lz), Vector3.ZERO, Vector3.ONE * 0.8))
 	# cimetière : stèles en rangées sur la berge de droite
+	await _cut(bcut)
 	var gm := _toon(GRAVE, true, 0.02)
+	await _cut(bcut)
 	for i in 4:
 		for j in 4:
 			var lx := -2.4 + j * 1.5 + rng.randf_range(-0.2, 0.2)
@@ -1532,16 +1658,21 @@ static func _backdrop_contes(root: Node3D) -> void:
 			var xf := _at(Vector3(10.0 + lx, y, -19.0 + lz), Vector3(rng.randf_range(-0.06, 0.06), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.08, 0.08)),
 				Vector3.ONE * rng.randf_range(0.9, 1.25))
 			_stele_into(b, gm, snow, xf)
+	await _cut(bcut)
 	_sotoba_into(b, _at(Vector3(10.2, _dome_y(10, -19, 6, 10.2, -22.5) - 0.05, -22.5)), rng)
 	# pins enneigés sur les berges
 	var pspots: Array[Vector3] = [Vector3(-15, 0.1, -17), Vector3(-7, 0.1, -23), Vector3(-5, 0.6, -30), Vector3(6, 0.6, -31),
 		Vector3(14, -0.1, -16), Vector3(-12.5, -0.15, -4), Vector3(12.8, -0.15, 1)]
+	await _cut(bcut)
 	for p in pspots:
 		_snow_pine_into(sb, _at(p, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(1.3, 2.0)))
+	await _cut(bcut)
 	Decor.stone_lantern_into(b, bn, _at(Vector3(7.0, 0.15, -16.5)))
+	await _cut(bcut)
 	_flush(sb, root, true)
 	# lanternes flottantes (tōrō nagashi) et glaçons sur l'étang
 	var placed := 0
+	await _cut(bcut)
 	for attempt in 160:
 		if placed >= 30:
 			break
@@ -1563,34 +1694,51 @@ static func _backdrop_contes(root: Node3D) -> void:
 		else:
 			_toro_into(bn, _at(p, Vector3(0, rng.randf() * TAU, 0)))
 		placed += 1
+	await _cut(bcut)
 	_flush(b, root, false)
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
 ## Monde 4 : Fuji rouge (Gaifū kaisei) sous un ciel bokashi bleu de Prusse, nuages en écailles,
 ## pagode Chūreitō, Fudō Myōō et son halo de flammes, fumée du sommet ; coulées de lave noire
 ## veinée d'or, piques de roche, torches géantes de Yoshida, torii qui encadre le Fuji.
-static func _backdrop_fuji_rouge(root: Node3D) -> void:
+static func _backdrop_fuji_rouge(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(44)
 	var fx := 8.0
 	var fz := -165.0
+	await _cut(bcut)
 	var st := _vc_begin()
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 28, -252), Color("#D9A07A"), Color("#5E7393"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 28, -252), Vector3(340, 160, -252), Color("#5E7393"), Toon.PRUSSIAN)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, -36.0, -152.0, -1.0, 11.0, Color("#33403C"), Color("#5A4A4E"), 18)
+	await _cut(bcut)
 	_ridge(st, rng, 52.0, 260.0, -152.0, -1.0, 11.0, Color("#33403C"), Color("#5A4A4E"), 18)
+	await _cut(bcut)
 	_ridge(st, rng, -220.0, 220.0, -116.0, -1.0, 3.6, Color("#1E2523"), Color("#3A3335"), 30)
+	await _cut(bcut)
 	_ridge(st, rng, -52.0, -16.0, -112.0, -1.0, 4.5, Color("#1A211F"), Color("#2F2A2C"), 10)
+	await _cut(bcut)
 	_sil_pagoda(st, Vector3(-34, 2.6, -111.5), 2.4, 5, Color("#3A2422"), Color("#24171A"), Color(0, 0, 0, 0))
 	# Fudō et son halo de flammes au bord gauche de l'accueil
+	await _cut(bcut)
 	_fudo(st, Vector3(_hp(0.1, 0.0, -100.0).x, -1.0, -100.0), 1.5, Color("#1E1517"), LAVA_GOLD, BRAISE)
 	# fumée du sommet : bandes qui partent au-dessus et à droite de la cime, sans la couvrir
+	await _cut(bcut)
 	for k in 4:
 		_band(st, Vector3(fx + 11.0 + k * 8.0, 32.5 + k * 3.2, fz + 8.0), 14.0 + k * 6.0, 1.3, Color("#9A8C86"), Color("#7C6E6A"))
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.3, 0.17, -100.0), 5, Vector3(8, 2.5, 4), 1.4, Color("#1E1A1C"))
 	# Gaifū kaisei : Fuji rouge aux flancs concaves, cime sombre, coulées de neige qui s'évasent
+	await _cut(bcut)
 	_sil_mount(st, Vector3(fx, -1.0, fz), 52.0, 30.0, 1.45, 0.06, Color("#B5502F"), Color("#6E3324"), Color("#4A221E"), 0.2, 28)
 	var white := Color("#F1EEE6")
+	await _cut(bcut)
 	for k in 9:
 		var xa := rng.randf_range(-0.9, 0.9) * 3.0
 		var d1 := rng.randf_range(3.0, 7.5)
@@ -1598,31 +1746,44 @@ static func _backdrop_fuji_rouge(root: Node3D) -> void:
 		var foot := Vector3(fx + xa * (1.0 + d1 * 0.3) + rng.randf_range(-0.6, 0.6), 29.0 - d1, fz + 0.6)
 		_vtri(st, top + Vector3(-0.4, 0, 0), top + Vector3(0.4, 0, 0), foot, white, white, white.darkened(0.06))
 	# forêt sombre au pied
+	await _cut(bcut)
 	_vellipse(st, Vector3(fx, -2.0, -140.0), 70.0, 7.0, Color("#2B3F3C"), Color("#22332F"), 24)
 	# nuages en écailles (alto-cumulus de l'estampe)
 	var rows: int = 3 if Toon.lite else 5
+	await _cut(bcut)
 	for row in rows:
 		for col in 18:
 			var x := -150.0 + col * 17.0 + (8.5 if row % 2 == 1 else 0.0) + rng.randf_range(-2.0, 2.0)
 			var r := 4.5 - row * 0.35
 			# au-dessus de la cime (derrière le titre), jamais à sa hauteur
 			_vellipse(st, Vector3(x, 41.0 + row * 5.0, -195.0 - row * 3.0), r, r * 0.5, Color("#EDE6D8"), Color("#DCD2C0"), 10)
+	await _cut(bcut)
 	_vc_end(st, root)
 	# coulées de lave noire veinées d'or, du fond vers l'arène et le long des côtés
 	var lava := {}
 	var veins := {}
+	await _cut(bcut)
 	var lm := _toon(LAVA, false)
+	await _cut(bcut)
 	var vm := _glow(LAVA_GOLD, 1.4)
+	await _cut(bcut)
 	_lava_flow(lava, veins, lm, vm, Vector2(-22, -85), Vector2(-6, -13), 3.6, rng)
+	await _cut(bcut)
 	_lava_flow(lava, veins, lm, vm, Vector2(16, -95), Vector2(5, -13), 3.2, rng)
+	await _cut(bcut)
 	_lava_flow(lava, veins, lm, vm, Vector2(-11.5, -45), Vector2(-11.5, 8), 2.6, rng)
+	await _cut(bcut)
 	_lava_flow(lava, veins, lm, vm, Vector2(12, -45), Vector2(11.5, 8), 2.6, rng)
+	await _cut(bcut)
 	_flush(lava, root)
+	await _cut(bcut)
 	_flush(veins, root)
 	# piques de roche, torii qui encadre le Fuji, lanternes sur basalte
 	var sp := {}
 	var bn := {}
+	await _cut(bcut)
 	var bm := _toon(BASALT, true, 0.03)
+	await _cut(bcut)
 	for i in 16:
 		var p := Vector2.ZERO
 		if rng.randf() < 0.6:
@@ -1637,16 +1798,21 @@ static func _backdrop_fuji_rouge(root: Node3D) -> void:
 			h = minf(h, 5.0)  # derrière l'arène : vus de l'accueil, ils resteraient devant le Fuji
 		var base := Vector3(p.x, VOID_Y - 0.2, p.y)
 		_limb(sp, bm, base, base + Vector3(rng.randf_range(-0.2, 0.2) * h, h, rng.randf_range(-0.2, 0.2) * h), rng.randf_range(0.8, 1.8), 0.05, 5)
+	await _cut(bcut)
 	Decor.torii_into(sp, _at(Vector3(0, VOID_Y, -27.0), Vector3.ZERO, Vector3.ONE * 1.1), -0.6)
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		_add(sp, bm, _cyl(0.5, 0.6, 0.9, 6), _at(Vector3(sx * 4.4, VOID_Y + 0.05, -26.0)))
 		Decor.stone_lantern_into(sp, bn, _at(Vector3(sx * 4.4, VOID_Y + 0.5, -26.0), Vector3.ZERO, Vector3.ONE * 1.1))
 	# torches géantes du Yoshida Hi-Matsuri
 	var spots: Array[Vector3] = [Vector3(-10, VOID_Y, -11), Vector3(10, VOID_Y, -11), Vector3(-10, VOID_Y, -3),
 		Vector3(10, VOID_Y, -3), Vector3(-10, VOID_Y, 5), Vector3(10, VOID_Y, 5), Vector3(-5.5, VOID_Y, -13.5), Vector3(5.5, VOID_Y, -13.5)]
+	await _cut(bcut)
 	for p in spots:
 		_yoshida_into(sp, bn, _at(p))
+	await _cut(bcut)
 	_flush(sp, root, true)
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
@@ -1654,17 +1820,25 @@ static func _backdrop_fuji_rouge(root: Node3D) -> void:
 ## en couches, ensō dans le ciel, pont de Mannen qui encadre le petit Fuji, donjon d'encre et toits
 ## de la ville du château (un ninja sur les faîtes), donjon en volume près de l'arène, banc de sable
 ## et croquis du Manga, grues, voiles ; grandes vagues noires, barques, pinceaux, papiers, barrique.
-static func _backdrop_ink(root: Node3D) -> void:
+static func _backdrop_ink(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(55)
 	var lite: bool = Toon.lite
 	var sky: Array = [-2.0, Color("#EDC2B4"), 26.0, Color("#EAD2C8"), 160.0, Color("#8FA3B8")]
+	await _cut(bcut)
 	var st := _vc_begin()
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 26, -252), Color("#EDC2B4"), Color("#EAD2C8"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 26, -252), Vector3(340, 160, -252), Color("#EAD2C8"), Color("#8FA3B8"))
 	# soleil pâle à droite sous le titre ; ensō d'encre tracé dans le ciel libre en haut à gauche ;
 	# bandes de nuages rose d'aube / washi basses, au pied des chaînes (aplats fondus dans le ciel)
+	await _cut(bcut)
 	_vdisc(st, _hp(0.84, 0.285, -236.0), 9.0, Color("#F3D3B5"), Color("#EFCBAE"), 28)
+	await _cut(bcut)
 	_enso(st, _hp(0.2, 0.15, -196.0), 9.0, 1.6, Toon.SUMI)
+	await _cut(bcut)
 	for k in 6:
 		var cy := 2.6 + k * 1.5
 		var cz := -200.0 - k * 5.0
@@ -1672,56 +1846,88 @@ static func _backdrop_ink(root: Node3D) -> void:
 		var a: float = 0.7 if k % 2 == 0 else 0.8
 		var col := _sky_at(cy, sky).lerp(tint, a)
 		_kasumi(st, Vector3(rng.randf_range(-90.0, 50.0), cy, cz), rng.randf_range(80.0, 160.0), rng.randf_range(0.9, 1.6), col.lightened(0.04), col)
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -210.0, -1.0, 11.0, Color("#5B6070"), Color("#E4C3B8"), 34)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -184.0, -1.0, 6.5, Color("#2B3448"), Color("#DDBFB4"), 34)
 	# le donjon d'encre sur sa colline, à gauche : murs de washi, toits de sumi, shachihoko d'or ; pins
 	# de Hokusai sur les épaules de la colline
+	await _cut(bcut)
 	var cs := _hp(0.27, 0.0, -150.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(cs.x, -1.0, -152.0), 34.0, 8.0, 1.0, 0.28, Color("#3A3F52"), Color("#6E6A72"), Color(0, 0, 0, 0), 0.0, 18)
+	await _cut(bcut)
 	_sil_castle(st, Vector3(cs.x, 6.4, -150.5), 3.6, Toon.WASHI, Toon.SUMI, Color("#4A4642"), Color("#2A2830"), Toon.GOLD, Color(0, 0, 0, 0))
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		_sil_pine(st, rng, Vector3(cs.x + sx * 13.0, 3.6, -149.5), 1.7, -sx * 0.6, Toon.SUMI, Color("#2B3448"), Color("#5B6070"))
+	await _cut(bcut)
 	_kasumi(st, Vector3(cs.x + 4.0, 2.6, -138.0), 80.0, 1.0, Color("#F1E1D6"), Color("#E6CFC4"))
 	# petit Fuji d'encre au creux du pont de Mannen, à droite du héros
+	await _cut(bcut)
 	var mb := _hp(0.72, 0.0, -100.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(mb.x, -0.6, -140), 16.0, 9.0, 1.6, 0.06, Color("#2B3448"), Color("#5B6070"), Toon.WASHI, 0.3, 18)
+	await _cut(bcut)
 	_sil_bridge(st, Vector3(mb.x, VOID_Y, -100.0), 60.0, 8.4, 1.3, Color("#2E2A28"), Color(0, 0, 0, 0), 6)
 	# toits de la ville du château (un ninja sur les faîtes)
+	await _cut(bcut)
 	_sil_roofline(st, rng, -74.0, -40.0, -116.0, -0.6, 1.5, Color("#6E6A72"), Color("#2A2830"), Color(0, 0, 0, 0), Toon.SUMI)
+	await _cut(bcut)
 	_sil_roofline(st, rng, 34.0, 96.0, -116.0, -0.6, 1.5, Color("#6E6A72"), Color("#2A2830"), Color(0, 0, 0, 0), Toon.SUMI)
+	await _cut(bcut)
 	_ridge(st, rng, -70.0, 70.0, -62.0, VOID_Y - 0.3, 1.0, Color("#D9CCB1"), Color("#C9BBA0"), 14)
+	await _cut(bcut)
 	for k in (5 if lite else 8):
 		var x := rng.randf_range(-40.0, 40.0)
 		var pose: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sketch_man(st, Vector3(x, VOID_Y + 0.45, -61.6), rng.randf_range(0.9, 1.2), Color("#2A2830"), pose)
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.66, 0.17, -90.0), 7, Vector3(9, 2.5, 4), 1.3, Color("#F6F2EA"))
+	await _cut(bcut)
 	for k in (3 if lite else 5):
 		var z := rng.randf_range(-95.0, -40.0)
 		var face: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sil_boat(st, Vector3(rng.randf_range(-55.0, 55.0), VOID_Y, z), rng.randf_range(0.9, 1.4) * (1.0 - z / 260.0), Color("#1B1A1E"), Color("#F1E8D6"), face)
+	await _cut(bcut)
 	_vc_end(st, root)
 	# grandes vagues noires
 	# la première au bord gauche de l'accueil, la lèvre vers le donjon (de profil, sans le cacher)
+	await _cut(bcut)
 	var w1: Node3D = Decor.great_wave(root, Vector3(_hp(0.05, 0.0, -50.0).x, VOID_Y, -50.0), 2.2, 5)
 	w1.rotation.y = 1.35
+	await _cut(bcut)
 	_ink_wave(w1)
+	await _cut(bcut)
 	var w2: Node3D = Decor.great_wave(root, Vector3(30, VOID_Y, -78), 3.8, 6)
 	w2.rotation.y = -0.45
+	await _cut(bcut)
 	_ink_wave(w2)
 	# barques oshiokuri et leurs rameurs, pinceaux plantés comme des mâts, barrique du tonnelier
 	var b := {}
 	var bn := {}
+	await _cut(bcut)
 	_boat_into(b, _at(Vector3(-14, VOID_Y, -28), Vector3(0, 0.3, 0), Vector3.ONE * 1.5), 4)
+	await _cut(bcut)
 	_boat_into(b, _at(Vector3(8, VOID_Y, -36), Vector3(0, -0.25, 0), Vector3.ONE * 1.7), 4)
+	await _cut(bcut)
 	_boat_into(b, _at(Vector3(-30, VOID_Y, -55), Vector3(0, 0.5, 0), Vector3.ONE * 2.2), 3)
+	await _cut(bcut)
 	_brush_into(b, _at(Vector3(-11, VOID_Y, -15), Vector3(0, 0, 0.18), Vector3.ONE * 2.0))
+	await _cut(bcut)
 	_brush_into(b, _at(Vector3(11.5, VOID_Y, -17), Vector3(0.1, 0, -0.15), Vector3.ONE * 2.3))
+	await _cut(bcut)
 	_barrel_giant_into(b, bn, _at(Vector3(15.5, VOID_Y, -25.0), Vector3(0, -0.25, 0), Vector3.ONE * 1.4))
+	await _cut(bcut)
 	_castle_into(b, bn, _at(Vector3(20.5, VOID_Y, -45.0), Vector3(0, -0.35, 0)))
+	await _cut(bcut)
 	_flush(b, root, true)
 	# feuilles de papier déchiré qui flottent sur l'encre et dans l'air
+	await _cut(bcut)
 	var pa := _toon(Color("#F1E8D6"), false)
+	await _cut(bcut)
 	var pb := _toon(Color("#E2D6BD"), false)
+	await _cut(bcut)
 	for i in 22:
 		var p := Vector3.ZERO
 		if rng.randf() < 0.65:
@@ -1736,6 +1942,7 @@ static func _backdrop_ink(root: Node3D) -> void:
 			rot = Vector3(0, rot.y, 0)
 		var pm: StandardMaterial3D = pa if rng.randf() < 0.6 else pb
 		_sheet_into(bn, pm, _at(p, rot), rng.randf_range(1.0, 2.6), rng.randf_range(1.2, 3.2))
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
@@ -1783,25 +1990,35 @@ static func _lava_flow(lava: Dictionary, veins: Dictionary, lm: Material, vm: Ma
 ## `pieces` (étapes) : pièces de décor posées sur la terre ferme (_set_pieces), dans les mêmes lots.
 ## `shrine` : arène de gardien ou de boss (boss_shrine.gd bâtit les terrasses et le sanctuaire du nord) :
 ## le paysage ne garde que la bande proche du bas de l'écran et le bord sud.
-static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false) -> void:
+static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false, cut := Callable()) -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 31 + wid)
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
-	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights, "shrine": shrine}
+	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights, "shrine": shrine, "cut": cut}
 	_reserve_gate(ctx)
 	# abords : paysage composé par monde (voir « paysage des abords »)
-	_landscape(wid, ctx, rng)
+	await _landscape(wid, ctx, rng)
 	# pièces de décor sur la terre ferme (tirages à part : le décor autour ne change pas)
 	if not pieces.is_empty():
-		_set_pieces(wid, ctx, pieces, _rng(rng_seed * 13 + 7))
+		await _set_pieces(wid, ctx, pieces, _rng(rng_seed * 13 + 7))
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
 	var mm: Dictionary = ctx["mm"]
+	await _cut(ctx)
 	_flush(bs, root, true)
+	await _cut(ctx)
 	_flush(bn, root, false)
 	_flush_mm(mm, root)
+
+
+## Construction étalée (arena : sous le rideau d'encre, ou décor différé) : rend la main entre deux morceaux
+## si l'image a assez travaillé ; sans découpe dans `ctx`, ne fait rien (tout d'un bloc).
+static func _cut(ctx: Dictionary) -> void:
+	var c: Callable = ctx.get("cut", Callable())
+	if c.is_valid():
+		await c.call()
 
 
 static var gate_spread := 0.0  # portes à deux sceaux : demi-écart des deux torii (arena._set_gate_spots), 0 : un seul
@@ -2012,14 +2229,15 @@ static func _landscape(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) ->
 		# seule la bande proche reste, sous les terrasses (bas de l'écran), et le bord sud
 		for s: float in [-1.0, 1.0]:
 			var near := {"s": s, "x": frame.end.x if s > 0.0 else frame.position.x, "z0": SHRINE_NEAR_Z, "z1": span.y, "main": false, "north": false, "near_only": true}
-			_ls_shore(wid, ctx, near, rng)
+			await _ls_shore(wid, ctx, near, rng)
 		var avoid: Array = ctx["avoid"]
 		avoid.append(Vector3(0.0, frame.end.y + 0.6, 1.7))  # marches du sanctuaire qui descendent dans l'eau
-		_ls_south(wid, ctx, frame, rng)
+		await _ls_south(wid, ctx, frame, rng)
 		return
 	if has_north:
-		_ls_north(wid, ctx, frame, rng)
+		await _ls_north(wid, ctx, frame, rng)
 	for s: float in [-1.0, 1.0]:
+		await _cut(ctx)
 		var shore := {
 			"s": s,
 			"x": frame.end.x if s > 0.0 else frame.position.x,
@@ -2028,9 +2246,10 @@ static func _landscape(wid: int, ctx: Dictionary, rng: RandomNumberGenerator) ->
 			"main": s == main_side,
 			"north": has_north,
 		}
-		_ls_shore(wid, ctx, shore, rng)
+		await _ls_shore(wid, ctx, shore, rng)
 	if frame.end.y < span.y + 0.01:
-		_ls_south(wid, ctx, frame, rng)
+		await _cut(ctx)
+		await _ls_south(wid, ctx, frame, rng)
 
 
 ## Une rive : le groupe lointain d'abord (il réserve sa place), puis la bande moyenne en tronçons, puis
@@ -2054,7 +2273,8 @@ static func _ls_shore(wid: int, ctx: Dictionary, sh: Dictionary, rng: RandomNumb
 		var r := 3.0 if sh["main"] else 1.7
 		if _ok(ctx, c, 1.0, 0.0):
 			avoid.append(Vector3(c.x, c.y, r))
-			_ls_group(wid, ctx, c, s, bool(sh["main"]), rng)
+			await _ls_group(wid, ctx, c, s, bool(sh["main"]), rng)
+			await _cut(ctx)
 	# bande moyenne : tronçons de 3 à 4,5 m qui se suivent le long du bord, jamais deux fois le même
 	var kinds: Array = _ls_mid_kinds(wid)
 	var z := z0 + rng.randf_range(0.2, 1.0)
@@ -2075,7 +2295,8 @@ static func _ls_shore(wid: int, ctx: Dictionary, sh: Dictionary, rng: RandomNumb
 				free = false
 				break
 		if free:
-			_ls_mid(wid, ctx, kind, Vector2(x + s * d, z), Vector2(x + s * d, zb), s, rng)
+			await _ls_mid(wid, ctx, kind, Vector2(x + s * d, z), Vector2(x + s * d, zb), s, rng)
+			await _cut(ctx)
 		z = zb + rng.randf_range(0.5, 1.2)
 	# bande proche : un élément bas tous les 0,55 à 0,9 m, du début à la fin du tronçon
 	var step := 0.62 / dens
@@ -2085,6 +2306,7 @@ static func _ls_shore(wid: int, ctx: Dictionary, sh: Dictionary, rng: RandomNumb
 		var p := Vector2(x + s * rng.randf_range(0.36, 0.9), z)
 		if _ok(ctx, p, 0.3, 0.0):
 			_ls_near(wid, ctx, p, s, k, rng)
+			await _cut(ctx)
 		z += step * rng.randf_range(0.85, 1.35)
 		k += 1
 
@@ -2099,6 +2321,7 @@ static func _ls_south(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 		var p := Vector2(x, frame.end.y + rng.randf_range(0.45, 0.9))
 		if _ok(ctx, p, 0.3, 0.0):
 			_ls_near(wid, ctx, p, 0.0, k, rng)
+			await _cut(ctx)
 		x += step * rng.randf_range(0.85, 1.35)
 		k += 1
 
@@ -2161,7 +2384,7 @@ static func _ls_mid(wid: int, ctx: Dictionary, kind: String, a: Vector2, b: Vect
 		6:
 			_ls_mid_kurama(ctx, kind, a, b, s, rng)
 		7:
-			_ls_mid_ryugu(ctx, kind, a, b, s, rng)
+			await _ls_mid_ryugu(ctx, kind, a, b, s, rng)
 		8:
 			_ls_mid_yomi(ctx, kind, a, b, s, rng)
 		_:
@@ -2200,7 +2423,7 @@ static func _ls_group(wid: int, ctx: Dictionary, c: Vector2, s: float, main: boo
 			if main:
 				_ls_palace_ruin(ctx, c, s, rng)
 			else:
-				_ls_coral_massif(ctx, c, s, rng)
+				await _ls_coral_massif(ctx, c, s, rng)
 		8:
 			if main:
 				_ls_graveyard(ctx, c, s, rng)
@@ -2227,7 +2450,7 @@ static func _ls_north(wid: int, ctx: Dictionary, frame: Rect2, rng: RandomNumber
 		6:
 			_ls_north_kurama(ctx, frame, rng)
 		7:
-			_ls_north_ryugu(ctx, frame, rng)
+			await _ls_north_ryugu(ctx, frame, rng)
 		8:
 			_ls_north_yomi(ctx, frame, rng)
 		_:
@@ -3201,6 +3424,7 @@ static func _ls_reef(ctx: Dictionary, c: Vector2, ln: float, s: float, n: int, r
 	Decor.rock_into(bs, _at(Vector3(c.x, VOID_Y, c.y), Vector3(0, PI * 0.5, 0), Vector3(sc * 1.4, sc * 0.7, sc)), rng.randi() % 100000, REEF_ROCK)
 	_contact(ctx, c, sc * 0.9)
 	for k in n:
+		await _cut(ctx)
 		var q := Vector3(c.x + rng.randf_range(-0.4, 0.4) * sc, VOID_Y + 0.22 * sc, c.y + (float(k) - (n - 1) * 0.5) * sc * 0.55)
 		_coral_into(bs, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(0.8, 1.3)), rng, CORAL[(k + rng.randi_range(0, 1)) % CORAL.size()])
 	var weed := _toon_ds(SEA_WEED)
@@ -3242,7 +3466,7 @@ static func _ls_mid_ryugu(ctx: Dictionary, kind: String, a: Vector2, b: Vector2,
 	var x := a.x
 	match kind:
 		"reef":
-			_ls_reef(ctx, Vector2(x + s * 0.3, zc), ln, s, 3 if Toon.lite else 4, rng)
+			await _ls_reef(ctx, Vector2(x + s * 0.3, zc), ln, s, 3 if Toon.lite else 4, rng)
 		"kelp":
 			var n := 2 if ln < 3.6 or Toon.lite else 3
 			for k in n:
@@ -3313,7 +3537,8 @@ static func _ls_palace_ruin(ctx: Dictionary, c: Vector2, s: float, rng: RandomNu
 static func _ls_coral_massif(ctx: Dictionary, c: Vector2, s: float, rng: RandomNumberGenerator) -> void:
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
-	_ls_reef(ctx, c, 4.2, s, 4 if Toon.lite else 6, rng)
+	await _ls_reef(ctx, c, 4.2, s, 4 if Toon.lite else 6, rng)
+	await _cut(ctx)
 	_clam_into(bs, bn, _at(Vector3(c.x - s * 0.5, VOID_Y, c.y + 1.5), Vector3(0, _face(c, c.x - s * 6.0, c.y) + 0.3, 0), Vector3.ONE * 0.85))
 	_kelp_into(bs, _at(Vector3(c.x + s * 1.4, VOID_Y, c.y - 0.8)), rng, 2.8)
 	for k in 2:
@@ -3333,7 +3558,8 @@ static func _ls_north_ryugu(ctx: Dictionary, frame: Rect2, rng: RandomNumberGene
 		_ls_column_into(bs, Vector3(px + sx * 1.3, VOID_Y - 0.05, top - 2.6), 1.9, false, rng)
 		avoid.append(Vector3(px + sx * 0.6, top - 2.5, 1.5))
 		var c := Vector2(sx * (frame.size.x * 0.5 + 1.4), top - 3.6)
-		_ls_reef(ctx, c, 3.6, sx, 3 if Toon.lite else 5, rng)
+		await _cut(ctx)
+		await _ls_reef(ctx, c, 3.6, sx, 3 if Toon.lite else 5, rng)
 		avoid.append(Vector3(c.x, c.y, 2.0))
 		for k in (2 if Toon.lite else 3):
 			_kelp_into(bs, _at(Vector3(sx * (1.6 + k * 1.1), VOID_Y, top - 4.2 - rng.randf_range(0.0, 0.5))), rng, rng.randf_range(2.6, 3.6))
@@ -3522,6 +3748,7 @@ static func _set_pieces(_wid: int, ctx: Dictionary, pieces: Array, rng: RandomNu
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
 	for pc in pieces:
+		await _cut(ctx)
 		var pa: Array = pc
 		var fp: Rect2 = pa[0]
 		var kind := String(pa[1])
@@ -4904,10 +5131,47 @@ static func _pit_style(wid: int) -> Dictionary:
 
 ## Fosses de la salle dans les vides intérieurs `voids` (Rect2, cf. arena.gd void_rects).
 ## Renvoie l'état à passer à animate_pits() à chaque image (vide si rien à animer).
-static func build_pits(world_id: int, parent: Node3D, rects: Array, voids: Array, rng_seed: int) -> Dictionary:
+static func build_pits(world_id: int, parent: Node3D, rects: Array, voids: Array, rng_seed: int, cut := Callable(), plan := {}) -> Dictionary:
 	var state := {}
 	if voids.is_empty():
 		return state
+	if plan.is_empty():
+		plan = pit_plan(world_id, rects, voids, rng_seed)
+	var wid: int = plan["wid"]
+	var root := Node3D.new()
+	root.name = "Pits"
+	parent.add_child(root)
+	var st := _vc_begin()
+	var gl := _vc_begin()
+	var cctx := {"cut": cut}
+	var ctx := {"rng": plan["rng"], "voids": voids, "segs": plan["segs"], "wide": plan["wide"], "narrow": plan["narrow"],
+		"sty": plan["sty"], "st": st, "gl": gl, "glow": 0, "bs": {}, "embers": [], "cut": cut}
+	await _cut(cctx)
+	await _pit_details(wid, ctx)
+	await _cut(cctx)
+	_pit_depth(root, plan["grids"], st, _wmat("pit", -3, false))
+	var n_glow: int = ctx["glow"]
+	if n_glow > 0:
+		var gm := _wmat("pit_glow_%d" % wid, -2, true)
+		_pit_flush(root, gl, gm, "PitGlow")
+		state["glow"] = gm
+		state["pulse"] = 1.6 if wid == 4 else 0.8
+	await _cut(cctx)
+	var bs: Dictionary = ctx["bs"]
+	_flush(bs, root, false)
+	var embers: Array = ctx["embers"]
+	if not embers.is_empty():
+		await _cut(cctx)
+		_pit_embers(root, embers)
+	return state
+
+
+## Plan des fosses d'une salle ou d'un tronçon : bords et parois, grille du fond de chaque vide (couleurs de
+## sommets) et le tirage (rng) que les détails reprennent. Calcul pur, sans nœud ni ressource partagée : arena le
+## lance sur un fil de calcul (WorkerThreadPool) dès que la forme de l'étape est connue. {} : aucun vide.
+static func pit_plan(world_id: int, rects: Array, voids: Array, rng_seed: int) -> Dictionary:
+	if voids.is_empty():
+		return {}
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 23 + wid * 5 + 1)
 	var sty := _pit_style(wid)
@@ -4920,30 +5184,11 @@ static func build_pits(world_id: int, parent: Node3D, rects: Array, voids: Array
 		else:
 			wide.append(rr)
 	var segs := _pit_segments(voids, wide, rng)
-	var root := Node3D.new()
-	root.name = "Pits"
-	parent.add_child(root)
-	var st := _vc_begin()
-	var gl := _vc_begin()
+	var grids: Array = []
 	for v in voids:
 		var vr: Rect2 = v
-		_pit_grid(st, vr, segs, wide, sty)
-	var ctx := {"rng": rng, "voids": voids, "segs": segs, "wide": wide, "narrow": narrow, "sty": sty,
-		"st": st, "gl": gl, "glow": 0, "bs": {}, "embers": []}
-	_pit_details(wid, ctx)
-	_pit_flush(root, st, _wmat("pit", -3, false), "PitDepth")
-	var n_glow: int = ctx["glow"]
-	if n_glow > 0:
-		var gm := _wmat("pit_glow_%d" % wid, -2, true)
-		_pit_flush(root, gl, gm, "PitGlow")
-		state["glow"] = gm
-		state["pulse"] = 1.6 if wid == 4 else 0.8
-	var bs: Dictionary = ctx["bs"]
-	_flush(bs, root, false)
-	var embers: Array = ctx["embers"]
-	if not embers.is_empty():
-		_pit_embers(root, embers)
-	return state
+		grids.append(_pit_grid(vr, segs, wide, sty))
+	return {"wid": wid, "rng": rng, "sty": sty, "wide": wide, "narrow": narrow, "segs": segs, "grids": grids}
 
 
 ## Pouls des lueurs des fosses (reflets qui scintillent, lave qui respire) : un paramètre de matériau.
@@ -4971,6 +5216,37 @@ static func _wmat(key: String, prio: int, additive: bool) -> StandardMaterial3D:
 		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 	_mats[key] = m
 	return m
+
+
+## Fond des fosses : les grilles du plan (pit_plan) puis les détails de `st`, dans cet ordre, en un seul
+## maillage (assemblé en tableaux : bien plus rapide que de tout passer par le SurfaceTool).
+static func _pit_depth(root: Node3D, grids: Array, st: SurfaceTool, mat: Material) -> void:
+	var vs := PackedVector3Array()
+	var cs := PackedColorArray()
+	for g in grids:
+		var ga: Array = g
+		if ga.is_empty():
+			continue
+		vs.append_array(ga[0])
+		cs.append_array(ga[1])
+	var d := st.commit_to_arrays()
+	if d.size() > Mesh.ARRAY_COLOR and d[Mesh.ARRAY_VERTEX] is PackedVector3Array and d[Mesh.ARRAY_COLOR] is PackedColorArray:
+		vs.append_array(d[Mesh.ARRAY_VERTEX])
+		cs.append_array(d[Mesh.ARRAY_COLOR])
+	if vs.is_empty():
+		return
+	var arr: Array = []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = vs
+	arr[Mesh.ARRAY_COLOR] = cs
+	var am := ArrayMesh.new()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	var mi := MeshInstance3D.new()
+	mi.name = "PitDepth"
+	mi.mesh = am
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(mi)
 
 
 static func _pit_flush(root: Node3D, st: SurfaceTool, mat: Material, nm: String) -> void:
@@ -5151,23 +5427,66 @@ static func _pit_axis(lo: float, hi: float, ext_lo: bool, ext_hi: bool) -> Packe
 	return out
 
 
-static func _pit_grid(st: SurfaceTool, v: Rect2, segs: Array, wide: Array, sty: Dictionary) -> void:
+## Fond d'un vide : grille de quadrilatères (comme _vquad) aux couleurs de _pit_col : [sommets, couleurs]
+## ([] : grille vide). Calcul pur (pit_plan).
+static func _pit_grid(v: Rect2, segs: Array, wide: Array, sty: Dictionary) -> Array:
 	var xs := _pit_axis(v.position.x, v.end.x, v.position.x <= -PIT_HALF.x + 0.01, v.end.x >= PIT_HALF.x - 0.01)
 	var zs := _pit_axis(v.position.y, v.end.y, v.position.y <= -PIT_HALF.y + 0.01, v.end.y >= PIT_HALF.y - 0.01)
 	var nx := xs.size()
 	var nz := zs.size()
-	var cols: Array = []
+	var cols := PackedColorArray()
+	cols.resize(nx * nz)
 	for j in nz:
+		# seuls les bords à paroi qui peuvent toucher cette rangée comptent (même résultat, bien moins de calcul)
+		var z := zs[j]
+		var row: Array = []
+		for sv in segs:
+			var sg: Array = sv
+			var band: float = sg[3]
+			if band <= 0.0:
+				continue
+			var a: Vector2 = sg[0]
+			var b: Vector2 = sg[1]
+			var kind: int = sg[2]
+			if kind == 0:
+				if z - a.y >= -0.001 and z - a.y <= band * 1.25:
+					row.append(sg)
+			elif z >= a.y - 0.02 and z <= b.y + 0.02:
+				row.append(sg)
 		for i in nx:
-			cols.append(_pit_col(Vector2(xs[i], zs[j]), segs, wide, sty))
+			cols[j * nx + i] = _pit_col(Vector2(xs[i], z), row, wide, sty)
+	# quadrilatères de la grille (comme _vquad), écrits d'un coup puis ajoutés au lot
+	var vs := PackedVector3Array()
+	var cs := PackedColorArray()
+	vs.resize((nx - 1) * (nz - 1) * 6)
+	cs.resize(vs.size())
+	var k := 0
 	for j in nz - 1:
+		var z0 := zs[j]
+		var z1 := zs[j + 1]
 		for i in nx - 1:
-			var c00: Color = cols[j * nx + i]
-			var c10: Color = cols[j * nx + i + 1]
-			var c11: Color = cols[(j + 1) * nx + i + 1]
-			var c01: Color = cols[(j + 1) * nx + i]
-			_vquad(st, Vector3(xs[i], PIT_Y, zs[j]), Vector3(xs[i + 1], PIT_Y, zs[j]),
-				Vector3(xs[i + 1], PIT_Y, zs[j + 1]), Vector3(xs[i], PIT_Y, zs[j + 1]), c00, c10, c11, c01)
+			var c00 := cols[j * nx + i]
+			var c10 := cols[j * nx + i + 1]
+			var c11 := cols[(j + 1) * nx + i + 1]
+			var c01 := cols[(j + 1) * nx + i]
+			var pa := Vector3(xs[i], PIT_Y, z0)
+			var pc := Vector3(xs[i + 1], PIT_Y, z1)
+			vs[k] = pa
+			vs[k + 1] = Vector3(xs[i + 1], PIT_Y, z0)
+			vs[k + 2] = pc
+			vs[k + 3] = pa
+			vs[k + 4] = pc
+			vs[k + 5] = Vector3(xs[i], PIT_Y, z1)
+			cs[k] = c00
+			cs[k + 1] = c10
+			cs[k + 2] = c11
+			cs[k + 3] = c00
+			cs[k + 4] = c11
+			cs[k + 5] = c01
+			k += 6
+	if k == 0:
+		return []
+	return [vs, cs]
 
 
 ## Fuseau plat le long de `pts` (plan XZ, hauteur y) : largeur w0 -> w1 (+ `belly` au milieu),
@@ -5397,16 +5716,21 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 	match wid:
 		1:
 			# strates de terre, épaves au fond, reflets de l'eau tout en bas ; planches arrachées au bord
+			await _cut(ctx)
 			_pit_lines(ctx, 0.3, 0.03, Color(line, 0.6))
+			await _cut(ctx)
 			_pit_lines(ctx, 0.58, 0.022, Color(line, 0.45))
+			await _cut(ctx)
 			for i in int(area / 3.0):
 				var p := _pit_pt(ctx, 0.6)
 				if p == NONE2:
 					continue
 				var d := Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(0.1, 0.16)
 				_wribbon(st, PackedVector2Array([p - d, p + d]), PIT_Y + 0.003, 0.05, 0.04, Color(Color("#2A2018"), 0.65), Color(Color("#2A2018"), 0.65))
+			await _cut(ctx)
 			_pit_glints(ctx, 0.7, 0.05, 0.1)
 			var wood := _toon(Color("#8E6B3E"), true, 0.012)
+			await _cut(ctx)
 			for e in _pit_edge_pts(ctx, 0.42, true):
 				var ea: Array = e
 				var q: Vector2 = ea[0]
@@ -5422,12 +5746,18 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 						_stub_xf(q + tg, n, -0.03, l2, rng.randf_range(-0.25, 0.45), rng.randf_range(-0.7, 0.7)))
 		2:
 			# paroi maçonnée (assises et joints), mousse qui pend, reflets d'étoiles ; dalles ébréchées
+			await _cut(ctx)
 			_pit_lines(ctx, 0.33, 0.026, Color(line, 0.7))
+			await _cut(ctx)
 			_pit_lines(ctx, 0.66, 0.026, Color(line, 0.6))
+			await _cut(ctx)
 			_pit_joints(ctx, Color(line, 0.6))
+			await _cut(ctx)
 			_pit_drips(ctx, 0.5, 2, Color(Color("#3E5A3A"), 0.75))
+			await _cut(ctx)
 			_pit_glints(ctx, 0.9, 0.04, 0.09)
 			var stone := _toon(Color("#6E6A60"), true, 0.015)
+			await _cut(ctx)
 			for e in _pit_edge_pts(ctx, 0.5, true):
 				if rng.randf() < 0.4:
 					continue
@@ -5439,11 +5769,16 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 					_stub_xf(q, n, -0.06, l, rng.randf_range(0.1, 0.4), rng.randf_range(-0.25, 0.25)))
 		3:
 			# paroi de glace : glaçons, fissures claires, fond bleu nuit ; bourrelets de neige au bord
+			await _cut(ctx)
 			_pit_lines(ctx, 0.45, 0.018, Color(line, 0.55))
+			await _cut(ctx)
 			_pit_drips(ctx, 0.16, 0, Color(Color("#E8F2F8"), 0.85))
+			await _cut(ctx)
 			_pit_cracks(ctx, Color(Color("#E6F0F6"), 0.5))
+			await _cut(ctx)
 			_pit_glints(ctx, 0.6, 0.04, 0.08)
 			var snow := _toon(SNOW, false)
+			await _cut(ctx)
 			for e in _pit_edge_pts(ctx, 0.3, true):
 				var ea: Array = e
 				var q: Vector2 = ea[0]
@@ -5454,10 +5789,14 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 				_add(bs, snow, _ball(r, r * 0.55, 7, 3), _at(Vector3(c.x, -0.025, c.y), Vector3(0, rng.randf() * TAU, 0)))
 		4:
 			# basalte veiné de braise, lave qui respire au fond, liseré incandescent ; éclats noirs au bord
+			await _cut(ctx)
 			_pit_lines(ctx, 0.4, 0.024, Color(line, 0.7))
+			await _cut(ctx)
 			_pit_drips(ctx, 0.55, 3, Color(0.77, 0.6, 0.27, 0.8))
+			await _cut(ctx)
 			_pit_rim_glow(ctx)
 			var embers: Array = ctx["embers"]
+			await _cut(ctx)
 			for i in int(area / 1.6) + 1:
 				var p := _pit_pt(ctx, 0.45)
 				if p == NONE2:
@@ -5468,6 +5807,7 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 				ctx["glow"] = int(ctx["glow"]) + 1
 				embers.append(Vector3(p.x, PIT_Y + 0.05, p.y))
 			var basalt := _toon(BASALT, true, 0.015)
+			await _cut(ctx)
 			for e in _pit_edge_pts(ctx, 0.45, true):
 				if rng.randf() < 0.35:
 					continue
@@ -5478,11 +5818,15 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 				_add(bs, basalt, _box(Vector3(rng.randf_range(0.08, 0.14), 0.06, l)),
 					_stub_xf(q, n, -0.05, l, rng.randf_range(0.3, 0.7), rng.randf_range(-0.3, 0.3)))
 		6, 7, 8:
+			await _cut(ctx)
 			_pit_new(wid, ctx)
 		_:
 			# encre : coulures sur la paroi de papier, lavis pâles au fond ; bord de papier déchiré
+			await _cut(ctx)
 			_pit_lines(ctx, 0.5, 0.02, Color(line, 0.5))
+			await _cut(ctx)
 			_pit_drips(ctx, 0.3, 1, Color(Toon.SUMI, 0.85))
+			await _cut(ctx)
 			for i in int(area / 4.0):
 				var p := _pit_pt(ctx, 0.8)
 				if p == NONE2:
@@ -5495,8 +5839,10 @@ static func _pit_details(wid: int, ctx: Dictionary) -> void:
 					pts.append(p + d * u * l * 2.0 + Vector2(-d.y, d.x) * sin(u * 5.0) * 0.06)
 				_wribbon(gl, pts, PIT_Y + 0.004, 0.02, 0.01, Color(Toon.WASHI, 0.14), Color(Toon.WASHI, 0.1), 0.06, true)
 				ctx["glow"] = int(ctx["glow"]) + 1
+			await _cut(ctx)
 			_pit_glints(ctx, 0.35, 0.03, 0.06)
 			var paper := _toon(Color("#E9DFC9"), false)
+			await _cut(ctx)
 			for e in _pit_edge_pts(ctx, 0.3, true):
 				if rng.randf() < 0.3:
 					continue
@@ -5640,133 +5986,200 @@ const YOMI_GLOW := Color("#B9A8E8")
 ## Monde 6 : mont Kurama au crépuscule. Ciel orangé-violet, chaînes en contre-jour, brumes mauves, temple vermillon et pagode
 ## sur la crête, escalier de pierre sous une allée de torii, corbeaux ; cèdres géants (sugi) sur des îlots de mousse, grand
 ## masque de tengu sur la falaise, torii vermillon et lanternes du chemin des racines.
-static func _backdrop_kurama(root: Node3D) -> void:
+static func _backdrop_kurama(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(66)
+	await _cut(bcut)
 	var st := _vc_begin()
 	# ciel de fin de jour : orangé à l'horizon, violet au zénith ; les chaînes passent en contre-jour
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 26, -252), Color("#E8B07A"), Color("#C88A86"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 26, -252), Vector3(340, 160, -252), Color("#C88A86"), Color("#4A3A66"))
 	# soleil couchant à droite sous le titre (or-orangé : fond lointain), halo peint dans le ciel
 	var sky: Array = [-2.0, Color("#E8B07A"), 26.0, Color("#C88A86"), 160.0, Color("#4A3A66")]
+	await _cut(bcut)
 	var sh := _hp(0.82, 0.285, -246.0)
+	await _cut(bcut)
 	var halo := _sky_at(sh.y, sky)
+	await _cut(bcut)
 	_vdisc(st, sh, 15.0, halo.lerp(Color("#F6C890"), 0.45), halo, 28)
+	await _cut(bcut)
 	_vdisc(st, _hp(0.82, 0.285, -236.0), 8.5, Color("#F2C27A"), Color("#E8A860"), 28)
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -215.0, -1.0, 15.0, Color("#5A4C70"), Color("#B88A8E"), 34)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -190.0, -1.0, 11.0, Color("#3E3658"), Color("#9A7A8A"), 34)
+	await _cut(bcut)
 	_sil_trees(st, rng, -200.0, 200.0, -186.0, 3.0, 60, 6.0, Color("#34304A"), Color(0, 0, 0, 0))
 	# le mont Kurama, à gauche du héros, boisé jusqu'à la cime ; collines basses dans la brume
+	await _cut(bcut)
 	var pk := _hp(0.4, 0.285, -165.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(pk.x, -1.0, -165.0), 40.0, pk.y + 1.0, 1.3, 0.04, Color("#2E2A44"), Color("#7A6A86"), Color("#262238"), 0.22, 26)
+	await _cut(bcut)
 	_sil_trees(st, rng, pk.x - 22.0, pk.x + 22.0, -164.0, 6.0, (16 if Toon.lite else 26), 4.5, Color("#222034"), Color(0, 0, 0, 0))
+	await _cut(bcut)
 	for i in 6:
 		var h := rng.randf_range(10.0, 16.0)
 		_sil_mount(st, Vector3(-120.0 + i * 40.0 + rng.randf_range(-8.0, 8.0), -1.0, rng.randf_range(-155.0, -140.0)),
 			h * 1.5, h, 1.1, 0.03, Color("#3A3450"), Color("#7A6A86"), Color(0, 0, 0, 0), 0.0, 14)
+	await _cut(bcut)
 	_ridge(st, rng, -220.0, 220.0, -134.0, -1.0, 7.5, Color("#262238"), Color("#8A7A8E"), 30)
+	await _cut(bcut)
 	_sil_trees(st, rng, -160.0, 160.0, -130.0, 2.5, 90, 6.0, Color("#1C1A2C"), Color(0, 0, 0, 0))
 	# Kurama-dera sur la crête, à droite du héros : grand hall vermillon, pagode, escalier sous les torii
+	await _cut(bcut)
 	var tx := _hp(0.66, 0.0, -129.0).x + 22.0
+	await _cut(bcut)
 	_sil_temple(st, Vector3(tx - 22.0, 6.5, -129.0), 3.6, Color("#9A3324"), Color("#22201E"), Color(0, 0, 0, 0))
+	await _cut(bcut)
 	_sil_pagoda(st, Vector3(tx - 4.0, 6.0, -128.5), 2.0, 3, Color("#8E2A1E"), Color("#22201E"), Color(0, 0, 0, 0))
 	# escalier de pierre qui monte au temple
+	await _cut(bcut)
 	for k in 14:
 		var t := float(k) / 13.0
 		var c := Vector3(tx + lerpf(-12.0, -20.0, t), lerpf(-0.5, 6.4, t), -127.5)
 		var hw := 1.6 - 0.6 * t
 		_vrect(st, c - Vector3(hw, 0.14, 0), c + Vector3(hw, 0.14, 0), Color("#7A6E74"), Color("#948690"))
 	# allée de torii vermillon qui gravit l'escalier, lanternes de pierre à son pied
+	await _cut(bcut)
 	for k in 5:
 		var t := float(k) / 4.0
 		_sil_torii(st, Vector3(tx + lerpf(-12.6, -19.4, t), lerpf(-0.45, 6.2, t), -127.2), 0.62 - 0.12 * t, Color("#9A3324"))
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		_sil_toro(st, Vector3(tx - 12.0 + sx * 2.6, -0.5, -127.0), 0.9, Color("#7A6E74"), Color("#F2D58A"))
 	# brumes basses entre les plans
+	await _cut(bcut)
 	for k in (4 if Toon.lite else 6):
 		_kasumi(st, Vector3(rng.randf_range(-90.0, 90.0), 2.4 + k * 1.5 + rng.randf_range(-0.5, 0.5), -116.0 - k * 7.0),
 			rng.randf_range(40.0, 90.0), rng.randf_range(0.9, 1.6), Color("#E0B8B0"), Color("#B894A0"))
 	# corbeaux dans le ciel libre
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.25, 0.17, -90.0), 8, Vector3(9, 2.5, 4), 1.1, Color("#141416"))
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.62, 0.21, -110.0), 5, Vector3(6, 2, 3), 1.5, Color("#1E1E22"))
 	# deux grandes bandes de brume (kasumi) devant la forêt
+	await _cut(bcut)
 	_kasumi(st, Vector3(0, 3.0, -70), 160.0, 1.6, Color("#E6C0B4"), Color("#CCA2A8"))
+	await _cut(bcut)
 	_kasumi(st, Vector3(10, 5.5, -95), 120.0, 1.1, Color("#E6C0B4"), Color("#CCA2A8"))
 	# cèdres géants dans la brume au bord droit de l'accueil (silhouettes : le pied fond dans la brume)
+	await _cut(bcut)
 	for cv: Vector3 in [Vector3(0.98, 0.1, -70.0), Vector3(0.93, 0.19, -88.0)]:
 		var cb := _hp(cv.x, 0.0, cv.z)
 		var ct := _hp(cv.x, cv.y, cv.z)
 		_sil_cedar(st, Vector3(cb.x, -1.0, cv.z), ct.y + 1.0, Color("#1A1A2C"), Color("#B894A0"))
+	await _cut(bcut)
 	_vc_end(st, root)
 	# cèdres géants sur leurs îlots d'aiguilles rousses
 	var b := {}
 	var bn := {}
+	await _cut(bcut)
 	var moss := _toon(NEEDLES, true, 0.02)
 	var spots: Array[Vector3] = [Vector3(-13.0, VOID_Y, -16.0), Vector3(-17.5, VOID_Y, -25.0), Vector3(13.5, VOID_Y, -18.0),
 		Vector3(18.5, VOID_Y, -28.0), Vector3(-12.5, VOID_Y, -6.0), Vector3(12.8, VOID_Y, -4.0), Vector3(-14.0, VOID_Y, 4.0),
 		Vector3(14.5, VOID_Y, 5.0), Vector3(-24.0, VOID_Y, -37.0), Vector3(14.0, VOID_Y, -41.0), Vector3(-25.0, VOID_Y, -45.0),
 		Vector3(27.0, VOID_Y, -52.0)]  # les plus lointains encadrent l'accueil (ni devant le mont ni devant le soleil)
+	await _cut(bcut)
 	for p in spots:
 		var s := rng.randf_range(1.7, 2.4)
 		_add(b, moss, _ball(1.0, 0.5, 10, 4), _at(p, Vector3.ZERO, Vector3(1.6 * s * 0.6, 0.6, 1.6 * s * 0.6)))
 		_cedar_into(b, _at(p + Vector3(0, 0.1, 0), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * s), rng)
 	# torii vermillon du chemin, lanternes de pierre sur rochers moussus
+	await _cut(bcut)
 	Decor.torii_into(b, _at(Vector3(0, VOID_Y, -28.0), Vector3.ZERO, Vector3.ONE * 1.05), -0.6)
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		_add(b, moss, _ball(0.8, 0.5, 8, 4), _at(Vector3(sx * 4.4, VOID_Y, -26.5)))
 		Decor.stone_lantern_into(b, bn, _at(Vector3(sx * 4.4, VOID_Y + 0.2, -26.5), Vector3.ZERO, Vector3.ONE * 1.05))
 	# falaise et grand masque de tengu qui veille sur la forêt
+	await _cut(bcut)
 	var cliff := _at(Vector3(-21.0, VOID_Y, -58.0), Vector3(0, 0.4, 0))
+	await _cut(bcut)
 	Decor.rock_into(b, cliff * _at(Vector3.ZERO, Vector3.ZERO, Vector3(6.0, 9.0, 5.0)), 661, KURAMA_ROCK)
+	await _cut(bcut)
 	_tengu_mask_into(b, bn, cliff * _at(Vector3(0.0, 2.1, 2.5), Vector3.ZERO, Vector3.ONE * 2.6))
+	await _cut(bcut)
 	Decor.rock_into(b, _at(Vector3(23.0, VOID_Y, -64.0), Vector3(0, -0.5, 0), Vector3(5.0, 7.0, 4.0)), 662, Color("#5E5260"))
+	await _cut(bcut)
 	_hauchiwa_into(b, _at(Vector3(22.0, VOID_Y + 3.6, -61.5), Vector3(-0.2, -0.4, 0.3), Vector3.ONE * 2.2))
+	await _cut(bcut)
 	for k in 6:
 		_crow_into(b, _at(Vector3(rng.randf_range(-16.0, 16.0), VOID_Y + rng.randf_range(0.6, 1.2), rng.randf_range(-34.0, -20.0)), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 0.9))
+	await _cut(bcut)
 	_flush(b, root, true)
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
 ## Monde 7 : Ryūgū-jō, grand fond. Outremer sombre, lumière froide qui descend de la surface, récifs en
 ## couches, palais du roi dragon (laque sombre, toits d'or, nacre) sur la crête, rayons, poissons, tortues ;
 ## près de l'arène : coraux, bénitiers à perle, forêts de varech, porte vermillon du palais.
-static func _backdrop_ryugu(root: Node3D) -> void:
+static func _backdrop_ryugu(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(77)
+	await _cut(bcut)
 	var st := _vc_begin()
 	# grand fond : indigo presque noir à l'horizon, outremer qui s'éclaire vers la surface
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 30, -252), Color("#0C1A44"), Color("#16306E"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 30, -252), Vector3(340, 160, -252), Color("#16306E"), Color("#4A80B8"))
 	# perle de lumière (le soleil vu sous la mer) à droite sous le titre, son halo peint dans le ciel
 	var sky: Array = [-2.0, Color("#0C1A44"), 30.0, Color("#16306E"), 160.0, Color("#4A80B8")]
+	await _cut(bcut)
 	var ph := _hp(0.84, 0.285, -240.0)
+	await _cut(bcut)
 	var halo := _sky_at(ph.y, sky)
+	await _cut(bcut)
 	_vdisc(st, ph, 15.0, halo.lerp(Color(0.85, 0.95, 1.0), 0.3), halo, 32)
+	await _cut(bcut)
 	_vdisc(st, _hp(0.84, 0.285, -205.0), 7.5, Color("#F4F1EA"), Color("#D8E6F4"), 32)
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -212.0, -1.0, 13.0, Color("#122A5E"), Color("#1E4280"), 34)
 	# mont de corail à gauche, cime rosée ; le palais du roi dragon sur la crête, à droite du héros :
 	# laque sombre, toits d'or, fenêtres de nacre (le seul endroit chaud et clair du lointain)
+	await _cut(bcut)
 	var pk := _hp(0.25, 0.29, -175.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(pk.x, -1.0, -175.0), 38.0, pk.y + 1.0, 1.35, 0.05, Color("#10244E"), Color("#1E4280"), Color("#C87A86"), 0.16, 26)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -186.0, -1.0, 10.0, Color("#0E1E48"), Color("#183A70"), 34)
+	await _cut(bcut)
 	_sil_temple(st, Vector3(0.0, 6.0, -183.0), 6.5, Color("#7A2E34"), Color("#C49A45"), Color(0, 0, 0, 0))
+	await _cut(bcut)
 	_sil_pagoda(st, Vector3(-28.0, 5.0, -182.5), 3.4, 5, Color("#6E2A30"), Color("#C49A45"), Color("#F4F1EA"))
+	await _cut(bcut)
 	_sil_pagoda(st, Vector3(_hp(0.98, 0.0, -182.5).x, 5.0, -182.5), 3.0, 4, Color("#6E2A30"), Color("#C49A45"), Color("#F4F1EA"))
+	await _cut(bcut)
 	_ridge(st, rng, -220.0, 220.0, -130.0, -1.0, 5.0, Color("#0A1636"), Color("#142E5E"), 30)
 	# bancs de poissons et tortues dans l'eau libre, à gauche (loin de la perle)
+	await _cut(bcut)
 	for k in 6:
 		_school(st, rng, _hp(rng.randf_range(0.06, 0.6), rng.randf_range(0.2, 0.32), rng.randf_range(-120.0, -70.0)), 12, 1.0, Color("#0C1C44"))
+	await _cut(bcut)
 	for k in 3:
 		var face: float = -1.0 if rng.randf() < 0.5 else 1.0
 		_sil_turtle(st, _hp(0.12 + k * 0.22, rng.randf_range(0.16, 0.24), -100.0 - k * 12.0), rng.randf_range(2.0, 3.2), Color("#0A1838"), face)
 	# brumes de sable en suspens, basses
+	await _cut(bcut)
 	for k in 3:
 		_kasumi(st, Vector3(rng.randf_range(-90.0, 30.0), 1.8 + k * 1.4, -140.0 - k * 10.0), rng.randf_range(50.0, 90.0), 0.9, Color("#2A4E8A"), Color("#1E3C76"))
+	await _cut(bcut)
 	_vc_end(st, root)
 	# rayons de lumière obliques qui tombent de la surface (transparents : un seul lot, un draw call)
 	var rays := {}
+	await _cut(bcut)
 	var rm := _flat(Color(0.75, 0.9, 1.0, 0.07))
+	await _cut(bcut)
 	for k in (4 if Toon.lite else 7):
 		_add(rays, rm, _box(Vector3(rng.randf_range(4.0, 9.0), 120, 0.1)),
 			_at(Vector3(-80.0 + k * 26.0 + rng.randf_range(-6.0, 6.0), 40.0, -150.0 - k * 4.0), Vector3(0, 0, 0.28)))
+	await _cut(bcut)
 	_flush(rays, root)
 	# récifs proches : coraux, bénitiers, varech
 	var b := {}
@@ -5775,6 +6188,7 @@ static func _backdrop_ryugu(root: Node3D) -> void:
 	var reefs: Array[Vector3] = [Vector3(-13.0, VOID_Y, -15.0), Vector3(13.5, VOID_Y, -17.0), Vector3(-17.0, VOID_Y, -27.0),
 		Vector3(18.0, VOID_Y, -30.0), Vector3(-12.5, VOID_Y, -3.0), Vector3(13.0, VOID_Y, 2.0), Vector3(-6.0, VOID_Y, -38.0),
 		Vector3(9.0, VOID_Y, -44.0)]
+	await _cut(bcut)
 	for i in reefs.size():
 		var p: Vector3 = reefs[i]
 		var s := rng.randf_range(1.6, 2.4)
@@ -5785,67 +6199,98 @@ static func _backdrop_ryugu(root: Node3D) -> void:
 			_coral_into(b, _at(q, Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * rng.randf_range(1.2, 1.9)), rng, col)
 		if i % 3 == 0:
 			_clam_into(b, bn, _at(p + Vector3(0.8 * s, 0.05, 0.6 * s), Vector3(0, rng.randf() * TAU, 0), Vector3.ONE * 1.3))
+	await _cut(bcut)
 	for k in 10:
 		var sx: float = -1.0 if k % 2 == 0 else 1.0
 		_kelp_into(b, _at(Vector3(sx * rng.randf_range(10.5, 15.0), VOID_Y, rng.randf_range(-24.0, 8.0))), rng, rng.randf_range(4.0, 7.0))
 	# porte du palais : torii vermillon aux lanternes de pierre, tortue de pierre
+	await _cut(bcut)
 	Decor.torii_into(b, _at(Vector3(0, VOID_Y, -27.0), Vector3.ZERO, Vector3.ONE * 1.1), -0.6)
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		Decor.rock_into(b, _at(Vector3(sx * 4.6, VOID_Y, -26.0), Vector3.ZERO, Vector3(1.3, 0.9, 1.3)), 790 + int(sx), rock)
 		Decor.stone_lantern_into(b, bn, _at(Vector3(sx * 4.6, VOID_Y + 0.35, -26.0), Vector3.ZERO, Vector3.ONE * 1.05))
+	await _cut(bcut)
 	_kame_into(b, bn, _at(Vector3(-20.0, VOID_Y + 0.2, -50.0), Vector3(0, 0.6, 0), Vector3.ONE * 3.2))
+	await _cut(bcut)
 	_flush(b, root, true)
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
 ## Monde 8 : Yomi. Ciel violet presque noir, chaînes de cendre, pins morts en silhouette, procession
 ## de lanternes au loin, le rocher de Yomotsu Hirasaka ; près de l'arène : pins morts sur des
 ## buttes de cendre, stèles, torii brisé, lanternes flottantes sur le fleuve des morts.
-static func _backdrop_yomi(root: Node3D) -> void:
+static func _backdrop_yomi(root: Node3D, cut := Callable()) -> void:
+	var bcut := {"cut": cut}  # (préchauffage du décor : construction étalée)
+	await _cut(bcut)
 	var rng := _rng(88)
+	await _cut(bcut)
 	var st := _vc_begin()
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, -2, -252), Vector3(340, 24, -252), Color("#5A4A66"), Color("#3A3442"))
+	await _cut(bcut)
 	_vrect(st, Vector3(-340, 24, -252), Vector3(340, 160, -252), Color("#3A3442"), Color("#120E18"))
+	await _cut(bcut)
 	_ridge(st, rng, -280.0, 280.0, -215.0, -1.0, 15.0, Color("#2E2A36"), Color("#4A4452"), 34)
 	# la pente de Yomotsu Hirasaka : grand mont de cendre à gauche, crête pâle sous la lune
+	await _cut(bcut)
 	var pk := _hp(0.27, 0.29, -170.0)
+	await _cut(bcut)
 	_sil_mount(st, Vector3(pk.x, -1.0, -170.0), 40.0, pk.y + 1.0, 1.3, 0.04, Color("#4A4258"), Color("#2A2632"), Color("#6E6480"), 0.12, 26)
+	await _cut(bcut)
 	_ridge(st, rng, -260.0, 260.0, -190.0, -1.0, 10.0, Color("#221E28"), Color("#3E3846"), 34)
+	await _cut(bcut)
 	_sil_dead_trees(st, rng, -180.0, 180.0, -186.0, 4.0, 40, 7.0, Color("#1A1720"))
+	await _cut(bcut)
 	_ridge(st, rng, -220.0, 220.0, -130.0, -1.0, 5.0, Color("#16131A"), Color("#2E2A34"), 30)
+	await _cut(bcut)
 	_sil_dead_trees(st, rng, -140.0, 140.0, -127.0, 1.5, 50, 5.0, Color("#0E0C12"))
 	# torii noirs sur la pente, une lanterne pâle au pied de chacun
+	await _cut(bcut)
 	for k in 4:
 		var x := -60.0 + k * 38.0 + rng.randf_range(-6.0, 6.0)
 		var y := 2.0 + rng.randf_range(0.0, 2.0)
 		_sil_torii(st, Vector3(x, y, -126.0), 1.75, Color("#0A080C"))
 		_sil_toro(st, Vector3(x + 3.2, y, -125.8), 1.1, Color("#0A080C"), Color("#C9B8E8"))
 	# procession de lanternes pâles qui descend vers le fleuve
+	await _cut(bcut)
 	for i in 26:
 		var t := float(i) / 25.0
 		var c := Vector3(lerpf(-50.0, 10.0, t), 1.5 + 6.0 * (1.0 - t) + sin(t * 8.0) * 1.0, -98.0)
 		_vrect(st, c - Vector3(0.3, 0.42, 0), c + Vector3(0.3, 0.42, 0), Color("#C9B8E8"), Color("#F0E8FF"))
 	# brumes basses sur le fleuve des morts
+	await _cut(bcut)
 	for k in 5:
 		_band(st, Vector3(rng.randf_range(-90.0, 90.0), 2.0 + k * 1.3 + rng.randf_range(-0.4, 0.4), -112.0 - k * 7.0),
 			rng.randf_range(40.0, 90.0), rng.randf_range(0.8, 1.4), Color("#5E5468"), Color("#3E3846"))
+	await _cut(bcut)
 	_flock(st, rng, _hp(0.36, 0.18, -90.0), 6, Vector3(8, 2.5, 4), 1.2, Color("#0A080C"))
 	# lune pâle voilée, à droite sous le titre (halo peint dans le ciel), et le grand rocher qui ferme le
 	# passage (Chibiki-iwa)
 	var sky: Array = [-2.0, Color("#5A4A66"), 24.0, Color("#3A3442"), 160.0, Color("#120E18")]
+	await _cut(bcut)
 	var mh := _hp(0.83, 0.28, -244.0)
+	await _cut(bcut)
 	var halo := _sky_at(mh.y, sky)
+	await _cut(bcut)
 	_vdisc(st, mh, 16.0, halo.lerp(Color(0.8, 0.7, 1.0), 0.22), halo, 32)
+	await _cut(bcut)
 	_vdisc(st, _hp(0.83, 0.28, -210.0), 8.0, Color("#D9D0E6"), Color("#CBC0DC"), 32)
+	await _cut(bcut)
 	_vellipse(st, Vector3(-34, 4.0, -150), 14.0, 11.0, Color("#2A2630"), Color("#221E28"), 18)
+	await _cut(bcut)
 	_vc_end(st, root)
 	# buttes de cendre, pins morts, stèles, torii brisé
 	var b := {}
 	var bn := {}
 	var mounds: Array[Vector3] = [Vector3(-13.0, -16.0, 2.4), Vector3(13.5, -18.0, 2.2), Vector3(-17.0, -28.0, 3.0),
 		Vector3(18.0, -30.0, 3.0), Vector3(-12.5, -4.0, 1.8), Vector3(13.0, 1.0, 1.8), Vector3(-6.0, -38.0, 2.6), Vector3(8.0, -42.0, 2.8)]
+	await _cut(bcut)
 	var gm := _toon(Color("#7A7680"), true, 0.02)
+	await _cut(bcut)
 	var gcap := _toon(Color("#5E5A64"), false)
+	await _cut(bcut)
 	for i in mounds.size():
 		var m: Vector3 = mounds[i]
 		var top := _ash_mound_into(b, Vector2(m.x, m.y), m.z, rng)
@@ -5858,17 +6303,26 @@ static func _backdrop_yomi(root: Node3D) -> void:
 				_stele_into(b, gm, gcap, _at(q, Vector3(rng.randf_range(-0.1, 0.1), rng.randf_range(-0.3, 0.3), rng.randf_range(-0.12, 0.12)), Vector3.ONE * 1.1))
 			_sotoba_into(b, _at(c + Vector3(0, 0, -0.7)), rng)
 	# torii brisé au bord du fleuve
+	await _cut(bcut)
 	var tx := _at(Vector3(0, VOID_Y, -27.0))
+	await _cut(bcut)
 	var pillar := _toon(Color("#3A3440"), true, 0.03)
+	await _cut(bcut)
 	_add(b, pillar, _cyl(0.28, 0.32, 4.2, 10), tx * _at(Vector3(-2.2, 2.1, 0)))
+	await _cut(bcut)
 	_add(b, pillar, _cyl(0.28, 0.32, 2.2, 10), tx * _at(Vector3(2.2, 1.1, 0), Vector3(0, 0, -0.08)))
+	await _cut(bcut)
 	_add(b, pillar, _box(Vector3(5.8, 0.4, 0.5)), tx * _at(Vector3(-0.4, 3.0, 0.2), Vector3(0.1, 0.2, -0.55)))
+	await _cut(bcut)
 	_add(b, pillar, _box(Vector3(1.6, 0.35, 0.45)), tx * _at(Vector3(2.6, 0.2, 0.9), Vector3(0.0, 0.5, 0.1)))
+	await _cut(bcut)
 	for sx: float in [-1.0, 1.0]:
 		_add(b, _toon(ASH_DARK, true, 0.02), _cyl(0.5, 0.6, 0.8, 6), _at(Vector3(sx * 4.4, VOID_Y + 0.05, -26.0)))
 		Decor.stone_lantern_into(b, bn, _at(Vector3(sx * 4.4, VOID_Y + 0.45, -26.0), Vector3.ZERO, Vector3.ONE * 1.05))
+	await _cut(bcut)
 	_flush(b, root, true)
 	# lanternes flottantes sur le fleuve des morts
+	await _cut(bcut)
 	for i in 26:
 		var p := Vector3(rng.randf_range(-16.0, 16.0), VOID_Y, rng.randf_range(-36.0, -13.0))
 		if rng.randf() < 0.35:
@@ -5882,6 +6336,7 @@ static func _backdrop_yomi(root: Node3D) -> void:
 				break
 		if not near:
 			_toro_into(bn, _at(p, Vector3(0, rng.randf() * TAU, 0)))
+	await _cut(bcut)
 	_flush(bn, root, false)
 
 
@@ -6314,14 +6769,15 @@ static func _pit_new(wid: int, ctx: Dictionary) -> void:
 # rien de haut devant le chemin. Mêmes lots que le décor des salles (bs / bn par matériau, MultiMesh).
 
 ## Décor d'arrivée du monde autour du chemin `rects` (sol du sanctuaire). `lit` : une lumière ponctuelle.
-static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int, lit: bool) -> void:
+static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int, lit: bool, cut := Callable()) -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 17 + wid * 3)
 	var root := Node3D.new()
 	root.name = "Sanctuaire"
 	parent.add_child(root)
 	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {},
-		"zone": Rect2(), "max_lights": 1 if lit else 0, "pieces": []}
+		"zone": Rect2(), "max_lights": 1 if lit else 0, "pieces": [], "cut": cut}
+	await _cut(ctx)
 	match wid:
 		1:
 			_hub_harbour(ctx, rng)
@@ -6341,11 +6797,13 @@ static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int
 			_hub_pavilion_court(ctx, rng)
 	var pieces: Array = ctx["pieces"]
 	if not pieces.is_empty():
-		_set_pieces(wid, ctx, pieces, rng)
+		await _set_pieces(wid, ctx, pieces, rng)
 	var bs: Dictionary = ctx["bs"]
 	var bn: Dictionary = ctx["bn"]
 	var mm: Dictionary = ctx["mm"]
+	await _cut(ctx)
 	_flush(bs, root, true)
+	await _cut(ctx)
 	_flush(bn, root, false)
 	_flush_mm(mm, root)
 

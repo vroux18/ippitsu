@@ -6,6 +6,7 @@ extends Node3D
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 const Mesure = preload("res://scripts/mesure.gd")  # mode mesure caché (appui long sur le titre de l'accueil)
 const CamPanel = preload("res://scripts/cam_panel.gd")  # mode mesure : réglage de la caméra (pause, CAMÉRA)
+const DecorWarm = preload("res://scripts/decor_warm.gd")  # préchauffage des shaders du décor de chaque monde
 
 const Toon = preload("res://scripts/toon.gd")
 const Lueurs = preload("res://scripts/lueurs.gd")  # lueurs des lanternes (flaques et halos additifs)
@@ -403,6 +404,9 @@ var waves_total := 1
 var wave_index := 1
 var _room_done := false
 var _rebuilt := false
+var _loading := false  # construction étalée en cours sous le rideau (transition, intro) : le rideau attend
+var _load_gen := 0  # change à chaque nouvelle partie : une construction étalée dépassée ne finit pas son travail
+var _intro_gentle := false  # tout premier départ (tutoriel) : deux premiers combats adoucis, posé après _start
 var _dash_prev := Vector3.ZERO  # garde-fou des ruées bloquées
 var _dash_stall := 0.0
 var _intro_world := 0  # monde choisi sur la carte, construit sous le rideau de l'intro
@@ -568,6 +572,8 @@ const FRAMES_MAX := 12
 var perf := {}  # étape -> [nombre, total ms, max ms]
 var _perf_on := false
 var measure: CanvasLayer  # mode mesure (mesure.gd) : inactif, il ne relève rien
+var decor_warm: Node  # préchauffage du décor des mondes (decor_warm.gd), après celui des ennemis et des effets
+var _intro_wait := false  # intro : le rideau attend que le décor du monde choisi soit préchauffé
 var warmed := false  # préchauffage fini (shaders des ennemis et des effets compilés : relevé --perf --shadercheck)
 
 
@@ -603,6 +609,9 @@ func _ready() -> void:
 	measure = Mesure.new()
 	measure.main = self
 	add_child(measure)
+	decor_warm = DecorWarm.new()
+	decor_warm.main = self
+	add_child(decor_warm)
 	menu.measure_toggled.connect(_on_measure_toggled)
 	menu.report_copy_pressed.connect(_on_report_copy)
 	menu.report_reset_pressed.connect(_on_report_reset)
@@ -1483,6 +1492,10 @@ func _boot_async(t_ready: int) -> void:
 	perf_mark("boss_scripts", t_boss)
 	await get_tree().process_frame
 	await _warmup()
+	# puis le décor de chaque monde : celui de l'accueil d'abord, le premier ensuite, les autres dans l'ordre
+	decor_warm.want(current_world)
+	for wid in range(1, Worlds.WORLDS.size() + 1):
+		decor_warm.want(wid)
 
 
 ## Les pièces accrochées aux os (cornes, masques, armes) ne suivent pas l'échelle miniature du préchauffage :
@@ -1610,6 +1623,7 @@ func _warmup() -> void:
 	var t_max := 0
 	var t0 := Time.get_ticks_usec()
 	var w := Node3D.new()
+	w.set_meta("warm", true)  # (relevé --shadercheck : vu pendant le préchauffage)
 	# accroché à la caméra, en miniature : dessinés (donc shaders compilés) mais invisibles à l'œil,
 	# où que soit le héros (la barque de l'accueil est en pleine mer)
 	cam.add_child(w)
@@ -1691,6 +1705,15 @@ func _warmup() -> void:
 	OniShrine.warm(onw)
 	pickups.warm(w, Vector3(-3.0, 0, 5.5))
 	hazards.warm(w, Vector3(-3.0, 0, 7.0))  # matières des trous du sol
+	# étal du marchand (il ne surgit qu'à la fin des combats de l'étape) et autel du sanctuaire facultatif
+	var yat := Node3D.new()
+	w.add_child(yat)
+	yat.position = Vector3(-3.0, 0, 8.5)
+	PuzzleArt.build_yatai(yat)
+	var alt := Node3D.new()
+	w.add_child(alt)
+	alt.position = Vector3(0.0, 0, 8.5)
+	PuzzleArt.build_altar(alt, current_world)
 	# portes à deux sceaux : faces des dix sceaux rastérisées d'avance (cache de svg_tex), matières du sceau
 	# (face, halo, rayons, ofuda) compilées sur une paire éveillée, porte gauche approchée
 	for sk in SealGate.SCHOOLS + ["gold", "heart", "oni"]:
@@ -1716,6 +1739,20 @@ func _warmup() -> void:
 	coach.warm()  # bulles du tutoriel : pictos des sceaux et glyphes des titres prêts avant la première bulle
 	hud.warm()  # chiffres et pictos du HUD de jeu (sa première image est celle de la première bulle)
 	_warm_shrink(w)
+	# variante « lanterne » de chaque shader (objet éclairé par une lumière ponctuelle : un monstre près d'un tōrō,
+	# un effet sous une lanterne) : de petites lumières sur la miniature et les effets cachés, éteintes après
+	# quelques images ; la miniature reste dessinée sans elles ensuite (les deux variantes sont prêtes)
+	for lp in [[cam, w.position, 0.4], [self, fxp, 2.5], [self, _warm_hide, 2.5]]:
+		var lamp := OmniLight3D.new()
+		lamp.omni_range = float(lp[2])
+		lamp.light_energy = 0.3
+		lamp.shadow_enabled = false
+		(lp[0] as Node).add_child(lamp)
+		if lp[0] == cam:
+			lamp.position = lp[1]
+		else:
+			lamp.global_position = lp[1]
+		get_tree().create_timer(0.4, true, false, true).timeout.connect(lamp.queue_free)
 	# libéré quoi qu'il arrive (même arbre en pause ou temps ralenti : sinon la miniature restait des secondes)
 	get_tree().create_timer(1.2, true, false, true).timeout.connect(w.queue_free)
 	var spent_end := Time.get_ticks_usec() - t0
@@ -1724,6 +1761,8 @@ func _warmup() -> void:
 	perf_mark("warmup", t_cpu)  # temps de calcul total (réparti sur plusieurs images)
 	perf_mark("warmup_step_max", t_max)  # la plus longue image de préchauffage
 	perf_mark("warmup_span", Time.get_ticks_usec() - t_all)  # du début à la fin (images comprises)
+	# fini quand les petites lumières sont éteintes (variantes éclairées et non éclairées dessinées)
+	await get_tree().create_timer(0.45, true, false, true).timeout
 	warmed = true
 	if Perf.on:
 		print("PERF préchauffage fini t=%.1f" % Time.get_unix_time_from_system())
@@ -1876,10 +1915,25 @@ func _intro_swap() -> void:
 	_intro_swapped = true
 	arena.hide_shore(false)
 	if _intro_world > 0:
-		if _intro_world != current_world:
-			apply_world(_intro_world)
-		_start()
+		var wid := _intro_world
 		_intro_world = 0
+		if wid != current_world:
+			apply_world(wid)
+		# le sanctuaire se construit sous le rideau, étalé sur quelques images (le rideau attend : _loading)
+		var gen := _load_gen + 1
+		await _start(true, false, true)
+		if gen != _load_gen:
+			return
+		if not decor_warm.done.has(current_world):
+			# décor du monde pas encore préchauffé (départ très rapide) : le rideau attend, sans à-coup à son lever
+			_intro_wait = true
+			await decor_warm.ensure(current_world)
+			_intro_wait = false
+			if gen != _load_gen:
+				return
+		if _intro_gentle:
+			gentle = true
+	_intro_gentle = false
 	if menu_boat != null:
 		menu_boat.visible = false
 	music.play_world(current_world)
@@ -1946,8 +2000,10 @@ func _start_first_run() -> void:
 	sfx.play("slash", 0.9, -4.0)
 	if current_world != 1:
 		apply_world(1)
-	_start()
-	gentle = true
+	# le sanctuaire se construit sous le rideau de l'intro (_intro_swap), comme un départ de la carte
+	_intro_world = 1
+	_intro_gentle = true
+	gentle = true  # (dès maintenant : _start le remet à zéro, _intro_swap le repose)
 	_set_state("intro")
 
 
@@ -3292,8 +3348,34 @@ func _save_frames() -> void:
 
 ## Nouvelle partie. `hub` : on démarre dans le sanctuaire (zone d'entraînement, torii vers l'étape 1) ;
 ## sinon directement dans l'étape 1 (tests), ou dans une salle simple pour le tutoriel (`tutorial`).
-func _start(hub := true, tutorial := false) -> void:
+## `sliced` (intro) : la salle se construit d'abord, étalée sur plusieurs images sous le rideau ; la remise à
+## zéro (héros, partie) se fait ensuite d'un bloc.
+func _start(hub := true, tutorial := false, sliced := false) -> void:
 	var t0 := Time.get_ticks_usec()
+	_load_gen += 1
+	_loading = sliced
+	_intro_wait = false
+	var gen := _load_gen
+	var t_arena := Time.get_ticks_usec()
+	if sliced:
+		arena.begin_slices()
+	if hub:
+		await arena.build_hub(randi(), sliced)
+		arena.open_gate()
+	elif tutorial:
+		await arena.build_room(1, ROOMS, randi(), MINI_ROOM, sliced)
+	else:
+		await arena.build_stage(STAGE_PLAN[0].size(), randi(), true, sliced)
+	if gen != _load_gen:
+		return  # (autre partie commencée pendant la construction)
+	_loading = false
+	var t_build := Time.get_ticks_usec() - t_arena
+	if sliced:
+		arena.end_slices()
+		t_build = arena.slice_cpu  # temps de calcul seul, sans les images d'attente
+		perf_mark("hub_build_frame_max" if hub else ("room_build_frame_max" if tutorial else "stage_build_frame_max"), arena.slice_max)
+	perf_mark("hub_build" if hub else ("room_build" if tutorial else "stage_build"), t_build)
+	var t_rest := Time.get_ticks_usec()
 	for e in enemies:
 		if is_instance_valid(e):
 			e.queue_free()
@@ -3322,15 +3404,6 @@ func _start(hub := true, tutorial := false) -> void:
 	_enc = -1
 	_slowmo_t = -1.0
 	_alive_prev = 0
-	var t_arena := Time.get_ticks_usec()
-	if hub:
-		arena.build_hub(randi())
-		arena.open_gate()
-	elif tutorial:
-		arena.build_room(1, ROOMS, randi(), MINI_ROOM)
-	else:
-		arena.build_stage(STAGE_PLAN[0].size(), randi(), true)
-	perf_mark("hub_build" if hub else ("room_build" if tutorial else "stage_build"), Time.get_ticks_usec() - t_arena)
 	hero = Hero.new()
 	add_child(hero)
 	hero.position = arena.start
@@ -3437,7 +3510,8 @@ func _start(hub := true, tutorial := false) -> void:
 	_hitstop = 0.0
 	Engine.time_scale = 1.0
 	_fit_camera()
-	perf_mark("start", Time.get_ticks_usec() - t0)  # nouvelle partie entière (salle, héros, remise à zéro)
+	# nouvelle partie entière (salle, héros, remise à zéro) ; étalée : calcul seul, sans les images d'attente
+	perf_mark("start", (t_build + Time.get_ticks_usec() - t_rest + t_arena - t0) if sliced else Time.get_ticks_usec() - t0)
 
 
 func elan_max() -> float:
@@ -4659,6 +4733,8 @@ func _on_picked(id: String) -> void:
 func _transit() -> void:
 	_set_state("transit")
 	_rebuilt = false
+	_loading = false
+	_load_gen += 1  # (une construction étalée encore en cours ne finira pas : la nouvelle la remplace)
 	_cancel_stroke()
 	_reset_stroke_state(true)  # pas de technique (ensō, iai…) qui déborde sur la suite
 	hero.stop_dash()
@@ -4678,6 +4754,12 @@ func _transit() -> void:
 ## s'étend depuis le torii ; la suite se construit sous l'encre ; 0,8-1,15 s l'encre se retire.
 func _update_ritual() -> void:
 	var t := _state_t
+	if _loading:
+		# la suite se construit, étalée sur quelques images : l'encre reste posée (le rituel reprend ensuite)
+		hud.wash_out = false
+		hud.wash = 1.0
+		_state_t = 0.8
+		return
 	if not _rebuilt:
 		var k := clampf(t / 0.45, 0.0, 1.0)
 		var e := k * k * (3.0 - 2.0 * k)
@@ -4697,13 +4779,7 @@ func _update_ritual() -> void:
 		hud.wash = clampf((t - 0.35) / 0.4, 0.0, 1.0)
 		if t >= 0.8:
 			hud.wash = 1.0
-			_rebuild_room()
-			# la suite : le héros arrive à pied depuis le sud pendant que l'encre se retire, la caméra le rattrape
-			_walk_from = arena.start + Vector3(0, 0, 2.2)
-			hero.position = _walk_from
-			_prev_hero = hero.position
-			hero.ch.play("Walking_A", 1.2)
-			_cam_dz = _cam_target() + 1.6
+			_ritual_rebuild()
 	else:
 		var k2 := clampf((t - 0.8) / 0.6, 0.0, 1.0)
 		hud.wash_out = true
@@ -4720,8 +4796,24 @@ func _update_ritual() -> void:
 		_set_state("play")
 
 
-func _rebuild_room() -> void:
-	_rebuilt = true
+## Rituel : la suite se construit sous l'encre (étalée), puis le héros arrive à pied depuis le sud pendant
+## que l'encre se retire, la caméra le rattrape.
+func _ritual_rebuild() -> void:
+	var gen := _load_gen
+	await _rebuild_room(true)
+	if gen != _load_gen:
+		return
+	_walk_from = arena.start + Vector3(0, 0, 2.2)
+	hero.position = _walk_from
+	_prev_hero = hero.position
+	hero.ch.play("Walking_A", 1.2)
+	_cam_dz = _cam_target() + 1.6
+
+
+## Passage du torii : on quitte la salle, la suite se construit. `sliced` : étalée sur plusieurs images sous
+## le rideau (_loading tant qu'elle dure ; _rebuilt à la fin).
+func _rebuild_room(sliced := false) -> void:
+	_rebuilt = false
 	# porte franchie : son sceau vaut pour l'étape qui suit (aucun : torii unique, sanctuaire, gardien)
 	var seals: Array = arena.gate_seals()
 	var gp: int = arena.gate_pick
@@ -4745,12 +4837,18 @@ func _rebuild_room() -> void:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
-	_build_segment()
+	var gen := _load_gen
+	_loading = sliced
+	await _build_segment(sliced)
+	if gen != _load_gen:
+		return
+	_loading = false
+	_rebuilt = true
 
 
 ## Construit la suite pour le combat `room + 1` : l'étape qui le contient (on arrive au sud, les zones
 ## de combat se déclenchent en marchant) ou l'arène d'un gardien (le combat commence tout de suite).
-func _build_segment() -> void:
+func _build_segment(sliced := false) -> void:
 	var t0 := Time.get_ticks_usec()
 	var next := room + 1
 	stage_i = clampi(stage_of(next) - 1, 0, STAGE_PLAN.size() - 1)
@@ -4764,13 +4862,25 @@ func _build_segment() -> void:
 	# fois par monde, la première fois qu'il y a un choix, trois portes
 	var nk := 3 if charm == "portes" and not _portes_used and _gate_force.is_empty() else 2
 	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals(nk) if gate_choice(stage_i) else [])
+	var gen := _load_gen
+	var t_sl := Time.get_ticks_usec()
+	if sliced:
+		arena.begin_slices()
 	if boss_seg:
-		arena.build_room(next, ROOMS, randi(), MINI_ROOM)
+		await arena.build_room(next, ROOMS, randi(), MINI_ROOM, sliced)
 	else:
 		# (tests : `?room=N` au milieu d'une étape -> on reprend à son premier combat)
 		room = int(plan[0]) - 1
-		arena.build_stage(plan.size(), randi(), int(plan[0]) == 1)
-		_build_pockets()
+		await arena.build_stage(plan.size(), randi(), int(plan[0]) == 1, sliced)
+		await _build_pockets(sliced)
+	if gen != _load_gen:
+		return  # (nouvelle partie pendant la construction : rien à finir ici)
+	var spread := 0
+	if sliced:
+		# temps de calcul seul (sans les images d'attente) ; la plus longue tranche à part
+		arena.end_slices()
+		spread = Time.get_ticks_usec() - t_sl - arena.slice_cpu
+		perf_mark("arena_build_frame_max" if boss_seg else "stage_build_frame_max", arena.slice_max)
 	if arena.gate_spots.size() == 3:
 		_portes_used = true
 		if _bot != null:
@@ -4783,7 +4893,7 @@ func _build_segment() -> void:
 	_cam_dz = _cam_target()
 	arena.follow_camera(_cam_dz)
 	# (arène de boss : la mesure s'arrête avant le combat, l'apparition du boss a la sienne)
-	perf_mark("arena_build" if boss_seg else "stage_build", Time.get_ticks_usec() - t0)
+	perf_mark("arena_build" if boss_seg else "stage_build", Time.get_ticks_usec() - t0 - spread)
 	if boss_seg:
 		_begin_room()
 	elif room > 0:
@@ -4859,8 +4969,10 @@ func _cam_target() -> float:
 
 ## Recoins : un coffre au départ, puis selon le tirage une énigme de trait, une source de soin et un défi
 ## d'élite (dès l'étape 2).
-func _build_pockets() -> void:
+func _build_pockets(sliced := false) -> void:
 	_clear_pockets()
+	# étalée : chaque recoin repart d'une graine tirée ici (les images d'attente font tirer d'autres hasards)
+	var rs := randi() if sliced else 0
 	var spots: Array = arena.pocket_spots
 	var kinds: Array = []
 	for i in spots.size():
@@ -4900,6 +5012,9 @@ func _build_pockets() -> void:
 		var k := String(kinds[i])
 		if k == "" or p == Vector3.INF:
 			continue
+		if sliced:
+			await arena.slice()
+			seed(rs + 7919 * (i + 1))
 		if k == "puzzle":
 			spawn_puzzle("", p)
 			continue
@@ -4919,6 +5034,8 @@ func _build_pockets() -> void:
 			if sealed:
 				OniShrine.mark_seal(pk["oni"])  # sceau de l'oni : le sanctuaire couve déjà (lanternes rouges, braises)
 		_pockets.append(pk)
+	if sliced:
+		seed(rs + 104729)  # la suite de la partie ne dépend pas du nombre d'images d'attente
 
 
 const SPRING_RED := Color("#C8322A")  # eau de la source du sceau du cœur
@@ -7971,9 +8088,11 @@ func _process(_delta: float) -> void:
 		if _ritual:
 			_update_ritual()
 		else:
+			if _loading:
+				_state_t = 0.4  # la suite se construit (étalée) : le coup de pinceau reste posé
 			hud.wipe = clampf(_state_t / 0.35, 0.0, 1.0) if _state_t < 0.45 else clampf(1.0 - (_state_t - 0.45) / 0.35, 0.0, 1.0)
-			if _state_t >= 0.4 and not _rebuilt:
-				_rebuild_room()
+			if _state_t >= 0.4 and not _rebuilt and not _loading:
+				_rebuild_room(true)
 			if _state_t >= 0.8:
 				hud.wipe = 0.0
 				_set_state("play")
@@ -8025,6 +8144,8 @@ func _process(_delta: float) -> void:
 			mt = mt.interpolate_with(_wardrobe_transform(), wk)
 		cam.global_transform = mt
 	elif state == "intro":
+		if _loading or _intro_wait:
+			_state_t = 0.45  # le sanctuaire se construit (étalé) : le rideau reste fermé
 		# rideau d'encre (0,4 s), bascule dessous, puis le monde se dévoile (0,45 s) : aucun survol
 		hud.wipe = clampf(_state_t / 0.4, 0.0, 1.0) if _state_t < 0.5 else clampf(1.0 - (_state_t - 0.5) / 0.45, 0.0, 1.0)
 		if _state_t < 0.42 and not _intro_swapped:
