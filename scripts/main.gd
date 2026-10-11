@@ -4510,25 +4510,7 @@ func _build_segment() -> void:
 		_begin_room()
 	elif room > 0:
 		var wd: Dictionary = Worlds.world(current_world)
-		var promise := seal_promise()
-		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, STAGE_PLAN.size()], promise if promise != "" else "%d COMBATS" % plan.size(), wd.color, 2.6 if promise != "" else 2.2)
-
-
-## Ce que promet le sceau de la porte franchie (sous-titre du bandeau d'étape) ; "" sans sceau.
-func seal_promise() -> String:
-	match seal_reward:
-		"":
-			return ""
-		"gold":
-			return "SCEAU D'OR : BOURSE À LA FIN DE L'ÉTAPE"
-		"heart":
-			return "SCEAU DU CŒUR : SOURCE DE SOIN DANS L'ÉTAPE"
-		"oni":
-			return "SCEAU DE L'ONI : UNE ÉLITE À DÉFIER"
-	var sd: Dictionary = PowerData.SCHOOLS.get(seal_reward, {})
-	if sd.is_empty():
-		return ""
-	return "ROULEAU %s GARANTI APRÈS LE 1ER COMBAT" % String(sd["name"])
+		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, STAGE_PLAN.size()], "%d COMBATS" % plan.size(), wd.color, 2.2)
 
 
 ## Numéro d'étape (1..8) du combat `r` (0 : pas encore parti).
