@@ -184,8 +184,9 @@ const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du h�
 ## Plongée de la caméra (degrés au-dessus de l'horizon). Caméra « relief » (retenue) : un peu moins zénithale,
 ## focale un peu plus courte (CAM_FOV), les volumes (piliers, monstres, tranches des plateformes) se lisent mieux.
 const CAM_TILT := 48.0
-const CAM_FOV := 44.0
-const CAM_RECUL := 1.0
+const CAM_FOV := 34.0
+const HOME_FOV := 44.0  # accueil, barque et carte : cadrage d'origine
+const CAM_RECUL := 0.9
 ## Réglage de la caméra (mode mesure seulement, panneau CAMÉRA de la pause : cam_panel.gd) : plongée, focale et
 ## recul (facteur sur la distance du cadrage). Hors mode mesure : toujours les valeurs du jeu ci-dessus.
 const CAM_RANGE := {"tilt": [35.0, 70.0, 2.0], "fov": [30.0, 60.0, 2.0], "recul": [0.7, 1.6, 0.05]}  # min, max, pas
@@ -3084,7 +3085,7 @@ func _build_world() -> void:
 	veil_layer.add_child(veil)
 
 	cam = Camera3D.new()
-	cam.fov = CAM_FOV
+	cam.fov = HOME_FOV
 	cam.keep_aspect = Camera3D.KEEP_WIDTH
 	add_child(cam)
 	cam.current = true
@@ -8117,7 +8118,7 @@ func _process(_delta: float) -> void:
 	if is_instance_valid(hero):
 		hero.ring_off = state in ST_RING_OFF or (state == "intro" and not _intro_swapped)
 	# caméra : plan d'accueil, transition vers l'arène, secousse en jeu (focale de l'accueil, ou celle du jeu)
-	cam.fov = CAM_FOV if state in ["menu", "sail", "worlds"] or (state == "intro" and _state_t < 0.42 and not _intro_swapped) else cam_fov
+	cam.fov = HOME_FOV if state in ["menu", "sail", "worlds"] or (state == "intro" and _state_t < 0.42 and not _intro_swapped) else cam_fov
 	if state == "menu":
 		# la barque tangue doucement, le héros avec elle ; garde-robe : la caméra glisse vers la proue
 		_rock_boat(real)

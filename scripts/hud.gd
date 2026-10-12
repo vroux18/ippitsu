@@ -1204,15 +1204,18 @@ func _mult_color(m: float) -> Color:
 	return UIColors.MULT_CHIP["x1.5"]
 
 
-## Pause : rond papier de 44 cerné d'encre (2), deux barres ; la cible tactile est le bouton `_pause` posé dessus.
+## Pause : rond de 44 dans le style des pilules du HUD (sumi translucide, filet washi), deux traits de pinceau
+## washi arrondis bien séparés ; la cible tactile est le bouton `_pause` posé dessus.
 func _draw_pause_disc(sz: Vector2, u: float) -> void:
 	if not _pause.visible:
 		return
 	var c := Vector2(sz.x - 36.0 * u, (BAR_Y + BAR_H / 2.0) * u)
-	_ci.draw_circle(c, 22.0 * u, UIColors.WASHI)
-	_ci.draw_arc(c, 21.0 * u, 0.0, TAU, 48, UIColors.SUMI, 2.0 * u, true)
-	_ci.draw_rect(Rect2(c + Vector2(-5.0, -8.0) * u, Vector2(5.0, 16.0) * u), UIColors.SUMI)
-	_ci.draw_rect(Rect2(c + Vector2(0.0, -8.0) * u, Vector2(5.0, 16.0) * u), UIColors.SUMI)
+	_pill(Rect2(c - Vector2(22.0, 22.0) * u, Vector2(44.0, 44.0) * u), u)
+	for sx in [-1.0, 1.0]:
+		var x: float = c.x + float(sx) * 4.5 * u
+		_ci.draw_line(Vector2(x, c.y - 7.0 * u), Vector2(x, c.y + 7.0 * u), UIColors.WASHI, 4.2 * u, true)
+		_ci.draw_circle(Vector2(x, c.y - 7.0 * u), 2.1 * u, UIColors.WASHI)
+		_ci.draw_circle(Vector2(x, c.y + 7.0 * u), 2.1 * u, UIColors.WASHI)
 
 
 # ------------------------------------------------------------------ sceaux de figure et de pouvoir

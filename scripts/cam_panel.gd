@@ -21,8 +21,8 @@ const HEAD_H := 48.0
 const ROW_H := 60.0
 const FOOT_H := 64.0
 
-var values := {"tilt": 48.0, "fov": 44.0, "recul": 1.0}
-var defaults := {"tilt": 48.0, "fov": 44.0, "recul": 1.0}
+var values := {"tilt": 48.0, "fov": 34.0, "recul": 0.9}
+var defaults := {"tilt": 48.0, "fov": 34.0, "recul": 0.9}
 var peek := false  # VOIR : feuille masquée, le jeu seul (un toucher la rend)
 
 var _t := 0.0
