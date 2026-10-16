@@ -49,6 +49,9 @@ var _line := PackedVector2Array()
 var _pts := PackedVector2Array()
 
 
+const ENABLED := false  # tutoriel de l'Arbre retiré (choix du propriétaire)
+
+
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -77,6 +80,8 @@ func active() -> bool:
 ## Le tutoriel est dû : jamais vu, rien d'appris, une partie jouée au moins, et le monde 1 vaincu ou assez
 ## d'encre pour le nœud le moins cher.
 func due() -> bool:
+	if not ENABLED:
+		return false
 	var m = main.meta
 	if m == null or m.coach_seen.has(ID) or not m.tree.is_empty() or int(m.purse_rank) > 0 or int(m.runs) < 1:
 		return false
@@ -86,6 +91,8 @@ func due() -> bool:
 
 ## Demande l'étape n (robot, captures) : elle vient dès que son écran est prêt, sans autre condition.
 func request(n := 1) -> void:
+	if not ENABLED:
+		return
 	_want = clampi(n, 1, 4)
 
 

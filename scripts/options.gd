@@ -20,7 +20,6 @@ const ROWS := [
 	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "S"], ["m", "M"], ["l", "L"]]},
 	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "DÉBUT"], ["never", "JAMAIS"]]},
 	# une seule case : revoir le tutoriel en jeu (coach)
-	{"key": "tuto", "label": "TUTORIEL", "opts": [["replay", "REVOIR"]]},
 	# mode développeur (= mode mesure, aussi par appui long sur le titre) : section DEV de la pause
 	{"key": "dev", "label": "MODE DÉVELOPPEUR", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 ]

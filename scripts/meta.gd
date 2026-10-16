@@ -661,7 +661,7 @@ func coach_reset() -> void:
 
 ## Tout premier lancement (ou tutoriel à revoir) : JOUER mène droit au monde 1, avec le coach.
 func coach_first_run() -> bool:
-	return not tuto_done and not coach_seen.has("stroke")
+	return false  # tutoriel retiré : JOUER suit toujours le chemin normal (le tout premier lancement est géré par main)
 
 
 # --- Arbre du pinceau --------------------------------------------------------

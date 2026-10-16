@@ -31,14 +31,9 @@ func run() -> void:
 		await _recover()
 	if not await _step_first_intro():
 		await _recover()
-	elif not await _step_coach("premier lancement"):
-		await _recover()
 	if not await _step_replay_intro():
 		await _recover()
 	if not await _step_options("accueil"):
-		await _recover()
-	if not await _step_tree_coach():
-		main.tree_coach.call("_end")
 		await _recover()
 	if not await _step_atelier():
 		await _recover()
@@ -448,34 +443,15 @@ func _step_measure_pause() -> bool:
 
 
 func _step_first_intro() -> bool:
-	var intro = main.intro
+	# premier lancement : plus de planches ni de tutoriel, JOUER mène droit au sanctuaire du monde 1
 	await _press(main.menu._play, "JOUER")
-	if not await _until(func(): return bool(intro.visible), "JOUER (premier lancement) ouvre l'intro"):
+	if not await _until(func(): return String(main.state) in ["intro", "play"] and bool(main.meta.intro_done) and bool(main.in_hub), "JOUER (premier lancement) -> monde 1 (sanctuaire)"):
 		return false
-	_check(not bool(intro.replay), "intro du premier lancement ouverte", "ouverte comme depuis le « ? »")
-	await _intro_ready()
-	# glissé à gauche : planche suivante ; à droite : retour ; simple toucher : suivante
-	var c: Vector2 = intro.size / 2.0
-	var u: float = intro._unit()
-	_click(intro, c, true)
-	_click(intro, c + Vector2(-160.0 * u, 0.0), false)
-	_check(int(intro.page) == 1, "intro : glissé vers la planche suivante", "planche %d" % int(intro.page))
-	await _intro_ready()
-	_click(intro, c, true)
-	_click(intro, c + Vector2(160.0 * u, 0.0), false)
-	_check(int(intro.page) == 0, "intro : glissé vers la planche précédente", "planche %d" % int(intro.page))
-	await _intro_ready()
-	_tap(intro, c)
-	_check(int(intro.page) == 1, "intro : toucher pour avancer", "planche %d" % int(intro.page))
-	if not await _intro_to_last():
-		return false
-	_check(String(intro._next.text) == "JOUER" and not bool(intro._tuto.visible), "intro : dernière planche du premier lancement (JOUER)", "bouton « %s »" % String(intro._next.text))
-	await _press(intro._next, "JOUER")
-	if not await _until(func(): return String(main.state) in ["intro", "play"] and bool(main.meta.intro_done) and bool(main.in_hub), "fin de l'intro -> monde 1 (sanctuaire)"):
-		return false
-	_check(int(main.current_world) == 1 and bool(main.gentle) and not bool(main.meta.tuto_done), "intro du premier lancement -> monde 1, tutoriel en jeu", "monde %d, adouci %s" % [int(main.current_world), str(main.gentle)])
-	return true
-
+	await _frames(30)
+	_check(int(main.current_world) == 1 and not bool(main.intro.visible) and String(main.coach.mark) == "",
+		"premier lancement : monde 1 direct, sans planches ni bulle du tutoriel", "monde %d, intro %s, bulle « %s »" % [int(main.current_world), str(main.intro.visible), String(main.coach.mark)])
+	main._on_home()
+	return await _until(func(): return String(main.state) == "menu" and String(main.menu.mode) == "home", "premier lancement : retour à l'accueil")
 
 ## Tutoriel en jeu (coach) : au sanctuaire du monde 1, la bulle du premier trait arrive en arrêt sur image
 ## (jeu figé) ; un toucher après l'invite le lève sans tracer, puis temps ralenti ; un trait lève la bulle,
@@ -560,25 +536,12 @@ func _step_replay_intro() -> bool:
 		return false
 	if not await _intro_to_last():
 		return false
-	_check(bool(intro._tuto.visible) and bool(intro._back.visible) and not bool(intro._next.visible), "intro « ? » : dernière planche (LANCER LE TUTORIEL, RETOUR)", "boutons attendus absents")
+	_check(not bool(intro._tuto.visible) and bool(intro._back.visible) and not bool(intro._next.visible), "intro « ? » : dernière planche (RETOUR seul, plus de tutoriel)", "boutons attendus absents")
 	await _press(intro._back, "RETOUR")
 	if not await _until(func(): return not bool(intro.visible) and String(main.menu.mode) == "home", "intro « ? » : RETOUR -> accueil"):
 		return false
 	_ok("intro « ? » : RETOUR")
-	# « ? » jusqu'à la dernière planche : LANCER LE TUTORIEL (monde 1 avec le coach), puis PASSER
-	await _press(main.menu._help, "?")
-	if not await _until(func(): return bool(intro.visible), "« ? » rouvre l'intro"):
-		return false
-	if not await _intro_to_last():
-		return false
-	await _press(intro._tuto, "LANCER LE TUTORIEL")
-	if not await _until(func(): return String(main.state) in ["intro", "play"] and bool(main.in_hub) and not bool(main.meta.tuto_done), "LANCER LE TUTORIEL -> monde 1, tutoriel en jeu"):
-		return false
-	_ok("intro « ? » : LANCER LE TUTORIEL")
-	if not await _until(func(): return String(main.state) == "play" and String(main.coach.mark) == "stroke", "tutoriel revu : bulle « trace un trait »"):
-		return false
-	_ok("tutoriel revu : bulles remises à zéro")
-	return await _coach_pass_home()
+	return true
 
 
 # ------------------------------------------------------------------ options
@@ -642,7 +605,7 @@ func _step_options(from: String) -> bool:
 	var keys: Array = []
 	for row in Options.ROWS:
 		keys.append(String(row["key"]))
-	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "tuto", "dev"] and String(opt.values.get("control", "")) == "screen"
+	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "dev"] and String(opt.values.get("control", "")) == "screen"
 		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
 	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable
@@ -664,16 +627,6 @@ func _step_options(from: String) -> bool:
 	await _option("control", String(orig["control"]), true)
 	_check(String(main.ctrl_mode) == "screen" and String(main.ctrl_pref) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : PAD EN BAS annulé sans redémarrer" % from, "contrôle %s / choix %s" % [String(main.ctrl_mode), String(main.ctrl_pref)])
-	# « revoir le tutoriel » : bulles du coach remises à zéro, puis état d'avant rétabli (suite du parcours)
-	var seen0: Dictionary = main.meta.coach_seen.duplicate()
-	var done0 := bool(main.meta.tuto_done)
-	await _option("tuto", "replay", true)
-	main.meta.coach_seen = seen0
-	main.meta.tuto_done = done0
-	main.meta.save_data()
-	main.coach.clear()
-	if done0:
-		opt.values.erase("tuto")
 	_check(bool(main.menu.muted) == (String(orig["sound"]) == "off") and bool(main.sfx.haptics) == (String(orig["vibration"]) == "on")
 		and _option_applied("dev", String(orig["dev"])), "options (%s) : valeurs rétablies (mode développeur %s)" % [from, String(orig["dev"])], "réglages non rétablis")
 	var back: Rect2 = opt._back

@@ -231,13 +231,13 @@ func _layout() -> void:
 	_next.position = Vector2(size.x / 2.0 - bw / 2.0, sheet.end.y + 78.0 * u - bh / 2.0)
 	_next.font_size = int((22 if last else 16) * u)
 	_next.modulate.a = a
-	_tuto.visible = two
+	_tuto.visible = false  # (tutoriel en jeu retiré : plus de LANCER LE TUTORIEL)
 	_tuto.size = Vector2(200.0, 52.0) * u
 	_tuto.position = Vector2(size.x / 2.0 - 100.0 * u, sheet.end.y + 26.0 * u)
 	_tuto.font_size = int(16 * u)
 	_back.visible = two
 	_back.size = Vector2(120.0, 32.0) * u
-	_back.position = Vector2(size.x / 2.0 - 60.0 * u, sheet.end.y + 82.0 * u)
+	_back.position = Vector2(size.x / 2.0 - 60.0 * u, sheet.end.y + 40.0 * u)
 	_back.font_size = int(13 * u)
 
 

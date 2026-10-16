@@ -1856,8 +1856,10 @@ func _on_play() -> void:
 		_start()
 		_set_state("play")
 	elif not meta.intro_done:
-		# tout premier lancement : les planches d'abord, puis le monde 1
-		_open_intro(false)
+		# tout premier lancement : droit au monde 1 (plus de planches d'explication ; elles restent sur le « ? »)
+		meta.intro_done = true
+		meta.save_data()
+		_start_first_run()
 	elif meta.coach_first_run():
 		# toute première partie (ou tutoriel à revoir) : droit au monde 1, le coach explique en jouant
 		_start_first_run()

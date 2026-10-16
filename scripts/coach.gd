@@ -80,6 +80,7 @@ const STAGE_MIN := {"ult": 1, "run": 1, "figures": 2}
 const UNPACED := ["cut", "figure", "ink"]
 var _pace := ""  # moment (monde/étape/combat) de la dernière leçon finie
 var _lesson_bottom := -1.0  # bas de la planche des figures à cette image (< 0 : pas de planche)
+const ENABLED := false  # tutoriel retiré (choix du propriétaire) : plus aucune bulle, au début comme en jeu
 const GAP := 0.8  # silence entre deux bulles
 const SLOW := 0.3  # temps ralenti tant que le premier trait n'est pas tracé
 const FREEZE_HINT := 0.8  # arrêt sur image : le doigt qui pulse (invite à toucher) après ce délai (s réelles)
@@ -170,7 +171,7 @@ static func _cubic(out: PackedVector2Array, p0: Vector2, p1: Vector2, p2: Vector
 
 
 func active() -> bool:
-	if main == null or main.meta == null:
+	if not ENABLED or main == null or main.meta == null:
 		return false
 	return not bool(main.meta.tuto_done) or mark in EXTRA or _extra_due()
 
