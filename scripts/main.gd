@@ -1472,9 +1472,62 @@ func _on_arena_perf(label: String, usec: int) -> void:
 	perf_mark(label, usec)
 
 
+var _boot_veil: Control
+
+
+## Écran de chargement du lancement (sumi, titre, goutte d'encre qui tourne) : il couvre le chargement des
+## boss et tout le préchauffage, l'accueil n'apparaît qu'une fois prêt (fluide). Jamais pour le robot ni les
+## captures.
+func _boot_veil_in() -> void:
+	var args := OS.get_cmdline_user_args()
+	for a in args:
+		if String(a) == "--bot" or String(a).begins_with("--shot") or String(a).begins_with("--q=") or String(a) == "--autoplay" or String(a) == "--figtest":
+			return
+	var layer := CanvasLayer.new()
+	layer.layer = 120
+	add_child(layer)
+	var v := Control.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.mouse_filter = Control.MOUSE_FILTER_STOP
+	layer.add_child(v)
+	v.draw.connect(func() -> void:
+		var sz := v.get_viewport_rect().size
+		var u := sz.x / 400.0
+		v.draw_rect(Rect2(Vector2.ZERO, sz), UIColors.SUMI)
+		var f: Font = UiKit.TITLE_FONT
+		var fs := int(40.0 * u)
+		var tw := f.get_string_size("IPPITSU", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		v.draw_string(f, Vector2((sz.x - tw) / 2.0, sz.y * 0.44), "IPPITSU", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, UIColors.WASHI)
+		var t := float(Time.get_ticks_msec()) / 1000.0
+		var c := Vector2(sz.x / 2.0, sz.y * 0.56)
+		v.draw_arc(c, 14.0 * u, t * 4.0, t * 4.0 + 4.2, 32, Color(UIColors.WASHI, 0.85), 3.0 * u, true)
+		v.draw_circle(c, 3.0 * u, Toon.VERMILION))
+	var tw := create_tween().set_loops()
+	tw.tween_callback(v.queue_redraw).set_delay(1.0 / 30.0)
+	v.set_meta("tw", tw)
+	_boot_veil = v
+
+
+## Fin du chargement : l'écran s'efface (0,4 s) sur l'accueil prêt.
+func _boot_veil_out() -> void:
+	if _boot_veil == null or not is_instance_valid(_boot_veil):
+		return
+	var v := _boot_veil
+	_boot_veil = null
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tw := create_tween()
+	tw.tween_property(v, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(func() -> void:
+		var lt = v.get_meta("tw")
+		if lt is Tween:
+			(lt as Tween).kill()
+		v.get_parent().queue_free())
+
+
 ## Démarrage progressif : l'accueil s'affiche d'abord. Ensuite, une chose par image : les squelettes
 ## partent se charger en arrière-plan, les scripts des boss se compilent, puis le préchauffage.
 func _boot_async(t_ready: int) -> void:
+	_boot_veil_in()
 	await get_tree().process_frame
 	await get_tree().process_frame  # (la première image vient d'être dessinée)
 	var now := Time.get_ticks_usec()
@@ -1493,10 +1546,12 @@ func _boot_async(t_ready: int) -> void:
 	perf_mark("boss_scripts", t_boss)
 	await get_tree().process_frame
 	await _warmup()
-	# puis le décor de chaque monde : celui de l'accueil d'abord, le premier ensuite, les autres dans l'ordre
-	decor_warm.want(current_world)
-	for wid in range(1, Worlds.WORLDS.size() + 1):
-		decor_warm.want(wid)
+	# puis le décor du monde de l'accueil (et du premier) sous l'écran de chargement ; les autres mondes se
+	# préparent sous le rideau de l'intro quand on y entre (decor_warm.ensure), jamais pendant l'accueil
+	await decor_warm.ensure(current_world)
+	if current_world != 1:
+		await decor_warm.ensure(1)
+	_boot_veil_out()
 
 
 ## Les pièces accrochées aux os (cornes, masques, armes) ne suivent pas l'échelle miniature du préchauffage :
