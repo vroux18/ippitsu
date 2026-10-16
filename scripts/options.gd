@@ -1,6 +1,6 @@
 extends Control
 ## Options : son, vibrations, contrôles (tracer sur l'écran, ou pad en bas), taille et affichage du pad,
-## revoir le tutoriel, mode développeur (mode mesure : section DEV de la pause). Carte de papier sur voile d'encre ; oui/non en interrupteurs, le reste en segments
+## indices du coach (oui, non, revoir), mode développeur (mode mesure : section DEV de la pause). Carte de papier sur voile d'encre ; oui/non en interrupteurs, le reste en segments
 ## d'un mot (UI v2 : pas de phrase d'aide). main lit/écrit `values`.
 ## Le mode de contrôle ne change qu'au prochain lancement (cadrage de l'arène) : main pose `active_control`,
 ## une note le rappelle tant que le choix diffère.
@@ -19,7 +19,8 @@ const ROWS := [
 	# réglages du pad : grisés (et sans effet) quand on trace sur l'écran
 	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "S"], ["m", "M"], ["l", "L"]]},
 	{"key": "pad_show", "label": "AFFICHER LE PAD", "opts": [["always", "TOUJOURS"], ["start", "DÉBUT"], ["never", "JAMAIS"]]},
-	# une seule case : revoir le tutoriel en jeu (coach)
+	# indices du coach (règles expliquées juste à temps) : oui, non, ou revoir (ils reviennent tous)
+	{"key": "hints", "label": "INDICES", "opts": [["on", "OUI"], ["off", "NON"], ["replay", "REVOIR"]]},
 	# mode développeur (= mode mesure, aussi par appui long sur le titre) : section DEV de la pause
 	{"key": "dev", "label": "MODE DÉVELOPPEUR", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 ]
@@ -32,7 +33,7 @@ const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sou
 const ROW_STEP := 84.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
-var values := {"sound": "on", "vibration": "on", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off"}
+var values := {"sound": "on", "vibration": "on", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off", "hints": "on"}
 var active_control := "screen"  # mode de contrôle de la session en cours (lu par main au lancement)
 
 var _t := 0.0

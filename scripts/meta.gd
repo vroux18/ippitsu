@@ -67,8 +67,22 @@ const TREE := {
 	"v6": {"b": "voie", "t": 6, "name": "Figure : Triangle", "text": "Apprend le Triangle. Sa technique Kekkai entre dans les rouleaux.", "cost": 420, "glyph": "triangle", "fig": "triangle"},
 	"vc": {"b": "voie", "t": 7, "name": "Maître des figures", "text": "L'ultime se charge en 4 figures au lieu de 5, et chaque figure rapporte +25 % de points.", "cost": 600, "glyph": "voie"},
 }
-## Figures de base, toujours connues ; les trois autres s'apprennent dans la branche VOIE (nœuds « fig »).
+## Figures de base. Elles se gagnent petit à petit (FIG_GATES) : au départ, le trait droit seul ; puis une figure
+## à chaque palier de la progression (étape 3 du monde 1, gardiens et boss). Les trois de l'arbre s'apprennent
+## dans la branche VOIE (nœuds « fig »), une fois deux figures de base gagnées (FIG_NODE_MIN).
 const BASE_FIGURES := ["loop", "zigzag", "return", "hook", "straight", "enso"]
+## Figure -> [monde, palier] qui la donne la première fois : « stage3 » (étape 3 atteinte), « mini » (gardien de
+## mi-parcours vaincu), « boss » (boss du monde vaincu). Dans l'ordre où on les gagne (FIG_GATE_ORDER).
+const FIG_GATES := {"zigzag": [1, "stage3"], "loop": [1, "mini"], "return": [1, "boss"], "enso": [2, "boss"],
+	"hook": [3, "boss"]}
+const FIG_GATE_ORDER := ["zigzag", "loop", "return", "enso", "hook"]
+const START_FIGURES := ["straight"]  # la figure du départ : le trait droit (iaï), connu dès la première partie
+const FIG_STAGE3_ROOM := 6  # = main.STAGE_PLAN[2][0] : premier combat de l'étape 3
+const FIG_NODE_MIN := 2  # figures de base à connaître avant d'apprendre une figure de l'arbre
+## Mécaniques introduites une à une (feature_open) : portes à sceaux après le gardien du monde 1 (comme la
+## boucle) ; yōkai scellés, coffres scellés et énigmes après le boss du monde 1 (comme l'aller-retour) ; marchand et
+## sanctuaire de pacte en entrant dans le monde 2 ; sanctuaire d'oni (défi d'élite, sceau de l'oni) dans le monde 3.
+const FEATURES := ["gates", "sealed", "merchant", "pact", "oni"]
 ## Réglages des effets de l'arbre (lus par main et score).
 const TREE_DMG_STEP := 0.08  # Tranchant I et II
 const RONIN_DMG := 0.15  # Élan du rōnin, chaîne >= RONIN_CHAIN
@@ -250,9 +264,16 @@ var power_tier := 0  # paliers de rouleaux débloqués (0..4) : monde N vaincu -
 var test_unlock_all := false  # robot (CI) et tests : tous les mondes et paliers ouverts (jamais sauvegardé)
 var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passées (anciennes sauvegardes : ancien tutoriel fait)
 const COACH_MARKS := ["stroke", "cut", "ink", "figure", "ult", "run", "figures"]  # bulles du coach (coach.gd)
-const COACH_EXTRA := ["seal"]  # bulles hors tutoriel (coach.EXTRA) : vues une fois, sans compter pour sa fin
+const COACH_EXTRA := ["seal", "danger", "scroll", "gates", "pz_stele", "pz_lanterns", "pz_spirit", "chest", "merchant",
+	"pact", "oni", "guardian", "boss", "tree", "fig_zigzag", "fig_straight", "fig_loop", "fig_return", "fig_enso", "fig_hook",
+	"fig_wave", "fig_point", "fig_triangle"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
+const PROG_VERSION := 1  # sauvegarde : 0 = avant le déblocage progressif des figures et des mécaniques
 const COACH_HOME := ["arbre"]  # tutoriels de l'accueil (tree_coach.gd : l'Arbre du pinceau), une fois, hors « Passer »
 var coach_seen := {}  # id de bulle -> true : déjà montrée
+var hints_on := true  # option INDICES : les règles expliquées juste à temps par le coach
+var figs_won := {}  # figure de base gagnée (FIG_GATES) -> true
+var entered_top := 1  # plus haut monde où une partie a commencé (marchand, pacte, oni : feature_open)
+var test_open := false  # robot (powers, stress, ui) et captures : toutes les figures et mécaniques ouvertes (jamais sauvegardé)
 var intro_done := false  # intro illustrée déjà vue (sinon elle s'ouvre au premier JOUER)
 var measure_mode := false  # mode mesure (caché : appui long sur le titre de l'accueil, mesure.gd)
 var opening_done := false  # ouverture (mini-histoire à l'encre) déjà vue au tout premier démarrage (opening.gd)
@@ -301,6 +322,12 @@ func load_data() -> void:
 	power_tier = clampi(int(cf.get_value("meta", "power_tier", 0)), 0, Data.UNLOCK_MAX)
 	won_top = clampi(int(cf.get_value("meta", "won_top", 0)), 0, WORLD_COUNT)
 	tuto_done = bool(cf.get_value("meta", "tuto_done", false))
+	hints_on = bool(cf.get_value("meta", "hints", true))
+	for k in FIG_GATE_ORDER:
+		if bool(cf.get_value("figures", String(k), false)):
+			figs_won[String(k)] = true
+	entered_top = clampi(int(cf.get_value("meta", "entered_top", 1)), 1, WORLD_COUNT)
+	var prog_v := int(cf.get_value("meta", "prog_version", 0))
 	for id in COACH_MARKS + COACH_EXTRA + COACH_HOME:
 		if bool(cf.get_value("coach", id, false)):
 			coach_seen[id] = true
@@ -390,6 +417,7 @@ func load_data() -> void:
 	if not cosmetic_owned("theme", theme):
 		theme = "washi"
 	_migrate_progress()
+	_retro_figs(prog_v < PROG_VERSION)
 	for kind in LOOK_KINDS:
 		if not _look_ok(String(look[kind]), kind):
 			look[kind] = ""
@@ -407,7 +435,7 @@ func load_data() -> void:
 		brush_sel = "fude"
 	if charm_sel != "" and not Gear.CHARMS.has(charm_sel):
 		charm_sel = ""
-	if tree_migrated or gear_v < GEAR_VERSION:
+	if tree_migrated or gear_v < GEAR_VERSION or prog_v < PROG_VERSION:
 		save_data()  # une seule fois : le drapeau tree_version est écrit, les anciens achats effacés
 
 
@@ -486,6 +514,9 @@ func unlock_all() -> void:
 		clean_wins[wid] = true
 	for id in TREE_ORDER:
 		tree[String(id)] = true
+	for k in FIG_GATE_ORDER:
+		figs_won[String(k)] = true
+	entered_top = WORLD_COUNT
 	purse_rank = PURSE_COSTS.size()
 	coach_seen["arbre"] = true
 	if not Data.POWERS.has(start_power_id):
@@ -546,6 +577,11 @@ func save_data() -> void:
 	cf.set_value("meta", "power_tier", power_tier)
 	cf.set_value("meta", "won_top", won_top)
 	cf.set_value("meta", "tuto_done", tuto_done)
+	cf.set_value("meta", "hints", hints_on)
+	cf.set_value("meta", "entered_top", entered_top)
+	cf.set_value("meta", "prog_version", PROG_VERSION)
+	for k in FIG_GATE_ORDER:
+		cf.set_value("figures", String(k), figs_won.has(String(k)))
 	for id in COACH_MARKS + COACH_EXTRA + COACH_HOME:
 		cf.set_value("coach", id, coach_seen.has(id))
 	cf.set_value("meta", "intro_done", intro_done)
@@ -659,6 +695,15 @@ func coach_reset() -> void:
 	tuto_done = false
 
 
+## Option INDICES, « REVOIR » : les indices du coach (et les bulles de l'ancien tutoriel qu'ils reprennent)
+## reviendront ; l'option repasse à OUI. (Le tutoriel de l'Arbre, lui, reste vu.)
+func hints_reset() -> void:
+	for id in COACH_MARKS + COACH_EXTRA:
+		coach_seen.erase(id)
+	tuto_done = false
+	hints_on = true
+
+
 ## Tout premier lancement (ou tutoriel à revoir) : JOUER mène droit au monde 1, avec le coach.
 func coach_first_run() -> bool:
 	return false  # tutoriel retiré : JOUER suit toujours le chemin normal (le tout premier lancement est géré par main)
@@ -699,7 +744,7 @@ func node_cost(id: String) -> int:
 
 
 func can_learn(id: String) -> bool:
-	return node_open(id) and sumi >= node_cost(id)
+	return node_open(id) and sumi >= node_cost(id) and not fig_node_blocked(id)
 
 
 ## Débite l'encre, apprend le nœud et sauvegarde.
@@ -760,15 +805,111 @@ func _count(ids: Array) -> int:
 	return n
 
 
-## Figure connue : les six de base toujours ; Vague, Pointe et Triangle une fois apprises (v2, v4, v6).
+## Figure connue : celles de base une fois gagnées (FIG_GATES : étape atteinte, gardien ou boss vaincu) ;
+## Vague, Pointe et Triangle une fois apprises (v2, v4, v6). Robot et captures (test_open) : toutes.
 func fig_learned(kind: String) -> bool:
-	if kind in BASE_FIGURES:
+	if test_open and (FIG_GATES.has(kind) or kind in Data.FIG_TREE):
 		return true
+	if kind in START_FIGURES:
+		return true
+	if FIG_GATES.has(kind):
+		return figs_won.has(kind)
 	for id in ["v2", "v4", "v6"]:
 		var n: Dictionary = TREE[id]
 		if String(n.get("fig", "")) == kind:
 			return learned(id)
 	return false
+
+
+## Nombre de figures de base connues.
+func base_known() -> int:
+	var n := 0
+	for k in START_FIGURES + FIG_GATE_ORDER:
+		if fig_learned(String(k)):
+			n += 1
+	return n
+
+
+## Nœud de figure de l'arbre (v2, v4, v6) pas encore achetable : moins de FIG_NODE_MIN figures de base connues.
+func fig_node_blocked(id: String) -> bool:
+	return TREE.has(id) and String(TREE[id].get("fig", "")) != "" and base_known() < FIG_NODE_MIN
+
+
+## Palier franchi (monde wid ; what : « stage3 », « mini » ou « boss ») : les figures qu'il vient de donner (vide
+## sinon), sauvegardées. main les annonce (coach : NOUVELLE FIGURE).
+func fig_win(wid: int, what: String) -> Array:
+	var out: Array = []
+	for k in FIG_GATE_ORDER:
+		var g: Array = FIG_GATES[k]
+		if int(g[0]) == wid and String(g[1]) == what and not figs_won.has(String(k)):
+			figs_won[String(k)] = true
+			out.append(String(k))
+	if not out.is_empty():
+		save_data()
+	return out
+
+
+## Figures que la progression prouve déjà (à chaque chargement) : étape 3 du monde 1 atteinte, gardien vaincu (Vue
+## « w<id>_mini », ou combat d'après atteint), monde vaincu. (Le nombre de figures tracées n'est pas gardé d'une
+## partie à l'autre : seules les victoires comptent.) legacy : sauvegarde d'avant le déblocage progressif, les
+## mondes déjà joués comptent comme entrés (marchand, pacte, oni acquis).
+func _retro_figs(legacy: bool) -> void:
+	for k in FIG_GATE_ORDER:
+		var g: Array = FIG_GATES[k]
+		var wid := int(g[0])
+		var best := int(world_best.get(wid, 0))
+		var won := wid <= won_top or world_won(wid)
+		var ok := won
+		match String(g[1]):
+			"stage3":
+				ok = won or best >= FIG_STAGE3_ROOM or has_print("w%d_mini" % wid)
+			"mini":
+				ok = won or best > MINI_ROOM or has_print("w%d_mini" % wid)
+		if ok:
+			figs_won[String(k)] = true
+	if legacy:
+		for wid in range(1, WORLD_COUNT + 1):
+			if int(world_best.get(wid, 0)) > 0:
+				entered_top = maxi(entered_top, wid)
+		entered_top = clampi(maxi(entered_top, won_top + 1 if won_top >= 1 else 1), 1, WORLD_COUNT)
+
+
+## Condition d'une figure pas encore connue, pour les planches (« Gardien du monde 1 »…) ; "" si elle est connue.
+func fig_condition(kind: String) -> String:
+	if fig_learned(kind):
+		return ""
+	if FIG_GATES.has(kind):
+		var g: Array = FIG_GATES[kind]
+		match String(g[1]):
+			"stage3":
+				return "Étape 3 du monde %d" % int(g[0])
+			"mini":
+				return "Gardien du monde %d" % int(g[0])
+		return "Boss du monde %d" % int(g[0])
+	return "Arbre · branche Voie"
+
+
+## Mécanique ouverte (FEATURES) pour la progression du joueur.
+func feature_open(f: String) -> bool:
+	if test_open:
+		return true
+	match f:
+		"gates":
+			return figs_won.has("loop") or won_top >= 1  # gardien du monde 1 vaincu (comme la boucle)
+		"sealed":
+			return figs_won.has("return") or won_top >= 1  # boss du monde 1 vaincu (comme l'aller-retour)
+		"merchant", "pact":
+			return entered_top >= 2
+		"oni":
+			return entered_top >= 3
+	return true
+
+
+## Une partie commence dans le monde wid : marchand et pacte s'ouvrent au monde 2, l'oni au monde 3 (sauvegardé).
+func enter_world(wid: int) -> void:
+	if wid > entered_top:
+		entered_top = clampi(wid, 1, WORLD_COUNT)
+		save_data()
 
 
 ## Rouleaux communs proposés au départ (débloqués, et qui ne dépendent d'aucun autre pouvoir).

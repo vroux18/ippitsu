@@ -138,11 +138,17 @@ func begin(m: Node) -> void:
 	if not bool(main.meta.test_unlock_all):
 		main.meta.test_unlock_all = true
 		alert("progression : test_unlock_all n'était pas posé par main, forcé")
-	# hors mode ui : pas de tutoriel en jeu (ni ralenti du premier trait, ni combats adoucis)
+	# hors mode ui : pas de tutoriel en jeu (ni ralenti du premier trait, ni combats adoucis), ni indices du coach
+	# (aucune bulle, aucun arrêt sur image ; le robot ui les teste à part)
 	if mode != "ui":
 		main.meta.tuto_done = true
-		main.meta.coach_seen["seal"] = true  # (ni la leçon du premier scellé, hors tutoriel : pas d'arrêt sur image)
+		main.coach.muted = true
 		main.coach.clear()
+	# figures et mécaniques (portes, scellés, marchand, pacte, oni) : la campagne suit le calendrier réel de la
+	# sauvegarde (meta.feature_open, meta.fig_learned) ; les autres modes jouent tout ouvert (meta.test_open)
+	main.meta.test_open = mode != "campaign"
+	print("BOT PROGRESSION %s : figures %s" % ["calendrier réel" if mode == "campaign" else "tout ouvert",
+		str(StrokeShapes.ORDER.filter(func(k): return bool(main.meta.fig_learned(String(k)))))])
 	match mode:
 		"ui":
 			cinematics = true
@@ -432,7 +438,8 @@ func _choose(offer: Array) -> String:
 
 func _over() -> void:
 	print("BOT MARCHAND monde %d : %d marchand(s), %d achat(s), or restant %d" % [world, int(main.merchants_seen), int(main.shop_bought), int(main.run_gold)])
-	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0:
+	# (le marchand n'arrive qu'au monde 2 : meta.feature_open)
+	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0 and bool(main.meta.feature_open("merchant")):
 		alert("marchand : aucun posé dans le monde %d" % world)
 	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
 	print("BOT ÉNIGMES monde %d : %d résolues sur %d posées" % [world, int(main.puzzles_solved), int(main.puzzles_seen)])

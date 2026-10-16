@@ -29,14 +29,14 @@ const SCHOOL_ORDER := ["fig", "fire", "water", "bolt", "wind", "shadow", "ink"]
 const FIG_UNLOCK := {"loop": "fig_loop", "zigzag": "fig_zigzag", "straight": "fig_straight",
 	"return": "fig_return", "enso": "fig_enso", "hook": "fig_hook",
 	"wave": "fig_wave", "point": "fig_point", "triangle": "fig_triangle"}
-# figures de l'arbre (branche Voie) : leurs rouleaux (technique et améliorations) ne sortent que si la figure
-# est apprise (meta.fig_learned ; powers._eligible)
+# figures de l'arbre (branche Voie). Toute figure se gagne (meta.fig_learned : progression ou arbre) : les rouleaux
+# d'une figure (technique et améliorations) ne sortent que si elle est connue (powers._eligible, meta.start_choices)
 const FIG_TREE := ["wave", "point", "triangle"]
 
 
-## Figure de l'arbre dont dépend ce rouleau (sa technique ou une amélioration), "" sinon.
+## Figure dont dépend ce rouleau (sa technique ou une amélioration), "" sinon (nom gardé : d'abord l'arbre seul).
 static func tree_figure(id: String) -> String:
-	for f in FIG_TREE:
+	for f in FIG_UNLOCK.keys():
 		var tid := String(FIG_UNLOCK[f])
 		if id == tid or id.begins_with(tid + "_"):
 			return String(f)
