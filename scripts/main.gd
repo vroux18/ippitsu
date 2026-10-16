@@ -247,7 +247,7 @@ const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
-const SHOW_DMG := false  # chiffres de dégâts au-dessus des ennemis
+var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
 var cam: Camera3D
@@ -1838,6 +1838,7 @@ func _load() -> void:
 			ctrl_pref = String(cfg.get_value("settings", "control", "pad"))
 		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
+		show_dmg = String(cfg.get_value("settings", "dmg", "on")) == "on"
 		god = bool(cfg.get_value("settings", "god", false))
 		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
 		for k in _cam_pref.keys():
@@ -1866,6 +1867,7 @@ func _save() -> void:
 	cfg.set_value("settings", "version", SETTINGS_V)
 	cfg.set_value("settings", "control", ctrl_pref)
 	cfg.set_value("settings", "pad_size", pad_size)
+	cfg.set_value("settings", "dmg", "on" if show_dmg else "off")
 	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.set_value("settings", "god", god)
 	for k in _cam_pref.keys():
@@ -2201,7 +2203,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dev": "on" if measure.active else "off"}
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "dev": "on" if measure.active else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
@@ -2222,6 +2224,8 @@ func _on_option(key: String, value: String) -> void:
 			pad_size = value
 			if ctrl_mode == "pad":
 				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
+		"dmg":
+			show_dmg = value == "on"
 		"pad_show":
 			pad_show = value
 		"dev":
@@ -6498,8 +6502,8 @@ func _seal_disc_tex() -> Texture2D:
 ## Chiffre de dégâts : encre épaisse, rebond à l'apparition, petite courbe en montant ; les touches
 ## rapprochées sur un même ennemi s'additionnent. Blanc normal, or gros coup, vermillon coup fatal.
 func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> void:
-	if not SHOW_DMG:
-		return  # demandé : pas de chiffre à chaque coup (l'impact, la jauge et le score suffisent)
+	if not show_dmg:
+		return
 	var now := Time.get_ticks_msec()
 	var kid := key.get_instance_id() if key != null else -1
 	if kid != -1 and _dmg_labels.has(kid):

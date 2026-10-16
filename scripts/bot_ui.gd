@@ -560,6 +560,8 @@ func _option_applied(key: String, val: String) -> bool:
 			var opt = main.options
 			return String(main.ctrl_pref) == val and String(main.ctrl_mode) == "screen" \
 				and bool(opt.restart_pending()) == (val != String(main.ctrl_mode))
+		"dmg":
+			return bool(main.show_dmg) == (val == "on")
 		"pad_size":
 			return String(main.pad_size) == val
 		"pad_show":
@@ -605,7 +607,7 @@ func _step_options(from: String) -> bool:
 	var keys: Array = []
 	for row in Options.ROWS:
 		keys.append(String(row["key"]))
-	_check(keys == ["sound", "vibration", "control", "pad_size", "pad_show", "dev"] and String(opt.values.get("control", "")) == "screen"
+	_check(keys == ["sound", "vibration", "dmg", "control", "pad_size", "pad_show", "dev"] and String(opt.values.get("control", "")) == "screen"
 		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
 	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable
