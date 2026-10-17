@@ -124,20 +124,21 @@ const CURSES := {
 }
 const Shop = preload("res://scripts/shop.gd")  # échoppe du marchand tanuki
 # Marchand : un par monde, dans le dernier recoin de l'étape qui précède le gardien (combats 6-7). Prix en or :
-# [monde 1, + par monde]. Robot de campagne (graine 101) : ~150 pièces en poche à la fin de l'étape 3 (de 50 à 600
-# selon le sceau d'or et le refus d'un pacte), ~430 sur tout un monde : de quoi prendre un ou deux articles.
+# [monde 1, + par monde]. Robot de campagne (graine 101, repasse d'équilibrage) : 40 à 320 pièces à l'échoppe (~170 ;
+# moins au monde 1, plus avec le sceau d'or ou le Masque fendu), 190 à 500 en fin de monde : un ou deux articles
+# par visite (onigiri et relance à la portée du monde 1, rouleau ou amélioration en guise de gros achat).
 const MERCHANT_STAGE := 2  # étape (index) du marchand : la dernière avant celle du gardien (MINI_ROOM)
 const MERCHANT_RISE := 0.55  # l'étal surgit du sol en fin d'étape (s)
 const MERCHANT_R := 1.75  # = PuzzleArt.YATAI_RING_R : l'échoppe s'ouvre dans l'anneau d'or
-const SHOP_PRICE := {"reroll": [25, 5], "heal": [40, 5], "scroll": [60, 10], "upgrade": [75, 10], "charm": [90, 10]}
+const SHOP_PRICE := {"reroll": [20, 6], "heal": [35, 6], "scroll": [55, 11], "upgrade": [70, 11], "charm": [85, 11]}
 const SHOP_HEAL := 2  # cœurs rendus par l'onigiri
 const SHOP_CHARMS := ["garde", "encre", "sceaux", "figure"]  # omamori vendus (pour la fin de la partie)
 const SHOP_CHARM_LINE := {"garde": "1er coup de chaque étape annulé", "encre": "Encre pleine à chaque combat",
 	"sceaux": "Toute figure brise un sceau", "figure": "1re figure du combat doublée"}
-const GOLD_PER_SUMI := 3  # fin de partie : l'or qui reste devient de l'encre (3 pièces = 1 encre ; 2 avant le marchand)
+const GOLD_PER_SUMI := 4  # fin de partie : l'or qui reste devient de l'encre (4 pièces = 1 encre ; 3 avant la repasse d'équilibrage)
 const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
-const REFUSE_COST := 40  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
-const REFUSE_COST_STEP := 10
+const REFUSE_COST := 45  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
+const REFUSE_COST_STEP := 15  # (au premier sanctuaire, le robot a 50 à 170 pièces : refuser y coûte l'achat du marchand)
 const INK_LOCK_T := 4.0  # Encre maudite : recharge d'encre figée après un coup reçu (s)
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
 const EXPLORE_REACH := 2.0
@@ -4370,9 +4371,10 @@ func seal_event() -> void:
 
 
 func xp_need() -> int:
-	# courbe plus raide : ~1 niveau par salle au début, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
-	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau)
-	return int(round(float(8 + 5 * level + level * level) * XP_SEAL_K))
+	# courbe plus raide : premier niveau au 2e combat, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
+	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau).
+	# Repasse d'équilibrage : 6 au lieu de 8 (16 points au lieu de 18 pour le premier niveau, les suivants presque inchangés)
+	return int(round(float(6 + 5 * level + level * level) * XP_SEAL_K))
 
 
 ## Butin ramassé (appelé par pickups.gd).
