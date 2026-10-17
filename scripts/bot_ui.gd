@@ -1784,10 +1784,11 @@ func _step_victory() -> bool:
 	_check(bool(main.menu.victory), "résultats de victoire", "menu.victory faux")
 	var menu = main.menu
 	var n_new: int = main.meta.powers_of_tier(1).size()
-	# (plus les pinceaux, aspects et omamori gagnés : rangée DÉBLOQUÉ, tuiles en plus)
+	# (plus les pinceaux, aspects et omamori gagnés : lignes « Débloqué » des gains, en toutes lettres)
 	var gear: Array = menu.unlock_gear
 	print("BOT UI résultats : équipement gagné %s" % str(gear))
-	_check(int(menu.unlock_world) == 2 and menu.unlock_powers.size() == n_new and n_new > 0 and int(menu._unlock_rows()) == 2 + gear.size(),
+	_check(int(menu.unlock_world) == 2 and menu.unlock_powers.size() == n_new and n_new > 0 and _unlock_labels(menu).has("Monde ouvert")
+		and _unlock_labels(menu).has("Nouveaux rouleaux") and _unlock_labels(menu).size() >= 2 + gear.size(),
 		"résultats : DÉBLOQUÉ (monde 2, %d rouleaux « %s »)" % [menu.unlock_powers.size(), String(menu.unlock_family)],
 		"monde %d, %d rouleaux (attendu 2 et %d)" % [int(menu.unlock_world), menu.unlock_powers.size(), n_new])
 	_check(int(main.meta.unlocked) == 2 and int(main.meta.power_tier) == 1, "victoire : monde 2 et palier 1 enregistrés", "unlocked %d, palier %d" % [int(main.meta.unlocked), int(main.meta.power_tier)])
@@ -1880,3 +1881,11 @@ func _step_defeat() -> bool:
 		return false
 	_ok("pause : RECOMMENCER")
 	return await _quit_to_menu(2)
+
+
+## Libellés des déblocages écrits sur la feuille de résultats (« Monde ouvert », « Nouveaux rouleaux », « Pinceau »…).
+func _unlock_labels(menu) -> Array:
+	var out: Array = []
+	for it in menu._unlock_items():
+		out.append(String(it[0]))
+	return out
