@@ -1989,6 +1989,12 @@ static func _fx_one(val: String, lab: String) -> String:
 
 ## Effet d'un pouvoir en pastilles : [[pictogramme, valeur, libellé], …] (niveau b ; « avant → après » depuis le
 ## niveau a > 0). Sans fiche dans Data.EFFECTS : la ligne chiffrée « stat » en une pastille. Jamais le nom du pouvoir.
+## Geste de chaque figure (ligne « TRACE » des cartes de technique) et mot d'une ligne d'effet sans libellé.
+const FIG_GESTURE := {"loop": "Boucle", "zigzag": "Zigzag", "straight": "Trait droit", "return": "Aller-retour",
+	"enso": "Grand cercle", "hook": "Crochet", "wave": "Vague", "point": "Pointe", "triangle": "Triangle"}
+const FX_WORD := {"fx_dmg": "dégâts", "fx_radius": "rayon", "fx_range": "portée", "fx_heart": "cœurs"}
+
+
 static func fx_rows(id: String, a: int, b: int) -> Array:
 	var out: Array = []
 	var d: Dictionary = Data.POWERS.get(id, {})
@@ -2003,9 +2009,13 @@ static func fx_rows(id: String, a: int, b: int) -> Array:
 			continue
 		var lab := plain(String(rw[2]))
 		if lab.to_lower() == name_l:
-			lab = ""
+			lab = String(FX_WORD.get(String(rw[0]), "effet"))  # (le nom seul ne disait pas ce que mesure le chiffre)
 		var val := plain(_fx_fill(d, String(rw[1]), a, b))
 		out.append([String(rw[0]), val, _fx_one(val, lab)])
+	# carte de technique de figure : en tête, le geste à tracer (« TRACE · Grand cercle »), s'il reste une ligne
+	for f in Data.FIG_UNLOCK.keys():
+		if id == String(Data.FIG_UNLOCK[f]) and out.size() < 3:
+			out.push_front(["fig_" + String(f), String(FIG_GESTURE.get(String(f), String(f))), "trace"])
 	if out.is_empty():
 		var st := String(d.get("stat", ""))
 		if st != "":
