@@ -5,6 +5,9 @@ extends Node
 ##    perles et bulles dans l'ordre, chaînes et fils tranchés en travers, tornade traversée.
 ##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement au dernier coup encaissable :
 ##    1 cœur, 2 dès que les coups lourds en ôtent 2). Bilan par monde (BOT STATS, BOT BILAN).
+##    Elle suit le calendrier réel d'une sauvegarde neuve (trait droit seul au départ, figures et mécaniques
+##    gagnées en route : BOT CALENDRIER) ; une mécanique encore fermée ne doit rien poser. Les autres modes jouent
+##    tout ouvert (meta.test_open).
 ##  powers : chaque pouvoir, à chaque niveau, actif pendant une salle de combat entière (gardien et boss
 ##    compris) ; les neuf figures (dont vague, pointe, triangle), des traits de fuite, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
 ##  ui : parcours scripté des écrans (bot_ui.gd), sans combat du robot.
@@ -36,6 +39,8 @@ var gear_brush := ""  # `--pinceau=` (gear_data.ORDER)
 var gear_aspect := 0  # `--aspect=` (0..2)
 var gear_charm := ""  # `--charme=` (gear_data.CHARM_ORDER)
 var tree_full := false  # `--arbre=plein` : l'arbre du pinceau entier appris (mesures d'équilibrage des boss)
+var mort_world := 0  # `--mort=W:S` : mort forcée au monde W dès le premier combat de l'étape S (mesures de l'économie)
+var mort_stage := 0
 # combats de gardien et de boss (campagne) : mesure par combat, de l'entrée en scène à la chute
 var _bf := {}  # combat en cours : {kind, mini, t, hits, strokes0, hp, room, win, vul}
 var _boss_log: Array = []  # [monde, kind, gardien ?, durée, cœurs perdus, traits, PV max]
@@ -91,6 +96,11 @@ var _seal_seen := 0  # coffres scellés posés / ouverts sur toute la campagne
 var _seal_open := 0
 var _sealed_set := 0  # yōkai scellés posés / tués à la figure de leur cadenas sur toute la partie du robot
 var _sealed_kill := 0
+# campagne : mécaniques fermées au départ de la partie (meta.feature_open), contrôlées à sa fin
+var _cal_closed: Array = []
+var _cal_seen := {}  # mécanique encore fermée -> {compteur de main: valeur lue tant qu'elle l'était}
+const CAL_COUNTERS := {"gates": ["gates_seen"], "sealed": ["sealed_set", "chests_sealed", "puzzles_seen"],
+	"merchant": ["merchants_seen"], "pact": ["shrines_seen"], "oni": ["elites_seen"]}
 
 
 func begin(m: Node) -> void:
@@ -110,6 +120,9 @@ func begin(m: Node) -> void:
 			gear_charm = s.substr(9)
 		elif s == "--arbre=plein":
 			tree_full = true
+		elif s.begins_with("--mort="):
+			mort_world = maxi(1, int(s.substr(7).get_slice(":", 0)))
+			mort_stage = maxi(1, int(s.substr(7).get_slice(":", 1)))
 		elif s.begins_with("--monde="):
 			world = clampi(int(s.substr(8)), 1, Worlds.WORLDS.size())  # campagne : départ à ce monde (mesures)
 	if not mode in MODES:
@@ -138,11 +151,17 @@ func begin(m: Node) -> void:
 	if not bool(main.meta.test_unlock_all):
 		main.meta.test_unlock_all = true
 		alert("progression : test_unlock_all n'était pas posé par main, forcé")
-	# hors mode ui : pas de tutoriel en jeu (ni ralenti du premier trait, ni combats adoucis)
+	# hors mode ui : pas de tutoriel en jeu (ni ralenti du premier trait, ni combats adoucis), ni indices du coach
+	# (aucune bulle, aucun arrêt sur image ; le robot ui les teste à part)
 	if mode != "ui":
 		main.meta.tuto_done = true
-		main.meta.coach_seen["seal"] = true  # (ni la leçon du premier scellé, hors tutoriel : pas d'arrêt sur image)
-		main.coach.clear()
+	main.coach.muted = true  # (mode ui : _step_progression les rallume le temps de ses contrôles)
+	main.coach.clear()
+	# figures et mécaniques (portes, scellés, marchand, pacte, oni) : la campagne suit le calendrier réel de la
+	# sauvegarde (meta.feature_open, meta.fig_learned) ; les autres modes jouent tout ouvert (meta.test_open)
+	main.meta.test_open = mode != "campaign"
+	print("BOT PROGRESSION %s : figures %s" % ["calendrier réel" if mode == "campaign" else "tout ouvert",
+		str(StrokeShapes.ORDER.filter(func(k): return bool(main.meta.fig_learned(String(k)))))])
 	match mode:
 		"ui":
 			cinematics = true
@@ -206,6 +225,14 @@ func _new_run() -> void:
 	_prev_utsu = 0
 	_last_hp = -1  # la nouvelle partie rend tous les cœurs : ce n'est pas un soin
 	_world_t0 = _total
+	_cal_closed = []
+	_cal_seen = {}
+	for f in Meta.FEATURES:
+		if not bool(main.meta.feature_open(String(f))):
+			_cal_closed.append(String(f))
+	if mode == "campaign":
+		print("BOT CALENDRIER monde %d : figures %s, fermé %s" % [world,
+			str(StrokeShapes.ORDER.filter(func(k): return bool(main.meta.fig_learned(String(k))))), str(_cal_closed)])
 	if mode == "powers":
 		_runs += 1
 		_group = _next_group()
@@ -258,6 +285,7 @@ func step(dt: float) -> void:
 		h.guard_t = 99999.0
 	if mode == "powers":
 		_watch_triggers()
+	_cal_tick()
 	if not _room_ended and bool(main._room_done) and int(main.room) >= 1:
 		_room_ended = true
 		_on_room_end()
@@ -268,6 +296,18 @@ func step(dt: float) -> void:
 			_over()
 		"play":
 			_play(dt)
+
+
+## Calendrier : tant qu'une mécanique fermée au départ l'est encore, on relève ce que la partie en a posé
+## (contrôlé à la fin : rien). Un gardien vaincu en cours de partie ouvre les portes des étapes suivantes.
+func _cal_tick() -> void:
+	for f in _cal_closed:
+		if bool(main.meta.feature_open(String(f))):
+			continue
+		var d := {}
+		for cn in CAL_COUNTERS.get(f, []):
+			d[String(cn)] = int(main.get(String(cn)))
+		_cal_seen[f] = d
 
 
 ## Mesure des combats de gardien et de boss : de la fin de l'entrée en scène à la chute du dernier boss.
@@ -330,6 +370,10 @@ func _on_room_change() -> void:
 	_last_room = int(main.room)
 	_room_t = 0.0
 	_guarded = false
+	if mort_world > 0 and world == mort_world and not _death_test and int(main.room) >= 1 \
+			and int(main.stage_of(int(main.room))) >= mort_stage:
+		_death_test = true  # `--mort=W:S` : il se laisse tuer dans ce combat (la campagne s'arrête là)
+		print("BOT MORT FORCÉE monde %d étape %d (salle %d)" % [world, mort_stage, main.room])
 	_force_pending = false
 	_measure_t = 0.0
 	main.hero.guard_t = 0.0
@@ -431,10 +475,25 @@ func _choose(offer: Array) -> String:
 
 
 func _over() -> void:
+	# économie de la partie (equilibrage) : gains d'encre et de pétales, or restant, réserves de la sauvegarde
+	var mt = main.meta
+	print("BOT ÉCONOMIE monde %d : salle %d/%d, %d ennemis, gardien %d, boss %d, malédictions %d, défis %d, niveau %d, or restant %d, achats %d, encre +%d (total %d), pétales +%d (total %d), parties %d" % [world, main.room, main.ROOMS, int(main.kills), int(main.mini_kills), int(main.boss_kills), main.curses.size(), int(main.defi_kills), int(main.level), int(main.run_gold), int(main.shop_bought), int(main.menu.gain_sumi), int(mt.sumi), int(main.menu.gain_petals), int(mt.petals), int(mt.runs)])
 	print("BOT MARCHAND monde %d : %d marchand(s), %d achat(s), or restant %d" % [world, int(main.merchants_seen), int(main.shop_bought), int(main.run_gold)])
-	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0:
+	# (le marchand n'arrive qu'au monde 2 : meta.feature_open)
+	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0 and bool(main.meta.feature_open("merchant")):
 		alert("marchand : aucun posé dans le monde %d" % world)
 	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
+	# calendrier : une mécanique fermée au départ et toujours fermée à la fin n'a rien posé (gardien vaincu en cours
+	# de partie : les portes s'ouvrent pour les étapes suivantes)
+	_cal_tick()
+	for f in _cal_seen.keys():
+		var cs: Dictionary = _cal_seen[f]
+		for cn in cs.keys():
+			if int(cs[cn]) > 0:
+				alert("calendrier : %s fermé mais %s = %d (monde %d)" % [String(f), String(cn), int(cs[cn]), world])
+	if mode == "campaign":
+		print("BOT CALENDRIER monde %d fini : portes %d, scellés %d, coffres scellés %d, énigmes %d, marchands %d, pactes %d, oni %d" % [world,
+			int(main.gates_seen), int(main.sealed_set), int(main.chests_sealed), int(main.puzzles_seen), int(main.merchants_seen), int(main.shrines_seen), int(main.elites_seen)])
 	print("BOT ÉNIGMES monde %d : %d résolues sur %d posées" % [world, int(main.puzzles_solved), int(main.puzzles_seen)])
 	_pz_seen += int(main.puzzles_seen)
 	_pz_solved += int(main.puzzles_solved)
@@ -593,20 +652,21 @@ func _play(dt: float) -> void:
 		if target == Vector3.INF:
 			return
 	target = Vector3(target.x, 0, target.z)
+	# yōkai scellé : seule sa figure l'ouvre (les coups ricochent), en mode pouvoirs aussi
+	if fight and _seal_attack():
+		return
 	if mode == "powers" and fight:
 		var kind := String(STROKE_KINDS[_n % STROKE_KINDS.size()])
 		_n += 1
 		if kind == "plain" or not figure(kind, target):
 			stroke_line(target)
 		return
-	if fight and _seal_attack():
-		return
 	_stroke(target)
 
 
 ## Yōkai scellé en vue : le robot trace la figure de son cadenas à travers lui (BotShapes.through), comme un
 ## joueur ; trop loin pour la figure, un trait court vers lui qui s'arrête avant de le toucher. Faux s'il n'y en a
-## pas (ou plus d'essai sur lui : il l'use alors à coups normaux, qui ricochent).
+## pas (ou plus d'essai sur lui après 40 tracés ratés).
 func _seal_attack() -> bool:
 	var hp: Vector3 = main.hero.position
 	var best: Node3D = null
@@ -614,7 +674,7 @@ func _seal_attack() -> bool:
 	for e in main.enemies:
 		if not is_instance_valid(e) or e.dead or e.is_harmless() or String(e.seal_fig) == "":
 			continue
-		if not BotShapes.SHAPES.has(String(e.seal_fig)) or int(e.get_meta("bot_seal", 0)) >= 6:
+		if not BotShapes.SHAPES.has(String(e.seal_fig)) or int(e.get_meta("bot_seal", 0)) >= 40:
 			continue
 		var d := Vector2(e.position.x - hp.x, e.position.z - hp.z).length()
 		if d < bd:

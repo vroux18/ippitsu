@@ -9,7 +9,14 @@ extends Control
 ## relance le jeu (jamais un trait) et le bandeau reste en rappel. La première garde ensuite le temps ralenti
 ## jusqu'au trait. Leçon des figures (« figures ») : au 2e combat, une planche des six figures, puis « Un zigzag ».
 ## Pas de texte d'interaction (UI v2) : le picto, le geste fantôme et la main portent la consigne.
-## main appelle on_launch, on_event, on_pick, slows, frozen, freeze_tap, is_over_ui et skip ;
+## Tutoriel linéaire retiré (ENABLED faux) : restent les INDICES (HINTS), chaque règle expliquée une fois
+## (meta.coach_seen), au moment précis où elle sert : premier trait, encre basse, zone rouge, figure reconnue,
+## rouleau, ultime, course, portes à sceaux, énigmes, coffre scellé, marchand, pacte, oni, gardien, boss, yōkai
+## scellé, fin de partie (l'Atelier), et chaque figure gagnée (NOUVELLE FIGURE, le geste qui se trace). Bulle
+## courte (titre, une ligne) ; arrêt sur image court seulement pour un geste à faire (sceau, figure) ou un danger
+## (zone rouge), les autres s'effacent seules ; jamais deux d'affilée (HINT_GAP, ou un combat d'écart), jamais
+## pendant une entrée de boss, un rouleau ou la pause. Option INDICES (meta.hints_on) ; robot et captures : muted.
+## main appelle on_launch, on_event, on_pick, announce_fig, slows, frozen, freeze_tap, is_over_ui et skip ;
 ## le coach lit l'état de main.
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
@@ -17,6 +24,9 @@ const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
 const PowerData = preload("res://scripts/power_data.gd")
+const Bestiary = preload("res://scripts/bestiary.gd")
+const Gear = preload("res://scripts/gear_data.gd")
+const Meta = preload("res://scripts/meta.gd")
 
 # une bulle = quelques mots ; le geste fantôme (main, trait, taps) montre le reste
 const TEXTS := {
@@ -90,7 +100,54 @@ const FREEZE_HARD_MS := 60000  # garde-fou absolu (horloge murale), même si le 
 const VEIL := 0.55  # voile d'encre de l'arrêt sur image (percé d'un projecteur sur le geste)
 const BIG := 1.06  # bandeau à peine agrandi pendant l'arrêt sur image
 
+# Indices (ENABLED faux) : titre, ligne, picto du sceau (clé ui_icons.gd ou glyph UiKit ; « fig:… » posé à
+# l'affichage), « stop » : arrêt sur image court (geste à faire, danger), « life » : durée (s réelles de jeu).
+# Les figures gagnées (« fig_<figure> ») sont construites par _hint.
+const HINTS := {
+	"stroke": {"t": "Trace", "s": "Le rōnin suit ton trait et tranche.", "icon": "hud/slash", "life": 9.0},
+	"fig_straight": {"t": "Le trait droit", "s": "Long et droit : il frappe plus fort.", "stop": true, "life": 7.0},
+	"ink": {"t": "L'encre", "s": "Elle revient quand tu ne traces pas.", "icon": "water"},
+	"danger": {"t": "Zone rouge", "s": "Un trait te sort de là avant le coup.", "icon": "effets/vitesse", "stop": true},
+	"figures": {"t": "Une figure !", "s": "Elle frappe fort et monte la chaîne.", "icon": "elements/figure"},
+	"scroll": {"t": "Tes pouvoirs", "s": "Deux rouleaux d'une famille s'allient.", "icon": "hud/rouleau"},
+	"ult": {"t": "Double tap : ultime", "s": "Deux taps : la lame balaie l'écran.", "icon": "interface/double_tap", "life": 6.0},
+	"run": {"t": "Maintiens : cours", "s": "Hors combat, doigt posé : tu cours.", "icon": "effets/vitesse"},
+	"gates": {"t": "Choisis ta porte", "s": "Chaque sceau promet sa récompense.", "icon": "hud/torii", "life": 5.5},
+	"pz_stele": {"t": "La stèle", "s": "Trace son symbole tout près d'elle.", "icon": "hud/etoile"},
+	"pz_lanterns": {"t": "Les lanternes", "s": "Relie-les d'un trait, dans l'ordre.", "icon": "hud/etoile"},
+	"pz_spirit": {"t": "L'esprit", "s": "Entoure-le d'une boucle complète.", "icon": "hud/etoile"},
+	"chest": {"t": "Coffre scellé", "s": "Trace près de lui la figure gravée.", "icon": "interface/cadenas"},
+	"merchant": {"t": "Le marchand", "s": "Entre dans l'anneau d'or pour acheter.", "icon": "hud/piece"},
+	"pact": {"t": "L'autel du pacte", "s": "Un don contre une malédiction.", "icon": "hud/rouleau", "life": 5.5},
+	"oni": {"t": "Sanctuaire d'oni", "s": "Un oni d'élite y garde un beau butin.", "icon": "hud/oni"},
+	"guardian": {"t": "Le gardien", "s": "Bouclier brisé : VULNÉRABLE, frappe !", "icon": "effets/degats"},
+	"boss": {"t": "Le boss du monde", "s": "Brise son bouclier ; gare à ses phases.", "icon": "effets/degats", "life": 5.5},
+	"seal": {"t": "Brise le sceau", "s": "Trace sa figure à travers lui.", "stop": true, "life": 7.0},
+	"tree": {"t": "Ton encre", "s": "Elle fait pousser l'Arbre de l'Atelier.", "icon": "hud/pinceau", "life": 5.0},
+}
+# priorité (les figures gagnées passent avant tout : _pick_hint)
+const HINT_ORDER := ["seal", "danger", "stroke", "fig_straight", "guardian", "boss", "figures", "scroll", "ink", "ult",
+	"gates", "chest", "pz_stele", "pz_lanterns", "pz_spirit", "merchant", "pact", "oni", "run", "tree"]
+# indice déjà donné par l'ancien tutoriel (sauvegarde existante : on ne le revoit pas)
+const HINT_OLD := {"stroke": "stroke", "ink": "ink", "ult": "ult", "run": "run", "figures": "figures", "fig_straight": "figures"}
+# la figure avec son article, pour les annonces (« tu sais tracer la boucle »)
+const FIG_THE := {"loop": "la boucle", "zigzag": "le zigzag", "straight": "le trait droit", "return": "l'aller-retour",
+	"enso": "l'ensō", "hook": "le crochet", "wave": "la vague", "point": "la pointe", "triangle": "le triangle"}
+const HINT_LIFE := 4.2  # bulle non bloquante : elle s'efface seule (s réelles)
+const HINT_GAP := 20.0  # silence entre deux indices (s réelles)...
+const HINT_SOON := 4.0  # ... ou au moins ceci, si un combat s'est fini entre-temps
+const FREEZE_MAX_HINT := 4.0  # arrêt sur image d'un indice : court, il se lève seul
+const NEAR_HINT := 7.0  # distance (m) d'un recoin (stèle, marchand, autel…) où son indice vient
+
 var main: Node
+var muted := false  # robot (hors mode ui) et captures : aucun indice
+var _due := {}  # indices d'événement en attente (« figures », « scroll », « fig_<figure> », « brush_<id> », « charm ») -> true
+var _charm_id := ""  # omamori annoncé (« charm »)
+var _clock := 0.0  # temps réel du coach (espacement des indices)
+var _free_at := 0.0  # prochain indice permis (HINT_GAP)...
+var _soon_at := 0.0  # ... ou dès ceci si le moment a changé
+var _hint_pace := ""  # moment (_moment) du dernier indice
+var _boss_t := 0.0  # depuis quand un gardien ou un boss est là (s réelles)
 var mark := ""  # bulle affichée ("" : aucune)
 var _t := 0.0  # temps réel depuis son apparition (animations)
 var _life := 0.0  # temps réel de jeu depuis son apparition (arrêt sur image non compté)
@@ -104,6 +161,7 @@ var _veil := 0.0  # opacité du voile (suit l'arrêt sur image)
 var _big := 1.0  # échelle de la bulle (suit l'arrêt sur image)
 var _skip_rect := Rect2()
 var _force := ""  # bulle à montrer dès que possible, sans condition (captures : `?coach=figures`)
+var _held := ""  # bulle demandée par une capture : elle ne part pas seule
 var _ui := FontVariation.new()
 var _title := FontVariation.new()  # titre du bandeau : Shippori espacé
 var _sb := StyleBoxFlat.new()
@@ -171,9 +229,16 @@ static func _cubic(out: PackedVector2Array, p0: Vector2, p1: Vector2, p2: Vector
 
 
 func active() -> bool:
-	if not ENABLED or main == null or main.meta == null:
+	if main == null or main.meta == null:
 		return false
+	if not ENABLED:
+		return hints_live()
 	return not bool(main.meta.tuto_done) or mark in EXTRA or _extra_due()
+
+
+## Indices permis : tutoriel retiré, option INDICES, ni robot ni capture (muted).
+func hints_live() -> bool:
+	return not ENABLED and not muted and main != null and main.meta != null and bool(main.meta.hints_on)
 
 
 ## Leçon hors tutoriel à montrer maintenant (le tutoriel fini) : premier yōkai scellé croisé.
@@ -194,12 +259,17 @@ func _pad() -> Rect2:
 
 
 func seen(id: String) -> bool:
-	return main.meta.coach_seen.has(id)
+	if main.meta.coach_seen.has(id):
+		return true
+	# indice que l'ancien tutoriel donnait déjà : vu (sauvegarde qui l'a fait, ou le tutoriel passé)
+	if not ENABLED and HINT_OLD.has(id):
+		return main.meta.coach_seen.has(String(HINT_OLD[id])) or bool(main.meta.tuto_done)
+	return false
 
 
 ## Premier trait attendu (après l'arrêt sur image) : main ralentit le temps.
 func slows() -> bool:
-	return mark == "stroke" and active() and _fz < 0.0
+	return ENABLED and mark == "stroke" and active() and _fz < 0.0  # (indices : jamais de ralenti)
 
 
 ## Arrêt sur image en cours : main fige le jeu (Engine.time_scale = 0), comme la pause.
@@ -225,8 +295,77 @@ func freeze_tap(_sp: Vector2) -> bool:
 
 ## Captures : la bulle `id` se montre dès que le jeu tourne, sans attendre son moment.
 func force(id: String) -> void:
-	if TEXTS.has(id) or id == "figure":
+	if TEXTS.has(id) or id == "figure" or HINTS.has(id) or _is_news(id):
 		_force = id
+		_held = id
+		if id == "charm" and _charm_id == "":
+			_charm_id = String(Gear.CHARM_ORDER[0])
+
+
+## Figure gagnée (main._fig_gained) : annonce NOUVELLE FIGURE dès que possible (même à la victoire ou sur la
+## feuille de résultats), une fois.
+func announce_fig(kind: String) -> void:
+	if kind != "":
+		_due["fig_" + kind] = true
+
+
+## Captures : la bulle `id`, quand elle viendra d'elle-même, ne partira pas seule.
+func hold(id: String) -> void:
+	_held = id
+
+
+## Pinceau gagné (main._award : NOUVEAU PINCEAU, ce qu'il change, où le choisir) ; premier omamori gagné (une fois).
+func announce_gear(kind: String, id: String) -> void:
+	if kind == "brush" and id != "fude":
+		_due["brush_" + id] = true
+	elif kind == "charm" and not seen("charm"):
+		_due["charm"] = true
+		_charm_id = id
+
+
+## Annonce (figure, pinceau, omamori) : elle passe avant les indices, sans attendre l'espacement.
+static func _is_news(id: String) -> bool:
+	return (id.begins_with("fig_") and id != "fig_straight") or id.begins_with("brush_") or id == "charm"
+
+
+## Nom d'un gardien (mini) ou d'un boss de monde, en casse de phrase (« Ō-Kappa », « Uwabami »).
+func foe_name(wid: int, mini: bool) -> String:
+	var tbl: Dictionary = main.MINI_BOSS if mini else main.WORLD_BOSS
+	var k := String(tbl.get(wid, ""))
+	var nm := String((Bestiary.BOSS_INFO[k] as Array)[0] if Bestiary.BOSS_INFO.has(k) else Bestiary.name_of(k)).to_lower()
+	var out := ""
+	var up := true
+	for i in nm.length():
+		var c := nm.substr(i, 1)
+		out += c.to_upper() if up else c
+		up = c == "-" or c == " "
+	return out
+
+
+## Ce qu'il faut faire pour gagner la figure `kind` (« atteindre l'étape 3 », « battre Ō-Kappa », « battre Kyūbi
+## (monde 2) ») ; l'Arbre pour vague, pointe et triangle ; "" pour le trait droit (connu d'emblée).
+func fig_goal(kind: String) -> String:
+	if Meta.FIG_GATES.has(kind):
+		var g: Array = Meta.FIG_GATES[kind]
+		var wid := int(g[0])
+		var w := "" if wid == 1 else " (monde %d)" % wid
+		match String(g[1]):
+			"stage3":
+				return "atteindre l'étape 3" + w
+			"mini":
+				return "battre " + foe_name(wid, true) + w
+		return "battre " + foe_name(wid, false) + w
+	if kind in PowerData.FIG_TREE:
+		return "l'Arbre, branche Voie"
+	return ""
+
+
+## Prochaine figure à gagner, dans l'ordre du calendrier : son but (« battre Uwabami »), "" si toutes sont connues.
+func fig_next() -> String:
+	for k in Meta.FIG_GATE_ORDER + PowerData.FIG_TREE:
+		if not bool(main.meta.fig_learned(String(k))):
+			return fig_goal(String(k))
+	return ""
 
 
 ## Nouvelle partie, retour à l'accueil : rien d'affiché.
@@ -246,8 +385,12 @@ func clear() -> void:
 		_froze = {}
 
 
-## Rouleau pris : un rouleau de figure (technique débloquée) montre sa figure.
+## Rouleau pris : un rouleau de figure (technique débloquée) montre sa figure ; indices : le premier rouleau.
 func on_pick(id: String) -> void:
+	if not ENABLED:
+		if hints_live() and not seen("scroll") and PowerData.POWERS.has(id):
+			_due["scroll"] = true
+		return
 	if not active() or seen("figure"):
 		return
 	for k in PowerData.FIG_UNLOCK.keys():
@@ -257,6 +400,12 @@ func on_pick(id: String) -> void:
 
 ## Ruée lancée ; shape : figure reconnue ("" sinon).
 func on_launch(shape: String) -> void:
+	if not ENABLED:
+		if shape != "" and hints_live() and not seen("figures") and mark != "fig_straight":
+			_due["figures"] = true
+		if mark == "stroke" or (mark == "danger" and _fz < 0.0) or (mark.begins_with("fig_") and _fz < 0.0 and shape == mark.substr(4)):
+			_finish()
+			return
 	if mark == "":
 		return
 	var se := _sealed() if mark == "seal" else null
@@ -285,7 +434,7 @@ func is_over_ui(p: Vector2) -> bool:
 
 
 func _skip_shown() -> bool:
-	return active() and _in_play() and (mark != "" or bool(main.gentle))
+	return ENABLED and active() and _in_play() and (mark != "" or bool(main.gentle))
 
 
 func _finish() -> void:
@@ -293,6 +442,12 @@ func _finish() -> void:
 		return
 	main.meta.coach_see(mark)
 	main.meta.save_data()
+	if not ENABLED:
+		# indices : le suivant attend HINT_GAP (ou la fin d'un combat)
+		_due.erase(mark)
+		_free_at = _clock + HINT_GAP
+		_soon_at = _clock + HINT_SOON
+		_hint_pace = _moment()
 	if not UNPACED.has(mark):
 		_pace = _moment()
 	if mark == "figure":
@@ -316,8 +471,11 @@ func _show(id: String) -> void:
 	_t = 0.0
 	_life = 0.0
 	_fz = -1.0
-	# arrêt sur image pour lire (une fois par bulle : une bulle reprise plus tard revient en petit)
+	# arrêt sur image pour lire (une fois par bulle : une bulle reprise plus tard revient en petit) ; indices :
+	# seulement pour un geste à faire ou un danger (« stop »), et jamais hors du jeu
 	_fz_want = not _froze.has(id)
+	if not ENABLED:
+		_fz_want = _fz_want and bool(_hint(id).get("stop", false)) and _in_play()
 
 
 ## Le jeu se fige : la bulle se lit en grand.
@@ -361,6 +519,196 @@ func _wanted(id: String) -> bool:
 			return bool(main._explore) and not bool(main.in_hub) and bool(ar.stage) and int(main._enc) < 0 \
 				and int(ar.zones_done()) >= 1 and int(ar.zones_left()) > 0
 	return false
+
+
+# ------------------------------------------------------------------ indices
+
+## Fiche d'un indice (HINTS, ou une figure gagnée « fig_<figure> » : NOUVELLE FIGURE).
+func _hint(id: String) -> Dictionary:
+	if HINTS.has(id):
+		return HINTS[id]
+	if id.begins_with("fig_"):
+		var k := id.substr(4)
+		# comment on l'a gagnée (étape 3, gardien, boss) ; la carte dessous dit ce qui vient ensuite
+		var how := "Nouvelle figure"
+		if Meta.FIG_GATES.has(k):
+			var g: Array = Meta.FIG_GATES[k]
+			match String(g[1]):
+				"stage3":
+					how = "Étape 3 atteinte"
+				"mini":
+					how = "Gardien vaincu"
+				_:
+					how = foe_name(int(g[0]), false) + " vaincu"
+		elif k in PowerData.FIG_TREE:
+			how = "Apprise dans l'Arbre"
+		return {"t": "Nouvelle figure · " + String(UiKit.FIG_WORD.get(k, k)).to_lower(),
+			"s": "%s : tu sais %s tracer." % [how, "la" if String(FIG_THE.get(k, "la")).begins_with("la") else "le"],
+			"icon": "fig:" + k, "stop": true, "life": 7.5}
+	if id.begins_with("brush_"):
+		var b: Dictionary = Gear.brush(id.substr(6))
+		return {"t": "Nouveau pinceau · " + String(b.get("word", "")), "s": "Choisis-le AVANT LE DÉPART.",
+			"icon": "hud/pinceau", "life": 8.0, "card": [String(b.get("name", "")), String(b.get("rule", ""))]}
+	if id == "charm":
+		var c: Dictionary = Gear.CHARMS.get(_charm_id, {})
+		return {"t": "Nouvel omamori · " + String(c.get("short", "")), "s": "Choisis-le AVANT LE DÉPART.",
+			"icon": "hud/etoile", "life": 8.0, "card": [String(c.get("name", "")).to_upper(), String(c.get("effect", ""))]}
+	return {}
+
+
+## Figure montrée par la bulle (« fig_<figure> », sceau du yōkai), "" sinon.
+func _hint_fig() -> String:
+	if mark.begins_with("fig_"):
+		return mark.substr(4)
+	if mark == "seal":
+		var se := _sealed()
+		return String(se.seal_fig) if se != null else ""
+	return ""
+
+
+## Hors du jeu : la fin au ralenti d'une victoire, la feuille de résultats (annonces et Atelier seulement).
+func _off_play() -> bool:
+	var st := String(main.state)
+	return (st == "dying" and bool(main.get("_ending_victory"))) or _sheet()
+
+
+## Feuille de résultats affichée (fin de partie).
+func _sheet() -> bool:
+	var st := String(main.state)
+	return (st == "over" or st == "menu") and String(main.menu.mode) == "over" and bool(main.menu.visible)
+
+
+func _off_hint(id: String) -> bool:
+	return id == "tree" or _is_news(id)
+
+
+## Le coach peut montrer (ou garder) sa bulle ici : en jeu ; indices : aussi les annonces hors du jeu.
+func _here() -> bool:
+	if _in_play():
+		return true
+	return not ENABLED and _off_play() and (mark == "" or _off_hint(mark))
+
+
+## Indice suivant, s'il en est un dû et que l'espacement le permet (les figures gagnées passent toujours).
+func _pick_hint() -> void:
+	var play := _in_play()
+	for k in _due.keys():
+		var fid := String(k)
+		if _is_news(fid):
+			if seen(fid):
+				_due.erase(fid)
+				continue
+			_show(fid)
+			return
+	var spaced := _clock >= _free_at or (_moment() != _hint_pace and _clock >= _soon_at)
+	if not spaced:
+		return
+	for id in HINT_ORDER:
+		var sid := String(id)
+		if play == (sid == "tree"):
+			continue  # (« tree » : feuille de résultats seulement ; le reste : en jeu)
+		if not seen(sid) and _hint_wanted(sid):
+			_show(sid)
+			return
+
+
+## L'indice sert-il maintenant ?
+func _hint_wanted(id: String) -> bool:
+	if id == "tree":
+		return _sheet()
+	var dash := bool(main.hero.dashing)
+	var hub := bool(main.in_hub)
+	match id:
+		"stroke":
+			return not dash
+		"fig_straight":
+			return seen("stroke") and not dash and bool(main.meta.fig_learned("straight"))
+		"figures", "scroll":
+			return _due.has(id)
+		"ink":
+			return not hub and not bool(main._explore) and float(main.elan) < float(main.elan_max()) * 0.35
+		"danger":
+			return not hub and _danger() != Vector3.INF
+		"ult":
+			return float(main.ult) >= 1.0 and not hub
+		"run":
+			var ar = main.arena
+			return bool(main._explore) and not hub and bool(ar.stage) and int(main._enc) < 0 \
+				and int(ar.zones_done()) >= 1 and int(ar.zones_left()) > 0
+		"gates":
+			return _gate_near()
+		"pz_stele", "pz_lanterns", "pz_spirit":
+			return bool(main._explore) and _pocket_near("puzzle", id.substr(3)) != null
+		"chest":
+			return bool(main._explore) and _pocket_near("chest", "seal") != null
+		"merchant":
+			return bool(main._explore) and _pocket_near("merchant", "") != null
+		"oni":
+			return bool(main._explore) and _pocket_near("elite", "") != null
+		"pact":
+			var sh = main.get("_shrine")
+			return sh != null and is_instance_valid(sh) and (sh as Node3D).position.distance_to(main.hero.position) < NEAR_HINT
+		"guardian", "boss":
+			return _boss_t > 1.2 and _boss_of(id == "guardian") != null
+		"seal":
+			return not dash and _sealed() != null
+	return false
+
+
+## Zone rouge d'une attaque en préparation sur le héros (indice « danger ») : son centre, ou Vector3.INF.
+func _danger() -> Vector3:
+	var hp: Vector3 = main.hero.position
+	for e in main.enemies:
+		if not is_instance_valid(e) or e.dead:
+			continue
+		var z: Array = e.danger_zone()
+		if z.size() < 3 or float(z[2]) < 0.35:
+			continue
+		var c: Vector3 = z[0]
+		if Vector2(c.x - hp.x, c.z - hp.z).length() < float(z[1]) + 0.4:
+			return c
+	return Vector3.INF
+
+
+## Portes à sceaux éveillées (fin d'étape) près du héros.
+func _gate_near() -> bool:
+	var sg = main.arena.get("_seal")
+	if sg == null or not is_instance_valid(sg) or not bool(sg.get("opened")):
+		return false
+	var hp: Vector3 = main.hero.position
+	for g in sg.get("_gates"):
+		var root = (g as Dictionary).get("root")
+		if root != null and is_instance_valid(root) and (root as Node3D).global_position.distance_to(hp) < NEAR_HINT + 2.0:
+			return true
+	return false
+
+
+## Recoin pas encore servi, de sorte `kind` (énigme : `pz` = stele, lanterns, spirit ; coffre : « seal » = scellé),
+## visible et près du héros ; null sinon.
+func _pocket_near(kind: String, pz: String) -> Variant:
+	var hp: Vector3 = main.hero.position
+	for pk: Dictionary in main.get("_pockets"):
+		if String(pk.get("kind", "")) != kind or bool(pk.get("used", false)):
+			continue
+		if pz != "" and String(pk.get("pz", "")) != pz:
+			continue
+		if kind == "chest" and not bool(pk.get("sealed", false)):
+			continue
+		var n = pk.get("node")
+		if n == null or not is_instance_valid(n) or not (n as Node3D).visible:
+			continue
+		var p: Vector3 = pk.get("pos", Vector3.INF)
+		if Vector2(p.x - hp.x, p.z - hp.z).length() < NEAR_HINT:
+			return pk
+	return null
+
+
+## Gardien (mini) ou boss du monde vivant, ou null.
+func _boss_of(mini: bool) -> Node3D:
+	for b in main.bosses:
+		if is_instance_valid(b) and not b.dead and bool(main.is_mini_boss(String(b.kind))) == mini:
+			return b
+	return null
 
 
 ## Yōkai scellé vivant et visible le plus proche du héros (leçon « seal »), ou null.
@@ -411,17 +759,26 @@ func _process(_delta: float) -> void:
 			Perf.add(&"coach", _pt)
 		return
 	visible = true
-	if not _in_play():
+	var real := UiKit.real_delta()
+	_clock += real
+	if _in_play() and not main.bosses.is_empty():
+		_boss_t += real
+	elif _in_play():
+		_boss_t = 0.0
+	if not _here():
+		if not ENABLED and mark != "" and _off_play():
+			_finish()  # (bulle de jeu quand la partie s'achève : elle a été vue)
 		_update_parts()  # (pause, rouleaux, mort : rien d'affiché)
 		if _pt != 0:
 			Perf.add(&"coach", _pt)
 		return
-	var real := UiKit.real_delta()
 	if mark == "":
 		_gap -= real
 		if _force != "":
 			_show(_force)
 			_force = ""
+		elif _gap <= 0.0 and not ENABLED:
+			_pick_hint()
 		elif _gap <= 0.0:
 			for id in ORDER:
 				var sid := String(id)
@@ -440,6 +797,8 @@ func _process(_delta: float) -> void:
 			# arrêt sur image : le jeu attend un toucher (garde-fou : il repart seul)
 			_fz += real
 			var fz_max := FREEZE_MAX_BOT if main.get("_bot") != null else FREEZE_MAX
+			if not ENABLED:
+				fz_max = minf(fz_max, FREEZE_MAX_HINT)
 			if _fz > fz_max or not frozen():
 				_unfreeze()
 		else:
@@ -448,10 +807,14 @@ func _process(_delta: float) -> void:
 				_finish()  # l'encre est revenue : compris
 			else:
 				var life := float(LIFE.get(mark, 6.0))
+				if not ENABLED:
+					life = float(_hint(mark).get("life", HINT_LIFE))
+				if mark == _held:
+					life = 0.0  # (capture : la bulle demandée reste)
 				if life > 0.0 and _life > life:
 					_finish()
 	# arrêt sur image demandé : dès que le doigt est levé (jamais au milieu d'un trait ou d'une course)
-	if mark != "" and _fz_want and _fz < 0.0:
+	if mark != "" and _fz_want and _fz < 0.0 and _in_play():
 		if not bool(main.touching):
 			_freeze()
 		elif _life > 1.0:
@@ -511,7 +874,7 @@ static func _resign(p: _Part, sig: Array) -> void:
 
 ## Calques du coach à cette image : signatures, transformations, fondus (appelé à chaque _process).
 func _update_parts() -> void:
-	_shown = main != null and active() and _in_play() and size.x >= 10.0
+	_shown = main != null and active() and _here() and size.x >= 10.0
 	var u := size.x / 400.0
 	if _shown and u != _fing_u:
 		_fing_u = u
@@ -562,6 +925,13 @@ func _update_veil(u: float) -> void:
 				# le projecteur prend le yōkai et son cadenas (au-dessus de sa tête)
 				sc = _screen(se.seal_anchor()).lerp(feet, 0.3) if se != null else feet
 				sr = Vector2(110.0, 170.0) * u
+			"danger":
+				sc = _screen(hp)  # (le héros, même en mode pad : c'est lui qu'il faut sortir de la zone)
+				sr = Vector2(110.0, 140.0) * u
+			_:
+				if mark.begins_with("fig_"):
+					sc = feet
+					sr = Vector2(120.0, 150.0) * u
 		if sc.x < -9000.0 or mark == "" or mark == "figures":
 			_resign(_veil_n, [1, size])
 		else:
@@ -652,6 +1022,16 @@ func _draw() -> void:
 	var insets := UiKit.safe_insets(size)
 	var a := clampf(_t / 0.3, 0.0, 1.0)
 	var hero: Node3D = main.hero
+	if not _in_play() or not is_instance_valid(hero):
+		# hors du jeu (victoire, résultats) : la bulle et la figure seulement
+		if _hint_fig() != "":
+			_draw_fig_card(_hint_fig(), u, a)
+		elif not ENABLED and _hint(mark).has("card"):
+			_draw_text_card(_hint(mark)["card"], u, a)
+		_place_fingers()
+		if _pt != 0:
+			Perf.add(&"coach_draw", _pt)
+		return
 	var hp := hero.position
 	var feet := _screen(hp)
 	# mode pad : les gestes fantômes se font dans le pad (le terrain garde le bandeau)
@@ -683,8 +1063,14 @@ func _draw() -> void:
 		"seal":
 			var se := _sealed()
 			if se != null:
-				_ghost_line(_screen(hp), _screen(se.position), u, a)
 				_show_lock(se, u, a)
+				if not ENABLED:
+					_draw_fig_card(String(se.seal_fig), u, a)  # la figure exacte de ce sceau, qui se trace
+				else:
+					_ghost_line(_screen(hp), _screen(se.position), u, a)
+		"danger":
+			var pulse := 0.5 + 0.5 * sin(_t * 7.0)
+			draw_arc(_screen(hp),(34.0 + 8.0 * pulse) * u, 0.0, TAU, 40, Color(Toon.VERMILION, (0.5 + 0.4 * pulse) * a), 3.0 * u, true)
 		"figures":
 			if _fz >= 0.0:
 				_draw_lesson_traces(u, a)  # traits animés de la planche des six figures (le calque porte le reste)
@@ -695,6 +1081,11 @@ func _draw() -> void:
 				_ghost_pad_hold(feet, u, a)
 			else:
 				_ghost_hold(feet, hp, u, a)
+		_:
+			if mark.begins_with("fig_"):
+				_draw_fig_card(mark.substr(4), u, a)
+			elif not ENABLED and _hint(mark).has("card"):
+				_draw_text_card(_hint(mark)["card"], u, a)
 	if _fz >= 0.0:
 		_draw_hint(u, insets)
 	_place_fingers()
@@ -713,6 +1104,71 @@ func _show_lock(se: Node3D, u: float, a: float) -> void:
 	var pulse := 0.5 + 0.5 * sin(_t * 5.0)
 	draw_arc(c + Vector2(0, -4.0 * u), (24.0 + 4.0 * pulse) * u, 0.0, TAU, 48, Color(Toon.GOLD, (0.55 + 0.45 * pulse) * a), 2.5 * u, true)
 	UiKit.seal_lock(self, c, hud.LOCK_S * hud.size.x / 400.0, String(se.seal_fig), a, float(se.seal_rico), 0.0, 0.0, _t)
+
+
+## Indices : carte de papier sous le bandeau, la figure `kind` qui s'y trace en boucle (le geste du coach et du
+## dojo, UiKit.draw_gesture), le doigt fantôme sur sa pointe ; son nom et sa technique dessous.
+func _draw_fig_card(kind: String, u: float, a: float) -> void:
+	var top: float = main.hud.top_clear()
+	var hb = main.hud.get("_banner_t")
+	if hb != null and float(hb) >= 0.0:
+		top += 64.0 * u
+	var side := 132.0 * u
+	# annonce d'une figure gagnée : ce qui vient ensuite, en bas de la carte (« PROCHAINE : battre Uwabami »)
+	var nxt := ""
+	if mark.begins_with("fig_") and mark != "fig_straight":
+		nxt = fig_next()
+	var w := side
+	if nxt != "":
+		nxt = "Prochaine : " + nxt
+		w = maxf(side, UiKit.UI_FONT.get_string_size(UiKit.plain(nxt), HORIZONTAL_ALIGNMENT_LEFT, -1, int(10.0 * u)).x + 24.0 * u)
+	var r := Rect2(Vector2((size.x - w) * 0.5, top + 8.0 * u + 60.0 * u * _big + 12.0 * u), Vector2(w, side + (52.0 if nxt != "" else 34.0) * u))
+	if mark == "seal" and _in_play():
+		# yōkai scellé : la carte sous le héros, le yōkai et son cadenas restent visibles
+		var feet := _screen(main.hero.position)
+		var ins := UiKit.safe_insets(size)
+		r.position.y = clampf(feet.y + 44.0 * u, r.position.y, size.y - ins.y - r.size.y - 12.0 * u)
+	r.position.y += (1.0 - UiKit.ease_out(a)) * 8.0 * u
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(14.0 * u)), Rect2(r.position + Vector2(0, 3.0 * u), r.size))
+	draw_style_box(UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14.0 * u), Color(Toon.ui_ink, 0.85 * a), maxi(1, int(1.5 * u))), r)
+	var g := Rect2(Vector2(r.get_center().x - side * 0.5, r.position.y) + Vector2(10.0, 10.0) * u, Vector2(side - 20.0 * u, side - 20.0 * u))
+	UiKit.draw_gesture(self, _sb, kind, g, u * 1.4, a, _t, Toon.ui_ink, true, true)
+	# le doigt suit la pointe du trait (même horloge que draw_gesture)
+	var pts := UiKit.gesture_points(kind)
+	if pts.size() >= 2:
+		var inner := g.grow(-8.0 * u * 1.4)
+		var k := clampf(fmod(maxf(_t, 0.0), 2.2) / 1.6, 0.0, 1.0)
+		var tip: Vector2 = inner.position + pts[int(k * float(pts.size() - 1))] * inner.size
+		_finger(tip, u * 0.8, a * 0.9)
+	var ny := r.position.y + side + 12.0 * u
+	UiKit.text(self, _title, UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind))), Vector2(r.get_center().x, ny), int(13.0 * u), Color(Toon.ui_ink, a))
+	UiKit.text(self, _ui, UiKit.plain(String(TECH.get(kind, ""))), Vector2(r.get_center().x, ny + 14.0 * u), int(10.0 * u), Color(Toon.ui_ink, 0.6 * a))
+	if nxt != "":
+		UiKit.text(self, UiKit.UI_FONT, UiKit.plain(nxt), Vector2(r.get_center().x, ny + 32.0 * u), int(10.0 * u), Color(Toon.VERMILION, a))
+
+
+## Annonce d'un pinceau ou d'un omamori : carte de papier sous le bandeau, son nom et ce qu'il change (lines :
+## [nom, texte], le texte coupé en lignes).
+func _draw_text_card(lines: Array, u: float, a: float) -> void:
+	if lines.size() < 2:
+		return
+	var top: float = main.hud.top_clear()
+	var hb = main.hud.get("_banner_t")
+	if hb != null and float(hb) >= 0.0:
+		top += 64.0 * u
+	var w := minf(size.x - 48.0 * u, 300.0 * u)
+	var fs := int(12.0 * u)
+	var body := UiKit.wrap(UiKit.UI_FONT, UiKit.plain(String(lines[1])), fs, w - 28.0 * u, GLUE)
+	var lh := float(fs) * 1.35
+	var r := Rect2(Vector2((size.x - w) * 0.5, top + 8.0 * u + 60.0 * u * _big + 12.0 * u), Vector2(w, 46.0 * u + lh * float(body.size())))
+	r.position.y += (1.0 - UiKit.ease_out(a)) * 8.0 * u
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(14.0 * u)), Rect2(r.position + Vector2(0, 3.0 * u), r.size))
+	draw_style_box(UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14.0 * u), Color(Toon.ui_ink, 0.85 * a), maxi(1, int(1.5 * u))), r)
+	var cx := r.get_center().x
+	UiKit.text(self, _title, UiKit.plain(String(lines[0])), Vector2(cx, r.position.y + 24.0 * u), int(14.0 * u), Color(Toon.ui_ink, a))
+	draw_rect(Rect2(Vector2(cx - 14.0 * u, r.position.y + 31.0 * u), Vector2(28.0 * u, 2.5 * u)), Color(Toon.VERMILION, a))
+	for i in body.size():
+		UiKit.text(self, UiKit.UI_FONT, String(body[i]), Vector2(cx, r.position.y + 50.0 * u + lh * float(i)), fs, Color(Toon.ui_ink, 0.85 * a))
 
 
 ## Invite à toucher (arrêt sur image) : une main fantôme qui pulse en bas, sans un mot, un instant après l'arrêt.
@@ -904,7 +1360,16 @@ func _update_banner(u: float) -> void:
 	var on := _shown and mark != ""
 	var txt := ""
 	var icon := ""
-	if on:
+	var sub := String(SUBS.get(mark, ""))
+	if on and not ENABLED:
+		var hd := _hint(mark)
+		txt = String(hd.get("t", ""))
+		sub = String(hd.get("s", ""))
+		icon = String(hd.get("icon", ""))
+		if _hint_fig() != "":
+			icon = "fig:" + _hint_fig()
+		on = txt != ""
+	elif on:
 		var in_pad := _pad().size.x >= 10.0
 		txt = String(TEXTS.get(mark, ""))
 		if in_pad:
@@ -935,7 +1400,7 @@ func _update_banner(u: float) -> void:
 		_banner_n.position = Vector2(size.x * 0.5, top + 8.0 * u + h / 2.0)
 		_banner_n.scale = Vector2(_big, _big)
 		_banner_n.modulate.a = a
-		_resign(_banner_n, [txt, String(SUBS.get(mark, "")), u, ein, ta])
+		_resign(_banner_n, [txt, sub, u, ein, ta])
 		# sceau carré vermillon, posé comme un tampon juste après le trait (il tombe de 1,6 fois sa taille)
 		var sk := clampf((_t - 0.1) / 0.22, 0.0, 1.0)
 		if sk > 0.0:
@@ -982,7 +1447,8 @@ func _paint_banner(ci: CanvasItem) -> void:
 	while fs > 10 and _title.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
 		fs -= 1
 	var sfs := int(11 * u)
-	while st != "" and sfs > 7 and UiKit.UI_FONT.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > room:
+	# (la ligne passe dans le bas du coup de pinceau, qui s'effile à droite : un peu moins de place que le titre)
+	while st != "" and sfs > 7 and UiKit.UI_FONT.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > bw * 0.66:
 		sfs -= 1
 	if st == "":
 		ci.draw_string(_title, Vector2(tx + (1.0 - ein) * 10.0 * u, fs * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.WASHI, ta))
@@ -1049,6 +1515,12 @@ func warm() -> void:
 		_title.get_string_size(UiKit.plain(String(FIG_TEXT[k])).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(16 * u))
 	for k in SUBS.keys():
 		UiKit.UI_FONT.get_string_size(UiKit.plain(String(SUBS[k])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u))
+	for k in HINTS.keys():
+		var hd: Dictionary = HINTS[k]
+		_title.get_string_size(UiKit.plain(String(hd["t"])).to_upper(), HORIZONTAL_ALIGNMENT_LEFT, -1, int(16 * u))
+		UiKit.UI_FONT.get_string_size(UiKit.plain(String(hd["s"])), HORIZONTAL_ALIGNMENT_LEFT, -1, int(11 * u))
+		if String(hd.get("icon", "")).contains("/"):
+			UiKit.icon(String(hd["icon"]), 22.0 * u, {"*": UIColors.hex(Toon.WASHI)})
 
 
 ## Main fantôme (planche Coach) : halo washi doux (deux disques, sans flou), index tendu vers `p` (le bout du

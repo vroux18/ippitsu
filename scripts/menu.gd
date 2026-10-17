@@ -10,10 +10,9 @@ const Meta = preload("res://scripts/meta.gd")
 const Score = preload("res://scripts/score.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
 const GOLD_INK := Color("#9A6B12")  # or lisible sur le papier
-# feuille de résultats (× u) : en-tête sumi, bloc score + rang, lignes à sceau ; le bas est réservé aux boutons
-const HEADER_H := 64.0
-const HEAD_H := 104.0
-const ROW_HEIGHTS := {"killer": 74.0, "stats": 50.0, "figures": 50.0, "build": 52.0, "loot": 66.0, "unlock": 86.0, "advice": 60.0}
+const Intro = preload("res://scripts/intro.gd")  # noms des figures (FIG_NAME) pour la feuille de résultats
+# feuille de résultats (× u) : en-tête sumi (le mot, le monde et l'étape), puis des blocs titrés ; le bas est réservé aux boutons
+const HEADER_H := 86.0
 const VERMILION_LIGHT := Color("#E8574A")  # VAINCU sur l'en-tête sumi (planche Défaite)
 const RANK_ICON := ["hud/prunier", "hud/bambou", "hud/pin", "hud/couronne"]  # pictos des rangs (score.gd)
 # auteur du coup fatal (type d'ennemi), pour « VAINCU PAR … »
@@ -83,6 +82,7 @@ var new_prints: Array = []  # Vues gagnées à cette partie (ids de meta.PRINTS)
 var new_looks: Array = []  # garde-robe : éléments gagnés par exploit à cette partie ({name, col, col2})
 var killer_kind := ""  # type d'ennemi du coup fatal (vide : inconnu ou boss)
 var killer_name := ""  # nom du boss du coup fatal
+var killer_hint := ""  # son point faible (main.BOSS_HINTS), repris dans le conseil
 # victoire : bouton principal vers le monde suivant ("" : REJOUER reste le bouton principal)
 var next_label := ""
 # ce que la victoire a débloqué (rangée DÉBLOQUÉ) : monde ouvert (0 : aucun) et nouveaux rouleaux
@@ -779,11 +779,13 @@ func _draw_ink_counter(p: Vector2, u: float) -> void:
 	UiKit.ink_counter(self, _sb, p.x, p.y, sumi, u, 1.0)
 
 
-## Écran de fin (UI v2, planches Victoire / Défaite, sur la feuille washi de la pause) : en-tête sumi (le mot,
-## trait vermillon), le score en Zen Kaku 900, le rang en tuile picto + nom et le palier suivant en texte, RECORD
-## en pastille ; puis des lignes à sceau vermillon : chiffres de la partie, figures, pouvoirs (médaillons et
-## étiquettes d'élément), gains (encre, sceaux, estampes), déblocages d'une victoire ; défaite : le monstre du coup
-## fatal et le conseil de fuite en pictos (zone rouge → trace un trait pour en sortir). Jamais de kanji, les chiffres en num_font, pas de flou.
+## Écran de fin (UI v2, planches Victoire / Défaite, sur la feuille washi de la pause), lisible sans légende à
+## deviner : en-tête sumi (le mot, trait vermillon, « Grande Vague · étape 4 sur 8 ») ; défaite : « Tombé face à »
+## et le portrait du yokai ; le score et le rang expliqué (« Rang Prunier — prochain : Bambou à 22 000 », RECORD) ;
+## puis des sections titrées : la partie (chiffres libellés, deux colonnes), les figures tracées (nommées, les plus
+## tracées d'abord), les pouvoirs (victoire), les gains (« +98 encre — pour l'Arbre (Atelier) ») et ce qui vient
+## d'être débloqué en toutes lettres ; enfin un conseil en une phrase choisi d'après la partie (_advice).
+## Jamais de kanji ni de macron (polices réduites : UiKit.plain), les chiffres en num_font, pas de flou.
 func _draw_results() -> void:
 	var w := size.x
 	var u := w / 400.0
@@ -796,7 +798,7 @@ func _draw_results() -> void:
 	draw_colored_polygon(Transform2D(0.0, Vector2(0, 7.0 * u)) * pts, Color(0, 0, 0, 0.14 * a))
 	draw_colored_polygon(Transform2D(0.0, Vector2(0, 3.0 * u)) * pts, Color(0, 0, 0, 0.18 * a))
 	draw_colored_polygon(pts, Color(th_paper, a))
-	# en-tête sumi : VICTOIRE en papier (VAINCU en vermillon clair), trait vermillon qui se pose dessous
+	# en-tête sumi : VICTOIRE en papier (VAINCU en vermillon clair), trait vermillon, puis le monde et l'étape
 	var head := Rect2(sheet.position, Vector2(sheet.size.x, HEADER_H * u))
 	draw_colored_polygon(UiKit.rrect_points(head, 18.0 * u, true), Color(UIColors.SUMI, a))
 	var word := "VICTOIRE" if victory else "VAINCU"
@@ -808,87 +810,102 @@ func _draw_results() -> void:
 	if tw > head.size.x * 0.82:
 		tfs = int(float(tfs) * head.size.x * 0.82 / tw)
 	var kh := UiKit.ease_out(clampf((_t - 0.15) / 0.35, 0.0, 1.0))
-	UiKit.text(self, _pause_title, word, Vector2(cx + float(sp) * 0.5, head.position.y + 41.0 * u + 4.0 * u * (1.0 - kh)), tfs, Color(wc, a * kh))
+	UiKit.text(self, _pause_title, word, Vector2(cx + float(sp) * 0.5, head.position.y + 38.0 * u + 4.0 * u * (1.0 - kh)), tfs, Color(wc, a * kh))
 	var bk := UiKit.ease_out(clampf((_t - 0.25) / 0.4, 0.0, 1.0))
 	if bk > 0.05:
-		var swash := Rect2(Vector2(cx - 81.0 * u, head.position.y + 47.0 * u), Vector2(162.0 * u, 9.0 * u))
+		var swash := Rect2(Vector2(cx - 81.0 * u, head.position.y + 44.0 * u), Vector2(162.0 * u, 9.0 * u))
 		draw_colored_polygon(UiKit.swash_points(swash, bk, 5.0), Color(UIColors.VERMILION, a))
-	# contenu : le score et le rang, puis les lignes
+	var sub := UiKit.plain("%s · étape %d sur %d" % [world_name, stat_room, rooms_total])
+	var sfs := _fit_text(_body_font(), sub, int(UiKit.FS_LABEL * u), head.size.x - 40.0 * u)
+	var sk := UiKit.ease_out(clampf((_t - 0.35) / 0.35, 0.0, 1.0))
+	UiKit.text(self, _body_font(), sub, Vector2(cx, head.position.y + 73.0 * u), sfs, Color(UIColors.WASHI, 0.8 * a * sk))
+	# contenu : blocs empilés (hauteurs mesurées, l'écart se resserre si l'écran est court)
 	var lay := _results_layout(u)
-	var v: float = lay["v"]
-	var x0 := sheet.position.x + 18.0 * u
-	var x1 := sheet.end.x - 18.0 * u
+	var x0: float = lay["x0"]
+	var x1: float = lay["x1"]
 	var y: float = lay["top"]
-	_draw_head(y, u, v, a)
-	y += HEAD_H * v
-	var rows: Array = lay["rows"]
-	for i in rows.size():
-		var kind := String(rows[i])
-		var rk := UiKit.ease_out(clampf((_t - 0.5 - 0.12 * float(i)) / 0.3, 0.0, 1.0))
-		var rh := float(ROW_HEIGHTS[kind]) * v
+	var gap: float = lay["gap"]
+	var blocks: Array = lay["blocks"]
+	for i in blocks.size():
+		var kind := String(blocks[i][0])
+		var bh := float(blocks[i][1])
+		var rk := UiKit.ease_out(clampf((_t - 0.45 - 0.1 * float(i)) / 0.3, 0.0, 1.0))
 		if rk > 0.0:
 			var ra := a * rk
 			var ry := y + 6.0 * u * (1.0 - rk)
 			match kind:
 				"killer":
-					_draw_killer(x0, x1, ry, rh, u, ra)
-				"build":
-					_draw_build(x0, x1, ry, rh, u, ra)
-				"figures":
-					_draw_figures(x0, x1, ry, rh, u, ra)
+					_draw_killer(x0, x1, ry, bh, u, ra)
+				"score":
+					_draw_head(ry, u, ra)
 				"stats":
-					_draw_stats(x0, x1, ry, rh, u, ra)
-				"loot":
-					_draw_loot(x0, x1, ry, rh, u, ra)
-				"unlock":
-					_draw_unlocks(x0, x1, ry, rh, u, ra)
+					_draw_stats(x0, x1, ry, u, ra)
+				"figures":
+					_draw_figures(x0, x1, ry, u, ra)
+				"build":
+					_draw_build(x0, x1, ry + _SEC_H * u, bh - _SEC_H * u, u, ra)
+				"gains":
+					_draw_gains(x0, x1, ry, u, ra)
 				"advice":
-					_draw_advice(x0, x1, ry, rh, u, ra)
-			if kind != "advice" and kind != "killer":
-				draw_line(Vector2(x0, y), Vector2(x1, y), Color(th_ink, 0.12 * ra), maxf(1.0, 1.0 * u))
-		y += rh
+					_draw_advice(x0, x1, ry, bh, u, ra)
+		y += bh + gap
 
 
-## Lignes de la feuille et leur échelle verticale v (resserrée si l'écran est court) ; top : y du score.
+const _SEC_H := 20.0  # titre de section (petites capitales, trait d'encre), × u
+
+
+## Blocs de la feuille et leurs hauteurs (px) ; l'écart entre blocs se resserre (jusqu'à 2 u) si tout ne tient pas,
+## et ce qui reste est réparti au-dessus et dessous.
 func _results_layout(u: float) -> Dictionary:
-	var rows: Array = []
-	if victory:
-		rows = ["stats", "figures", "build", "loot"]
-		if _unlock_rows() > 0:
-			rows.append("unlock")
-	else:
-		rows = ["killer", "stats", "figures", "loot", "advice"]
-		if not unlock_gear.is_empty():
-			rows.insert(4, "unlock")  # un omamori peut se gagner sur une défaite (meilleur score d'un monde vaincu)
-	var content := HEAD_H
-	for r in rows:
-		content += float(ROW_HEIGHTS[r])
 	var sheet := _sheet_rect()
-	var avail := (sheet.size.y - HEADER_H * u - _btn_zone_h(next_label != "") * u) / u - 14.0
-	var k := clampf(avail / content, 0.7, 1.0)
-	var top := sheet.position.y + HEADER_H * u + 8.0 * u + maxf(0.0, avail - content) * 0.35 * u
-	return {"v": u * k, "top": top, "rows": rows}
-
-
-## Déblocages d'une victoire (rangée DÉBLOQUÉ) : le monde ouvert, la famille de rouleaux.
-## Les estampes gagnées sont dans les gains.
-func _unlock_rows() -> int:
+	var x0 := sheet.position.x + 18.0 * u
+	var x1 := sheet.end.x - 18.0 * u
+	var cw := x1 - x0
+	var blocks: Array = []
 	if not victory:
-		return unlock_gear.size()
-	var n := unlock_gear.size()
-	if unlock_world > 0:
-		n += 1
-	if not unlock_powers.is_empty():
-		n += 1
-	return n
+		blocks.append(["killer", 50.0 * u])
+	blocks.append(["score", 80.0 * u])
+	blocks.append(["stats", _SEC_H * u + 2.0 * 26.0 * u])
+	blocks.append(["figures", _SEC_H * u + float(maxi(1, _fig_rows(u, cw).size())) * 24.0 * u])
+	if victory:
+		blocks.append(["build", _SEC_H * u + 40.0 * u])
+	blocks.append(["gains", _SEC_H * u + _gains_h(u, cw)])
+	blocks.append(["advice", _advice_h(u, cw)])
+	var total := 0.0
+	for b in blocks:
+		total += float(b[1])
+	var top0 := sheet.position.y + HEADER_H * u + 10.0 * u
+	var avail := sheet.end.y - _btn_zone_h(next_label != "") * u - 6.0 * u - top0
+	# écran trop court pour tout (beaucoup de déblocages) : les pouvoirs cèdent leur place (ils sont dans la pause)
+	if victory and total + 2.0 * u * float(blocks.size() - 1) > avail:
+		for b in blocks:
+			if String(b[0]) == "build":
+				total -= float(b[1])
+				blocks.erase(b)
+				break
+	var n := float(blocks.size() - 1)
+	var gap := clampf((avail - total) / maxf(n, 1.0), 2.0 * u, 12.0 * u)
+	var spare := maxf(0.0, avail - total - gap * n)
+	return {"x0": x0, "x1": x1, "top": top0 + spare * 0.3, "gap": gap, "blocks": blocks}
 
 
-## Sceau d'une ligne (carré vermillon arrondi, picto papier) ; renvoie le x où commence le contenu.
-func _row_icon(x0: float, cy: float, key: String, u: float, a: float) -> float:
-	var sq := Rect2(Vector2(x0, cy - 14.0 * u), Vector2(28.0, 28.0) * u)
-	draw_style_box(UiKit.box(_sb, Color(UIColors.VERMILION, a), int(6 * u)), sq)
-	UiKit.draw_icon(self, key, sq.get_center(), 17.0 * u, a, UIColors.WASHI)
-	return x0 + 40.0 * u
+## Police du texte courant de la feuille (Zen Kaku, sans espacement).
+func _body_font() -> Font:
+	return UiKit.UI_FONT
+
+
+## Taille (<= fs) à laquelle `txt` tient dans maxw.
+func _fit_text(font: Font, txt: String, fs: int, maxw: float) -> int:
+	var f := fs
+	while f > 7 and font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > maxw:
+		f -= 1
+	return f
+
+
+## Titre de section : petites capitales pâles et trait d'encre jusqu'au bord (UiKit.section).
+func _section(label: String, x0: float, x1: float, y: float, u: float, a: float) -> void:
+	_spacing(_small, maxi(1, int(2.0 * u)))
+	UiKit.section(self, _small, label, x0, x1, y + 12.0 * u, u, th_ink, a)
 
 
 ## Nom d'un rang en minuscules accentuées (« PRUNIER » -> « Prunier »).
@@ -899,62 +916,87 @@ func _rank_word(r: int) -> String:
 	return n.substr(0, 1) + n.substr(1).to_lower()
 
 
-## Score (compteur qui monte, or après une victoire), puis le rang : tuile de sa couleur à picto (elle s'abat une
-## fois les points comptés), son nom, et le palier suivant en texte (« Pin à 60 000 », « Rang maximal ») ;
-## RECORD en pastille or à droite.
-func _draw_head(y: float, u: float, v: float, a: float) -> void:
+## Picto du rang (prunier, bambou, pin, couronne du maître).
+func _rank_icon(r: int) -> String:
+	return String(RANK_ICON[clampi(r - 1, 0, RANK_ICON.size() - 1)])
+
+
+## Ce que dit la ligne du rang : [« Rang Prunier » ou « Sans rang », la suite (« prochain : Bambou à 22 000 »)].
+func _rank_text() -> Array:
+	var cur := ("Rang " + _rank_word(score_rank)) if score_rank > 0 else "Sans rang"
+	var nxt := "rang maximal"
+	if score_next > 0:
+		nxt = "prochain : %s à %s" % [_rank_word(mini(score_rank + 1, 4)), Score.fmt(score_next)]
+	elif score_next < 0:
+		nxt = "prochain : %s, en battant le gardien" % _rank_word(4)
+	return [cur, nxt]
+
+
+## Score (compteur qui monte, or après une victoire) et RECORD en pastille à sa droite ; dessous, le rang : tuile de
+## sa couleur à picto (elle s'abat une fois les points comptés), « Rang Prunier — prochain : Bambou à 22 000 » ;
+## enfin le record du monde (« Nouveau record sur ce monde » ou « Ton record ici : 41 200 »).
+func _draw_head(y: float, u: float, a: float) -> void:
 	var cx := size.x / 2.0
 	var nf := UiKit.num_font()
 	var ck := UiKit.ease_out(clampf((_t - 0.3) / 1.0, 0.0, 1.0))
 	var sc: Color = GOLD_INK if victory else th_ink
-	UiKit.text(self, nf, Score.fmt(int(round(float(stat_score) * ck))), Vector2(cx, y + 40.0 * v), int(36 * u), Color(sc, a))
-	# le groupe tuile + textes (+ RECORD) est centré
-	var rk := clampf((_t - 1.3) / 0.22, 0.0, 1.0)
-	var ra := a * UiKit.ease_out(clampf((_t - 1.4) / 0.3, 0.0, 1.0))
-	var ts := 38.0 * u
-	var line1 := _rank_word(score_rank) if score_rank > 0 else "Sans rang"
-	var line2 := "Rang maximal"
-	if score_next > 0:
-		line2 = "%s à %s" % [_rank_word(mini(score_rank + 1, 4)), Score.fmt(score_next)]
-	elif score_next < 0:
-		line2 = "%s : vaincs le boss" % _rank_word(4)
-	_spacing(_title, maxi(1, int(1.0 * u)))
-	var fs1 := int(15 * u)
-	var fs2 := int(11 * u)
-	var w1 := _title.get_string_size(line1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1).x
-	var w2 := nf.get_string_size(line2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
-	var tw := maxf(w1, w2)
-	var gw := ts + 10.0 * u + tw
+	var nfs := int(36 * u)
+	var stxt := Score.fmt(int(round(float(stat_score) * ck)))
+	UiKit.text(self, nf, stxt, Vector2(cx, y + 34.0 * u), nfs, Color(sc, a))
 	var rec := score_record or new_record
-	var pfs := int(10 * u)
-	var pw := _tag_font.get_string_size("RECORD", HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 20.0 * u
+	var ra := a * UiKit.ease_out(clampf((_t - 1.3) / 0.3, 0.0, 1.0))
 	if rec:
-		gw += 12.0 * u + pw
-	var gx := cx - gw / 2.0
-	var tc := Vector2(gx + ts / 2.0, y + 80.0 * v)
+		var pfs := int(10 * u)
+		var pw := _tag_font.get_string_size("RECORD", HORIZONTAL_ALIGNMENT_LEFT, -1, pfs).x + 18.0 * u
+		var sw := nf.get_string_size(Score.fmt(stat_score), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
+		var pulse := 0.85 + 0.15 * sin(_t * 6.0)
+		var pr := Rect2(Vector2(cx + sw / 2.0 + 10.0 * u, y + 12.0 * u), Vector2(pw, 20.0 * u))
+		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, ra * pulse), int(10 * u)), pr)
+		UiKit.text(self, _tag_font, "RECORD", pr.get_center() + Vector2(1.0 * u, pfs * 0.36), pfs, Color(UIColors.SUMI, ra))
+	# le rang : tuile + « Rang Prunier » (Shippori) + « — prochain : … » (plus pâle), le groupe centré
+	var rt := _rank_text()
+	var t1 := String(rt[0])
+	var t2 := "  —  " + String(rt[1])
+	var ts := 24.0 * u
+	var fs1 := int(14 * u)
+	var fs2 := int(UiKit.FS_BODY * u)
+	_spacing(_title, maxi(1, int(0.5 * u)))
+	var maxw := _sheet_rect().size.x - 36.0 * u - ts - 8.0 * u
+	var w1 := _title.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1).x
+	var w2 := _body_font().get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
+	while w1 + w2 > maxw and fs2 > 8:
+		fs1 -= 1
+		fs2 -= 1
+		w1 = _title.get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1).x
+		w2 = _body_font().get_string_size(t2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2).x
+	var gx := cx - (ts + 8.0 * u + w1 + w2) / 2.0
+	var ry := y + 58.0 * u
+	var tc := Vector2(gx + ts / 2.0, ry)
+	var rk := clampf((_t - 1.3) / 0.22, 0.0, 1.0)
 	if score_rank > 0:
 		if rk > 0.0:
 			var s := 1.0 + 0.6 * (1.0 - UiKit.ease_out(rk))
 			draw_set_transform(tc, -0.1, Vector2(s, s))
 			var tr := Rect2(Vector2(-ts, -ts) / 2.0, Vector2(ts, ts))
-			draw_style_box(UiKit.box(_sb, Color(Score.rank_color(score_rank), a * rk), int(7 * u), Color(UIColors.WASHI, 0.9 * a * rk), int(maxf(1.0, 2.0 * u))), tr)
-			UiKit.draw_icon(self, _rank_icon(score_rank), Vector2.ZERO, ts * 0.6, a * rk, UIColors.WASHI)
+			draw_style_box(UiKit.box(_sb, Color(Score.rank_color(score_rank), a * rk), int(6 * u), Color(UIColors.WASHI, 0.9 * a * rk), int(maxf(1.0, 1.5 * u))), tr)
+			UiKit.draw_icon(self, _rank_icon(score_rank), Vector2.ZERO, ts * 0.62, a * rk, UIColors.WASHI)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	else:
-		_dashed_rect(Rect2(tc - Vector2(ts, ts) / 2.0, Vector2(ts, ts)), 6.0 * u, Color(th_ink, 0.35 * a), u)
-	var tx := gx + ts + 10.0 * u
-	draw_string(_title, Vector2(tx, tc.y - 3.0 * u), line1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1, Color(th_ink, ra))
-	draw_string(nf, Vector2(tx, tc.y + 12.0 * u), line2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2, Color(th_ink, 0.6 * ra))
-	if rec:
-		var pulse := 0.85 + 0.15 * sin(_t * 6.0)
-		var pr := Rect2(Vector2(tx + tw + 12.0 * u, tc.y - 11.0 * u), Vector2(pw, 22.0 * u))
-		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, ra * pulse), int(11 * u)), pr)
-		UiKit.text(self, _tag_font, "RECORD", pr.get_center() + Vector2(1.0 * u, pfs * 0.36), pfs, Color(UIColors.SUMI, ra))
-
-
-## Picto du rang (prunier, bambou, pin, couronne du maître).
-func _rank_icon(r: int) -> String:
-	return String(RANK_ICON[clampi(r - 1, 0, RANK_ICON.size() - 1)])
+		_dashed_rect(Rect2(tc - Vector2(ts, ts) / 2.0, Vector2(ts, ts)), 5.0 * u, Color(th_ink, 0.35 * a), u)
+	var tx := gx + ts + 8.0 * u
+	draw_string(_title, Vector2(tx, ry + fs1 * 0.36), t1, HORIZONTAL_ALIGNMENT_LEFT, -1, fs1, Color(th_ink, ra))
+	draw_string(_body_font(), Vector2(tx + w1, ry + fs1 * 0.36), t2, HORIZONTAL_ALIGNMENT_LEFT, -1, fs2, Color(th_ink, 0.62 * ra))
+	# le record du monde
+	var t3 := ""
+	if score_record:
+		t3 = "Nouveau record de points sur ce monde"
+	elif new_record:
+		t3 = "Nouveau record : ton étape la plus lointaine sur ce monde"
+	elif best_score > stat_score:
+		t3 = "Ton record de points ici : %s" % Score.fmt(best_score)
+	if t3 != "":
+		var fs3 := int(UiKit.FS_CAPTION * u)
+		UiKit.text(self, _body_font(), t3, Vector2(cx, y + 78.0 * u), fs3, Color(GOLD_INK if rec else th_ink, (0.9 if rec else 0.5) * ra))
 
 
 ## Cadre en pointillés arrondis (tuile vide, conseil).
@@ -978,33 +1020,36 @@ func _dashed_rect(r: Rect2, rad: float, col: Color, u: float) -> void:
 			acc += step
 
 
-## Coup fatal (défaite) : le monstre en picto sur un disque sombre, son nom (sceau vermillon à picto),
-## l'étape (picto du monde et « 5/8 »).
-func _draw_killer(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var r := Rect2(Vector2(x0, y + 4.0 * u), Vector2(x1 - x0, rh - 10.0 * u))
+## Coup fatal (défaite) : le portrait (sceau du gardien ou du boss, picto oni pour un yokai) sur un disque sombre,
+## « Tombé face à » puis son nom ; un gardien ou le boss est nommé comme tel.
+func _draw_killer(x0: float, x1: float, y: float, bh: float, u: float, a: float) -> void:
+	var r := Rect2(Vector2(x0, y), Vector2(x1 - x0, bh))
 	draw_style_box(UiKit.box(_sb, Color(th_ink, 0.06 * a), int(14 * u), Color(th_ink, 0.14 * a), int(maxf(1.0, 1.0 * u))), r)
-	var cc := Vector2(r.position.x + 38.0 * u, r.get_center().y)
-	draw_circle(cc, 25.0 * u, Color(UIColors.VERMILION_DARK, 0.22 * a))
-	UiKit.draw_icon(self, "hud/oni", cc, 32.0 * u, a, UIColors.VERMILION)
-	var tx := cc.x + 38.0 * u
-	var sq := Rect2(Vector2(tx, r.get_center().y - 23.0 * u), Vector2(22.0, 22.0) * u)
-	draw_style_box(UiKit.box(_sb, Color(UIColors.VERMILION, a), int(5 * u)), sq)
-	UiKit.draw_icon(self, "hud/oni", sq.get_center(), 14.0 * u, a, UIColors.WASHI)
+	var cc := Vector2(r.position.x + 28.0 * u, r.get_center().y)
+	var boss := killer_name != ""
+	if boss:
+		var s := 34.0 * u
+		UiKit.monster_badge(self, _sb, Rect2(cc - Vector2(s, s) / 2.0, Vector2(s, s)), stat_room < rooms_total, a, u)
+	else:
+		draw_circle(cc, 18.0 * u, Color(UIColors.VERMILION_DARK, 0.22 * a))
+		UiKit.draw_icon(self, "hud/oni", cc, 24.0 * u, a, UIColors.VERMILION)
+	var tx := cc.x + 28.0 * u
 	var nm := _killer_label()
+	var cfs := int(UiKit.FS_BODY * u)
+	var maxw := r.end.x - 12.0 * u - tx
+	if nm == "":
+		draw_string(_title, Vector2(tx, r.get_center().y + 6.0 * u), "Tombé au combat", HORIZONTAL_ALIGNMENT_LEFT, -1, int(16 * u), Color(th_ink, a))
+		return
+	var cap := "Tombé face à"
+	if boss:
+		cap = "Tombé face au gardien" if stat_room < rooms_total else "Tombé face au boss du monde"
+	draw_string(_body_font(), Vector2(tx, r.get_center().y - 5.0 * u), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(th_ink, 0.6 * a))
 	_spacing(_title, maxi(1, int(1.0 * u)))
-	var nfs := int(17 * u)
-	var maxw := r.end.x - 12.0 * u - (tx + 30.0 * u)
-	var nw := _title.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs).x
-	if nw > maxw and nw > 0.0:
-		nfs = maxi(8, int(float(nfs) * maxw / nw))
-	draw_string(_title, Vector2(tx + 30.0 * u, sq.get_center().y + nfs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(th_ink, a))
-	var ws := Rect2(Vector2(tx, r.get_center().y + 5.0 * u), Vector2(18.0, 18.0) * u)
-	draw_style_box(UiKit.box(_sb, Color(world_color, a), int(4 * u)), ws)
-	UiKit.world_icon(self, world_kanji, ws.get_center(), 12.0 * u, a, UIColors.WASHI)
-	_num_pair(Vector2(tx + 26.0 * u, ws.get_center().y), str(stat_room), "/%d" % rooms_total, int(14 * u), Color(th_ink, a), u)
+	var nfs := _fit_text(_title, nm, int(17 * u), maxw)
+	draw_string(_title, Vector2(tx, r.get_center().y + 14.0 * u), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(th_ink, a))
 
 
-## Nom du monstre du coup fatal, sans son article (« un oni » -> « Oni »), ou le nom du gardien.
+## Nom du monstre du coup fatal, sans son article (« un oni » -> « Oni »), ou le nom du gardien ; "" : inconnu.
 func _killer_label() -> String:
 	var who := ""
 	if killer_name != "":
@@ -1012,7 +1057,7 @@ func _killer_label() -> String:
 	elif killer_kind != "":
 		who = String(KILLER_NAMES.get(killer_kind, ""))
 	if who == "":
-		return "?"
+		return ""
 	for art in ["un ", "une ", "des ", "ton ", "le "]:
 		if who.begins_with(art):
 			who = who.substr(art.length())
@@ -1020,26 +1065,111 @@ func _killer_label() -> String:
 	return UiKit.plain(who.substr(0, 1).to_upper() + who.substr(1))
 
 
-## Grand chiffre suivi d'un petit (« 5 » puis « /8 »), ligne de base centrée sur c.y, à partir de c.x.
-func _num_pair(c: Vector2, big: String, small: String, fs: int, col: Color, _u: float) -> float:
+## Chiffres de la partie, libellés, en deux colonnes : yokai tranchés, plus longue chaîne, durée, figures tracées.
+func _draw_stats(x0: float, x1: float, y: float, u: float, a: float) -> void:
+	_section("LA PARTIE", x0, x1, y, u, a)
+	var nfig := 0
+	for k in stat_shapes:
+		nfig += int(stat_shapes[k])
+	var clock := "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]
+	var items := [["hud/oni", "Yokai tranchés", str(stat_kills)], ["hud/chaine", "Plus longue chaîne", str(stat_combo)],
+		["effets/duree", "Durée", clock], ["elements/figure", "Figures tracées", str(nfig)]]
 	var nf := UiKit.num_font()
-	var sfs := int(float(fs) * 0.68)
-	var bw := nf.get_string_size(big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	draw_string(nf, Vector2(c.x, c.y + fs * 0.36), big, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
-	draw_string(nf, Vector2(c.x + bw, c.y + fs * 0.36), small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs, Color(col, col.a * 0.6))
-	return bw + nf.get_string_size(small, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x
+	var cgap := 8.0 * u
+	var cw := (x1 - x0 - cgap) / 2.0
+	var lfs := int(UiKit.FS_BODY * u)
+	var vfs := int(15 * u)
+	for i in items.size():
+		var it: Array = items[i]
+		var k := UiKit.ease_out(clampf((_t - 0.8 - 0.06 * float(i)) / 0.3, 0.0, 1.0))
+		if k <= 0.0:
+			continue
+		var ka := a * k
+		var cell := Rect2(Vector2(x0 + float(i % 2) * (cw + cgap), y + _SEC_H * u + floorf(float(i) / 2.0) * 26.0 * u + 1.0 * u), Vector2(cw, 23.0 * u))
+		draw_style_box(UiKit.box(_sb, Color(th_ink, 0.05 * ka), int(7 * u)), cell)
+		var cy := cell.get_center().y
+		UiKit.draw_icon(self, String(it[0]), Vector2(cell.position.x + 13.0 * u, cy), 14.0 * u, ka, Color(th_ink, 0.75))
+		var val := String(it[2])
+		var vw := nf.get_string_size(val, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs).x
+		draw_string(nf, Vector2(cell.end.x - 8.0 * u - vw, cy + vfs * 0.36), val, HORIZONTAL_ALIGNMENT_LEFT, -1, vfs, Color(th_ink, ka))
+		var lab := String(it[1])
+		var lf := _fit_text(_body_font(), lab, lfs, cell.size.x - 26.0 * u - vw - 12.0 * u)
+		draw_string(_body_font(), Vector2(cell.position.x + 25.0 * u, cy + lf * 0.36), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, lf, Color(th_ink, 0.72 * ka))
 
 
-## Pouvoirs de la partie : bande des médaillons (les plus rares d'abord, « +N » s'il en reste), puis les étiquettes
-## d'élément (picto + NOM) des écoles du build, trois au plus, calées à droite.
+## Figures tracées dans la partie, les plus tracées d'abord, en lignes : [[figure, nombre, largeur], ...] par ligne.
+func _fig_rows(u: float, cw: float) -> Array:
+	var figs: Array = []
+	for f in UiKit.FIGURES:
+		var n := int(stat_shapes.get(String(f), 0))
+		if n > 0:
+			figs.append([String(f), n])
+	figs.sort_custom(func(p, q): return int(p[1]) > int(q[1]) or (int(p[1]) == int(q[1]) and UiKit.FIGURES.find(p[0]) < UiKit.FIGURES.find(q[0])))
+	var rows: Array = []
+	var cur: Array = []
+	var x := 0.0
+	var fs := int(UiKit.FS_BODY * u)
+	var nf := UiKit.num_font()
+	for fd in figs:
+		var nm := String(Intro.FIG_NAME.get(String(fd[0]), String(fd[0])))
+		var w := 20.0 * u + _body_font().get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x \
+			+ 4.0 * u + nf.get_string_size("×%d" % int(fd[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs + 1).x + 10.0 * u
+		if not cur.is_empty() and x + w > cw:
+			rows.append(cur)
+			cur = []
+			x = 0.0
+		cur.append([fd[0], fd[1], w, nm])
+		x += w + 6.0 * u
+	if not cur.is_empty():
+		rows.append(cur)
+	return rows
+
+
+## Figures : une pastille par figure tracée (son picto à sa couleur, son nom, « ×20 »), les plus tracées d'abord.
+func _draw_figures(x0: float, x1: float, y: float, u: float, a: float) -> void:
+	_section("FIGURES TRACÉES", x0, x1, y, u, a)
+	var rows := _fig_rows(u, x1 - x0)
+	var fs := int(UiKit.FS_BODY * u)
+	var nf := UiKit.num_font()
+	var yy := y + _SEC_H * u + 1.0 * u
+	if rows.is_empty():
+		var none := "Aucune : une boucle ou un zigzag frappe plus fort qu'un trait."
+		draw_string(_body_font(), Vector2(x0 + 4.0 * u, yy + 15.0 * u), none, HORIZONTAL_ALIGNMENT_LEFT, -1, _fit_text(_body_font(), none, fs, x1 - x0 - 8.0 * u), Color(th_ink, 0.6 * a))
+		return
+	var i := 0
+	for row in rows:
+		var x := x0
+		for fd in row:
+			var k := UiKit.ease_out(clampf((_t - 0.9 - 0.05 * float(i)) / 0.3, 0.0, 1.0))
+			i += 1
+			var cw := float(fd[2])
+			if k > 0.0:
+				var ka := a * k
+				var sh := String(fd[0])
+				var col: Color = UIColors.FIGURES_INK.get(sh, th_ink)
+				var chip := Rect2(Vector2(x, yy), Vector2(cw, 21.0 * u))
+				draw_style_box(UiKit.box(_sb, Color(col, 0.08 * ka), int(10 * u), Color(col, 0.35 * ka), int(maxf(1.0, 1.0 * u))), chip)
+				var cy := chip.get_center().y
+				UiKit.figure_icon(self, sh, Vector2(x + 11.0 * u, cy), 14.0 * u, ka, col)
+				var nm := String(fd[3])
+				draw_string(_body_font(), Vector2(x + 20.0 * u, cy + fs * 0.36), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, ka))
+				var nw := _body_font().get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+				draw_string(nf, Vector2(x + 24.0 * u + nw, cy + (fs + 1) * 0.36), "×%d" % int(fd[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs + 1, Color(th_ink, 0.75 * ka))
+			x += cw + 6.0 * u
+		yy += 24.0 * u
+
+
+## Pouvoirs de la partie (victoire) : bande des médaillons (les plus rares d'abord, « +N » s'il en reste), puis les
+## étiquettes d'élément (picto + NOM) des écoles du build, trois au plus, calées à droite.
 func _draw_build(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
+	_section("POUVOIRS", x0, x1, y - _SEC_H * u, u, a)
 	var cy := y + rh / 2.0
-	var x := _row_icon(x0, cy, "hud/rouleau", u, a)
+	var x := x0
 	var n := _build_list.size()
 	var ms := 30.0 * u
 	var step := ms + 6.0 * u
 	if n == 0:
-		draw_arc(Vector2(x + ms / 2.0, cy), ms * 0.45, 0.0, TAU, 36, Color(th_ink, 0.3 * a), maxf(1.0, 1.4 * u), true)
+		draw_string(_body_font(), Vector2(x0 + 4.0 * u, cy + 4.0 * u), "Aucun rouleau pris", HORIZONTAL_ALIGNMENT_LEFT, -1, int(UiKit.FS_BODY * u), Color(th_ink, 0.6 * a))
 		return
 	# étiquettes : écoles présentes, dans l'ordre des écoles, tant qu'elles tiennent (trois médaillons au moins restent visibles)
 	var schools: Array = []
@@ -1085,237 +1215,166 @@ func _draw_build(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 		tx += float(tags[i][1]) + 5.0 * u
 
 
-## Les figures, chacune avec son compte (celles tracées en couleur pleine, les autres pâles).
-func _draw_figures(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var cy := y + rh / 2.0
-	var x := _row_icon(x0, cy, "elements/figure", u, a)
-	var nf := UiKit.num_font()
-	# les six du départ, puis celles de l'arbre seulement si elles ont été tracées dans la partie (la ligne tient)
-	var figs: Array = []
-	for f in UiKit.FIGURES:
-		if not String(f) in UiKit.FIGURES_TREE or int(stat_shapes.get(String(f), 0)) > 0:
-			figs.append(String(f))
-	var step := (x1 - x) / float(figs.size())
-	var fs := int(12 * u)
-	for i in figs.size():
-		var sh := String(figs[i])
-		var n := int(stat_shapes.get(sh, 0))
-		var k := UiKit.ease_out(clampf((_t - 0.8 - 0.05 * float(i)) / 0.3, 0.0, 1.0))
-		if k <= 0.0:
-			continue
-		var fa := a * k * (1.0 if n > 0 else 0.35)
-		var col: Color = UIColors.FIGURES_INK.get(sh, th_ink)
-		var c := Vector2(x + step * float(i) + 11.0 * u, cy)
-		UiKit.figure_icon(self, sh, c, 20.0 * u * (0.7 + 0.3 * k), fa, col)
-		draw_string(nf, Vector2(c.x + 13.0 * u, cy + fs * 0.36), str(n), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, fa))
-
-
-## Chiffres de la partie : étape (picto du monde), ennemis, chaîne max, temps.
-func _draw_stats(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var cy := y + rh / 2.0
-	var x := _row_icon(x0, cy, "hud/slash", u, a)
-	var nf := UiKit.num_font()
-	var step := (x1 - x) / 4.0
-	var fs := int(15 * u)
-	var clock := "%d:%02d" % [int(stat_time / 60.0), int(stat_time) % 60]
-	var items := [["", str(stat_room), "/%d" % rooms_total], ["hud/oni", str(stat_kills), ""], ["hud/chaine", str(stat_combo), ""], ["effets/duree", clock, ""]]
-	for i in items.size():
-		var it: Array = items[i]
-		var k := UiKit.ease_out(clampf((_t - 0.9 - 0.06 * float(i)) / 0.3, 0.0, 1.0))
-		if k <= 0.0:
-			continue
-		var ka := a * k
-		var c := Vector2(x + step * float(i) + 10.0 * u, cy)
-		if i == 0:
-			var ws := Rect2(c - Vector2(10.0, 10.0) * u, Vector2(20.0, 20.0) * u)
-			draw_style_box(UiKit.box(_sb, Color(world_color, ka), int(4 * u)), ws)
-			UiKit.world_icon(self, world_kanji, c, 13.0 * u, ka, UIColors.WASHI)
-		else:
-			UiKit.draw_icon(self, String(it[0]), c, 20.0 * u, ka, th_ink)
-		if String(it[2]) != "":
-			_num_pair(Vector2(c.x + 15.0 * u, cy), String(it[1]), String(it[2]), fs, Color(th_ink, ka), u)
-		else:
-			draw_string(nf, Vector2(c.x + 15.0 * u, cy + fs * 0.36), String(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, ka))
-
-
-## Gains : l'encre qui monte (goutte sur pastille indigo ; les anciens sceaux y sont comptés), les pétales à côté
-## (pétale sur pastille sakura, monnaie de la garde-robe), puis chaque estampe débloquée en vignette cernée d'or, son nom dessous.
-func _draw_loot(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var cy := y + rh / 2.0
-	var x := _row_icon(x0, cy, "hud/piece", u, a)
-	var nf := UiKit.num_font()
-	var fs := int(16 * u)
-	var up: Color = UIColors.JADE_UP_ON_DARK if Toon.ui_dark else UIColors.JADE_UP
-	var ik := clampf((_t - 1.0) / 0.9, 0.0, 1.0)
-	var dc := Vector2(x + 11.0 * u, cy)
-	draw_circle(dc, 11.0 * u, Color(UIColors.element_key_color("eau"), a))
-	UiKit.glyph(self, "at_drop", dc, 6.0 * u, UIColors.WASHI, UiKit.NONE, a)
-	var num := "+%d" % int(round(float(gain_sumi) * UiKit.ease_out(ik)))
-	draw_string(nf, Vector2(dc.x + 17.0 * u, cy + fs * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up, a))
-	var nw := nf.get_string_size("+%d" % gain_sumi, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	# (plus de sceaux : depuis l'Arbre du pinceau, ils sont payés en encre et comptés dans le chiffre ci-dessus)
-	# pétales : même pastille, couleur sakura, le chiffre monte un peu après l'encre (affichés même à +0 : on apprend
-	# qu'ils existent et ce qui les rapporte)
-	var pk0 := UiKit.ease_out(clampf((_t - 1.25) / 0.3, 0.0, 1.0))
-	var pc := Vector2(dc.x + 17.0 * u + nw + 22.0 * u, cy)
-	draw_circle(pc, 11.0 * u, Color(UIColors.SAKURA, a * pk0))
-	UiKit.glyph(self, "at_petal", pc, 7.0 * u, UIColors.WASHI, UIColors.SAKURA, a * pk0)
-	var pnum := "+%d" % int(round(float(gain_petals) * UiKit.ease_out(clampf((_t - 1.3) / 0.7, 0.0, 1.0))))
-	draw_string(nf, Vector2(pc.x + 17.0 * u, cy + fs * 0.36), pnum, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up if gain_petals > 0 else Color(th_ink, 0.55), a * pk0))
-	var pw := nf.get_string_size("+%d" % gain_petals, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	var px := pc.x + 30.0 * u + pw
-	# estampes : vignette 40 × 28 cernée d'or, nom en petit dessous
-	var tw := 40.0 * u
-	var thh := 28.0 * u
-	var nfs := int(7.5 * u)
-	for i in mini(new_prints.size(), 3):
-		var pid := String(new_prints[i])
-		if not Meta.PRINTS.has(pid) or px + tw > x1:
-			break
-		var pd: Dictionary = Meta.PRINTS[pid]
-		var pk := UiKit.ease_out(clampf((_t - 1.7 - 0.25 * float(i)) / 0.3, 0.0, 1.0))
-		if pk <= 0.0:
-			break
-		var th := Rect2(Vector2(px, cy - 19.0 * u), Vector2(tw, thh))
-		draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0), int(4 * u), Color(UIColors.GOLD_DARK, a * pk), int(maxf(1.0, 2.0 * u))), th.grow(2.0 * u))
-		UiKit.print_thumb(self, th, pd, u, a * pk)
-		var nm := UiKit.plain(String(pd.get("name", "")))
-		var f := nfs
-		while f > 5 and nf.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > tw + 10.0 * u:
-			f -= 1
-		UiKit.text(self, nf, nm, Vector2(th.get_center().x, th.end.y + 11.0 * u), f, Color(th_ink, 0.8 * a * pk))
-		px += tw + 14.0 * u
-	# garde-robe : pastilles des éléments gagnés par exploit (chapeau, lame, apparence), cernées d'or, nom dessous
-	var np := mini(new_prints.size(), 3)
-	for i in new_looks.size():
-		var lk: Dictionary = new_looks[i]
-		if px + 30.0 * u > x1:
-			break
-		var pk := UiKit.ease_out(clampf((_t - 1.7 - 0.25 * float(np + i)) / 0.3, 0.0, 1.0))
-		if pk <= 0.0:
-			break
-		var lc := Vector2(px + 15.0 * u, cy - 5.0 * u)
-		var col: Color = lk.get("col", Toon.SUMI)
-		var col2: Color = lk.get("col2", Color(0, 0, 0, 0))
-		draw_circle(lc, 15.0 * u, Color(col, a * pk))
-		if col2.a > 0.0:
-			draw_arc(lc, 8.0 * u, PI * 0.15, PI * 0.85, 10, Color(col2, a * pk), 4.0 * u, true)
-		draw_arc(lc, 16.0 * u, 0.0, TAU, 32, Color(UIColors.GOLD_DARK, a * pk), maxf(1.0, 2.0 * u), true)
-		var nm := UiKit.plain(String(lk.get("name", "")))
-		var f := nfs
-		while f > 5 and nf.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, f).x > 46.0 * u:
-			f -= 1
-		UiKit.text(self, nf, nm, Vector2(lc.x, lc.y + 26.0 * u), f, Color(th_ink, 0.8 * a * pk))
-		px += 50.0 * u
-
-
-## Déblocages (victoire) : tuiles qui glissent en place : le monde ouvert (son picto, « monde N »), la famille
-## de rouleaux (quelques médaillons et « +N »).
-func _draw_unlocks(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var cy := y + rh / 2.0
-	var x := _row_icon(x0, cy, "hud/ouvert", u, a)
-	var th := rh - 10.0 * u
-	var ntiles := _unlock_rows()
-	# tuiles : 64 u, resserrées quand il y en a beaucoup (monde, rouleaux, pinceau, aspect, omamori)
-	var tw := minf(64.0 * u, (x1 - x) / float(maxi(ntiles, 1)) - 6.0 * u)
-	var step := tw + 6.0 * u
-	var i := 0
-	var nf := UiKit.num_font()
-	var t0 := 1.5
-	if unlock_world > 0:
-		var pk := UiKit.ease_out(clampf((_t - t0) / 0.35, 0.0, 1.0))
-		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - pk), cy - th / 2.0), Vector2(tw, th))
-		draw_style_box(UiKit.box(_sb, Color(th_ink, 0.05 * a * pk), int(8 * u)), r)
-		_dashed_rect(r, 8.0 * u, Color(UIColors.GOLD_DARK, a * pk), u)
-		var ic := Vector2(r.get_center().x, r.position.y + th * 0.42)
-		var ws := Rect2(ic - Vector2(14.0, 14.0) * u, Vector2(28.0, 28.0) * u)
-		draw_style_box(UiKit.box(_sb, Color(unlock_world_color, a * pk), int(6 * u)), ws)
-		UiKit.world_icon(self, unlock_world_kanji, ic, 18.0 * u, a * pk, UIColors.WASHI)
-		UiKit.text(self, nf, "monde %d" % unlock_world, Vector2(r.get_center().x, r.end.y - 7.0 * u), int(8.5 * u), Color(th_ink, 0.8 * a * pk))
-		x += step
-		i += 1
-	if not unlock_powers.is_empty():
-		var qk := UiKit.ease_out(clampf((_t - t0 - 0.25 * float(i)) / 0.35, 0.0, 1.0))
-		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - qk), cy - th / 2.0), Vector2(tw, th))
-		draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, 0.12 * a * qk), int(8 * u), Color(UIColors.GOLD_DARK, 0.9 * a * qk), int(maxf(1.0, 1.5 * u))), r)
-		var shown := mini(unlock_powers.size(), 3)
-		var ir := 9.0 * u
-		for q in shown:
-			var ic := Vector2(r.get_center().x + (float(q) - float(shown - 1) / 2.0) * 15.0 * u, r.position.y + th * 0.42)
-			draw_circle(ic, ir + 1.5 * u, Color(UIColors.WASHI_LIGHT, a * qk))
-			UiKit.power_icon(self, String(unlock_powers[q]), ic, ir, a * qk)
-		UiKit.text(self, nf, "+%d" % unlock_powers.size(), Vector2(r.get_center().x, r.end.y - 7.0 * u), int(11 * u), Color(GOLD_INK, a * qk))
-		x += step
-		i += 1
-	# pinceau ouvert, aspect gagné (boss vaincu avec ce pinceau), omamori (rang Maître)
+## Ce qui vient d'être débloqué, en toutes lettres : [[libellé, nom, couleur de la pastille], ...].
+func _unlock_items() -> Array:
+	var out: Array = []
+	if victory and unlock_world > 0:
+		out.append(["Monde ouvert", UiKit.plain(unlock_world_name if unlock_world_name != "" else "monde %d" % unlock_world), unlock_world_color])
+	if victory and not unlock_powers.is_empty():
+		var nr := "%d rouleaux à trouver en partie" % unlock_powers.size()
+		out.append(["Nouveaux rouleaux", (UiKit.plain(unlock_family) + ", " + nr.to_lower()) if unlock_family != "" else nr, UIColors.GOLD])
+	for pid in new_prints:
+		if Meta.PRINTS.has(String(pid)):
+			out.append(["Estampe", UiKit.plain(String(Meta.PRINTS[String(pid)].get("name", ""))), UIColors.GOLD_DARK])
+	if not new_looks.is_empty():
+		var names: Array = []
+		for lk in new_looks:
+			names.append(UiKit.plain(String(lk.get("name", ""))))
+		var c0: Color = new_looks[0].get("col", Toon.SUMI)
+		out.append(["Garde-robe", ", ".join(names), c0])
 	for gd in unlock_gear:
 		var g: Dictionary = gd
-		var gk := UiKit.ease_out(clampf((_t - t0 - 0.25 * float(i)) / 0.35, 0.0, 1.0))
-		var r := Rect2(Vector2(x + 24.0 * u * (1.0 - gk), cy - th / 2.0), Vector2(tw, th))
 		var gid := String(g.get("id", ""))
-		var kind := String(g.get("kind", ""))
-		var gcol: Color = Gear.charm(gid).get("col", Toon.SUMI) if kind == "charm" else Gear.brush(gid)["col"]
-		draw_style_box(UiKit.box(_sb, Color(gcol, 0.1 * a * gk), int(8 * u), Color(gcol, 0.9 * a * gk), int(maxf(1.0, 1.5 * u))), r)
-		var word := ""
-		if kind == "charm":
-			Gear.draw_charm(self, gid, Vector2(r.get_center().x, r.position.y + th * 0.4), th * 0.011, a * gk)
-			word = String(Gear.charm(gid).get("short", ""))
-		else:
-			var pr := Rect2(r.position + Vector2(3.0 * u, 2.0 * u), Vector2(r.size.x - 6.0 * u, th * 0.62))
-			Gear.draw_brush(self, gid, int(g.get("k", 0)), pr, a * gk, 1.0, false)
-			word = String(Gear.brush(gid)["word"]) if kind == "brush" else Gear.aspect_name(gid, int(g.get("k", 0)))
-		var wfs := int(8.5 * u)
-		while wfs > 6 and _ui.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, wfs).x > tw - 4.0 * u:
-			wfs -= 1
-		UiKit.text(self, _ui, word, Vector2(r.get_center().x, r.end.y - 7.0 * u), wfs, Color(th_ink, 0.85 * a * gk))
-		x += step
-		i += 1
+		match String(g.get("kind", "")):
+			"charm":
+				out.append(["Omamori", UiKit.plain(String(Gear.charm(gid).get("name", gid))), Gear.charm(gid).get("col", Toon.SUMI)])
+			"brush":
+				out.append(["Pinceau", UiKit.plain(String(Gear.brush(gid)["word"])), Gear.brush(gid)["col"]])
+			_:
+				out.append(["Aspect du pinceau %s" % String(Gear.brush(gid)["word"]), UiKit.plain(Gear.aspect_name(gid, int(g.get("k", 0)))), Gear.brush(gid)["col"]])
+	return out
 
 
-## Conseil de fuite (défaite), tout en pictos : bouclier d'alerte, la zone rouge, puis le doigt qui trace un trait
-## pour en sortir (la ruée est intouchable au départ) et le trait qui tranche, dans un cadre or en pointillés.
-func _draw_advice(x0: float, x1: float, y: float, rh: float, u: float, a: float) -> void:
-	var r := Rect2(Vector2(x0, y + 6.0 * u), Vector2(x1 - x0, rh - 12.0 * u))
+## Lignes d'un déblocage : « Libellé : nom », le nom coupé mot à mot sous le libellé si besoin.
+func _unlock_lines(it: Array, fs: int, w: float) -> PackedStringArray:
+	return UiKit.wrap(_body_font(), "%s : %s" % [String(it[0]), String(it[1])], fs, w, [":", "(", "»"])
+
+
+## Hauteur des gains : encre et pétales, puis une ligne (ou plus) par déblocage.
+func _gains_h(u: float, cw: float) -> float:
+	var h := 2.0 * 22.0 * u
+	var fs := int(UiKit.FS_BODY * u)
+	var items := _unlock_items()
+	if not items.is_empty():
+		h += 4.0 * u
+	for it in items:
+		h += float(_unlock_lines(it, fs, cw - 18.0 * u).size()) * 15.0 * u + 2.0 * u
+	return h
+
+
+## Gains : « +98 encre — pour l'Arbre (Atelier) », « +1 pétale — pour la Garde-robe » (le chiffre monte), puis ce
+## qui a été débloqué (monde, rouleaux, estampes, garde-robe, pinceaux, omamori) en toutes lettres.
+func _draw_gains(x0: float, x1: float, y: float, u: float, a: float) -> void:
+	_section("GAINS", x0, x1, y, u, a)
+	var nf := UiKit.num_font()
+	var fs := int(15 * u)
+	var bfs := int(UiKit.FS_BODY * u)
+	var up: Color = UIColors.JADE_UP_ON_DARK if Toon.ui_dark else UIColors.JADE_UP
+	var yy := y + _SEC_H * u + 11.0 * u
+	var lines := [["ink", gain_sumi, "encre", "pour l'Arbre (Atelier)", 1.0], ["petal", gain_petals, "pétale" if gain_petals <= 1 else "pétales", "pour la Garde-robe", 1.25]]
+	for ln in lines:
+		var t0 := float(ln[4])
+		var k := UiKit.ease_out(clampf((_t - t0) / 0.3, 0.0, 1.0))
+		var cnt := UiKit.ease_out(clampf((_t - t0) / 0.9, 0.0, 1.0))
+		if k > 0.0:
+			var ka := a * k
+			var dc := Vector2(x0 + 10.0 * u, yy)
+			var n := int(ln[1])
+			if String(ln[0]) == "ink":
+				draw_circle(dc, 10.0 * u, Color(UIColors.element_key_color("eau"), ka))
+				UiKit.glyph(self, "at_drop", dc, 5.5 * u, UIColors.WASHI, UiKit.NONE, ka)
+			else:
+				draw_circle(dc, 10.0 * u, Color(UIColors.SAKURA, ka))
+				UiKit.glyph(self, "at_petal", dc, 6.5 * u, UIColors.WASHI, UIColors.SAKURA, ka)
+			var num := "+%d" % int(round(float(n) * cnt))
+			var x := dc.x + 17.0 * u
+			draw_string(nf, Vector2(x, yy + fs * 0.36), num, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(up if n > 0 else Color(th_ink, 0.55), ka))
+			x += nf.get_string_size("+%d" % n, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 5.0 * u
+			var word := String(ln[2])
+			draw_string(_body_font(), Vector2(x, yy + bfs * 0.36), word, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs + 1, Color(th_ink, ka))
+			x += _body_font().get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs + 1).x
+			var why := "  —  " + String(ln[3])
+			var wf := _fit_text(_body_font(), why, bfs, x1 - x)
+			draw_string(_body_font(), Vector2(x, yy + bfs * 0.36), why, HORIZONTAL_ALIGNMENT_LEFT, -1, wf, Color(th_ink, 0.6 * ka))
+		yy += 22.0 * u
+	var items := _unlock_items()
+	if items.is_empty():
+		return
+	yy += 4.0 * u - 11.0 * u
+	for i in items.size():
+		var it: Array = items[i]
+		var ls := _unlock_lines(it, bfs, x1 - x0 - 18.0 * u)
+		var k := UiKit.ease_out(clampf((_t - 1.3 - 0.08 * float(i)) / 0.3, 0.0, 1.0))
+		if k > 0.0:
+			var ka := a * k
+			var col: Color = it[2]
+			var mc := Vector2(x0 + 10.0 * u, yy + 7.5 * u)
+			# losange de la couleur de l'objet, cerné d'or : « nouveau »
+			var dia := PackedVector2Array([mc + Vector2(0, -6.0) * u, mc + Vector2(6.0, 0) * u, mc + Vector2(0, 6.0) * u, mc + Vector2(-6.0, 0) * u])
+			draw_colored_polygon(dia, Color(col, ka))
+			dia.append(dia[0])
+			draw_polyline(dia, Color(UIColors.GOLD, ka), maxf(1.0, 1.3 * u), true)
+			var lab := String(it[0]) + " :"
+			for j in ls.size():
+				var ly := yy + 7.5 * u + float(j) * 15.0 * u + bfs * 0.36
+				var line := String(ls[j])
+				var lx := x0 + 22.0 * u
+				if j == 0 and line.begins_with(lab):
+					draw_string(_body_font(), Vector2(lx, ly), lab, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(GOLD_INK, ka))
+					lx += _body_font().get_string_size(lab + " ", HORIZONTAL_ALIGNMENT_LEFT, -1, bfs).x
+					line = line.substr(lab.length() + 1)
+				draw_string(_body_font(), Vector2(lx, ly), line, HORIZONTAL_ALIGNMENT_LEFT, -1, bfs, Color(th_ink, ka))
+		yy += float(ls.size()) * 15.0 * u + 2.0 * u
+
+
+## Conseil d'après la partie : [picto, phrase]. Défaite : tombé face à un gardien ou au boss -> son point faible
+## (main.BOSS_HINTS, l'astuce montrée quand la lame ricoche) ; peu
+## de figures différentes -> varier les figures ; chaîne courte -> la garder ; sinon la zone rouge (la fuite au trait).
+## Victoire : les points qui manquent pour le rang suivant, ou le monde suivant.
+func _advice() -> Array:
+	var kinds := 0
+	for k in stat_shapes:
+		if int(stat_shapes[k]) > 0:
+			kinds += 1
+	var x3 := Score.mult_text(Score.mult(10))
+	if victory:
+		if score_next > 0:
+			return ["hud/chaine", "Encore %s points pour le rang %s : tranche avec des figures (deux fois plus de points) et garde ta chaîne à 10 ou plus (%s)." % [Score.fmt(maxi(0, score_next - stat_score)), _rank_word(mini(score_rank + 1, 4)), x3]]
+		return ["hud/couronne", "Rang le plus haut atteint : tente le monde suivant, ou rejoue avec un autre pinceau."]
+	if killer_name != "" and killer_hint != "":
+		return ["hud/slash", "Face à %s, %s." % [_killer_label(), UiKit.plain(killer_hint.substr(0, 1).to_lower() + killer_hint.substr(1)).trim_suffix(".")]]
+	if kinds <= 2:
+		return ["elements/figure", "Varie les figures : une boucle ou un zigzag frappe plus fort qu'un trait droit et lance sa technique."]
+	if stat_combo < 10:
+		return ["hud/chaine", "Ne te fais pas toucher : chaque ruée réussie allonge la chaîne, et à 10 tes points sont multipliés (%s)." % x3]
+	return ["shield", "Une zone rouge annonce un coup : trace un trait pour en sortir, la ruée est intouchable au départ."]
+
+
+## Hauteur du conseil (cadre, picto, phrase sur 3 lignes au plus).
+func _advice_h(u: float, cw: float) -> float:
+	var ls := UiKit.wrap(_body_font(), String(_advice()[1]), int(UiKit.FS_BODY * u), cw - 58.0 * u, [":", ";", "!", "?", "(", "»"])
+	return maxf(46.0 * u, float(ls.size()) * 15.0 * u + 20.0 * u)
+
+
+## Conseil : cadre or en pointillés, le picto sur une pastille or, CONSEIL en petites capitales, puis la phrase.
+func _draw_advice(x0: float, x1: float, y: float, bh: float, u: float, a: float) -> void:
+	var r := Rect2(Vector2(x0, y), Vector2(x1 - x0, bh))
+	draw_style_box(UiKit.box(_sb, Color(UIColors.GOLD, 0.08 * a), int(12 * u)), r)
 	_dashed_rect(r, 12.0 * u, Color(UIColors.GOLD_DARK, 0.9 * a), u)
-	var cy := r.get_center().y
-	var gold := Color(UIColors.GOLD, a)
-	var ink := Color(th_ink, a)
-	var x := r.position.x + 26.0 * u
-	# bouclier d'alerte
-	UiKit.glyph(self, "shield", Vector2(x, cy), 11.0 * u, gold, UiKit.NONE, a)
-	draw_line(Vector2(x, cy - 5.0 * u), Vector2(x, cy + 1.0 * u), Color(UIColors.SUMI, a), maxf(1.0, 2.2 * u), true)
-	draw_circle(Vector2(x, cy + 4.5 * u), 1.4 * u, Color(UIColors.SUMI, a))
-	x += 36.0 * u
-	# zone rouge qui pulse
-	var pulse := 0.5 + 0.5 * sin(_t * 5.0)
-	draw_circle(Vector2(x, cy), 9.0 * u, Color(UIColors.ATTACK_ZONE_FILL, a * (0.6 + 0.4 * pulse)))
-	draw_arc(Vector2(x, cy), 9.0 * u, 0.0, TAU, 28, Color(UIColors.ATTACK_ZONE_STROKE, a), maxf(1.0, 2.0 * u), true)
-	x += 30.0 * u
-	_arrow(Vector2(x, cy), u, ink)
-	x += 30.0 * u
-	# le trait tracé : un trait de pinceau qui sort d'une petite zone rouge, point de départ, bout du doigt au bout
-	draw_circle(Vector2(x - 10.0 * u, cy + 3.0 * u), 5.0 * u, Color(UIColors.ATTACK_ZONE_FILL, a * 0.7))
-	var tp := PackedVector2Array([Vector2(x - 10.0 * u, cy + 3.0 * u), Vector2(x - 3.0 * u, cy - 2.0 * u), Vector2(x + 5.0 * u, cy - 5.0 * u), Vector2(x + 13.0 * u, cy - 4.0 * u)])
-	draw_polyline(tp, ink, maxf(1.0, 3.0 * u), true)
-	draw_circle(tp[0], 2.6 * u, ink)
-	draw_circle(tp[3], 3.4 * u, Color(UIColors.GOLD, a))
-	draw_arc(tp[3], 5.5 * u, 0.0, TAU, 20, ink, maxf(1.0, 1.2 * u), true)
-	x += 30.0 * u
-	_arrow(Vector2(x, cy), u, ink)
-	x += 30.0 * u
-	# le trait qui tranche : trois traits de vitesse et le monstre barré
-	for i in 3:
-		var yy := cy + (float(i) - 1.0) * 5.0 * u
-		draw_line(Vector2(x - 14.0 * u, yy), Vector2(x - 5.0 * u + 2.0 * u * float(i % 2), yy), ink, maxf(1.0, 1.8 * u), true)
-	draw_arc(Vector2(x + 8.0 * u, cy), 8.0 * u, 0.0, TAU, 24, ink, maxf(1.0, 1.6 * u), true)
-	draw_line(Vector2(x - 2.0 * u, cy), Vector2(x + 18.0 * u, cy), Color(UIColors.VERMILION, a), maxf(1.0, 2.6 * u), true)
-
-
-## Petite flèche vers la droite, centrée sur c.
-func _arrow(c: Vector2, u: float, col: Color) -> void:
-	var wdt := maxf(1.0, 2.0 * u)
-	draw_line(c - Vector2(7.0 * u, 0), c + Vector2(7.0 * u, 0), col, wdt, true)
-	draw_polyline(PackedVector2Array([c + Vector2(2.0, -5.0) * u, c + Vector2(7.0, 0.0) * u, c + Vector2(2.0, 5.0) * u]), col, wdt, true)
+	var adv := _advice()
+	var ic := Vector2(r.position.x + 24.0 * u, r.get_center().y)
+	draw_circle(ic, 14.0 * u, Color(UIColors.GOLD, a))
+	var key := String(adv[0])
+	if key == "shield":
+		UiKit.glyph(self, "shield", ic, 9.0 * u, Color(UIColors.SUMI, a), UiKit.NONE, a)
+	else:
+		UiKit.draw_icon(self, key, ic, 17.0 * u, a, UIColors.SUMI)
+	var fs := int(UiKit.FS_BODY * u)
+	var tx := r.position.x + 48.0 * u
+	var ls := UiKit.wrap(_body_font(), String(adv[1]), fs, x1 - x0 - 58.0 * u, [":", ";", "!", "?", "(", "»"])
+	var ty := r.get_center().y - float(ls.size() - 1) * 15.0 * u / 2.0 + fs * 0.36
+	for j in ls.size():
+		draw_string(_body_font(), Vector2(tx, ty + float(j) * 15.0 * u), String(ls[j]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(th_ink, 0.88 * a))
 
 
 ## Carte de la pause (planche Pause v2 : 352 × 560 u, au centre de l'écran, dans les marges de sécurité).

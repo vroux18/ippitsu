@@ -1,29 +1,45 @@
 extends Control
-## Tutoriel de l'Arbre du pinceau (une fois, meta.coach_seen["arbre"]) : au premier retour à l'accueil après une
-## partie qui a vaincu le boss du monde 1 (ou, mort avant, dès que l'encre suffit pour un nœud), il montre où
-## dépenser l'encre. Même langage que le coach en jeu (coach.gd) : voile d'encre percé d'un projecteur, bandeau
-## sumi à sceau vermillon (titre court, une ligne), main fantôme qui tape sur la cible.
-## 1. accueil : projecteur sur ATELIER ;  2. Atelier, onglet ARBRE : projecteur sur le nœud à apprendre (le moins
-## cher à portée, celui que l'Atelier choisit d'office) ;  3. projecteur sur APPRENDRE ;  4. le jeton d'encre :
-## « chaque partie rapporte de l'encre », qui part seul ou au toucher.
+## Guides de l'accueil (une fois chacun, meta.coach_seen[guide]), dans le même langage que le coach en jeu
+## (coach.gd) : voile d'encre percé d'un projecteur, bandeau sumi à sceau vermillon (titre court, une ligne), main
+## fantôme qui tape sur la cible. Option INDICES à NON : aucun.
+##  « dojo » : au retour à l'accueil après la toute première partie (victoire ou défaite), projecteur sur DOJO.
+##  « arbre » : après le monde 1 (boss vaincu), dès que l'encre suffit pour un nœud ; jamais avant.
+##    1. accueil : ATELIER ;  2. Atelier, onglet ARBRE : le nœud à apprendre (le moins cher à portée, celui que
+##    l'Atelier choisit d'office) ;  3. APPRENDRE ;  4. le jeton d'encre : « chaque partie rapporte de l'encre ».
+##  « pinceau » : le premier pinceau gagné après le Fude. 1. ATELIER ;  2. l'onglet PINCEAUX ;  3. le pinceau
+##    sur le râtelier ;  4. bulle finale : il se choisit à l'écran AVANT LE DÉPART.
 ## Seule la cible répond (les autres touchers sont avalés) ; PASSER sous le bandeau ferme tout. Jamais bloquant :
-## chaque étape a un garde-fou de temps, et le tutoriel s'efface si l'écran attendu n'est plus là.
-## Robot et captures : jamais de lui-même (auto faux) ; `request()` le demande (bot_ui, `--q=tutoarbre`).
+## chaque étape a un garde-fou de temps, et le guide s'efface si l'écran attendu n'est plus là.
+## Robot et captures : jamais de lui-même (auto faux) ; `request()` le demande (bot_ui, `--q=tutoarbre`, `guide=`).
 const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
 const Coach = preload("res://scripts/coach.gd")
 const Meta = preload("res://scripts/meta.gd")
 const Menu = preload("res://scripts/menu.gd")
+const Gear = preload("res://scripts/gear_data.gd")
 
-const ID := "arbre"  # clé de meta.coach_seen
+const ID := "arbre"  # clé de meta.coach_seen du guide de l'Arbre
+const GUIDES := ["arbre", "pinceau", "dojo"]  # ordre de priorité quand deux sont dus (un seul par retour à l'accueil)
 const TEXTS := {
-	1: ["L'Arbre du pinceau", "Dépense ton encre pour devenir plus fort."],
-	2: ["Touche un sceau", "Il se décrit en bas de l'écran."],
-	3: ["Apprends-le", "Il reste acquis pour toutes les parties."],
-	4: ["Reviens ici", "Chaque partie rapporte de l'encre."],
+	"arbre": {
+		1: ["L'Arbre du pinceau", "Dépense ton encre pour devenir plus fort."],
+		2: ["Touche un sceau", "Il se décrit en bas de l'écran."],
+		3: ["Apprends-le", "Il reste acquis pour toutes les parties."],
+		4: ["Reviens ici", "Chaque partie rapporte de l'encre."],
+	},
+	"dojo": {
+		1: ["Le dojo", "Entraîne tes figures sans risque."],
+	},
+	"pinceau": {
+		1: ["Nouveau pinceau", "Il t'attend à l'Atelier."],
+		2: ["Les pinceaux", "Touche l'onglet PINCEAUX."],
+		3: ["%s", "Touche-le : ses aspects se décrivent."],
+		4: ["%s", "Il se choisit à l'écran AVANT LE DÉPART."],
+	},
 }
 const GLYPHS := {1: "at_brush", 2: "stamp", 3: "stamp", 4: "at_drop"}
+const GLYPHS_PINCEAU := {1: "at_brush", 2: "at_brush", 3: "at_brush", 4: "at_brush"}
 const VEIL := 0.7
 const STEP_MAX := 45.0  # garde-fou : une étape sans réponse ferme le tutoriel (s réelles)
 const LAST_LIFE := 4.5  # bulle finale : part seule
@@ -34,7 +50,11 @@ var auto := true  # déclenchement de lui-même (faux : robot, captures)
 var hold := false  # captures : ni garde-fou de temps ni départ de la bulle finale
 var dry := false  # captures : le drapeau n'est pas sauvegardé
 var step := 0  # 0 : rien ; 1..4 : étape
-var target := ""  # nœud montré (étapes 2 et 3)
+var guide := ""  # guide en cours (GUIDES), "" : aucun
+var target := ""  # nœud montré (arbre, étapes 2 et 3) ; pinceau montré (pinceau)
+var _want_guide := "arbre"  # guide demandé (request)
+var _hit := false  # la cible vient d'être touchée (pinceau, étape 3)
+var _bt0 := 0.0  # pinceau : instant du dernier pinceau montré par l'Atelier au début de l'étape
 var spot := Rect2()  # cible de l'étape (écran) : seule zone qui répond
 var _want := 0  # étape demandée (request), en attente de son écran
 var _t := 0.0  # temps réel depuis l'étape
@@ -49,7 +69,7 @@ var _line := PackedVector2Array()
 var _pts := PackedVector2Array()
 
 
-const ENABLED := false  # tutoriel de l'Arbre retiré (choix du propriétaire)
+const ENABLED := true  # guides de l'accueil (dojo, Arbre, pinceau) ; l'option INDICES les coupe
 
 
 func _ready() -> void:
@@ -77,23 +97,55 @@ func active() -> bool:
 	return step > 0
 
 
-## Le tutoriel est dû : jamais vu, rien d'appris, une partie jouée au moins, et le monde 1 vaincu ou assez
-## d'encre pour le nœud le moins cher.
+## Le guide de l'Arbre est dû (rétrocompatibilité : due() parle de lui).
 func due() -> bool:
+	return guide_due("arbre")
+
+
+## Le guide `g` est dû : jamais vu, option INDICES à OUI, et son moment venu.
+##  arbre : rien d'appris, le monde 1 vaincu et assez d'encre pour le nœud le moins cher ;
+##  pinceau : un pinceau gagné après le Fude ;  dojo : une partie jouée au moins (la toute première).
+func guide_due(g: String) -> bool:
 	if not ENABLED:
 		return false
 	var m = main.meta
-	if m == null or m.coach_seen.has(ID) or not m.tree.is_empty() or int(m.purse_rank) > 0 or int(m.runs) < 1:
+	if m == null or m.coach_seen.has(g) or not bool(m.hints_on) or int(m.runs) < 1:
 		return false
-	var c: int = m.cheapest_open_cost()
-	return bool(m.world_cleared(1)) or (c >= 0 and int(m.sumi) >= c)
+	match g:
+		"arbre":
+			if not m.tree.is_empty() or int(m.purse_rank) > 0:
+				return false
+			var c: int = m.cheapest_open_cost()
+			return bool(m.world_cleared(1)) and c >= 0 and int(m.sumi) >= c
+		"pinceau":
+			return _new_brush() != ""
+		"dojo":
+			return true
+	return false
 
 
-## Demande l'étape n (robot, captures) : elle vient dès que son écran est prêt, sans autre condition.
-func request(n := 1) -> void:
+## Premier pinceau gagné après le Fude (Gear.ORDER), "" sinon.
+func _new_brush() -> String:
+	for b in Gear.ORDER:
+		if String(b) != "fude" and bool(main.meta.brush_unlocked(String(b))):
+			return String(b)
+	return ""
+
+
+## Premier guide dû (GUIDES), "" sinon.
+func _due_guide() -> String:
+	for g in GUIDES:
+		if guide_due(String(g)):
+			return String(g)
+	return ""
+
+
+## Demande l'étape n du guide `g` (robot, captures) : elle vient dès que son écran est prêt, sans autre condition.
+func request(n := 1, g := "arbre") -> void:
 	if not ENABLED:
 		return
-	_want = clampi(n, 1, 4)
+	_want_guide = g
+	_want = clampi(n, 1, TEXTS[g].size() if TEXTS.has(g) else 1)
 
 
 ## Accueil posé, rien par-dessus (atelier, carte, options, intro, ouverture, garde-robe, départ, dojo).
@@ -112,14 +164,19 @@ func _home_idle() -> bool:
 
 func _refuge_ready() -> bool:
 	var ref = main.refuge
+	if guide == "pinceau" or (step == 0 and _want_guide == "pinceau"):
+		return ref.visible and float(ref._t) >= 0.6
 	return ref.visible and float(ref._t) >= 0.6 and int(ref._tab) == 0 and ref.node_center(Meta.TREE_ROOT) != Vector2.INF
 
 
-func _begin(n: int) -> void:
+func _begin(n: int, g: String) -> void:
 	_ms = Time.get_ticks_msec()
-	main.meta.coach_seen[ID] = true  # une seule fois, même si l'on quitte en route
+	guide = g
+	main.meta.coach_seen[g] = true  # une seule fois, même si l'on quitte en route
 	if not dry:
 		main.meta.save_data()
+	if g == "pinceau":
+		target = _new_brush()
 	_go(n)
 
 
@@ -127,16 +184,22 @@ func _go(n: int) -> void:
 	step = n
 	_t = 0.0
 	_ready_t = -1.0
+	_hit = false
 	spot = Rect2()
 	var ref = main.refuge
-	match n:
-		2:
-			target = String(ref._default_node())
-			ref.select_node(Meta.TREE_ROOT)  # onglet ARBRE, le tronc décrit : le toucher du nœud se voit
-		3:
-			if target == "" or not Meta.TREE.has(target):
+	if guide == "arbre":
+		match n:
+			2:
 				target = String(ref._default_node())
-			ref.select_node(target)
+				ref.select_node(Meta.TREE_ROOT)  # onglet ARBRE, le tronc décrit : le toucher du nœud se voit
+			3:
+				if target == "" or not Meta.TREE.has(target):
+					target = String(ref._default_node())
+				ref.select_node(target)
+	elif guide == "pinceau":
+		if target == "":
+			target = _new_brush()
+		_bt0 = float(ref.get("_bt"))
 	visible = true
 	queue_redraw()
 
@@ -144,8 +207,17 @@ func _go(n: int) -> void:
 func _end() -> void:
 	step = 0
 	_want = 0
+	guide = ""
 	spot = Rect2()
 	visible = false
+
+
+## Textes de l'étape en cours ([titre, ligne]) ; « %s » : le nom du pinceau montré.
+func _texts() -> Array:
+	var tx: Array = (TEXTS.get(guide, {}) as Dictionary).get(step, ["", ""])
+	if guide == "pinceau" and String(tx[0]) == "%s":
+		return [String(Gear.brush(target).get("word", "")), tx[1]]
+	return tx
 
 
 func _process(_delta: float) -> void:
@@ -153,11 +225,13 @@ func _process(_delta: float) -> void:
 		return
 	if step == 0:
 		if _want == 1 and _home_idle():
-			_begin(1)
+			_begin(1, _want_guide)
 		elif _want >= 2 and _refuge_ready():
-			_begin(_want)
-		elif _want == 0 and auto and _home_idle() and due():
-			_begin(1)
+			_begin(_want, _want_guide)
+		elif _want == 0 and auto and _home_idle():
+			var g := _due_guide()
+			if g != "":
+				_begin(1, g)
 		if step == 0:
 			return
 		_want = 0
@@ -165,16 +239,20 @@ func _process(_delta: float) -> void:
 	var dt := UiKit.real_delta()
 	_t += dt
 	var ref = main.refuge
-	match step:
-		1:
-			if ref.visible:
-				_go(2)
-			elif String(main.state) != "menu" or String(main.menu.mode) != "home" or not main.menu.visible:
-				_end()
-				return
-			else:
-				var b: Control = main.menu._atelier
-				spot = b.get_global_rect()
+	if guide == "pinceau" and step >= 2:
+		_process_brush(ref)
+		if step == 0:
+			return
+	elif step == 1:
+		if ref.visible and guide != "dojo":
+			_go(2)
+		elif String(main.state) != "menu" or String(main.menu.mode) != "home" or not main.menu.visible:
+			_end()
+			return
+		else:
+			var b: Control = main.menu._dojo if guide == "dojo" else main.menu._atelier
+			spot = b.get_global_rect()
+	match -1 if guide != "arbre" else step:
 		2:
 			if not ref.visible:
 				_end()
@@ -214,6 +292,30 @@ func _process(_delta: float) -> void:
 	queue_redraw()
 
 
+## Guide du pinceau, étapes 2 à 4 (l'Atelier ouvert) : l'onglet PINCEAUX, le pinceau, la bulle finale.
+func _process_brush(ref: Control) -> void:
+	if not ref.visible:
+		_end()
+		return
+	match step:
+		2:
+			if int(ref._tab) == 2:
+				_go(3)
+			elif _refuge_ready():
+				spot = ref.hit_rect("tab:2")
+		3:
+			if int(ref._tab) != 2:
+				_go(2)
+			elif (_hit or float(ref.get("_bt")) != _bt0) and String(ref.brush_view()) == target:
+				_go(4)  # (le pinceau touché : il descend du râtelier)
+			else:
+				spot = ref.hit_rect("brush:" + target)
+		4:
+			spot = ref.hit_rect("brush:" + target)
+			if not hold and _t > LAST_LIFE:
+				_end()
+
+
 # ------------------------------------------------------------------ entrée
 
 ## Avant l'interface : seule la cible reçoit l'appui ; PASSER ferme ; la bulle finale part au toucher.
@@ -246,6 +348,7 @@ func _input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()  # (toucher émulé : la souris suit et ferme)
 		return
 	if step < 4 and _ready_t >= 0.15 and spot.has_point(p):
+		_hit = true
 		return
 	get_viewport().set_input_as_handled()
 
@@ -270,12 +373,12 @@ func _draw() -> void:
 	var c := spot.get_center()
 	var r := spot.size * 0.5 * 1.12 + Vector2(12.0, 12.0) * u
 	var pw := 2.0
-	if step == 3:
+	if step == 3 and guide == "arbre":
 		var dr: Rect2 = main.refuge.detail_rect()
 		c = dr.get_center() + Vector2(0, 4.0 * u)
 		r = Vector2(dr.size.x * 0.56, dr.size.y * 0.62)
 		pw = 4.0
-	elif step == 4:
+	elif step == 4 and guide == "arbre":
 		r = spot.size * 0.5 + Vector2(9.0, 8.0) * u
 		pw = 4.0
 	_draw_spot(Vector2(w, h), c, r, pw, a)
@@ -283,7 +386,7 @@ func _draw() -> void:
 	var pulse := 0.5 + 0.5 * sin(_t * 5.0)
 	var tr := spot.grow((3.0 + 3.0 * pulse) * u)
 	_sb.bg_color = Color(0, 0, 0, 0)
-	_sb.set_corner_radius_all(int(minf(tr.size.x, tr.size.y) * 0.5) if step == 2 else int(12.0 * u))
+	_sb.set_corner_radius_all(int(minf(tr.size.x, tr.size.y) * 0.5) if step == 2 and guide == "arbre" else int(12.0 * u))
 	_sb.border_color = Color(Toon.GOLD, (0.45 + 0.45 * pulse) * ka)
 	_sb.set_border_width_all(int(maxf(2.0, 2.5 * u)))
 	_sb.shadow_size = 0
@@ -327,7 +430,7 @@ func _draw() -> void:
 	# main fantôme qui tape sur la cible (pas sur le jeton de la bulle finale)
 	if step < 4:
 		var tip := spot.get_center()
-		if step == 3:
+		if step == 3 and guide == "arbre":
 			tip.x = spot.position.x + spot.size.x * 0.2  # au bord du tampon : APPRENDRE reste lisible
 		var t := fmod(_t, 1.3)
 		var press := 1.0 if t > 0.55 and t < 0.75 else 0.0
@@ -402,7 +505,7 @@ static func _on_side(q: Vector2, sz: Vector2) -> bool:
 
 ## Bandeau du coach : coup de pinceau sumi, filet vermillon, sceau vermillon à picto, titre et une ligne.
 func _banner(pos: Vector2, u: float, a: float) -> void:
-	var tx: Array = TEXTS.get(step, ["", ""])
+	var tx: Array = _texts()
 	var t := UiKit.plain(String(tx[0])).to_upper()
 	var st := UiKit.plain(String(tx[1]))
 	var ein := UiKit.ease_out(clampf(_ready_t / 0.26, 0.0, 1.0))
@@ -442,7 +545,10 @@ func _banner(pos: Vector2, u: float, a: float) -> void:
 		var sc := Vector2(x0 + 38.0 * u, pos.y)
 		var half := 19.0 * u * z
 		draw_style_box(UiKit.box(_sb, Color(Toon.VERMILION, sk), int(5 * u), Color(UIColors.WASHI, 0.85 * sk), maxi(1, int(1.5 * u))), Rect2(sc - Vector2(half, half), Vector2(half, half) * 2.0))
-		UiKit.glyph(self, String(GLYPHS.get(step, "stamp")), sc, 22.0 * u * z * 0.42, Toon.WASHI, Toon.VERMILION, sk)
+		var gl := String((GLYPHS_PINCEAU if guide == "pinceau" else GLYPHS).get(step, "stamp"))
+		if guide == "dojo":
+			gl = "stamp"
+		UiKit.glyph(self, gl, sc, 22.0 * u * z * 0.42, Toon.WASHI, Toon.VERMILION, sk)
 
 
 ## Main fantôme (planche Coach) : l'index pointe sur p, la main vient du bas à droite. press : 1 posée.

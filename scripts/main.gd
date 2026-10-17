@@ -124,20 +124,21 @@ const CURSES := {
 }
 const Shop = preload("res://scripts/shop.gd")  # échoppe du marchand tanuki
 # Marchand : un par monde, dans le dernier recoin de l'étape qui précède le gardien (combats 6-7). Prix en or :
-# [monde 1, + par monde]. Robot de campagne (graine 101) : ~150 pièces en poche à la fin de l'étape 3 (de 50 à 600
-# selon le sceau d'or et le refus d'un pacte), ~430 sur tout un monde : de quoi prendre un ou deux articles.
+# [monde 1, + par monde]. Robot de campagne (graine 101, repasse d'équilibrage) : 40 à 320 pièces à l'échoppe (~170 ;
+# moins au monde 1, plus avec le sceau d'or ou le Masque fendu), 190 à 500 en fin de monde : un ou deux articles
+# par visite (onigiri et relance à la portée du monde 1, rouleau ou amélioration en guise de gros achat).
 const MERCHANT_STAGE := 2  # étape (index) du marchand : la dernière avant celle du gardien (MINI_ROOM)
 const MERCHANT_RISE := 0.55  # l'étal surgit du sol en fin d'étape (s)
 const MERCHANT_R := 1.75  # = PuzzleArt.YATAI_RING_R : l'échoppe s'ouvre dans l'anneau d'or
-const SHOP_PRICE := {"reroll": [25, 5], "heal": [40, 5], "scroll": [60, 10], "upgrade": [75, 10], "charm": [90, 10]}
+const SHOP_PRICE := {"reroll": [20, 6], "heal": [35, 6], "scroll": [55, 11], "upgrade": [70, 11], "charm": [85, 11]}
 const SHOP_HEAL := 2  # cœurs rendus par l'onigiri
 const SHOP_CHARMS := ["garde", "encre", "sceaux", "figure"]  # omamori vendus (pour la fin de la partie)
 const SHOP_CHARM_LINE := {"garde": "1er coup de chaque étape annulé", "encre": "Encre pleine à chaque combat",
 	"sceaux": "Toute figure brise un sceau", "figure": "1re figure du combat doublée"}
-const GOLD_PER_SUMI := 3  # fin de partie : l'or qui reste devient de l'encre (3 pièces = 1 encre ; 2 avant le marchand)
+const GOLD_PER_SUMI := 4  # fin de partie : l'or qui reste devient de l'encre (4 pièces = 1 encre ; 3 avant la repasse d'équilibrage)
 const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
-const REFUSE_COST := 40  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
-const REFUSE_COST_STEP := 10
+const REFUSE_COST := 45  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
+const REFUSE_COST_STEP := 15  # (au premier sanctuaire, le robot a 50 à 170 pièces : refuser y coûte l'achat du marchand)
 const INK_LOCK_T := 4.0  # Encre maudite : recharge d'encre figée après un coup reçu (s)
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
 const EXPLORE_REACH := 2.0
@@ -163,7 +164,6 @@ const OniShrine = preload("res://scripts/oni_shrine.gd")  # sanctuaire d'oni du 
 # (_seal_break) et il devient vulnérable ; fermé, tout ricoche sans aucun dégât. Figures tirées parmi celles que le
 # joueur connaît (seal_figs).
 const SEALED_FIGS := ["loop", "zigzag", "return", "hook", "straight", "enso", "wave", "point", "triangle"]
-const SEALED_BASE := ["loop", "zigzag", "return", "hook", "straight", "enso"]  # connues d'emblée
 const SEALED_ROOM := 0.7  # part des combats qui ont au moins un scellé
 const SEALED_TWO := 0.35  # ... et un deuxième (jamais plus de deux)
 const SEALED_PICK := 0.45  # chance qu'un ennemi éligible soit le scellé (pas toujours le deuxième venu)
@@ -249,7 +249,7 @@ const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s rée
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
 var _fps_free := false  # robot, captures, relevés : aucun plafond (le rythme vient de --fixed-fps)
-var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu
+var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu (120 sinon)
 var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
@@ -517,6 +517,9 @@ var chests_sealed := 0  # coffres scellés posés / ouverts (robot de campagne)
 var chests_unsealed := 0
 var sealed_set := 0  # yōkai scellés posés / brisés à la figure (robot de campagne)
 var sealed_broken := 0
+var gates_seen := 0  # fins d'étape à portes à sceaux, sanctuaires de pacte, sanctuaires d'oni posés (robot : calendrier)
+var shrines_seen := 0
+var elites_seen := 0
 var _seal_quota := 0  # scellés encore possibles dans ce combat
 var _room_spawned := 0  # ennemis posés depuis le début du combat (le premier n'est jamais scellé)
 var _cap_fige := -1.0  # captures (`fige=`) : délai entre le coup sur le sceau et l'image figée (< 0 : rien)
@@ -753,6 +756,18 @@ func _ready() -> void:
 	# `?unlockall` (web) et robot du CI : tous les mondes et tous les paliers de rouleaux ouverts
 	if "unlockall" in wsearch or "--bot" in OS.get_cmdline_user_args():
 		meta.test_unlock_all = true
+	# captures et robot : toutes les figures et mécaniques ouvertes (`&calendrier` : la progression réelle de la
+	# sauvegarde ; le robot de campagne la suit aussi) ; rien n'est sauvegardé
+	if (wsearch != "" or "--bot" in OS.get_cmdline_user_args()) and not "calendrier" in wsearch:
+		meta.test_open = true
+	# `&calendrier&prog=N` : un joueur qui a franchi les N premiers paliers du calendrier (meta.test_prog)
+	var pgq := wsearch.find("prog=")
+	if "calendrier" in wsearch and pgq >= 0:
+		meta.test_prog(int(wsearch.substr(pgq + 5).get_slice("&", 0)))
+	# indices du coach : jamais dans une capture, sauf demandés (`&indice=gates` : celui-là dès que le jeu tourne ;
+	# `&indices` : ils viennent d'eux-mêmes, comme en jeu ; `coach=` : la leçon demandée)
+	if wsearch != "" and not ("indice" in wsearch or "coach=" in wsearch):
+		coach.muted = true
 	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, Worlds.WORLDS.size()) if wpos >= 0 else 1)
 	# `&pinceau=hake&aspect=1&charme=garde` (captures) : équipement imposé, même verrouillé ; `&won=N` : progression
 	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés ; `&aspects=N` : N aspects par pinceau) pour l'écran
@@ -886,6 +901,7 @@ func _ready() -> void:
 			meta.coach_seen["seal"] = true  # (pas de leçon qui fige l'image, sauf demandée)
 		else:
 			meta.coach_seen.erase("seal")  # leçon demandée : elle vient d'elle-même quand le scellé paraît
+			coach.hold("seal")
 		var kq := wsearch.find("kind=")
 		var sfig := wsearch.substr(scq + 7).get_slice("&", 0)
 		_capture_sealed(sfig, wsearch.substr(kq + 5).get_slice("&", 0) if kq >= 0 else "", "loin=1" in wsearch)
@@ -914,6 +930,19 @@ func _ready() -> void:
 		_spawn_shrine()
 		# le héros est posé devant l'autel (sinon il est au départ de l'étape, l'autel hors champ)
 		hero.position = arena.clamp_walk(_shrine.position + Vector3(0, 0, 3.2), 0.5)
+		_prev_hero = hero.position
+		_cam_dz = _cam_target()
+		arena.follow_camera(_cam_dz)
+	# `?room=N&sortie` (captures) : comme après le dernier combat de l'étape (zones nettoyées, torii ouvert), le héros
+	# devant la sortie : torii simple, ou portes à sceaux (calendrier : `&calendrier&prog=2`)
+	if "sortie" in wsearch and state == "play":
+		for zi in arena.zones.size():
+			arena.clear_zone(zi)
+		arena.open_gate()
+		var gg: Vector3 = arena.gate_goal(0)
+		if arena.gate_spots.size() >= 2:
+			gg = (arena.gate_spots[0] + arena.gate_spots[1]) * 0.5
+		hero.position = arena.clamp_walk(gg + Vector3(0, 0, 5.5), 0.5)
 		_prev_hero = hero.position
 		_cam_dz = _cam_target()
 		arena.follow_camera(_cam_dz)
@@ -979,7 +1008,7 @@ func _ready() -> void:
 			refuge.call("select_node", wsearch.substr(nq + 6).get_slice("&", 0))
 			if "apprendre" in wsearch:
 				refuge.call("_learn")
-	if "dojo" in wsearch:
+	if "dojo" in wsearch and not "guide=dojo" in wsearch:
 		_start_dojo()
 	if "tutoarbre" in wsearch:
 		_capture_tree_coach(wsearch)
@@ -988,6 +1017,9 @@ func _ready() -> void:
 		meta.coach_reset()
 		_start_first_run()
 	# `?tuto&coach=figures` (captures) : cette bulle du coach dès que le jeu tourne (figures, ult…)
+	var iq := wsearch.find("indice=")
+	if iq >= 0:
+		coach.force(wsearch.substr(iq + 7).get_slice("&", 0))
 	var cf := wsearch.find("coach=")
 	if cf >= 0 and not (scq >= 0 and "coach=seal" in wsearch):  # (forcée d'emblée, elle figerait le jeu avant le scellé)
 		coach.force(wsearch.substr(cf + 6).get_slice("&", 0))
@@ -1084,16 +1116,21 @@ func _ready() -> void:
 			departure.call("tap", "charm:" + wsearch.substr(cq + 4).get_slice("&", 0))
 	if "options" in wsearch:
 		_open_options()
-	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée (étape 5, chiffres de démo)
+	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée, chiffres de démo réalistes
+	# (défaite : étape 4 sur 8, face au gardien Ō-Kappa ; victoire : les 8 étapes, boss vaincu)
 	if "victoire" in wsearch or "defaite" in wsearch:
 		_start(false)
-		room = 5
-		stage_i = 2
-		kills = 23
-		max_chain = 14
-		run_time = 312.0
-		score.points = 61280 if "victoire" in wsearch else 18420
-		shape_counts = {"loop": 12, "zigzag": 7, "straight": 31, "return": 4, "enso": 2}
+		var won_demo := "victoire" in wsearch
+		room = 9 if won_demo else 4
+		stage_i = 7 if won_demo else 3
+		kills = 96 if won_demo else 44
+		max_chain = 24 if won_demo else 20
+		run_time = 742.0 if won_demo else 305.0
+		score.points = 61280 if won_demo else 20100
+		if won_demo:
+			shape_counts = {"loop": 22, "zigzag": 31, "straight": 40, "return": 9, "enso": 6, "hook": 4, "wave": 2}
+		else:
+			shape_counts = {"zigzag": 20, "straight": 13, "loop": 12, "return": 8, "enso": 3, "hook": 1}
 		powers.levels = {"fire_burn": 2, "fire_spark": 1, "water_tide": 1, "fig_loop": 1}  # build de démo (médaillons, étiquettes)
 		_ending_victory = "victoire" in wsearch
 		_finish_run()
@@ -1108,11 +1145,13 @@ func _ready() -> void:
 			menu.unlock_gear = [{"kind": "aspect", "id": "fude", "k": 1}, {"kind": "brush", "id": "hake", "k": 0}, {"kind": "charm", "id": "garde", "k": 0}]
 			if _ending_victory:
 				menu.unlock_world = 2
+				menu.unlock_world_name = String(Worlds.world(2).get("name", ""))
 				menu.unlock_world_kanji = String(Worlds.world(2).get("kanji", "道"))
 				menu.unlock_world_color = Worlds.world(2).get("color", Toon.PRUSSIAN)
 				menu.unlock_powers = ["fire_burn", "water_tide", "fire_spark"]
 		if not _ending_victory:
-			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
+			menu.killer_name = "Ō-Kappa"  # coup fatal de démo : le gardien de l'étape 4 (aucun ennemi en vie à cet instant)
+			menu.killer_hint = String(BOSS_HINTS["okappa"])
 	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
 	# seconde N, pour les captures) ; jamais pour le robot ni les tests
 	var auto_run := autoplay or "--bot" in OS.get_cmdline_user_args()
@@ -1917,14 +1956,14 @@ func _save() -> void:
 	cfg.save(SAVE_PATH)
 
 
-## Images par seconde : 60 en jeu (30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
+## Images par seconde : 120 en jeu (bornées par l’écran ; 30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
 ## pause) : le téléphone chauffe moins et la batterie tient plus longtemps. Le robot et les captures gardent le
 ## rythme imposé par --fixed-fps.
 func _apply_fps() -> void:
 	if _fps_free:
 		return
 	var calm := state in ["menu", "worlds", "paused", "over"]
-	Engine.max_fps = 30 if (eco_mode or calm) else 60
+	Engine.max_fps = 30 if (eco_mode or calm) else 120
 
 
 func _set_state(s: String) -> void:
@@ -2221,24 +2260,39 @@ func _on_atelier() -> void:
 
 ## `?tutoarbre[&etape=N]` (captures) : le tutoriel de l'Arbre du pinceau, à l'étape N (1 accueil, 2 nœud, 3 APPRENDRE,
 ## 4 bulle finale) ; arbre vide, une partie jouée, 140 encre ; rien n'est sauvegardé par le tutoriel.
+## `&guide=dojo` (accueil : DOJO) ou `&guide=pinceau` (avec `&won=1` : 1 ATELIER, 2 onglet, 3 le pinceau, 4 bulle
+## finale) : les autres guides de l'accueil.
 func _capture_tree_coach(q: String) -> void:
 	meta.tree = {}
 	meta.purse_rank = 0
 	meta.runs = maxi(1, meta.runs)
 	meta.sumi = 140
-	meta.coach_seen.erase("arbre")
+	var gq := q.find("guide=")
+	var g := q.substr(gq + 6).get_slice("&", 0) if gq >= 0 else "arbre"
+	if not g in TreeCoach.GUIDES:
+		g = "arbre"
+	meta.coach_seen.erase(g)
+	meta.hints_on = true
 	menu.sumi = meta.sumi
 	tree_coach.dry = true
 	tree_coach.hold = true
 	var eq := q.find("etape=")
 	var n := clampi(int(q.substr(eq + 6).get_slice("&", 0)), 1, 4) if eq >= 0 else 1
+	if g == "dojo":
+		n = 1
 	if n >= 2:
 		_on_atelier()
-	if n == 4:
+	if g == "pinceau":
+		if n >= 3:
+			refuge.set("_tab", 2)
+			refuge.set("_seg", 2.0)
+		if n == 4:
+			refuge.call("show_brush", String(tree_coach.call("_new_brush")))
+	elif n == 4:
 		var nid := String(refuge.call("_default_node"))
 		refuge.call("select_node", nid)
 		refuge.call("_learn")
-	tree_coach.request(n)
+	tree_coach.request(n, g)
 
 
 func _on_refuge_closed() -> void:
@@ -2256,7 +2310,8 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "dev": "on" if measure.active else "off"}
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "dev": "on" if measure.active else "off",
+		"hints": "on" if meta.hints_on else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
@@ -2290,6 +2345,11 @@ func _on_option(key: String, value: String) -> void:
 		"tuto":
 			# « Revoir le tutoriel » : les bulles du coach reviendront (JOUER mène droit au monde 1)
 			meta.coach_reset()
+			meta.save_data()
+			coach.clear()
+		"hints":
+			# INDICES : OUI / NON (NON coupe les indices du coach et les guides de l'accueil)
+			meta.hints_on = value == "on"
 			meta.save_data()
 			coach.clear()
 	sfx.play("empty", 1.4, -6.0)
@@ -3470,6 +3530,8 @@ func _save_frames() -> void:
 ## zéro (héros, partie) se fait ensuite d'un bloc.
 func _start(hub := true, tutorial := false, sliced := false) -> void:
 	var t0 := Time.get_ticks_usec()
+	if not tutorial:
+		meta.enter_world(current_world)  # (marchand et pacte au monde 2, oni au monde 3 : meta.feature_open)
 	_load_gen += 1
 	_loading = sliced
 	_intro_wait = false
@@ -3613,6 +3675,9 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	chests_unsealed = 0
 	sealed_set = 0
 	sealed_broken = 0
+	gates_seen = 0
+	shrines_seen = 0
+	elites_seen = 0
 	_seal_quota = 0
 	run_dist = 0.0
 	hud.dying = 0.0
@@ -4136,6 +4201,8 @@ func boss_killed(b: Node3D) -> void:
 	pickups.drop(b.position, "xp", 8)
 	pickups.drop(b.position, "coin", 10)
 	var clean := not _scratched
+	if state != "tuto" and not in_hub:
+		_fig_gained(meta.fig_win(current_world, "mini" if is_mini_boss(String(b.kind)) else "boss"))
 	if is_mini_boss(String(b.kind)):
 		mini_kills += 1
 		if meta.learned("p4"):
@@ -4170,6 +4237,15 @@ func boss_killed(b: Node3D) -> void:
 				others = true
 		if not others:
 			_start_slowmo(b.position)
+
+
+## Figures que la progression vient de donner (meta.fig_win) : annoncées par le coach (NOUVELLE FIGURE, le
+## geste qui se trace), reconnues dès le trait suivant.
+func _fig_gained(figs: Array) -> void:
+	for f in figs:
+		coach.announce_fig(String(f))
+		if _bot != null:
+			print("BOT FIGURE gagnée : %s (monde %d, salle %d)" % [String(f), current_world, room])
 
 
 ## Retour haptique nommé (motifs dans sfx.gd) : sans effet hors mobile ou si l'option est coupée.
@@ -4336,22 +4412,23 @@ func _capture_seal_stroke(right: bool) -> void:
 func _seal_roll() -> int:
 	if stage_i < 1 or in_hub or state == "tuto" or room == MINI_ROOM or room >= ROOMS or _gentle_room():
 		return 0
-	if seal_figs().is_empty() or randf() >= SEALED_ROOM:
+	# (un scellé est invulnérable tant que sa figure n'est pas tracée : jamais une figure inconnue — seal_figs —, et
+	# aucun tant que le joueur ne connaît que le trait droit)
+	if not meta.feature_open("sealed") or seal_figs().size() < 2 or randf() >= SEALED_ROOM:
 		return 0
 	return 2 if randf() < SEALED_TWO else 1
 
 
-## Figures qu'un sceau peut porter : celles que le joueur connaît (les six de base, et celles qu'un rouleau
-## apprend : meta.fig_learned) dont l'interface a le glyphe (UiKit.FIGURES) ; ni ensō ni crochet aux deux
-## premières étapes du monde 1 (comme les coffres scellés).
+## Figures qu'un sceau peut porter : celles que le joueur connaît (gagnées en progressant, ou apprises dans
+## l'arbre : meta.fig_learned ; une seule connue : celle-là) dont l'interface a le glyphe (UiKit.FIGURES) ; ni
+## ensō ni crochet aux deux premières étapes du monde 1 (comme les coffres scellés).
 func seal_figs() -> Array:
 	var out: Array = []
-	var learn: bool = meta != null and meta.has_method("fig_learned")
 	for k in SEALED_FIGS:
 		var key := String(k)
 		if not UiKit.FIGURES.has(key):
 			continue
-		if not (SEALED_BASE.has(key) or (learn and bool(meta.call("fig_learned", key)))):
+		if meta == null or not bool(meta.fig_learned(key)):
 			continue
 		if current_world == 1 and stage_i < 2 and (key == "enso" or key == "hook"):
 			continue
@@ -4393,9 +4470,10 @@ func seal_event() -> void:
 
 
 func xp_need() -> int:
-	# courbe plus raide : ~1 niveau par salle au début, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
-	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau)
-	return int(round(float(8 + 5 * level + level * level) * XP_SEAL_K))
+	# courbe plus raide : premier niveau au 2e combat, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
+	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau).
+	# Repasse d'équilibrage : 6 au lieu de 8 (16 points au lieu de 18 pour le premier niveau, les suivants presque inchangés)
+	return int(round(float(6 + 5 * level + level * level) * XP_SEAL_K))
 
 
 ## Butin ramassé (appelé par pickups.gd).
@@ -4471,11 +4549,11 @@ func _room_cleared() -> void:
 			_seal_gold()
 		if arena.zones_left() > 0:
 			_open_passage(j + 1)
-			if room in SANCTUARIES:
+			if room in SANCTUARIES and meta.feature_open("pact"):
 				_spawn_shrine()
 			return
 	_open_gate()
-	if room in SANCTUARIES:
+	if room in SANCTUARIES and meta.feature_open("pact"):
 		_spawn_shrine()
 
 
@@ -4522,6 +4600,7 @@ func _after_room_pick() -> void:
 ## et des recoins. Le toucher (anneau d'approche au sol) propose un pacte ; passer le torii l'ignore.
 func _spawn_shrine() -> void:
 	var p := _shrine_spot()
+	shrines_seen += 1
 	_shrine = Node3D.new()
 	add_child(_shrine)
 	_shrine.position = Vector3(p.x, 0, p.z)
@@ -4628,7 +4707,7 @@ func _open_seal_pick(d: Dictionary) -> void:
 ## Vrai si l'étape `si` (index) finit sur deux portes : pas avant le gardien ni avant le boss, jamais au
 ## sanctuaire ni au dojo.
 func gate_choice(si: int) -> bool:
-	if in_hub or state == "tuto" or si + 1 >= STAGE_PLAN.size() - 1:
+	if in_hub or state == "tuto" or si + 1 >= STAGE_PLAN.size() - 1 or not meta.feature_open("gates"):
 		return false
 	return si + 1 != stage_of(MINI_ROOM) - 1
 
@@ -4650,7 +4729,8 @@ func _draw_seals(count := 2) -> Array:
 		cands.append([e[0], 1.3 * float(e[1]) / maxf(etot, 0.01)])  # les écoles pèsent 1,3 en tout
 	cands.append(["gold", 0.45])
 	cands.append(["heart", 0.3 + (0.5 if hero.hp * 2 <= hero.max_hp else 0.0)])
-	cands.append(["oni", 0.45])
+	if meta.feature_open("oni"):
+		cands.append(["oni", 0.45])
 	var out: Array = []
 	for _n in count:
 		var tot := 0.0
@@ -4986,10 +5066,14 @@ func _build_segment(sliced := false) -> void:
 	_clear_pockets()
 	hazards.clear()
 	var boss_seg := next == MINI_ROOM or next >= ROOMS
+	if stage_i == 2 and not in_hub and state != "tuto":
+		_fig_gained(meta.fig_win(current_world, "stage3"))  # étape 3 atteinte : le zigzag (monde 1)
 	# deux portes à sceaux au bout de l'étape, sauf avant le gardien et avant le boss ; omamori des portes : une
 	# fois par monde, la première fois qu'il y a un choix, trois portes
 	var nk := 3 if charm == "portes" and not _portes_used and _gate_force.is_empty() else 2
 	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals(nk) if gate_choice(stage_i) else [])
+	if not (arena.gate_kinds as Array).is_empty():
+		gates_seen += 1
 	var gen := _load_gen
 	var t_sl := Time.get_ticks_usec()
 	if sliced:
@@ -5113,7 +5197,7 @@ func _build_pockets(sliced := false) -> void:
 			slots.append(i)
 	slots.shuffle()
 	# le marchand : dans le recoin du dernier tronçon (juste avant le torii), sinon un autre, sinon celui du coffre
-	if stage_i == MERCHANT_STAGE and not in_hub and state != "tuto":
+	if stage_i == MERCHANT_STAGE and not in_hub and state != "tuto" and meta.feature_open("merchant"):
 		var mi := -1
 		for i in range(spots.size() - 1, 0, -1):
 			if i in slots:
@@ -5126,11 +5210,13 @@ func _build_pockets(sliced := false) -> void:
 		if mi >= 0:
 			kinds[mi] = "merchant"
 	# une petite énigme de trait par étape, presque toujours (à l'écart du chemin)
-	if not slots.is_empty() and randf() < 0.9:
+	# (énigmes et coffres scellés : après le boss du monde 1 ; défis d'élite : dès le monde 3 — meta.feature_open)
+	var sealed_ok: bool = meta.feature_open("sealed")
+	if not slots.is_empty() and sealed_ok and randf() < 0.9:
 		kinds[int(slots.pop_back())] = "puzzle"
 	if not slots.is_empty() and randf() < 0.4:
 		kinds[int(slots.pop_back())] = "spring"
-	if not slots.is_empty() and stage_i >= 1 and randf() < 0.65:
+	if not slots.is_empty() and stage_i >= 1 and meta.feature_open("oni") and randf() < 0.65:
 		kinds[int(slots.pop_back())] = "elite"
 	if not slots.is_empty() and randf() < 0.35:
 		kinds[int(slots.pop_back())] = "chest"
@@ -5149,7 +5235,7 @@ func _build_pockets(sliced := false) -> void:
 		if k == "merchant":
 			_spawn_merchant(p)
 			continue
-		if k == "chest" and stage_i >= 1 and randf() < SEAL_CHANCE:
+		if k == "chest" and stage_i >= 1 and sealed_ok and randf() < SEAL_CHANCE:
 			_spawn_sealed_chest(p)
 			continue
 		var sealed := (k == "spring" and seal_reward == "heart") or (k == "elite" and seal_reward == "oni")
@@ -5158,6 +5244,7 @@ func _build_pockets(sliced := false) -> void:
 			_seal_spring(pn)  # sceau du cœur : la source elle-même est vermillon (plus de sceau flottant)
 		var pk := {"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed}
 		if k == "elite":
+			elites_seen += 1
 			pk["oni"] = pn.get_meta("oni")
 			if sealed:
 				OniShrine.mark_seal(pk["oni"])  # sceau de l'oni : le sanctuaire couve déjà (lanternes rouges, braises)
@@ -5440,11 +5527,20 @@ func _open_chest(pk: Dictionary, rich: bool) -> void:
 	hud.toast("COFFRE")
 
 
+## Figures de `list` que le joueur connaît (meta.fig_learned) ; aucune : le trait droit, la figure du départ.
+func known_figs(list: Array) -> Array:
+	var out: Array = []
+	for k in list:
+		if meta == null or bool(meta.fig_learned(String(k))):
+			out.append(String(k))
+	return out if not out.is_empty() else ["straight"]
+
+
 ## Coffre scellé posé en `p` (recoin, ou devant le héros pour les captures) : chaîne, ofuda et sceau, plaque où
 ## se peint la figure `fig` (au hasard parmi SEAL_FIGS, sans ensō ni crochet aux deux premières étapes du monde 1).
 func _spawn_sealed_chest(p: Vector3, fig := "") -> Dictionary:
 	var c := Vector3(p.x, 0, p.z)
-	var figs: Array = SEAL_FIGS_EASY if current_world == 1 and stage_i < 2 else SEAL_FIGS
+	var figs: Array = known_figs(SEAL_FIGS_EASY if current_world == 1 and stage_i < 2 else SEAL_FIGS)
 	var shape := fig if fig in SEAL_FIGS else String(figs[randi() % figs.size()])
 	var n := _pocket_node("chest", c)
 	# la plaque se dresse côté milieu de l'étape (jamais contre le bord ni dans l'eau)
@@ -5785,7 +5881,8 @@ func spawn_puzzle(kind: String, p: Vector3) -> Dictionary:
 		else:
 			pk["lanterns"] = spots
 	if pz == "stele":
-		pk["shape"] = String(PUZZLE_FIGS[randi() % PUZZLE_FIGS.size()])
+		var pfs := known_figs(PUZZLE_FIGS)
+		pk["shape"] = String(pfs[randi() % pfs.size()])
 	if pz == "spirit":
 		# l'esprit au milieu du chemin (au bord du quai, on l'entoure mal) : rapproché du centre tant que c'est praticable
 		var mx: float = (arena.stage_rect as Rect2).get_center().x
@@ -6175,6 +6272,8 @@ func _award(victory: bool) -> void:
 	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory else []
 	if _bot != null and not menu.unlock_gear.is_empty():
 		print("BOT ÉQUIPEMENT gagné : %s" % str(menu.unlock_gear))
+	for ug: Dictionary in menu.unlock_gear:
+		coach.announce_gear(String(ug.get("kind", "")), String(ug.get("id", "")))  # NOUVEAU PINCEAU (feuille de résultats)
 	# ce que la victoire débloque : le monde suivant et une famille de rouleaux (rangée DÉBLOQUÉ des résultats)
 	menu.unlock_world = int(un.get("world", 0))
 	var ups: Array = un.get("powers", [])
@@ -6317,6 +6416,7 @@ func _finish_run() -> void:
 	# coup fatal : le boss ou l'ennemi le plus proche du héros à sa chute
 	menu.killer_kind = ""
 	menu.killer_name = ""
+	menu.killer_hint = ""  # point faible du boss (BOSS_HINTS) : le conseil de la feuille
 	if not won:
 		var best_d := 1.0e9
 		for bo in bosses:
@@ -6328,6 +6428,7 @@ func _finish_run() -> void:
 				var tl = bo.get("title")
 				menu.killer_name = String(tl) if tl is String and String(tl) != "" else "le gardien"
 				menu.killer_kind = ""
+				menu.killer_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 		for e in enemies:
 			if not is_instance_valid(e) or e.dead or e.dummy or e.is_harmless():
 				continue
@@ -6335,6 +6436,7 @@ func _finish_run() -> void:
 			if ed < best_d:
 				best_d = ed
 				menu.killer_name = ""
+				menu.killer_hint = ""
 				menu.killer_kind = String(e.kind)
 	_set_state("over")
 
@@ -6351,6 +6453,7 @@ func _award_score() -> void:
 	var cid: String = meta.check_charm(current_world)
 	if cid != "":
 		menu.unlock_gear.append({"kind": "charm", "id": cid, "k": 0})
+		coach.announce_gear("charm", cid)  # premier omamori : où le porter (une fois)
 		if _bot != null:
 			print("BOT OMAMORI gagné : %s (monde %d)" % [cid, current_world])
 	menu.gain_sumi += int(r.get("sumi", 0))
@@ -6830,11 +6933,11 @@ func _detect_fig(s: Node) -> Dictionary:
 	return rp
 
 
-## Figures de l'arbre (vague, pointe, triangle) pas encore apprises (meta.fig_learned) : StrokeShapes ne les lit
-## pas (ni reconnues, ni proposées par le diagnostic du dojo), le trait garde la lecture des six autres.
+## Figures pas encore connues (meta.fig_learned : gagnées petit à petit, ou apprises dans l'arbre) : StrokeShapes
+## ne les lit pas (ni reconnues, ni proposées par le diagnostic du dojo) ; leur geste reste un trait simple.
 func _sync_fig_lock() -> void:
 	var lk: Array = []
-	for k in StrokeShapes.LEARNED:
+	for k in StrokeShapes.ORDER:
 		if meta == null or not bool(meta.fig_learned(String(k))):
 			lk.append(String(k))
 	StrokeShapes.locked = lk
