@@ -18,7 +18,7 @@ boot_splash/bg_color=Color(0.106, 0.102, 0.118, 1)
 boot_splash/show_image=false
 config/icon="res://icon.svg"
 config/quit_on_go_back=false
-run/max_fps=60
+run/max_fps=120
 
 [display]
 

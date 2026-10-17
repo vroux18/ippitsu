@@ -249,7 +249,7 @@ const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s rée
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
 var _fps_free := false  # robot, captures, relevés : aucun plafond (le rythme vient de --fixed-fps)
-var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu
+var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu (120 sinon)
 var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
@@ -1894,14 +1894,14 @@ func _save() -> void:
 	cfg.save(SAVE_PATH)
 
 
-## Images par seconde : 60 en jeu (30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
+## Images par seconde : 120 en jeu (bornées par l’écran ; 30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
 ## pause) : le téléphone chauffe moins et la batterie tient plus longtemps. Le robot et les captures gardent le
 ## rythme imposé par --fixed-fps.
 func _apply_fps() -> void:
 	if _fps_free:
 		return
 	var calm := state in ["menu", "worlds", "paused", "over"]
-	Engine.max_fps = 30 if (eco_mode or calm) else 60
+	Engine.max_fps = 30 if (eco_mode or calm) else 120
 
 
 func _set_state(s: String) -> void:
