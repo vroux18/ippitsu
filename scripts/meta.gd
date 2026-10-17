@@ -36,10 +36,10 @@ const TREE_VERSION := 1  # sauvegarde : 0 = ancienne Pierre à encre et sceaux (
 const SEAL_SUMI := 30  # les sceaux n'existent plus : chaque sceau gagné en partie vaut 30 encre (award_run)
 const LEGACY_SEAL_SUMI := 40  # remboursement des sceaux de l'ancienne Pierre à encre (_migrate_tree)
 ## Économie : 0 = coûts de l'arbre d'avant la repasse d'équilibrage (total 7 520, Bourse 470). Une sauvegarde plus
-## ancienne garde ses nœuds et ses rangs de Bourse ; son encre en réserve est multipliée une fois par ECO_RATIO
-## (hausse moyenne des coûts) : elle garde au moins son pouvoir d'achat, jamais de perte.
+## ancienne garde ses nœuds, ses rangs de Bourse et son encre en réserve telle quelle (ECO_RATIO 1 : pas de
+## gonflement, l'ancienne économie en a déjà trop donné).
 const ECO_VERSION := 1
-const ECO_RATIO := 1.4
+const ECO_RATIO := 1.0
 const BRANCH_ORDER := ["lame", "encre", "papier", "voie"]
 const BRANCHES := {
 	"lame": {"name": "LAME", "col": Color("#C8322A"), "text": "Attaque : dégâts, critiques, chaîne."},
@@ -455,8 +455,7 @@ func _migrate_tree(cf: ConfigFile) -> void:
 
 
 ## Sauvegarde d'avant la repasse d'équilibrage (coûts de l'arbre et de la Bourse relevés) : nœuds appris et rangs
-## de Bourse gardés tels quels (rien n'est repris) ; l'encre en réserve est multipliée par ECO_RATIO pour garder
-## son pouvoir d'achat (jamais de perte, arrondi au-dessus).
+## de Bourse gardés tels quels (rien n'est repris) ; l'encre en réserve est multipliée par ECO_RATIO (1 : inchangée).
 func _migrate_eco() -> void:
 	if sumi <= 0:
 		return
