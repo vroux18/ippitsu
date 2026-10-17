@@ -159,8 +159,9 @@ const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
 const OniShrine = preload("res://scripts/oni_shrine.gd")  # sanctuaire d'oni du défi d'élite (recoins)
 # yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un cadenas au-dessus de
-# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
-# (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
+# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle ouvre le cadenas
+# (_seal_break) et il devient vulnérable ; fermé, tout ricoche sans aucun dégât. Figures tirées parmi celles que le
+# joueur connaît (seal_figs).
 const SEALED_FIGS := ["loop", "zigzag", "return", "hook", "straight", "enso", "wave", "point", "triangle"]
 const SEALED_BASE := ["loop", "zigzag", "return", "hook", "straight", "enso"]  # connues d'emblée
 const SEALED_ROOM := 0.7  # part des combats qui ont au moins un scellé
@@ -4303,37 +4304,27 @@ func seal_figs() -> Array:
 	return out
 
 
-## Sceau brisé par la bonne figure (_check_slashes) : il meurt d'un coup, le cadenas s'ouvre (hud.seal_unlock) ;
-## points du sceau (score.on_seal), un peu d'or et d'encre.
+## Sceau brisé par la bonne figure (_slash_hit) : le cadenas s'ouvre (hud.seal_unlock), le yōkai chancelle et
+## devient vulnérable (le coup du trait porte ensuite normalement) ; points du sceau, un peu d'or et d'encre.
 func _seal_break(e: Node3D, dir: Vector3) -> void:
 	var p: Vector3 = e.position
-	_stroke_hit = true
-	_chain_t = 0.0
 	sealed_broken += 1
-	e.unseal_kill(dir)
+	e.unseal(dir)
 	vfx.impact(p, dir, true)
 	_add_hitstop(HITSTOP_KILL)
 	_cam_kick(dir, 0.25)
-	_on_enemy_killed(e)
-	vfx.kill_burst(p, dir, true, _ink_tint(e))
 	vfx.ring(Vector3(p.x, 0.06, p.z), Toon.GOLD, 1.7)
 	hud.screen_flash = maxf(hud.screen_flash, 0.3)
-	kills += 1
-	_stroke_kills += 1
-	powers.on_kill(e)
 	if state != "tuto":
 		score.on_seal(chain)
 	pickups.drop(p, "coin", SEALED_GOLD)
-	elan = minf(elan_max(), elan + ELAN_PER_HIT + elan_max() * SEALED_INK)
-	shake = maxf(shake, 0.4)
-	sfx.play("kill", _combo_pitch())
+	elan = minf(elan_max(), elan + elan_max() * SEALED_INK)
+	shake = maxf(shake, 0.35)
 	sfx.play("strike", 1.7, -6.0)
 	sfx.play("shrine", 1.3, -5.0)
 	feel("kill")
 	hero.slash_pop()
 	_slash_mark(p, dir)
-	if combo >= 3:
-		_combo_label(p, combo)
 	coach.on_event("seal")
 	seal_event()
 
@@ -7594,7 +7585,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 		if fig != String(e.seal_fig):
 			charm_fx()
 		_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
-		return
+		# (puis le trait le frappe normalement : il est ouvert)
 	var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
 	var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 	var piercing: bool = bool(_fig_mods.get("pierce", false))
