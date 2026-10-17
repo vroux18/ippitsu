@@ -243,6 +243,19 @@ const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès 
 const ELAN_REGEN := 7.0  # par seconde réelle, hors tracé (jauge pleine en ~2 s)
 const ELAN_PER_HIT := 3.5
 const ENEMY_HP_MULT := 2.05  # 2.0 avant les portes à sceaux : +2,5 % pour leurs rouleaux en plus (robots campagne)
+## Encre dure (mondes 2+) : part des dégâts du trait simple et des pouvoirs que les yōkai encaissent (index : monde).
+## Les figures la percent : ruée en figure, techniques (et les pouvoirs qui les prolongent), sceaux brisés.
+## Le trait simple seul ne suffit plus dès le monde 2 ; les pouvoirs renforcent les figures sans les remplacer.
+const HARD_INK := [0.0, 0.0, 0.4, 0.42, 0.44, 0.45, 0.46, 0.46, 0.48]
+const HARD_INK_TIP_T := 5.0  # « ENCRE DURE » au-dessus d'un yōkai : au plus toutes les 5 s
+## Ruée en figure (forme reconnue, technique ou non) : dégâts ×FIG_DMG (powers.figure_launch ; ×1,15 avant l'encre dure).
+const FIG_DMG := 1.4
+## Coups enchaînés d'un même trait : +COMBO_STEP par ennemi déjà touché, plafonné à ×COMBO_MAX dès la 5e touche (sans
+## plafond, il explosait sur les foules, multiplié par Ippitsu, la chaîne et les critiques).
+const COMBO_STEP := 0.3
+const COMBO_MAX := 2.2
+var _hard_tip_t := -99.0
+var _hard_told := false  # bandeau « les figures percent l'encre dure » montré dans cette partie
 const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
@@ -477,6 +490,13 @@ var score: RefCounted = Score.new()  # points de la partie (score.gd), multipli�
 var shape_counts := {}  # figures réalisées pendant la partie (forme -> nombre)
 var _chain_t := 0.0
 var _stroke_hit := false
+## Dégâts réellement ôtés aux yōkai (hors boss) depuis le lancement, par source (mesures d'équilibrage du robot) :
+## trait (ruée sans figure), trait_fig (ruée en figure), tech (techniques de figure), pow (pouvoirs), sceau (sceaux brisés).
+var dmg_src := {"trait": 0.0, "trait_fig": 0.0, "tech": 0.0, "pow": 0.0, "sceau": 0.0}
+## `-- --attrib` (robot) : dégâts des pouvoirs par fonction de powers.gd qui les inflige (lent : pile d'appels)
+var dmg_attrib := {}
+var _attrib_on := "--attrib" in OS.get_cmdline_user_args()
+const ATTRIB_SKIP := ["damage_enemy", "_dmg", "_burst", "_whirl_burst", "_ink_wave", "_fig_hit"]
 var _touch_sp := Vector2.ZERO  # point où le doigt s'est posé
 var _shape: Dictionary = {}  # forme reconnue du trait en cours de ruée
 var _fig_mods: Dictionary = {}  # effets de la figure sur la ruée en cours (powers.figure_launch)
@@ -3514,6 +3534,7 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	pickups.clear()
 	chain = 0
 	max_chain = 0
+	_hard_told = false
 	score.reset()
 	# Arbre du pinceau : Fil du sabre (×1,5 dès 2), Maître des figures (+25 % de points de figure)
 	score.chain_early = meta.learned("l3")
@@ -3653,7 +3674,7 @@ func _update_bleeds(dt: float) -> void:
 		if float(b[2]) <= 0.0:
 			b[2] = 0.3
 			_splash(e.position, Toon.VERMILION, 2)  # gouttes vermillon
-		damage_enemy(e, Meta.BLEED_DPS * dt, false)
+		damage_enemy(e, Meta.BLEED_DPS * dt, false, true)  # (né d'une figure : perce l'encre dure)
 
 
 ## Combat suivant (zone d'une étape, ou arène d'un gardien) : 3 vagues d'ennemis à tuer, tirées selon
@@ -4306,6 +4327,7 @@ func _seal_break(e: Node3D, dir: Vector3) -> void:
 	_stroke_hit = true
 	_chain_t = 0.0
 	sealed_broken += 1
+	dmg_src["sceau"] = float(dmg_src["sceau"]) + maxf(float(e.hp), 0.0)
 	e.unseal_kill(dir)
 	vfx.impact(p, dir, true)
 	_add_hitstop(HITSTOP_KILL)
@@ -6289,11 +6311,27 @@ func _award_score() -> void:
 
 # ------------------------------------------------------------------ aides pour les pouvoirs
 
-func damage_enemy(e: Node3D, dmg_in: float, fx := true) -> void:
+## `pierce` (ou powers.src_tech : techniques de figure) : perce l'encre dure et use vite les boucliers.
+func damage_enemy(e: Node3D, dmg_in: float, fx := true, pierce := false) -> void:
 	if not is_instance_valid(e) or e.dead:
 		return
 	var dmg := dmg_in * curse_dmg_mult()
-	var killed: bool = e.hurt_dot(dmg)
+	var scope := bool(powers.src_tech)
+	var tech := pierce or scope
+	var src := "tech" if tech else "pow"
+	if not tech:
+		dmg = _hard_ink_hit(e.position, dmg)  # pouvoir hors technique : l'encre dure encaisse
+	var hp0 := float(e.hp)
+	var killed: bool = e.hurt_dot(dmg, tech)
+	dmg_src[src] = float(dmg_src[src]) + hp0 - maxf(float(e.hp), 0.0)
+	if _attrib_on:
+		var who := src
+		for fr in get_stack():
+			var fn := String(fr.get("function", ""))
+			if String(fr.get("source", "")).ends_with("powers.gd") and not fn in ATTRIB_SKIP:
+				who = "%s:%d" % [fn, int(fr.get("line", 0))]
+				break
+		dmg_attrib[who] = float(dmg_attrib.get(who, 0.0)) + hp0 - maxf(float(e.hp), 0.0)
 	if fx and not killed:
 		_splash(e.position, Toon.SUMI, 3)
 	if killed:
@@ -6301,7 +6339,9 @@ func damage_enemy(e: Node3D, dmg_in: float, fx := true) -> void:
 		var kd: Vector3 = kp - hero.position if is_instance_valid(hero) else Vector3.FORWARD
 		vfx.kill_burst(kp, kd, false, _ink_tint(e))
 		kills += 1
+		powers.src_tech = false  # (une mort en chaîne déclenchée ici n'est plus la technique)
 		powers.on_kill(e)
+		powers.src_tech = scope
 		_on_enemy_killed(e)
 		sfx.play("kill", randf_range(1.1, 1.3), -6.0)
 		feel("hit")
@@ -7099,7 +7139,7 @@ func _ultimate() -> void:
 	hud.toast("IPPITSU  ·  ULTIME")
 	for e in enemies.duplicate():
 		if is_instance_valid(e) and not e.dead and (not e.dummy or state == "tuto"):
-			damage_enemy(e, ULT_DAMAGE * chain_mult())
+			damage_enemy(e, ULT_DAMAGE * chain_mult(), true, true)  # (chargé par les figures : perce l'encre dure)
 	for bo in bosses:
 		if is_instance_valid(bo) and not bo.dead:
 			bo.aoe_hit(bo.position, 6.0, ULT_DAMAGE * 2.0 * chain_mult() * BOSS_TOUGH, true)
@@ -7386,6 +7426,33 @@ func enemy_strike(center: Vector3, r: float, n := 1) -> void:
 		_hurt_hero(n)
 
 
+## Bonus des coups enchaînés d'un même trait (combo : touches de la ruée en cours), plafonné.
+func combo_mult() -> float:
+	return minf(1.0 + COMBO_STEP * float(maxi(combo - 1, 0)), COMBO_MAX)
+
+
+## Encre dure du monde en cours (HARD_INK) : 0 au monde 1, au dojo et au refuge.
+func hard_ink() -> float:
+	if in_hub or state == "tuto":
+		return 0.0
+	return float(HARD_INK[clampi(current_world, 0, HARD_INK.size() - 1)])
+
+
+## Coup du trait simple (sans figure) ou d'un pouvoir sur un yōkai cuirassé : dégâts réduits, avertissement lisible
+## de temps en temps ; la première fois de la partie, un bandeau dit que les figures percent.
+func _hard_ink_hit(p: Vector3, dmg: float) -> float:
+	var h := hard_ink()
+	if h <= 0.0:
+		return dmg
+	if run_time - _hard_tip_t > HARD_INK_TIP_T:
+		_hard_tip_t = run_time
+		float_text(p + Vector3(0, 0.4, 0), "ENCRE DURE", Toon.FOAM)
+		if not _hard_told:
+			_hard_told = true
+			hud.toast("ENCRE DURE : LES FIGURES LA PERCENT")
+	return dmg * (1.0 - h)
+
+
 func chain_mult() -> float:
 	return 1.0 + minf(chain * 0.03, 0.5)  # plafond +50 % (le combat restait trop facile)
 
@@ -7527,7 +7594,7 @@ func _check_slashes() -> void:
 			continue
 		if bo.check_dash(a, b, stroke_id):
 			combo += 1
-			var bd := 1.0 * (1.0 + 0.3 * (combo - 1)) * chain_mult() * float(_fig_mods.get("dmg", 1.0)) * curse_dmg_mult()
+			var bd := combo_mult() * chain_mult() * float(_fig_mods.get("dmg", 1.0)) * curse_dmg_mult()
 			bd *= meta.dmg_mult(chain) * minf(_net_crit(bo.position), BOSS_CRIT_CAP)
 			# pinceau : ses dégâts ; les boss gardent le chemin du héros (leurs mécaniques le lisent), le pinceau
 			# fendu y porte ses deux lignes (2 × 60 %)
@@ -7591,7 +7658,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 			charm_fx()
 		_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
 		return
-	var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
+	var dmg := combo_mult()
 	var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 	var piercing: bool = bool(_fig_mods.get("pierce", false))
 	if not piercing and e.blocks(dir):
@@ -7608,6 +7675,8 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 	dmg *= chain_mult() * curse_dmg_mult() * meta.dmg_mult(chain)
 	dmg *= _net_crit(p)
 	dmg *= k * brush_dmg()
+	if _shape.is_empty():
+		dmg = _hard_ink_hit(p, dmg)  # trait simple : l'encre dure encaisse (les figures la percent)
 	if brush == "menso" and dist < float(e.radius) * Gear.MENSO_CENTER:
 		# Menso : le trait passe au centre de l'ennemi, critique garanti
 		dmg *= Gear.MENSO_CRIT
@@ -7620,7 +7689,10 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 	dmg = powers.on_hit(e, dmg, dir)
 	_stroke_hit = true
 	_chain_t = 0.0
+	var hp0 := float(e.hp)
 	var killed: bool = e.take_hit(dmg, dir)
+	var src := "trait" if _shape.is_empty() else "trait_fig"
+	dmg_src[src] = float(dmg_src[src]) + hp0 - maxf(float(e.hp), 0.0)
 	if not killed and not _shape.is_empty() and meta.learned("l5"):
 		_bleed_start(e)  # Lame d'encre : tranché pendant une figure, il saigne
 	if brush == "hake" and aspect == 2 and not killed and is_instance_valid(e):

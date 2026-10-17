@@ -7,7 +7,9 @@ extends Node
 ## (facultatif : la salle est aussi détectée dans update).
 ## Figures : main appelle figure_launch (au lancement), figure_end (à l'arrivée), figure_update (chaque image),
 ## figure_landed (fin du bond d'ensō) et figure_cancel. Sans son rouleau (Data.FIG_UNLOCK), une figure
-## ne donne que +1 chaîne et +15 % de dégâts sur sa ruée.
+## ne donne que +1 chaîne et +40 % de dégâts sur sa ruée (main.FIG_DMG), et perce l'encre dure (main.HARD_INK).
+## Multiplicateurs de dégâts des pouvoirs sur un coup (dos, crépuscule, critique, Lame rouge, Ippitsu, Hōō) :
+## additionnés, plafonnés à ×POW_MULT_MAX (on_hit) ; multipliés entre eux, ils faisaient ×10 et plus.
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
@@ -20,6 +22,12 @@ const LEG_LEVEL := 6  # ... ou de ce niveau
 const LEG_MAX := 3  # légendaires par partie
 const PITY_EPIC := 3  # offres d'affilée sans épique (ou mieux) avant d'en garantir un
 const PITY_LEG := 5  # offres sans légendaire (une fois permis) avant d'en garantir un
+# valeurs fixes de pouvoirs (affichées en clair sur leurs cartes, power_data : à garder d'accord)
+const ARC_DMG := 0.4  # Arc : éclair par cible (0,5 avant : le commun qui faisait le plus de dégâts)
+const RAIJIN_FORK := 0.5  # Raijin : éclair de chaque coup (1 avant : avec l'arc, 3 ennemis à 1 dégât par coup)
+const RAIJIN_DRUM := 1.5  # Raijin : tambour tous les 4 traits
+const BUNSHIN_DMG := 0.9  # Kage Bunshin : coup du clone par ennemi
+const POW_MULT_MAX := 4.0  # plafond des multiplicateurs de pouvoirs additionnés sur un coup de trait
 const FIG_WEIGHT := 0.8  # poids de l'école des figures au tirage d'une carte (un élément : 1)
 const DASH_SPEED := 34.0  # même valeur que hero.gd
 const Vfx = preload("res://scripts/vfx.gd")
@@ -83,6 +91,7 @@ var _gale: Node3D
 var _foxes: Array = []
 var _anim := 0.0
 var _cache := {}
+var src_tech := false  # le prochain main.damage_enemy vient d'une technique de figure (mesure main.dmg_src)
 # figures : techniques débloquées par les rouleaux de figure
 const FIG_NAMES := {"loop": "UZU · TOUPIE", "zigzag": "INAZUMA · ÉCLAIR EN CHAÎNE", "return": "KAESHI · GARDE",
 	"straight": "ITTŌ · COUPE IAÏ", "enso": "ENSŌ · ONDE DE CHOC", "hook": "KAGI · ESTOC",
@@ -1009,19 +1018,29 @@ func _slow(sec: float, scale: float) -> void:
 
 ## Dégâts d'un coup de ruée sur un boss, modifiés par les pouvoirs (renaissance, Ippitsu, critiques).
 func boss_dmg(d: float) -> float:
-	var out := d * _global_mult()
-	if lvl("ink_ippitsu") > 0 and int(main.combo) > 1:
-		out *= minf(2.0, 1.0 + 0.25 * float(int(main.combo) - 1))  # (plafonné sur les boss)
-	return out * minf(_crit(main.hero.position), main.BOSS_CRIT_CAP)
+	var bonus := _global_bonus() + _ippitsu_bonus() + minf(_crit(main.hero.position), main.BOSS_CRIT_CAP) - 1.0
+	return d * minf(1.0 + bonus, POW_MULT_MAX)
+
+
+## Bonus global (additif) : Hōō après la renaissance (+25 %), trait suivant d'Ippitsu (+100 %).
+func _global_bonus() -> float:
+	var b := 0.0
+	if _hoo_used:
+		b += 0.25
+	if _ippitsu_now:
+		b += 1.0
+	return b
 
 
 func _global_mult() -> float:
-	var m := 1.0
-	if _hoo_used:
-		m *= 1.25
-	if _ippitsu_now:
-		m *= 2.0
-	return m
+	return 1.0 + _global_bonus()
+
+
+## Ippitsu : +25 % par ennemi déjà touché dans le trait, plafonné à +100 %.
+func _ippitsu_bonus() -> float:
+	if lvl("ink_ippitsu") == 0 or int(main.combo) <= 1:
+		return 0.0
+	return minf(val("ink_ippitsu") / 100.0 * float(int(main.combo) - 1), 1.0)
 
 
 func _crit(pos: Vector3) -> float:
@@ -1084,20 +1103,18 @@ func _dmg(e, dmg: float, id: String) -> void:
 
 ## Modifie les dégâts d'un coup de trait et applique les effets de touche.
 func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
-	var out := dmg
 	var eid := e.get_instance_id()
 	var combo := int(main.combo)
 	_stroke_hits += 1
-	out *= _global_mult()
-	if lvl("ink_ippitsu") > 0 and combo > 1:
-		out *= 1.0 + 0.25 * float(combo - 1)
+	# multiplicateurs des pouvoirs : additionnés (×3 et ×1,8 font ×3,8, plus ×5,4), plafonnés à POW_MULT_MAX
+	var bonus := _global_bonus() + _ippitsu_bonus()
 	if lvl("fire_edge") > 0 and _burn.has(eid):
-		out *= 1.0 + val("fire_edge") / 100.0
+		bonus += val("fire_edge") / 100.0
 	if lvl("shadow_back") > 0:
 		var ry: float = e.body.rotation.y
 		var fwd := Vector3(-sin(ry), 0, -cos(ry))
 		if dir.normalized().dot(fwd) > 0.5:
-			out *= val("shadow_back")
+			bonus += val("shadow_back") - 1.0
 			main.float_text(e.position, "×" + _num(val("shadow_back")), FOX_COLOR)
 			_tag("shadow_back", e.position, false)
 	# Tasogare : la première touche sur chaque ennemi du combat est un critique
@@ -1105,12 +1122,13 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 	if lvl("shadow_dusk") > 0 and not _dusk_hit.has(eid):
 		_dusk_hit[eid] = true
 		dusk_first = true
-		out *= val("shadow_dusk")
+		bonus += val("shadow_dusk") - 1.0
 		main.float_text(e.position, "×" + _num(val("shadow_dusk")), Toon.GOLD)
 		main.vfx.dusk_crit(e.position)
 		_flash_e(e, "shadow")
 		_tag("shadow_dusk", e.position, false)
-	out *= _crit(e.position)
+	bonus += _crit(e.position) - 1.0
+	var out := dmg * minf(1.0 + bonus, POW_MULT_MAX)
 	if lvl("bolt_thunder") > 0 and combo >= 3:
 		out += val("bolt_thunder") * _bolt_mult()
 		_stun(e)
@@ -1147,7 +1165,7 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		var arcs: Array = main.nearest_enemies(e.position, 3.0, int(val("bolt_arc")), e)
 		for o in arcs:
 			main.zap(e.position, o.position)
-			_dmg(o, 0.5 * _bolt_mult(), "bolt")
+			_dmg(o, ARC_DMG * _bolt_mult(), "bolt")
 		if not arcs.is_empty():
 			_tag("bolt_arc", e.position, false)
 	if lvl("bolt_raijin") > 0:
@@ -1155,7 +1173,7 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		var forks: Array = main.nearest_enemies(e.position, 4.0, n, e)
 		for o in forks:
 			main.zap(e.position, o.position)
-			_dmg(o, 1.0 * _bolt_mult(), "bolt")
+			_dmg(o, RAIJIN_FORK * _bolt_mult(), "bolt")
 		if not forks.is_empty():
 			_tag("bolt_raijin", e.position, false)
 	_common_hit(e.position)
@@ -1178,7 +1196,7 @@ func on_boss_hit(pos: Vector3, _dmg: float = 1.0) -> void:
 	if lvl("bolt_arc") > 0:
 		for o in main.nearest_enemies(pos, 3.0, int(val("bolt_arc")), null):
 			main.zap(pos, o.position)
-			_dmg(o, 0.5 * _bolt_mult(), "bolt")
+			_dmg(o, ARC_DMG * _bolt_mult(), "bolt")
 	if lvl("bolt_raijin") > 0:
 		var hits: Array = main.damage_bosses(pos, 2.5, 0.6 * _bolt_mult(), false)
 		if not hits.is_empty():
@@ -1361,7 +1379,8 @@ func on_stroke_release(points: PackedVector3Array) -> void:
 
 # ------------------------------------------------------------------ figures (techniques)
 # Une figure reconnue (渦 loop, 雷 zigzag, 返 return, 一 straight, 円 enso, 鉤 hook) ne donne d'elle-même
-# que +1 chaîne et +15 % de dégâts sur sa ruée ; son rouleau (Data.FIG_UNLOCK) débloque la technique.
+# que +1 chaîne et +40 % de dégâts sur sa ruée (perçant l'encre dure) ; son rouleau (Data.FIG_UNLOCK) débloque
+# la technique. Les pouvoirs qui prolongent les techniques (Ensō parfait, Sceau, Kasha) percent aussi l'encre dure.
 
 ## Technique de la figure débloquée (ou prêtée par le tutoriel) ?
 func fig_on(shape: String) -> bool:
@@ -1407,7 +1426,9 @@ func _fig_hit(e, dmg: float, fx := true, fid := "") -> void:
 			var oq: Vector3 = o.position
 			main.zap(p, oq)
 			_dmg(o, 0.5 * _bolt_mult(), "bolt")
+	src_tech = true
 	main.damage_enemy(e, dmg * _fig_mult(), fx)
+	src_tech = false
 	if "water" in el and _alive(e):
 		var away: Vector3 = p - main.hero.position
 		away.y = 0.0
@@ -1422,7 +1443,7 @@ func _fig_boss(c: Vector3, r: float, dmg: float) -> Array:
 ## Lancement d'une ruée en figure. main : `_fig_mods = powers.figure_launch(shape, info, s.points)`,
 ## puis hero.speed_mult *= speed ; pierce (ignore les gardes) et dmg (multiplicateur) servent à _check_slashes.
 func figure_launch(shape: String, info: Dictionary, points: PackedVector3Array) -> Dictionary:
-	var out := {"speed": 1.0, "pierce": false, "dmg": 1.15}
+	var out := {"speed": 1.0, "pierce": false, "dmg": float(main.FIG_DMG)}
 	if not fig_on(shape):
 		return out
 	match shape:
@@ -1431,7 +1452,7 @@ func figure_launch(shape: String, info: Dictionary, points: PackedVector3Array) 
 		"straight":
 			out["speed"] = 1.4
 			out["pierce"] = true
-			out["dmg"] = 1.15 * 1.25
+			out["dmg"] = float(main.FIG_DMG) * 1.25
 			_fig_iai_pts = points
 		"return":
 			if lvl("fig_return_reflect") > 0:
@@ -1461,7 +1482,9 @@ func figure_end(shape: String, info: Dictionary) -> String:
 		return "%s · CHAÎNE +1" % String(FIG_PLAIN.get(shape, ""))
 	var hp: Vector3 = main.hero.position
 	if lvl("ink_enso") > 0 and shape != "enso":
+		src_tech = true  # (prolonge la technique : perce l'encre dure)
 		_ink_wave(hp, 2.2, 1.5)
+		src_tech = false
 		_tag("ink_enso", hp)
 	match shape:
 		"loop":
@@ -1558,7 +1581,9 @@ func figure_landed(pos: Vector3) -> void:
 		main.vfx.ink_wave(pos, rr / 1.5, true)
 		_tag("ink_enso", pos)
 		main.shake = maxf(float(main.shake), 1.23)
+		src_tech = true
 		_burst(pos, rr, val("ink_enso"), 8.0, "ink")
+		src_tech = false
 		_add_inkring(pos, minf(rr, 4.0))
 
 
@@ -2390,7 +2415,9 @@ func _seal_burst(hp: Vector3) -> void:
 	_tag("ink_seal", hp)
 	for o in main.nearest_enemies(hp, 3.0, 99, null):
 		_stun(o)
+	src_tech = true  # (né de trois figures : perce l'encre dure)
 	_burst(hp, 3.0, dmg, 8.0, "ink")
+	src_tech = false
 	if lvl("ink_enso") > 0:
 		_add_inkring(hp, 2.4)
 
@@ -2474,7 +2501,7 @@ func _clear_slows() -> void:
 ## Raijin : le tambour frappe chaque ennemi qui prépare une attaque (étourdi), sinon les deux plus proches.
 func _drum() -> void:
 	var p: Vector3 = main.hero.position
-	var dmg := 2.0 * _bolt_mult()
+	var dmg := RAIJIN_DRUM * _bolt_mult()
 	var targets: Array = []
 	for e in main.enemies:
 		if not _alive(e):
@@ -2858,7 +2885,8 @@ func _update_zones(dt: float) -> void:
 					_ignite(o2, maxf(val("fire_burn"), 0.5), 2.0)
 				elif kind == "ink" and lvl("fire_hearth") > 0:
 					_ignite(o2, 0.6, 2.0)
-				main.damage_enemy(o2, dmg, false)
+				# roue de Kasha (toupie) et cercle d'encre (ensō, sceau) : nés des figures, ils percent l'encre dure
+				main.damage_enemy(o2, dmg, false, kind == "wheel" or kind == "ink")
 			main.damage_bosses(pos, r, dmg, false)
 		if is_instance_valid(node):
 			node.position = Vector3(pos.x, node.position.y, pos.z)
@@ -2908,7 +2936,7 @@ func _add_clone(points: PackedVector3Array) -> void:
 	blade.position = Vector3(0.35, 0.9, -0.35)
 	blade.rotation.y = 0.5
 	node.visible = false
-	var dmg := 1.2 * float(main.chain_mult())
+	var dmg := BUNSHIN_DMG * float(main.chain_mult())
 	_sweeps.append(_sweep(points, "clone", node, DASH_SPEED * dash_mult(), 0.35, 0.6, dmg))
 
 

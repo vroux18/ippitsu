@@ -1127,7 +1127,7 @@ func _figure_hit() -> bool:
 
 
 ## Bouclier : renvoie les dégâts qui passent jusqu'aux PV (25 % tant qu'il tient, le surplus en entier).
-## `strong` (figures, pouvoirs) : le bouclier s'use deux fois plus vite.
+## `strong` (figures, techniques) : le bouclier s'use deux fois plus vite (pouvoirs hors technique : normalement).
 func _absorb(dmg: float, strong: bool) -> float:
 	if shield <= 0.0 or dmg <= 0.0:
 		return dmg
@@ -1405,13 +1405,14 @@ func elem_flash(c: Color) -> void:
 
 
 ## Dégâts « indirects » (brûlure, foudre, feu) : pas de recul ni d'animation de coup.
-func hurt_dot(dmg: float) -> bool:
+## Dégâts de pouvoir ou de technique ; `strong` (techniques de figure) : le bouclier s'use deux fois plus vite.
+func hurt_dot(dmg: float, strong := true) -> bool:
 	if dead or is_harmless():
 		return false
 	if seal_fig != "":
 		dmg *= SEAL_RESIST
 		_seal_ricochet(Vector3.UP)
-	dmg = _absorb(dmg, true)
+	dmg = _absorb(dmg, strong)
 	hp -= dmg
 	_flash = maxf(_flash, 0.05)
 	if hp <= 0.0:
