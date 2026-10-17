@@ -19,8 +19,8 @@ const Menu = preload("res://scripts/menu.gd")
 const Powers = preload("res://scripts/powers.gd")
 const Picker = preload("res://scripts/picker.gd")
 # scripts des boss : pas préchargés (démarrage plus court), compilés un par image après l'accueil (_boot_async)
-const BOSS_BASE := "res://scripts/boss.gd"  # okappa, uwabami
-const BOSS_PATHS := {"kyubi": "res://scripts/boss_kyubi.gd", "gashadokuro": "res://scripts/boss_gasha.gd",
+const BOSS_BASE := "res://scripts/boss.gd"  # okappa (uwabami en hérite : boss_uwabami.gd)
+const BOSS_PATHS := {"uwabami": "res://scripts/boss_uwabami.gd", "kyubi": "res://scripts/boss_kyubi.gd", "gashadokuro": "res://scripts/boss_gasha.gd",
 	"daidara": "res://scripts/boss_daidara.gd", "kuronami": "res://scripts/boss_kuronami.gd",
 	"bakekujira": "res://scripts/boss_mini_kujira.gd",
 	# (ceux-ci préchargent un squelette : après les autres, le temps qu'il arrive en arrière-plan)
@@ -1541,7 +1541,7 @@ func _boot_async(t_ready: int) -> void:
 		t_boss += Time.get_ticks_usec() - t0
 		await get_tree().process_frame
 	var t1 := Time.get_ticks_usec()
-	_boss_script("uwabami")
+	_boss_script("okappa")
 	t_boss += Time.get_ticks_usec() - t1
 	perf_mark("boss_scripts", t_boss)
 	await get_tree().process_frame
@@ -1788,6 +1788,7 @@ func _warmup() -> void:
 	vfx.kill_burst(fxp, Vector3.FORWARD, true)
 	vfx.warm(fxp)  # effets riches des pouvoirs (pinceau, additifs, crête de vague)
 	preload("res://scripts/boss_shrine.gd").warm(w)  # arènes de gardien et de boss : motif du sol, lots, halos, tōrō
+	_boss_script("uwabami").call("warm", w)  # jets d'eau d'Uwabami
 	# éclairage : rayons de soleil (quads additifs, gardent l'échelle du nœud), lueur de touche au sol des
 	# monstres ; les lueurs des lanternes (flaques, halos face caméra à l'échelle gardée) viennent des tōrō ci-dessus
 	Worlds.build_rays(1, w)
@@ -3859,6 +3860,8 @@ func _boss_reinforce() -> void:
 	for bo in bosses:
 		if not is_instance_valid(bo) or bool(bo.dead) or is_mini_boss(String(bo.kind)):
 			continue
+		if bo.get("own_reinforce") == true:
+			continue  # (il appelle ses propres renforts : les kappa d'Uwabami)
 		var mh := float(bo.max_hp)
 		if mh <= 0.0:
 			continue
