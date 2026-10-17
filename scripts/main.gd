@@ -755,6 +755,10 @@ func _ready() -> void:
 	# sauvegarde ; le robot de campagne la suit aussi) ; rien n'est sauvegardé
 	if (wsearch != "" or "--bot" in OS.get_cmdline_user_args()) and not "calendrier" in wsearch:
 		meta.test_open = true
+	# `&calendrier&prog=N` : un joueur qui a franchi les N premiers paliers du calendrier (meta.test_prog)
+	var pgq := wsearch.find("prog=")
+	if "calendrier" in wsearch and pgq >= 0:
+		meta.test_prog(int(wsearch.substr(pgq + 5).get_slice("&", 0)))
 	# indices du coach : jamais dans une capture, sauf demandés (`&indice=gates` : celui-là dès que le jeu tourne ;
 	# `&indices` : ils viennent d'eux-mêmes, comme en jeu ; `coach=` : la leçon demandée)
 	if wsearch != "" and not ("indice" in wsearch or "coach=" in wsearch):
@@ -875,6 +879,7 @@ func _ready() -> void:
 			meta.coach_seen["seal"] = true  # (pas de leçon qui fige l'image, sauf demandée)
 		else:
 			meta.coach_seen.erase("seal")  # leçon demandée : elle vient d'elle-même quand le scellé paraît
+			coach.hold("seal")
 		var kq := wsearch.find("kind=")
 		var sfig := wsearch.substr(scq + 7).get_slice("&", 0)
 		_capture_sealed(sfig, wsearch.substr(kq + 5).get_slice("&", 0) if kq >= 0 else "", "loin=1" in wsearch)
@@ -903,6 +908,19 @@ func _ready() -> void:
 		_spawn_shrine()
 		# le héros est posé devant l'autel (sinon il est au départ de l'étape, l'autel hors champ)
 		hero.position = arena.clamp_walk(_shrine.position + Vector3(0, 0, 3.2), 0.5)
+		_prev_hero = hero.position
+		_cam_dz = _cam_target()
+		arena.follow_camera(_cam_dz)
+	# `?room=N&sortie` (captures) : comme après le dernier combat de l'étape (zones nettoyées, torii ouvert), le héros
+	# devant la sortie : torii simple, ou portes à sceaux (calendrier : `&calendrier&prog=2`)
+	if "sortie" in wsearch and state == "play":
+		for zi in arena.zones.size():
+			arena.clear_zone(zi)
+		arena.open_gate()
+		var gg: Vector3 = arena.gate_goal(0)
+		if arena.gate_spots.size() >= 2:
+			gg = (arena.gate_spots[0] + arena.gate_spots[1]) * 0.5
+		hero.position = arena.clamp_walk(gg + Vector3(0, 0, 5.5), 0.5)
 		_prev_hero = hero.position
 		_cam_dz = _cam_target()
 		arena.follow_camera(_cam_dz)
@@ -968,7 +986,7 @@ func _ready() -> void:
 			refuge.call("select_node", wsearch.substr(nq + 6).get_slice("&", 0))
 			if "apprendre" in wsearch:
 				refuge.call("_learn")
-	if "dojo" in wsearch:
+	if "dojo" in wsearch and not "guide=dojo" in wsearch:
 		_start_dojo()
 	if "tutoarbre" in wsearch:
 		_capture_tree_coach(wsearch)

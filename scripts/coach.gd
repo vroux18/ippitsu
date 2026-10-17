@@ -108,22 +108,22 @@ const HINTS := {
 	"fig_straight": {"t": "Le trait droit", "s": "Long et droit : il frappe plus fort.", "stop": true, "life": 7.0},
 	"ink": {"t": "L'encre", "s": "Elle revient quand tu ne traces pas.", "icon": "water"},
 	"danger": {"t": "Zone rouge", "s": "Un trait te sort de là avant le coup.", "icon": "effets/vitesse", "stop": true},
-	"figures": {"t": "Une figure !", "s": "Elle frappe plus fort et monte la chaîne.", "icon": "elements/figure"},
-	"scroll": {"t": "Tes pouvoirs", "s": "Deux rouleaux d'une même famille s'allient.", "icon": "hud/rouleau"},
+	"figures": {"t": "Une figure !", "s": "Elle frappe fort et monte la chaîne.", "icon": "elements/figure"},
+	"scroll": {"t": "Tes pouvoirs", "s": "Deux rouleaux d'une famille s'allient.", "icon": "hud/rouleau"},
 	"ult": {"t": "Double tap : ultime", "s": "Deux taps : la lame balaie l'écran.", "icon": "interface/double_tap", "life": 6.0},
-	"run": {"t": "Maintiens : cours", "s": "Hors combat, doigt posé : le rōnin court.", "icon": "effets/vitesse"},
-	"gates": {"t": "Choisis ta porte", "s": "Chaque sceau promet sa récompense : passe sous l'une.", "icon": "hud/torii", "life": 5.5},
+	"run": {"t": "Maintiens : cours", "s": "Hors combat, doigt posé : tu cours.", "icon": "effets/vitesse"},
+	"gates": {"t": "Choisis ta porte", "s": "Chaque sceau promet sa récompense.", "icon": "hud/torii", "life": 5.5},
 	"pz_stele": {"t": "La stèle", "s": "Trace son symbole tout près d'elle.", "icon": "hud/etoile"},
-	"pz_lanterns": {"t": "Les lanternes", "s": "Relie-les d'un seul trait, dans l'ordre.", "icon": "hud/etoile"},
+	"pz_lanterns": {"t": "Les lanternes", "s": "Relie-les d'un trait, dans l'ordre.", "icon": "hud/etoile"},
 	"pz_spirit": {"t": "L'esprit", "s": "Entoure-le d'une boucle complète.", "icon": "hud/etoile"},
-	"chest": {"t": "Coffre scellé", "s": "Trace la figure de sa plaque près de lui.", "icon": "interface/cadenas"},
-	"merchant": {"t": "Le marchand", "s": "Entre dans l'anneau d'or : ton or s'y dépense.", "icon": "hud/piece"},
-	"pact": {"t": "L'autel du pacte", "s": "Une malédiction contre un don ; refuser coûte de l'or.", "icon": "hud/rouleau", "life": 5.5},
-	"oni": {"t": "Sanctuaire d'oni", "s": "Approche : un oni d'élite garde un beau butin.", "icon": "hud/oni"},
-	"guardian": {"t": "Le gardien", "s": "Brise son bouclier : VULNÉRABLE, frappe fort !", "icon": "effets/degats"},
-	"boss": {"t": "Le boss du monde", "s": "Bouclier brisé : VULNÉRABLE. Puis il change de phase.", "icon": "effets/degats", "life": 5.5},
+	"chest": {"t": "Coffre scellé", "s": "Trace près de lui la figure gravée.", "icon": "interface/cadenas"},
+	"merchant": {"t": "Le marchand", "s": "Entre dans l'anneau d'or pour acheter.", "icon": "hud/piece"},
+	"pact": {"t": "L'autel du pacte", "s": "Un don contre une malédiction.", "icon": "hud/rouleau", "life": 5.5},
+	"oni": {"t": "Sanctuaire d'oni", "s": "Un oni d'élite y garde un beau butin.", "icon": "hud/oni"},
+	"guardian": {"t": "Le gardien", "s": "Bouclier brisé : VULNÉRABLE, frappe !", "icon": "effets/degats"},
+	"boss": {"t": "Le boss du monde", "s": "Brise son bouclier ; gare à ses phases.", "icon": "effets/degats", "life": 5.5},
 	"seal": {"t": "Brise le sceau", "s": "Trace sa figure à travers lui.", "stop": true, "life": 7.0},
-	"tree": {"t": "L'Atelier", "s": "L'encre gagnée fait pousser l'Arbre du pinceau.", "icon": "hud/pinceau", "life": 5.0},
+	"tree": {"t": "Ton encre", "s": "Elle fait pousser l'Arbre de l'Atelier.", "icon": "hud/pinceau", "life": 5.0},
 }
 # priorité (les figures gagnées passent avant tout : _pick_hint)
 const HINT_ORDER := ["seal", "danger", "stroke", "fig_straight", "guardian", "boss", "figures", "scroll", "ink", "ult",
@@ -161,6 +161,7 @@ var _veil := 0.0  # opacité du voile (suit l'arrêt sur image)
 var _big := 1.0  # échelle de la bulle (suit l'arrêt sur image)
 var _skip_rect := Rect2()
 var _force := ""  # bulle à montrer dès que possible, sans condition (captures : `?coach=figures`)
+var _held := ""  # bulle demandée par une capture : elle ne part pas seule
 var _ui := FontVariation.new()
 var _title := FontVariation.new()  # titre du bandeau : Shippori espacé
 var _sb := StyleBoxFlat.new()
@@ -294,8 +295,11 @@ func freeze_tap(_sp: Vector2) -> bool:
 
 ## Captures : la bulle `id` se montre dès que le jeu tourne, sans attendre son moment.
 func force(id: String) -> void:
-	if TEXTS.has(id) or id == "figure" or HINTS.has(id) or id.begins_with("fig_"):
+	if TEXTS.has(id) or id == "figure" or HINTS.has(id) or _is_news(id):
 		_force = id
+		_held = id
+		if id == "charm" and _charm_id == "":
+			_charm_id = String(Gear.CHARM_ORDER[0])
 
 
 ## Figure gagnée (main._fig_gained) : annonce NOUVELLE FIGURE dès que possible (même à la victoire ou sur la
@@ -303,6 +307,11 @@ func force(id: String) -> void:
 func announce_fig(kind: String) -> void:
 	if kind != "":
 		_due["fig_" + kind] = true
+
+
+## Captures : la bulle `id`, quand elle viendra d'elle-même, ne partira pas seule.
+func hold(id: String) -> void:
+	_held = id
 
 
 ## Pinceau gagné (main._award : NOUVEAU PINCEAU, ce qu'il change, où le choisir) ; premier omamori gagné (une fois).
@@ -534,15 +543,15 @@ func _hint(id: String) -> Dictionary:
 		elif k in PowerData.FIG_TREE:
 			how = "Apprise dans l'Arbre"
 		return {"t": "Nouvelle figure · " + String(UiKit.FIG_WORD.get(k, k)).to_lower(),
-			"s": "%s : tu sais tracer %s." % [how, String(FIG_THE.get(k, "cette figure"))],
+			"s": "%s : tu sais %s tracer." % [how, "la" if String(FIG_THE.get(k, "la")).begins_with("la") else "le"],
 			"icon": "fig:" + k, "stop": true, "life": 7.5}
 	if id.begins_with("brush_"):
 		var b: Dictionary = Gear.brush(id.substr(6))
-		return {"t": "Nouveau pinceau · " + String(b.get("word", "")), "s": "Il se choisit à l'écran AVANT LE DÉPART.",
+		return {"t": "Nouveau pinceau · " + String(b.get("word", "")), "s": "Choisis-le AVANT LE DÉPART.",
 			"icon": "hud/pinceau", "life": 8.0, "card": [String(b.get("name", "")), String(b.get("rule", ""))]}
 	if id == "charm":
 		var c: Dictionary = Gear.CHARMS.get(_charm_id, {})
-		return {"t": "Nouvel omamori · " + String(c.get("short", "")), "s": "Porte-le : choisis-le AVANT LE DÉPART.",
+		return {"t": "Nouvel omamori · " + String(c.get("short", "")), "s": "Choisis-le AVANT LE DÉPART.",
 			"icon": "hud/etoile", "life": 8.0, "card": [String(c.get("name", "")).to_upper(), String(c.get("effect", ""))]}
 	return {}
 
@@ -560,7 +569,13 @@ func _hint_fig() -> String:
 ## Hors du jeu : la fin au ralenti d'une victoire, la feuille de résultats (annonces et Atelier seulement).
 func _off_play() -> bool:
 	var st := String(main.state)
-	return (st == "dying" and bool(main.get("_ending_victory"))) or (st == "menu" and String(main.menu.mode) == "over")
+	return (st == "dying" and bool(main.get("_ending_victory"))) or _sheet()
+
+
+## Feuille de résultats affichée (fin de partie).
+func _sheet() -> bool:
+	var st := String(main.state)
+	return (st == "over" or st == "menu") and String(main.menu.mode) == "over" and bool(main.menu.visible)
 
 
 func _off_hint(id: String) -> bool:
@@ -600,7 +615,7 @@ func _pick_hint() -> void:
 ## L'indice sert-il maintenant ?
 func _hint_wanted(id: String) -> bool:
 	if id == "tree":
-		return String(main.state) == "menu" and String(main.menu.mode) == "over"
+		return _sheet()
 	var dash := bool(main.hero.dashing)
 	var hub := bool(main.in_hub)
 	match id:
@@ -794,6 +809,8 @@ func _process(_delta: float) -> void:
 				var life := float(LIFE.get(mark, 6.0))
 				if not ENABLED:
 					life = float(_hint(mark).get("life", HINT_LIFE))
+				if mark == _held:
+					life = 0.0  # (capture : la bulle demandée reste)
 				if life > 0.0 and _life > life:
 					_finish()
 	# arrêt sur image demandé : dès que le doigt est levé (jamais au milieu d'un trait ou d'une course)
@@ -909,7 +926,7 @@ func _update_veil(u: float) -> void:
 				sc = _screen(se.seal_anchor()).lerp(feet, 0.3) if se != null else feet
 				sr = Vector2(110.0, 170.0) * u
 			"danger":
-				sc = feet
+				sc = _screen(hp)  # (le héros, même en mode pad : c'est lui qu'il faut sortir de la zone)
 				sr = Vector2(110.0, 140.0) * u
 			_:
 				if mark.begins_with("fig_"):
@@ -1053,7 +1070,7 @@ func _draw() -> void:
 					_ghost_line(_screen(hp), _screen(se.position), u, a)
 		"danger":
 			var pulse := 0.5 + 0.5 * sin(_t * 7.0)
-			draw_arc(feet, (34.0 + 8.0 * pulse) * u, 0.0, TAU, 40, Color(Toon.VERMILION, (0.5 + 0.4 * pulse) * a), 3.0 * u, true)
+			draw_arc(_screen(hp),(34.0 + 8.0 * pulse) * u, 0.0, TAU, 40, Color(Toon.VERMILION, (0.5 + 0.4 * pulse) * a), 3.0 * u, true)
 		"figures":
 			if _fz >= 0.0:
 				_draw_lesson_traces(u, a)  # traits animés de la planche des six figures (le calque porte le reste)
@@ -1106,6 +1123,11 @@ func _draw_fig_card(kind: String, u: float, a: float) -> void:
 		nxt = "Prochaine : " + nxt
 		w = maxf(side, UiKit.UI_FONT.get_string_size(UiKit.plain(nxt), HORIZONTAL_ALIGNMENT_LEFT, -1, int(10.0 * u)).x + 24.0 * u)
 	var r := Rect2(Vector2((size.x - w) * 0.5, top + 8.0 * u + 60.0 * u * _big + 12.0 * u), Vector2(w, side + (52.0 if nxt != "" else 34.0) * u))
+	if mark == "seal" and _in_play():
+		# yōkai scellé : la carte sous le héros, le yōkai et son cadenas restent visibles
+		var feet := _screen(main.hero.position)
+		var ins := UiKit.safe_insets(size)
+		r.position.y = clampf(feet.y + 44.0 * u, r.position.y, size.y - ins.y - r.size.y - 12.0 * u)
 	r.position.y += (1.0 - UiKit.ease_out(a)) * 8.0 * u
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(14.0 * u)), Rect2(r.position + Vector2(0, 3.0 * u), r.size))
 	draw_style_box(UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14.0 * u), Color(Toon.ui_ink, 0.85 * a), maxi(1, int(1.5 * u))), r)
@@ -1425,7 +1447,8 @@ func _paint_banner(ci: CanvasItem) -> void:
 	while fs > 10 and _title.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > room:
 		fs -= 1
 	var sfs := int(11 * u)
-	while st != "" and sfs > 7 and UiKit.UI_FONT.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > room:
+	# (la ligne passe dans le bas du coup de pinceau, qui s'effile à droite : un peu moins de place que le titre)
+	while st != "" and sfs > 7 and UiKit.UI_FONT.get_string_size(st, HORIZONTAL_ALIGNMENT_LEFT, -1, sfs).x > bw * 0.66:
 		sfs -= 1
 	if st == "":
 		ci.draw_string(_title, Vector2(tx + (1.0 - ein) * 10.0 * u, fs * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIColors.WASHI, ta))
