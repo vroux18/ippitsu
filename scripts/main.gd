@@ -4348,7 +4348,9 @@ func _capture_seal_stroke(right: bool) -> void:
 func _seal_roll() -> int:
 	if stage_i < 1 or in_hub or state == "tuto" or room == MINI_ROOM or room >= ROOMS or _gentle_room():
 		return 0
-	if not meta.feature_open("sealed") or seal_figs().is_empty() or randf() >= SEALED_ROOM:
+	# (un scellé est invulnérable tant que sa figure n'est pas tracée : jamais une figure inconnue — seal_figs —, et
+	# aucun tant que le joueur ne connaît que le trait droit)
+	if not meta.feature_open("sealed") or seal_figs().size() < 2 or randf() >= SEALED_ROOM:
 		return 0
 	return 2 if randf() < SEALED_TWO else 1
 

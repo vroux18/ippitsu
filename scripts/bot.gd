@@ -5,6 +5,9 @@ extends Node
 ##    perles et bulles dans l'ordre, chaînes et fils tranchés en travers, tornade traversée.
 ##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement au dernier coup encaissable :
 ##    1 cœur, 2 dès que les coups lourds en ôtent 2). Bilan par monde (BOT STATS, BOT BILAN).
+##    Elle suit le calendrier réel d'une sauvegarde neuve (trait droit seul au départ, figures et mécaniques
+##    gagnées en route : BOT CALENDRIER) ; une mécanique encore fermée ne doit rien poser. Les autres modes jouent
+##    tout ouvert (meta.test_open).
 ##  powers : chaque pouvoir, à chaque niveau, actif pendant une salle de combat entière (gardien et boss
 ##    compris) ; les neuf figures (dont vague, pointe, triangle), des traits de fuite, malédictions et sanctuaires au hasard ; écume, utsusemi, hōō.
 ##  ui : parcours scripté des écrans (bot_ui.gd), sans combat du robot.
