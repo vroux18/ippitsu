@@ -810,6 +810,10 @@ func _ready() -> void:
 		var rq := wsearch.find("rar=")
 		if rq >= 0:
 			_pick_rarities(wsearch.substr(rq + 4).get_slice("&", 0).split(","))
+		# `&relance` (captures) : le tirage tourne comme après RELANCER (animation raccourcie)
+		if "relance" in wsearch:
+			picker.set("_rerolled", true)
+			picker.call("_reel_plan")
 		# `&pt=0.4` (captures) : l'animation du choix figée à cet instant (s) ; `&ptseq=0.04` : `--shot` enregistre
 		# toute l'animation, une image tous les 0,04 s (x_000.png, x_001.png…)
 		var pq := wsearch.find("&pt=")

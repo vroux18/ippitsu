@@ -36,6 +36,15 @@ const V2_H := 250.0
 const V2_GAP := 8.0
 const V2_TAG := 22.0  # bandeau de famille (nom seul) accroché sous la carte (× u, dépassement sous le bord)
 const V2_LIFT := 14.0  # carte touchée : soulevée de 14 u
+const V2_RIM := [2.0, 4.0, 4.0, 6.0]  # épaisseur du liseré de rareté (u) : commun, rare, épique, légendaire
+const V2_SILVER := Color("#CBD3DE")  # filet d'argent des cartes rares et épiques, bord de leur sceau
+const V2_SEAL_NAME := ["", "RARE", "ÉPIQUE", "LÉGENDAIRE"]
+const V2_SEAL_DUR := 0.22  # sceau de rareté tamponné à l'arrêt du tambour (s)
+const V2_GLINT_EVERY := 4.0  # reflet des cartes rares : un passage toutes les 4 s
+const V2_GLINT_DUR := 0.9
+# étincelles du légendaire (fractions de la carte : sur le cadre et juste au-dehors)
+const V2_SPARKS := [Vector2(-0.02, 0.14), Vector2(1.03, 0.3), Vector2(-0.03, 0.66), Vector2(1.02, 0.84), Vector2(0.18, 1.01),
+	Vector2(0.86, -0.01)]
 # CHOISIR au pinceau (gabarit 210 × 64) : contour (courbes de Bézier et segments) et trait vermillon dessous
 const V2_BTN_W := 210.0
 const V2_BTN_H := 64.0
@@ -99,6 +108,7 @@ const REEL_FAMILY := 0.3  # la famille (bandeau d'école) tombe sous le tambour 
 const REEL_LEG_FLIP := 0.12  # le légendaire s'arrête face cachée et se retourne juste après (s)
 const REEL_FX := 0.5  # éclat d'encre (et d'or) après l'arrêt (s)
 const REEL_SPLAT := 11  # gouttes de l'éclat
+const IDLE_FPS := 15.0  # choix au repos : images par seconde (lueurs lentes seulement)
 const DEAL_DUR := 0.3  # ofuda, estampe : la carte monte à sa place (s)
 const DEAL_H := 34.0  # depuis cette distance sous sa place (× u)
 const DEAL_DEG := 3.0  # petite inclinaison qui se redresse
@@ -169,6 +179,10 @@ var _rerolled := false  # la prochaine ouverture suit une relance
 var _reel_prev := 0.0  # temps de la dernière image (sons d'arrêt et tics de passage)
 var _no_tag := false  # carte en cours de dessin : bandeau de famille dessiné à part (tambour)
 var _sfx: Node = null
+var _reel_rng := RandomNumberGenerator.new()  # silhouettes et gouttes : hors du hasard du jeu (tirage inchangé)
+var _idle := 0.0  # temps depuis la dernière image redessinée au repos (s)
+var _dirty := true  # redessin demandé (toucher, taille)
+var _snd_known := {}  # sons du lecteur disponibles (reel_tick…), lus une fois
 
 
 func _ready() -> void:
@@ -233,6 +247,7 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_cut = NO_CUT
 	_ahead = 0.0
 	_reel_plan()
+	_dirty = true
 	visible = true
 
 
@@ -276,7 +291,7 @@ func _reel_plan() -> void:
 		var seq: Array = []
 		for j in n + 2:
 			var near := j >= n - 3 and not same.is_empty()
-			var pid := String(same[randi() % same.size()] if near else pool[randi() % pool.size()])
+			var pid := String(same[_reel_rng.randi() % same.size()] if near else pool[_reel_rng.randi() % pool.size()])
 			if pid == real or (j > 0 and pid == String(seq[j - 1])):
 				pid = String(pool[(pool.find(pid) + 7) % pool.size()])
 			seq.append(pid)
@@ -286,7 +301,7 @@ func _reel_plan() -> void:
 		for d in REEL_SPLAT:
 			# le choc est vertical : les gouttes partent surtout par le haut et le bas de la carte
 			var side := PI * 0.5 if d % 2 == 0 else -PI * 0.5
-			drops.append(Vector3(side + randf_range(-0.85, 0.85), randf_range(0.35, 1.0), randf_range(0.5, 1.0)))
+			drops.append(Vector3(side + _reel_rng.randf_range(-0.85, 0.85), _reel_rng.randf_range(0.35, 1.0), _reel_rng.randf_range(0.5, 1.0)))
 		_reel_splat.append(drops)
 
 
@@ -477,6 +492,7 @@ func _turn(p: Vector2, ang: float) -> Transform2D:
 
 
 func _gui_input(event: InputEvent) -> void:
+	_dirty = true
 	if _chosen >= 0:
 		return
 	if _t < _ready_time():
@@ -574,7 +590,10 @@ func _process(_delta: float) -> void:
 		if _pt != 0:
 			Perf.add(&"picker", _pt)
 		return
-	size = get_viewport_rect().size
+	var vs := get_viewport_rect().size
+	if vs != size:
+		size = vs
+		_dirty = true
 	var real := UiKit.real_delta()
 	if _t < 0.2:
 		real = minf(real, 1.0 / 30.0)  # borné à l'ouverture seulement : une image lente ne saute pas l'arrivée
@@ -587,13 +606,22 @@ func _process(_delta: float) -> void:
 	_refuse_shake = maxf(0.0, _refuse_shake - real / 0.45)
 	# levée des cartes : amortie (critique, sans rebond) vers la carte touchée
 	var sm := 1.0 - exp(-real * 16.0)
+	var moving := false
 	for i in _lift.size():
 		var to := 1.0 if i == _sel else 0.0
 		_lift[i] = lerpf(float(_lift[i]), to, sm)
+		moving = moving or absf(float(_lift[i]) - to) > 0.002
 	if _chosen >= 0 and _t > 0.55:
 		visible = false
 		picked.emit(String(_ids[_chosen]))
-	queue_redraw()
+	# batterie : chaque image pendant l'animation (arrivée, tambours, éclats, levée, choix) ; au repos, les lueurs
+	# lentes (pulsations, étincelles du légendaire) se contentent de IDLE_FPS images par seconde
+	_idle += real
+	if _dirty or moving or _chosen >= 0 or reel_freeze >= 0.0 or _t < _ready_time() + 1.0 or _sel_t < 0.5 \
+			or _refuse_shake > 0.0 or _idle >= 1.0 / IDLE_FPS:
+		queue_redraw()
+		_idle = 0.0
+		_dirty = false
 	if _pt != 0:
 		Perf.add(&"picker", _pt)
 
@@ -2951,7 +2979,10 @@ func _reel_sounds(t0: float, t1: float) -> void:
 				_stop_sound(rank, i)
 		elif not jump and t1 < st and t1 > st - float(_reel_dec[i]):
 			if floori(_reel_pos(i, t1)) > floori(_reel_pos(i, t0)):
-				_sfx.call("play", "xp", 1.5 + 0.12 * float(i), -20.0)
+				if _snd_has("reel_tick"):
+					_sfx.call("play", "reel_tick", 1.0 + 0.06 * float(i), -12.0)
+				else:
+					_sfx.call("play", "xp", 1.5 + 0.12 * float(i), -20.0)
 		if _is_leg(i) and not jump:
 			var fl := _reveal_start(i) + REVEAL_DUR * 0.5
 			if t0 < fl and fl <= t1:
@@ -2960,14 +2991,38 @@ func _reel_sounds(t0: float, t1: float) -> void:
 		_stop_sound(best, 1)
 
 
+## « Clac » d'arrêt : sons propres aux tambours (reel_rare, reel_legend) s'ils existent, sinon sons du jeu.
 func _stop_sound(rank: int, i: int) -> void:
 	_sfx.call("play", "empty", 0.95 + 0.07 * float(i), -2.0)
 	if rank == 3:
-		_sfx.call("play", "strike", 1.15, -6.0)
+		if _snd_has("reel_legend"):
+			_sfx.call("play", "reel_legend", 1.0, -3.0)
+		else:
+			_sfx.call("play", "strike", 1.15, -6.0)
 	elif rank >= 1:
-		_sfx.call("play", "coin", 1.0 if rank == 1 else 0.89, -7.0)
+		if _snd_has("reel_rare"):
+			_sfx.call("play", "reel_rare", 1.0 if rank == 1 else 0.94, -4.0)
+		else:
+			_sfx.call("play", "coin", 1.0 if rank == 1 else 0.89, -7.0)
 	if _sfx.has_method("haptic"):
 		_sfx.call("haptic", "hit" if rank >= 1 else "dash")
+
+
+## Le lecteur de sons connaît-il ce son ? (méthode « has » s'il en a une, sinon ses listes CORE / LATER ; mémorisé)
+func _snd_has(id: String) -> bool:
+	if _snd_known.has(id):
+		return bool(_snd_known[id])
+	var ok := false
+	if _sfx != null and is_instance_valid(_sfx):
+		if _sfx.has_method("has"):
+			ok = bool(_sfx.call("has", id))
+		elif _sfx.get_script() != null:
+			var cm: Dictionary = _sfx.get_script().get_script_constant_map()
+			for key in ["CORE", "LATER"]:
+				if cm.has(key) and id in cm[key]:
+					ok = true
+	_snd_known[id] = ok
+	return ok
 
 
 ## Lecteur de sons du jeu (porté par un nœud parent : « sfx »), null sans lui (tests isolés).
@@ -3135,9 +3190,10 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	var el := UIColors.element(school)
 	var rd := UIColors.rarity(rank)
 	var bc: Color = rd["color"]
-	var bw := float(rd["w"]) * s
+	var bw := float(V2_RIM[rank]) * s  # rareté lisible d'un coup d'œil : liseré de plus en plus épais
 	var rad := 12.0 * s
 	var ta := a * UiKit.ease_out((_ct - TXT_AT) / TXT_DUR)
+	var glow := 0.5 + 0.5 * sin(_t * 1.8 + float(i) * 1.7)  # lueur lente du légendaire
 	var pk := (_ct - POP_AT) / POP_DUR
 	var ma := a * UiKit.ease_out(pk / 0.4)
 	var pulse := 0.5 + 0.5 * sin(_t * 3.2 + float(i) * 1.3)
@@ -3146,13 +3202,27 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 	var drop := (3.0 + 7.0 * _raise) * s
 	draw_colored_polygon(Transform2D(0.0, Vector2(0.0, drop + 3.0 * s)) * body, Color(0, 0, 0, (0.14 + 0.12 * _raise) * a))
 	draw_colored_polygon(Transform2D(0.0, Vector2(0.0, drop)) * body, Color(0, 0, 0, (0.2 + 0.1 * _raise) * a))
-	# bordure de rareté (contour d'encre en plus au légendaire), papier en retrait
+	# légendaire : halo d'or qui respire doucement autour de la carte
+	if rank == 3:
+		for g in 3:
+			var gg := (2.5 + 3.5 * float(g)) * s
+			var hp := UiKit.rrect_points(r.grow(gg), rad + gg)
+			hp.append(hp[0])
+			draw_polyline(hp, Color(GOLD_HI, (0.42 - 0.12 * float(g)) * (0.45 + 0.55 * glow) * a), maxf(1.0, (3.2 - 0.8 * float(g)) * s), true)
+	# bordure de rareté (contour d'encre en plus au légendaire), papier en retrait (doré au légendaire)
 	if bool(rd["outer"]):
 		draw_colored_polygon(UiKit.rrect_points(r.grow(2.0 * s), rad + 2.0 * s), Color(UIColors.SUMI, a))
 	draw_colored_polygon(body, Color(bc, a))
+	if rank >= 1:
+		# filet clair au milieu du liseré : argent (rare, épique), or pâle (légendaire) ; effet de métal
+		var mp := UiKit.rrect_points(r.grow(-bw * 0.5), rad - bw * 0.5)
+		mp.append(mp[0])
+		draw_polyline(mp, Color(V2_SILVER if rank < 3 else GOLD_HI.lightened(0.45), (0.75 if rank < 3 else 0.55 + 0.35 * glow) * a),
+			maxf(1.0, (1.1 if rank < 3 else 1.6) * s), true)
 	var inner := r.grow(-bw)
 	var irad := maxf(rad - bw, 1.0)
-	draw_colored_polygon(UiKit.rrect_points(inner, irad), Color(UIColors.WASHI_LIGHT, a))
+	var paper: Color = UIColors.WASHI_LIGHT if rank < 3 else UIColors.WASHI_LIGHT.lerp(GOLD_HI, 0.2 + 0.08 * glow)
+	draw_colored_polygon(UiKit.rrect_points(inner, irad), Color(paper, a))
 	var o := inner.position
 	var cx := r.get_center().x
 	# scène peinte de l'élément (104 u de haut), coins du haut arrondis comme la carte
@@ -3246,8 +3316,68 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		UiKit.harmony_ring(self, rc, 16.0 * s, aff, gain, el, UIColors.LINE_MUTED, ta, nxt >= int(Data.AFF_TIERS[0]), true)
 	UiKit.element_icon(self, school, rc, 15.0 * s, ta)
 	_sheen_pass(r, u, a, rank)
+	if rank >= 1 and _chosen < 0 and (_sheen < 0.0 or _sheen > SHEEN_DUR):
+		# reflet qui repasse de temps en temps sur les cartes rares et plus (argent ; or pâle au légendaire)
+		var ph := fmod(_t + float(i) * 1.3, V2_GLINT_EVERY) / V2_GLINT_DUR
+		if ph < 1.0:
+			_shine(inner, u, a, ph, Color(GOLD_HI.lightened(0.5), 0.2) if rank == 3 else Color(1, 1, 1, 0.16), rank >= 2)
+	if rank == 3:
+		_v2_sparks(r, s, a, i)
 	if not _no_tag:
 		_v2_family(r, school, s, a, ta)
+		_v2_seal(r, rank, s, a, _seal_k(i), _xf)
+
+
+## Sceau de rareté à cheval sur le haut de la carte (RARE indigo, ÉPIQUE violet, LÉGENDAIRE or), tamponné : il
+## tombe un peu trop grand et se plaque (k : 0 absent, 1 posé). Rien au commun : papier simple.
+func _v2_seal(r: Rect2, rank: int, s: float, a: float, k: float, base: Transform2D) -> void:
+	if rank <= 0 or k <= 0.0 or a <= 0.01:
+		return
+	var nm := String(V2_SEAL_NAME[rank])
+	var fs := maxi(1, int((10.0 if rank == 3 else 11.0) * s))
+	var sp := (1.4 if rank == 3 else 2.0) * s
+	var wn := _spaced(UiKit.UI_FONT, nm, Vector2.ZERO, fs, sp, Color.WHITE, false)
+	var bw := minf(r.size.x - 6.0 * s, wn + (24.0 if rank == 3 else 22.0) * s)
+	var c := Vector2(r.get_center().x, r.position.y - 1.0 * s)
+	var bh := 19.0 * s
+	var band := Rect2(c - Vector2(bw, bh) * 0.5, Vector2(bw, bh))
+	var sa := a * minf(1.0, k * 3.0)
+	draw_set_transform_matrix(base * _about(c, 1.0 + 0.6 * (1.0 - _settle(k, 1.4))))
+	var fill: Color = UIColors.rarity(rank)["color"] if rank < 3 else GOLD_HI
+	var edge: Color = V2_SILVER if rank < 3 else UIColors.SUMI
+	var ink: Color = UIColors.WASHI_LIGHT if rank < 3 else UIColors.SUMI
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.35 * sa), int(4.0 * s)), Rect2(band.position + Vector2(0, 2.0 * s), band.size))
+	draw_style_box(UiKit.box(_sb, Color(fill, sa), int(4.0 * s), Color(edge, sa), maxi(1, int(1.5 * s))), band)
+	if rank == 3:
+		# losanges d'encre de part et d'autre du mot
+		for sd in [-1.0, 1.0]:
+			UiKit.diamond(self, Vector2(c.x + sd * (bw * 0.5 - 7.0 * s), c.y), 2.6 * s, Color(UIColors.SUMI, sa))
+	_spaced(UiKit.UI_FONT, nm, Vector2(c.x - wn / 2.0, c.y + float(fs) * 0.36), fs, sp, Color(ink, sa))
+	draw_set_transform_matrix(base)
+
+
+## Avancée du sceau de rareté de la carte i : posé d'emblée, sauf sous un tambour (tamponné à l'arrêt ; au
+## légendaire, au retournement).
+func _seal_k(i: int) -> float:
+	if _chosen >= 0 or not _reel_on(i):
+		return 1.0
+	var t0: float = _reveal_start(i) + REVEAL_DUR * 0.5 if _is_leg(i) else float(_reel_stop[i])
+	return clampf((_t - t0) / V2_SEAL_DUR, 0.0, 1.0)
+
+
+## Étincelles d'or du légendaire : petites étoiles à quatre branches qui scintillent tour à tour sur le cadre.
+func _v2_sparks(r: Rect2, s: float, a: float, i: int) -> void:
+	for k in V2_SPARKS.size():
+		var sp: Vector2 = V2_SPARKS[k]
+		var tw := sin(_t * 2.4 + float(k) * 2.1 + float(i))
+		if tw <= 0.0:
+			continue
+		var p := r.position + r.size * sp
+		var rr := (2.5 + 3.5 * tw) * s
+		var col := Color(GOLD_HI.lightened(0.55), tw * a)
+		var w := rr * 0.28
+		draw_colored_polygon(PackedVector2Array([p + Vector2(0, -rr), p + Vector2(w, -w), p + Vector2(rr, 0), p + Vector2(w, w),
+			p + Vector2(0, rr), p + Vector2(-w, w), p + Vector2(-rr, 0), p + Vector2(-w, -w)]), col)
 
 
 ## Bandeau de famille accroché sous la carte, à la couleur de l'école : son nom seul (« FEU ») en capitales
