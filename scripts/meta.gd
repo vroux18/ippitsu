@@ -11,13 +11,21 @@ const Score = preload("res://scripts/score.gd")
 
 const SAVE_PATH := "user://ippitsu_meta.cfg"
 const MAX_PRINTS := 24
-const SUMI_PER_ROOM := 8  # réglage d'équilibrage : bonus d'encre par salle franchie (0 = §5.1 strict)
+## Encre de fin de partie (award_run), repasse d'équilibrage mesurée au robot (graine 101, sauvegarde neuve) :
+## mort au monde 1 étape 3 ~75, au gardien ~115, au boss ~330 ; victoire du monde 1 ~590, d'un monde suivant ~480
+## à 720 (prime de score et or converti compris). Joueur moyen (meurt souvent aux mondes 1-2, ~1 victoire sur 6
+## parties) : premier nœud après la 1re partie, une dizaine vers 9-10 parties, le quart de l'arbre vers 12, la
+## moitié vers 21, tout (Bourse comprise) vers 35 ; les huit mondes gagnés d'affilée (robot) : ~45 %.
+const SUMI_PER_ROOM := 8  # bonus d'encre par combat franchi
+const SUMI_MINI := 15  # par gardien vaincu
+const SUMI_BOSS := 40  # par boss du monde vaincu
 const MINI_ROOM := 8  # = main.MINI_ROOM (salle du gardien)
-# pétales (garde-robe) gagnés en fin de partie (award_run) : une partie correcte (gardien, un défi, parfois une Vue)
-# en rapporte 3 à 5, une victoire 7 à 9 ; un élément de la garde-robe en coûte 12 à 30
-const PETALS_MINI := 1  # par gardien vaincu
+# pétales (garde-robe) gagnés en fin de partie (award_run) : une mort avant le gardien en rapporte 1 ou 2, une
+# partie correcte (gardien, un défi, parfois une Vue) 3 à 5, une victoire 10 à 12 ; un élément de la garde-robe
+# en coûte 10 à 32 (~20) : un cosmétique toutes les 4 parties environ pour le joueur moyen (~4,6 pétales par partie)
+const PETALS_MINI := 2  # par gardien vaincu
 const PETALS_BOSS := 3  # par boss du monde vaincu
-const PETALS_WIN := 2  # victoire
+const PETALS_WIN := 3  # victoire
 const WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "Trente-six Vues"]
 
 ## --- Arbre du pinceau (méta-progression de l'Atelier) ---
@@ -25,7 +33,13 @@ const WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "
 ## (sumi) quand celui du dessous est appris. Remplace la Pierre à encre (lignes à rangs) et les sceaux.
 const TREE_ROOT := "root"
 const TREE_VERSION := 1  # sauvegarde : 0 = ancienne Pierre à encre et sceaux (remboursés en encre une fois)
-const SEAL_SUMI := 40  # les sceaux n'existent plus : chaque sceau (dépensé, gardé, ou gagné en partie) vaut 40 encre
+const SEAL_SUMI := 30  # les sceaux n'existent plus : chaque sceau gagné en partie vaut 30 encre (award_run)
+const LEGACY_SEAL_SUMI := 40  # remboursement des sceaux de l'ancienne Pierre à encre (_migrate_tree)
+## Économie : 0 = coûts de l'arbre d'avant la repasse d'équilibrage (total 7 520, Bourse 470). Une sauvegarde plus
+## ancienne garde ses nœuds, ses rangs de Bourse et son encre en réserve telle quelle (ECO_RATIO 1 : pas de
+## gonflement, l'ancienne économie en a déjà trop donné).
+const ECO_VERSION := 1
+const ECO_RATIO := 1.0
 const BRANCH_ORDER := ["lame", "encre", "papier", "voie"]
 const BRANCHES := {
 	"lame": {"name": "LAME", "col": Color("#C8322A"), "text": "Attaque : dégâts, critiques, chaîne."},
@@ -35,37 +49,39 @@ const BRANCHES := {
 }
 ## Nœuds : branche « b », étage « t » (1..6, 7 = sommet), nom, effet, coût en encre, glyphe ; « power » : légendaire
 ## retiré des rouleaux tant que le sommet n'est pas appris ; « fig » : figure apprise (fig_learned).
+## Coûts : 40 à 100 au premier étage (à la portée d'une ou deux parties), puis de plus en plus raides, 800 au sommet ;
+## 10 370 en tout, 11 270 avec la Bourse (avant la repasse d'équilibrage : 7 520 et 7 990).
 const TREE_ORDER := ["l1", "l2", "l3", "l4", "l5", "l6", "lc", "e1", "e2", "e3", "e4", "e5", "e6", "ec",
 	"p1", "p2", "p3", "p4", "p5", "p6", "pc", "v1", "v2", "v3", "v4", "v5", "v6", "vc"]
 const TREE := {
-	"l1": {"b": "lame", "t": 1, "name": "Tranchant I", "text": "Dégâts +8 %.", "cost": 40, "glyph": "lame"},
-	"l2": {"b": "lame", "t": 2, "name": "Tranchant II", "text": "Dégâts +8 % de plus.", "cost": 90, "glyph": "lame"},
-	"l3": {"b": "lame", "t": 3, "name": "Fil du sabre", "text": "La chaîne passe à ×1,5 dès 2 traits réussis au lieu de 3.", "cost": 150, "glyph": "lame"},
-	"l4": {"b": "lame", "t": 4, "name": "Coup net", "text": "La première touche de chaque combat est critique.", "cost": 220, "glyph": "lame"},
-	"l5": {"b": "lame", "t": 5, "name": "Lame d'encre", "text": "Un ennemi tranché pendant une figure saigne 2 s.", "cost": 320, "glyph": "lame"},
-	"l6": {"b": "lame", "t": 6, "name": "Élan du rōnin", "text": "Dégâts +15 % tant que la chaîne atteint 10.", "cost": 450, "glyph": "lame"},
-	"lc": {"b": "lame", "t": 7, "name": "Ippitsu, un seul trait", "text": "Libère le légendaire du maître dans les rouleaux.", "cost": 600, "glyph": "lame", "power": "ink_ippitsu"},
-	"e1": {"b": "encre", "t": 1, "name": "Pinceau long I", "text": "Élan max +1 m.", "cost": 30, "glyph": "encre"},
-	"e2": {"b": "encre", "t": 2, "name": "Encre vive I", "text": "Recharge de l'encre +6 %.", "cost": 60, "glyph": "encre"},
-	"e3": {"b": "encre", "t": 3, "name": "Pinceau long II", "text": "Élan max +1 m de plus.", "cost": 110, "glyph": "encre"},
-	"e4": {"b": "encre", "t": 4, "name": "Encre vive II", "text": "Recharge +6 % de plus.", "cost": 170, "glyph": "encre"},
-	"e5": {"b": "encre", "t": 5, "name": "Réserve", "text": "Encre d'avance : la jauge peut déborder d'un quart.", "cost": 250, "glyph": "encre"},
-	"e6": {"b": "encre", "t": 6, "name": "Second souffle", "text": "Un filet d'encre de secours par combat.", "cost": 420, "glyph": "encre"},
-	"ec": {"b": "encre", "t": 7, "name": "Kitsunebi", "text": "Libère ce légendaire de l'ombre dans les rouleaux.", "cost": 600, "glyph": "encre", "power": "shadow_kitsunebi"},
+	"l1": {"b": "lame", "t": 1, "name": "Tranchant I", "text": "Dégâts +8 %.", "cost": 50, "glyph": "lame"},
+	"l2": {"b": "lame", "t": 2, "name": "Tranchant II", "text": "Dégâts +8 % de plus.", "cost": 130, "glyph": "lame"},
+	"l3": {"b": "lame", "t": 3, "name": "Fil du sabre", "text": "La chaîne passe à ×1,5 dès 2 traits réussis au lieu de 3.", "cost": 220, "glyph": "lame"},
+	"l4": {"b": "lame", "t": 4, "name": "Coup net", "text": "La première touche de chaque combat est critique.", "cost": 320, "glyph": "lame"},
+	"l5": {"b": "lame", "t": 5, "name": "Lame d'encre", "text": "Un ennemi tranché pendant une figure saigne 2 s.", "cost": 440, "glyph": "lame"},
+	"l6": {"b": "lame", "t": 6, "name": "Élan du rōnin", "text": "Dégâts +15 % tant que la chaîne atteint 10.", "cost": 600, "glyph": "lame"},
+	"lc": {"b": "lame", "t": 7, "name": "Ippitsu, un seul trait", "text": "Libère le légendaire du maître dans les rouleaux.", "cost": 800, "glyph": "lame", "power": "ink_ippitsu"},
+	"e1": {"b": "encre", "t": 1, "name": "Pinceau long I", "text": "Élan max +1 m.", "cost": 40, "glyph": "encre"},
+	"e2": {"b": "encre", "t": 2, "name": "Encre vive I", "text": "Recharge de l'encre +6 %.", "cost": 110, "glyph": "encre"},
+	"e3": {"b": "encre", "t": 3, "name": "Pinceau long II", "text": "Élan max +1 m de plus.", "cost": 190, "glyph": "encre"},
+	"e4": {"b": "encre", "t": 4, "name": "Encre vive II", "text": "Recharge +6 % de plus.", "cost": 290, "glyph": "encre"},
+	"e5": {"b": "encre", "t": 5, "name": "Réserve", "text": "Encre d'avance : la jauge peut déborder d'un quart.", "cost": 400, "glyph": "encre"},
+	"e6": {"b": "encre", "t": 6, "name": "Second souffle", "text": "Un filet d'encre de secours par combat.", "cost": 560, "glyph": "encre"},
+	"ec": {"b": "encre", "t": 7, "name": "Kitsunebi", "text": "Libère ce légendaire de l'ombre dans les rouleaux.", "cost": 800, "glyph": "encre", "power": "shadow_kitsunebi"},
 	"p1": {"b": "papier", "t": 1, "name": "Peau de papier I", "text": "+1 cœur max.", "cost": 80, "glyph": "papier"},
-	"p2": {"b": "papier", "t": 2, "name": "Garde au départ", "text": "Intouchable les 2 premières secondes de chaque combat.", "cost": 120, "glyph": "papier"},
-	"p3": {"b": "papier", "t": 3, "name": "Peau de papier II", "text": "+1 cœur max de plus.", "cost": 170, "glyph": "papier"},
-	"p4": {"b": "papier", "t": 4, "name": "Kintsugi", "text": "Chaque gardien vaincu rend un cœur.", "cost": 240, "glyph": "papier"},
-	"p5": {"b": "papier", "t": 5, "name": "Peau de papier III", "text": "+1 cœur max de plus.", "cost": 300, "glyph": "papier"},
-	"p6": {"b": "papier", "t": 6, "name": "Dernier souffle", "text": "Une fois par partie, un coup mortel laisse 1 cœur.", "cost": 450, "glyph": "papier"},
-	"pc": {"b": "papier", "t": 7, "name": "Hōō, le phénix", "text": "Libère ce légendaire du feu dans les rouleaux.", "cost": 600, "glyph": "papier", "power": "fire_hoo"},
+	"p2": {"b": "papier", "t": 2, "name": "Garde au départ", "text": "Intouchable les 2 premières secondes de chaque combat.", "cost": 150, "glyph": "papier"},
+	"p3": {"b": "papier", "t": 3, "name": "Peau de papier II", "text": "+1 cœur max de plus.", "cost": 240, "glyph": "papier"},
+	"p4": {"b": "papier", "t": 4, "name": "Kintsugi", "text": "Chaque gardien vaincu rend un cœur.", "cost": 340, "glyph": "papier"},
+	"p5": {"b": "papier", "t": 5, "name": "Peau de papier III", "text": "+1 cœur max de plus.", "cost": 460, "glyph": "papier"},
+	"p6": {"b": "papier", "t": 6, "name": "Dernier souffle", "text": "Une fois par partie, un coup mortel laisse 1 cœur.", "cost": 600, "glyph": "papier"},
+	"pc": {"b": "papier", "t": 7, "name": "Hōō, le phénix", "text": "Libère ce légendaire du feu dans les rouleaux.", "cost": 800, "glyph": "papier", "power": "fire_hoo"},
 	"v1": {"b": "voie", "t": 1, "name": "Seconde chance", "text": "+1 relance des rouleaux par partie.", "cost": 100, "glyph": "voie"},
-	"v2": {"b": "voie", "t": 2, "name": "Figure : Vague", "text": "Apprend la Vague (un S). Sa technique Ressac entre dans les rouleaux.", "cost": 150, "glyph": "vague", "fig": "wave"},
-	"v3": {"b": "voie", "t": 3, "name": "Rouleau de départ", "text": "Commence chaque partie avec un rouleau commun de ton choix.", "cost": 200, "glyph": "voie"},
-	"v4": {"b": "voie", "t": 4, "name": "Figure : Pointe", "text": "Apprend la Pointe (un V aigu). Sa technique Kunai entre dans les rouleaux.", "cost": 260, "glyph": "pointe", "fig": "point"},
-	"v5": {"b": "voie", "t": 5, "name": "Bénédiction", "text": "Le premier choix de rouleaux de la partie en offre un second.", "cost": 320, "glyph": "voie"},
-	"v6": {"b": "voie", "t": 6, "name": "Figure : Triangle", "text": "Apprend le Triangle. Sa technique Kekkai entre dans les rouleaux.", "cost": 420, "glyph": "triangle", "fig": "triangle"},
-	"vc": {"b": "voie", "t": 7, "name": "Maître des figures", "text": "L'ultime se charge en 4 figures au lieu de 5, et chaque figure rapporte +25 % de points.", "cost": 600, "glyph": "voie"},
+	"v2": {"b": "voie", "t": 2, "name": "Figure : Vague", "text": "Apprend la Vague (un S). Sa technique Ressac entre dans les rouleaux.", "cost": 170, "glyph": "vague", "fig": "wave"},
+	"v3": {"b": "voie", "t": 3, "name": "Rouleau de départ", "text": "Commence chaque partie avec un rouleau commun de ton choix.", "cost": 260, "glyph": "voie"},
+	"v4": {"b": "voie", "t": 4, "name": "Figure : Pointe", "text": "Apprend la Pointe (un V aigu). Sa technique Kunai entre dans les rouleaux.", "cost": 360, "glyph": "pointe", "fig": "point"},
+	"v5": {"b": "voie", "t": 5, "name": "Bénédiction", "text": "Le premier choix de rouleaux de la partie en offre un second.", "cost": 460, "glyph": "voie"},
+	"v6": {"b": "voie", "t": 6, "name": "Figure : Triangle", "text": "Apprend le Triangle. Sa technique Kekkai entre dans les rouleaux.", "cost": 600, "glyph": "triangle", "fig": "triangle"},
+	"vc": {"b": "voie", "t": 7, "name": "Maître des figures", "text": "L'ultime se charge en 4 figures au lieu de 5, et chaque figure rapporte +25 % de points.", "cost": 800, "glyph": "voie"},
 }
 ## Figures de base. Elles se gagnent petit à petit (FIG_GATES) : au départ, le trait droit seul ; puis une figure
 ## à chaque palier de la progression (étape 3 du monde 1, gardiens et boss). Les trois de l'arbre s'apprennent
@@ -95,8 +111,9 @@ const MASTER_ULT := 0.25  # Maître des figures : part de la jauge d'ultime par 
 const MASTER_FIG_PTS := 1.25  # Maître des figures : points de figure
 
 ## Bourse : hors de l'arbre (décision de Victor), seule ligne à rangs gardée de l'ancienne Pierre à encre.
-## Cinq rangs en encre, +5 % d'encre gagnée en fin de partie par rang ; les rangs déjà achetés sont conservés.
-const PURSE_COSTS := [25, 50, 85, 130, 180]
+## Cinq rangs en encre, +5 % d'encre gagnée en fin de partie par rang (sur toute l'encre de la partie, hors or
+## converti) ; un rang se rembourse en ~5 à 8 parties. Les rangs déjà achetés sont conservés.
+const PURSE_COSTS := [50, 100, 160, 240, 350]
 const PURSE_STEP := 5  # % d'encre gagnée par rang
 
 ## Anciennes progressions (Pierre à encre sans la Bourse, sceaux), lues une seule fois pour rembourser en encre.
@@ -253,7 +270,7 @@ var petals := 0  # pétales (sakura), permanents : la garde-robe seulement
 var prints := 0  # Vues collectionnées (= owned_prints.size(), max 24)
 var runs := 0  # parties jouées
 var best_room := 0  # meilleure salle atteinte
-var wins := 0  # victoires (la première rapporte 2 sceaux, soit 80 encre)
+var wins := 0  # victoires (la première rapporte 2 sceaux, soit 60 encre)
 var tree := {}  # id de nœud de l'Arbre du pinceau -> true : appris
 var purse_rank := 0  # rangs de la Bourse (0..5), hors de l'arbre
 const WORLD_COUNT := 8  # mondes du jeu (worlds.gd WORLDS) : bornes des déblocages
@@ -436,8 +453,11 @@ func load_data() -> void:
 		brush_sel = "fude"
 	if charm_sel != "" and not Gear.CHARMS.has(charm_sel):
 		charm_sel = ""
-	if tree_migrated or gear_v < GEAR_VERSION or prog_v < PROG_VERSION:
-		save_data()  # une seule fois : le drapeau tree_version est écrit, les anciens achats effacés
+	var eco_v := int(cf.get_value("meta", "eco_version", 0))
+	if eco_v < ECO_VERSION:
+		_migrate_eco()
+	if tree_migrated or gear_v < GEAR_VERSION or eco_v < ECO_VERSION or prog_v < PROG_VERSION:
+		save_data()  # une seule fois : les drapeaux de version sont écrits, les anciens achats effacés
 
 
 ## Ancienne sauvegarde (Pierre à encre et sceaux) : tout ce qui a été dépensé est rendu en encre (somme des
@@ -456,11 +476,21 @@ func _migrate_tree(cf: ConfigFile) -> void:
 	for id in LEGACY_SEAL_COSTS.keys():
 		if bool(cf.get_value("seals", String(id), false)):
 			seal_n += int(LEGACY_SEAL_COSTS[id])
-	refund += seal_n * SEAL_SUMI
+	refund += seal_n * LEGACY_SEAL_SUMI
 	sumi += refund
 	tree = {}
 	if refund > 0:
 		print("Atelier : Pierre à encre et sceaux remplacés par l'Arbre du pinceau, %d encre rendue" % refund)
+
+
+## Sauvegarde d'avant la repasse d'équilibrage (coûts de l'arbre et de la Bourse relevés) : nœuds appris et rangs
+## de Bourse gardés tels quels (rien n'est repris) ; l'encre en réserve est multipliée par ECO_RATIO (1 : inchangée).
+func _migrate_eco() -> void:
+	if sumi <= 0:
+		return
+	var before := sumi
+	sumi = int(ceil(float(sumi) * ECO_RATIO))
+	print("Atelier : nouveaux coûts de l'arbre, encre en réserve %d -> %d" % [before, sumi])
 
 
 ## Anciennes sauvegardes (mondes tous ouverts du prototype, paliers absents) : les victoires passées
@@ -571,6 +601,7 @@ func save_data() -> void:
 	cf.set_value("meta", "sumi", sumi)
 	cf.set_value("meta", "petals", petals)
 	cf.set_value("meta", "tree_version", TREE_VERSION)
+	cf.set_value("meta", "eco_version", ECO_VERSION)
 	cf.set_value("meta", "prints", prints)
 	cf.set_value("meta", "runs", runs)
 	cf.set_value("meta", "best_room", best_room)
@@ -1629,8 +1660,10 @@ func apply_run_start(m) -> void:
 # --- Fin de partie ----------------------------------------------------------
 
 ## Calcule et crédite les gains d'une partie (§5.1), sauvegarde, renvoie {"sumi", "petals", "seals", "print", "prints"}.
-## Les anciens sceaux sont payés en encre (SEAL_SUMI chacun) : 1 par gardien, 2 par boss, et en cas de victoire
-## 1 par malédiction portée (3 au plus), 2 à la toute première victoire ; « seals » vaut toujours 0. Vues : selon le monde joué (world_id) et le nombre de parties.
+## Encre : un cinquième des ennemis, SUMI_PER_ROOM par combat franchi, SUMI_MINI par gardien, SUMI_BOSS par boss,
+## +15 % par malédiction ; les anciens sceaux sont payés en encre (SEAL_SUMI chacun) : 1 par gardien, 2 par boss, et
+## en cas de victoire 1 par malédiction portée (3 au plus), 2 à la toute première victoire ; la Bourse (sumi_mult)
+## s'applique au tout. L'or restant est converti à part (main._award). « seals » vaut toujours 0. Vues : selon le monde joué (world_id) et le nombre de parties.
 ## Pétales (garde-robe) : PETALS_MINI par gardien, PETALS_BOSS par boss, PETALS_WIN pour une victoire, 1 par défi
 ## relevé (challenges : élites des recoins) et 1 par Vue nouvelle.
 ## Exploits de la garde-robe : défis d'élite cumulés ; « clean_boss » (boss du monde vaincu sans une égratignure)
@@ -1641,16 +1674,15 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 		clean_bosses += 1
 	if victory and untouched and world_id >= 1:
 		clean_wins[world_id] = true
-	var base := float(floori(maxi(0, kills) / 5.0) + 10 * mini_boss_kills + 30 * boss_kills + SUMI_PER_ROOM * rooms_cleared)
+	var base := float(floori(maxi(0, kills) / 5.0) + SUMI_MINI * mini_boss_kills + SUMI_BOSS * boss_kills + SUMI_PER_ROOM * rooms_cleared)
 	base *= 1.0 + 0.15 * maxi(0, curses)
-	var gained := maxi(0, int(round(base * sumi_mult())))
 	var new_seals := maxi(0, mini_boss_kills) + 2 * maxi(0, boss_kills)
 	if victory:
 		new_seals += mini(maxi(0, curses), 3)
 		if wins == 0:
 			new_seals += 2
 		wins += 1
-	gained += new_seals * SEAL_SUMI
+	var gained := maxi(0, int(round((base + float(new_seals * SEAL_SUMI)) * sumi_mult())))
 	sumi += gained
 	runs += 1
 	best_room = maxi(best_room, rooms_cleared)

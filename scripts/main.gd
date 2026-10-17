@@ -124,20 +124,21 @@ const CURSES := {
 }
 const Shop = preload("res://scripts/shop.gd")  # échoppe du marchand tanuki
 # Marchand : un par monde, dans le dernier recoin de l'étape qui précède le gardien (combats 6-7). Prix en or :
-# [monde 1, + par monde]. Robot de campagne (graine 101) : ~150 pièces en poche à la fin de l'étape 3 (de 50 à 600
-# selon le sceau d'or et le refus d'un pacte), ~430 sur tout un monde : de quoi prendre un ou deux articles.
+# [monde 1, + par monde]. Robot de campagne (graine 101, repasse d'équilibrage) : 40 à 320 pièces à l'échoppe (~170 ;
+# moins au monde 1, plus avec le sceau d'or ou le Masque fendu), 190 à 500 en fin de monde : un ou deux articles
+# par visite (onigiri et relance à la portée du monde 1, rouleau ou amélioration en guise de gros achat).
 const MERCHANT_STAGE := 2  # étape (index) du marchand : la dernière avant celle du gardien (MINI_ROOM)
 const MERCHANT_RISE := 0.55  # l'étal surgit du sol en fin d'étape (s)
 const MERCHANT_R := 1.75  # = PuzzleArt.YATAI_RING_R : l'échoppe s'ouvre dans l'anneau d'or
-const SHOP_PRICE := {"reroll": [25, 5], "heal": [40, 5], "scroll": [60, 10], "upgrade": [75, 10], "charm": [90, 10]}
+const SHOP_PRICE := {"reroll": [20, 6], "heal": [35, 6], "scroll": [55, 11], "upgrade": [70, 11], "charm": [85, 11]}
 const SHOP_HEAL := 2  # cœurs rendus par l'onigiri
 const SHOP_CHARMS := ["garde", "encre", "sceaux", "figure"]  # omamori vendus (pour la fin de la partie)
 const SHOP_CHARM_LINE := {"garde": "1er coup de chaque étape annulé", "encre": "Encre pleine à chaque combat",
 	"sceaux": "Toute figure brise un sceau", "figure": "1re figure du combat doublée"}
-const GOLD_PER_SUMI := 3  # fin de partie : l'or qui reste devient de l'encre (3 pièces = 1 encre ; 2 avant le marchand)
+const GOLD_PER_SUMI := 4  # fin de partie : l'or qui reste devient de l'encre (4 pièces = 1 encre ; 3 avant la repasse d'équilibrage)
 const PACT_OFFER := 3  # pactes proposés au sanctuaire, dont au plus un légendaire
-const REFUSE_COST := 40  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
-const REFUSE_COST_STEP := 10
+const REFUSE_COST := 45  # « Refuser » au sanctuaire coûte de l'or (monde 1), +REFUSE_COST_STEP par monde : sans l'or, un pacte est obligatoire
+const REFUSE_COST_STEP := 15  # (au premier sanctuaire, le robot a 50 à 170 pièces : refuser y coûte l'achat du marchand)
 const INK_LOCK_T := 4.0  # Encre maudite : recharge d'encre figée après un coup reçu (s)
 # hors combat : encre illimitée, trait plus long, et course en gardant le doigt posé
 const EXPLORE_REACH := 2.0
@@ -159,8 +160,9 @@ const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
 const OniShrine = preload("res://scripts/oni_shrine.gd")  # sanctuaire d'oni du défi d'élite (recoins)
 # yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un cadenas au-dessus de
-# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
-# (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
+# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle ouvre le cadenas
+# (_seal_break) et il devient vulnérable ; fermé, tout ricoche sans aucun dégât. Figures tirées parmi celles que le
+# joueur connaît (seal_figs).
 const SEALED_FIGS := ["loop", "zigzag", "return", "hook", "straight", "enso", "wave", "point", "triangle"]
 const SEALED_ROOM := 0.7  # part des combats qui ont au moins un scellé
 const SEALED_TWO := 0.35  # ... et un deuxième (jamais plus de deux)
@@ -246,6 +248,8 @@ const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
+var _fps_free := false  # robot, captures, relevés : aucun plafond (le rythme vient de --fixed-fps)
+var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu (120 sinon)
 var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
@@ -1094,16 +1098,21 @@ func _ready() -> void:
 			departure.call("tap", "charm:" + wsearch.substr(cq + 4).get_slice("&", 0))
 	if "options" in wsearch:
 		_open_options()
-	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée (étape 5, chiffres de démo)
+	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée, chiffres de démo réalistes
+	# (défaite : étape 4 sur 8, face au gardien Ō-Kappa ; victoire : les 8 étapes, boss vaincu)
 	if "victoire" in wsearch or "defaite" in wsearch:
 		_start(false)
-		room = 5
-		stage_i = 2
-		kills = 23
-		max_chain = 14
-		run_time = 312.0
-		score.points = 61280 if "victoire" in wsearch else 18420
-		shape_counts = {"loop": 12, "zigzag": 7, "straight": 31, "return": 4, "enso": 2}
+		var won_demo := "victoire" in wsearch
+		room = 9 if won_demo else 4
+		stage_i = 7 if won_demo else 3
+		kills = 96 if won_demo else 44
+		max_chain = 24 if won_demo else 20
+		run_time = 742.0 if won_demo else 305.0
+		score.points = 61280 if won_demo else 20100
+		if won_demo:
+			shape_counts = {"loop": 22, "zigzag": 31, "straight": 40, "return": 9, "enso": 6, "hook": 4, "wave": 2}
+		else:
+			shape_counts = {"zigzag": 20, "straight": 13, "loop": 12, "return": 8, "enso": 3, "hook": 1}
 		powers.levels = {"fire_burn": 2, "fire_spark": 1, "water_tide": 1, "fig_loop": 1}  # build de démo (médaillons, étiquettes)
 		_ending_victory = "victoire" in wsearch
 		_finish_run()
@@ -1118,11 +1127,13 @@ func _ready() -> void:
 			menu.unlock_gear = [{"kind": "aspect", "id": "fude", "k": 1}, {"kind": "brush", "id": "hake", "k": 0}, {"kind": "charm", "id": "garde", "k": 0}]
 			if _ending_victory:
 				menu.unlock_world = 2
+				menu.unlock_world_name = String(Worlds.world(2).get("name", ""))
 				menu.unlock_world_kanji = String(Worlds.world(2).get("kanji", "道"))
 				menu.unlock_world_color = Worlds.world(2).get("color", Toon.PRUSSIAN)
 				menu.unlock_powers = ["fire_burn", "water_tide", "fire_spark"]
 		if not _ending_victory:
-			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
+			menu.killer_name = "Ō-Kappa"  # coup fatal de démo : le gardien de l'étape 4 (aucun ennemi en vie à cet instant)
+			menu.killer_hint = String(BOSS_HINTS["okappa"])
 	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
 	# seconde N, pour les captures) ; jamais pour le robot ni les tests
 	var auto_run := autoplay or "--bot" in OS.get_cmdline_user_args()
@@ -1870,6 +1881,7 @@ func _load() -> void:
 		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
 		show_dmg = String(cfg.get_value("settings", "dmg", "on")) == "on"
+		eco_mode = String(cfg.get_value("settings", "eco", "off")) == "on"
 		god = bool(cfg.get_value("settings", "god", false))
 		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
 		for k in _cam_pref.keys():
@@ -1881,6 +1893,13 @@ func _load() -> void:
 	if not pad_show in ["always", "start", "never"]:
 		pad_show = "start"
 	ctrl_mode = ctrl_pref  # le seul moment où le mode change : au lancement
+	for a in OS.get_cmdline_user_args():
+		var sa := String(a)
+		if sa == "--bot" or sa == "--autoplay" or sa == "--figtest" or sa == "--perf" or sa.begins_with("--shot") or sa.begins_with("--q="):
+			_fps_free = true
+	if _fps_free:
+		Engine.max_fps = 0
+	_apply_fps()
 	if "--bot" in OS.get_cmdline_user_args():
 		ctrl_mode = "screen"  # le robot du CI joue toujours au doigt sur l'écran (sans toucher au choix enregistré)
 		god = false  # jamais de GOD MODE pour le robot
@@ -1899,6 +1918,7 @@ func _save() -> void:
 	cfg.set_value("settings", "control", ctrl_pref)
 	cfg.set_value("settings", "pad_size", pad_size)
 	cfg.set_value("settings", "dmg", "on" if show_dmg else "off")
+	cfg.set_value("settings", "eco", "on" if eco_mode else "off")
 	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.set_value("settings", "god", god)
 	for k in _cam_pref.keys():
@@ -1906,11 +1926,22 @@ func _save() -> void:
 	cfg.save(SAVE_PATH)
 
 
+## Images par seconde : 120 en jeu (bornées par l’écran ; 30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
+## pause) : le téléphone chauffe moins et la batterie tient plus longtemps. Le robot et les captures gardent le
+## rythme imposé par --fixed-fps.
+func _apply_fps() -> void:
+	if _fps_free:
+		return
+	var calm := state in ["menu", "worlds", "paused", "over"]
+	Engine.max_fps = 30 if (eco_mode or calm) else 120
+
+
 func _set_state(s: String) -> void:
 	if s != "menu" and state == "menu":
 		_home_scene_end()
 	state = s
 	_state_t = 0.0
+	_apply_fps()
 	hud.visible = not s in ["menu", "worlds", "sail"]
 	_show_stage(not s in ["menu", "worlds", "sail"])
 	match s:
@@ -2249,7 +2280,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "dev": "on" if measure.active else "off",
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "dev": "on" if measure.active else "off",
 		"hints": "on" if meta.hints_on else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
@@ -2273,6 +2304,9 @@ func _on_option(key: String, value: String) -> void:
 				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
 		"dmg":
 			show_dmg = value == "on"
+		"eco":
+			eco_mode = value == "on"
+			_apply_fps()
 		"pad_show":
 			pad_show = value
 		"dev":
@@ -4372,37 +4406,27 @@ func seal_figs() -> Array:
 	return out
 
 
-## Sceau brisé par la bonne figure (_check_slashes) : il meurt d'un coup, le cadenas s'ouvre (hud.seal_unlock) ;
-## points du sceau (score.on_seal), un peu d'or et d'encre.
+## Sceau brisé par la bonne figure (_slash_hit) : le cadenas s'ouvre (hud.seal_unlock), le yōkai chancelle et
+## devient vulnérable (le coup du trait porte ensuite normalement) ; points du sceau, un peu d'or et d'encre.
 func _seal_break(e: Node3D, dir: Vector3) -> void:
 	var p: Vector3 = e.position
-	_stroke_hit = true
-	_chain_t = 0.0
 	sealed_broken += 1
-	e.unseal_kill(dir)
+	e.unseal(dir)
 	vfx.impact(p, dir, true)
 	_add_hitstop(HITSTOP_KILL)
 	_cam_kick(dir, 0.25)
-	_on_enemy_killed(e)
-	vfx.kill_burst(p, dir, true, _ink_tint(e))
 	vfx.ring(Vector3(p.x, 0.06, p.z), Toon.GOLD, 1.7)
 	hud.screen_flash = maxf(hud.screen_flash, 0.3)
-	kills += 1
-	_stroke_kills += 1
-	powers.on_kill(e)
 	if state != "tuto":
 		score.on_seal(chain)
 	pickups.drop(p, "coin", SEALED_GOLD)
-	elan = minf(elan_max(), elan + ELAN_PER_HIT + elan_max() * SEALED_INK)
-	shake = maxf(shake, 0.4)
-	sfx.play("kill", _combo_pitch())
+	elan = minf(elan_max(), elan + elan_max() * SEALED_INK)
+	shake = maxf(shake, 0.35)
 	sfx.play("strike", 1.7, -6.0)
 	sfx.play("shrine", 1.3, -5.0)
 	feel("kill")
 	hero.slash_pop()
 	_slash_mark(p, dir)
-	if combo >= 3:
-		_combo_label(p, combo)
 	coach.on_event("seal")
 	seal_event()
 
@@ -4416,9 +4440,10 @@ func seal_event() -> void:
 
 
 func xp_need() -> int:
-	# courbe plus raide : ~1 niveau par salle au début, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
-	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau)
-	return int(round(float(8 + 5 * level + level * level) * XP_SEAL_K))
+	# courbe plus raide : premier niveau au 2e combat, puis de plus en plus espacé ; ×XP_SEAL_K depuis les
+	# portes à sceaux (leurs rouleaux d'école et de l'oni remplacent une partie des rouleaux de niveau).
+	# Repasse d'équilibrage : 6 au lieu de 8 (16 points au lieu de 18 pour le premier niveau, les suivants presque inchangés)
+	return int(round(float(6 + 5 * level + level * level) * XP_SEAL_K))
 
 
 ## Butin ramassé (appelé par pickups.gd).
@@ -6341,6 +6366,7 @@ func _finish_run() -> void:
 	# coup fatal : le boss ou l'ennemi le plus proche du héros à sa chute
 	menu.killer_kind = ""
 	menu.killer_name = ""
+	menu.killer_hint = ""  # point faible du boss (BOSS_HINTS) : le conseil de la feuille
 	if not won:
 		var best_d := 1.0e9
 		for bo in bosses:
@@ -6352,6 +6378,7 @@ func _finish_run() -> void:
 				var tl = bo.get("title")
 				menu.killer_name = String(tl) if tl is String and String(tl) != "" else "le gardien"
 				menu.killer_kind = ""
+				menu.killer_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 		for e in enemies:
 			if not is_instance_valid(e) or e.dead or e.dummy or e.is_harmless():
 				continue
@@ -6359,6 +6386,7 @@ func _finish_run() -> void:
 			if ed < best_d:
 				best_d = ed
 				menu.killer_name = ""
+				menu.killer_hint = ""
 				menu.killer_kind = String(e.kind)
 	_set_state("over")
 
@@ -7685,7 +7713,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 		if fig != String(e.seal_fig):
 			charm_fx()
 		_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
-		return
+		# (puis le trait le frappe normalement : il est ouvert)
 	var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
 	var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 	var piercing: bool = bool(_fig_mods.get("pierce", false))
