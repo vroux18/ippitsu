@@ -289,13 +289,11 @@ var elite := false
 var affixes: Array = []
 var minion := false  # invoqué (pas d'élite)
 # yōkai scellé (main._spawn_list) : un cadenas dessiné par le HUD au-dessus de sa tête (hud._draw_seal_locks) porte
-# la figure qui le brise d'un coup (unseal_kill) ; tout le reste ricoche et ne fait que SEAL_RESIST des dégâts (on
-# peut l'user, il n'est jamais immortel)
+# la figure qui l'ouvre (unseal) ; tant qu'il est fermé, tout ricoche sans aucun dégât ; ouvert, il se bat normalement
 var seal_fig := ""
 var seal_rico := 0.0  # ricochet du cadenas (1 -> 0 en SEAL_RICO_T) : il tressaute, sa figure rougit
 var _seal_spark_t := -9.0
 const SEAL_RICO_T := 0.42
-const SEAL_RESIST := 0.18
 const NO_SEAL := ["kitsunebi", "kitsunebi_s", "tanuki_d", "sumidama", "sumidama_s", "funa", "umibozu", "tsurara", "hinotama"]
 var _shield_frac := 0.0  # bouclier de départ (fraction des PV max), posé à la première image
 var _bubble: MeshInstance3D
@@ -1025,8 +1023,8 @@ func shield_break() -> void:
 
 func take_hit(dmg: float, dir: Vector3) -> bool:
 	if seal_fig != "":
-		dmg *= SEAL_RESIST
-		_seal_ricochet(dir)
+		_seal_ricochet(dir)  # cadenas fermé : aucun dégât tant que sa figure n'est pas tracée
+		return false
 	dmg = _armour(dmg, dir)
 	dmg = _absorb(dmg, _figure_hit())
 	hp -= dmg
@@ -1409,8 +1407,8 @@ func hurt_dot(dmg: float) -> bool:
 	if dead or is_harmless():
 		return false
 	if seal_fig != "":
-		dmg *= SEAL_RESIST
 		_seal_ricochet(Vector3.UP)
+		return false
 	dmg = _absorb(dmg, true)
 	hp -= dmg
 	_flash = maxf(_flash, 0.05)
@@ -1512,14 +1510,19 @@ func can_be_sealed() -> bool:
 	return not minion and not dummy and not elite and not dead and not (kind in NO_SEAL) and seal_fig == ""
 
 
-## La bonne figure l'a touché (main._check_slashes) : le cadenas s'ouvre (HUD), il meurt d'un coup.
-func unseal_kill(dir: Vector3) -> bool:
+## La bonne figure l'a touché (main._slash_hit) : le cadenas s'ouvre (HUD), il chancelle ; ensuite il prend
+## les coups normalement.
+func unseal(dir: Vector3) -> bool:
 	if seal_fig == "" or dead:
 		return false
 	set_meta("unsealed", true)
 	_seal_gone(true)
 	shield = 0.0
-	return take_hit(maxf(hp, 1.0) * 1000.0, dir)
+	_stagger = maxf(_stagger, 0.9)
+	if _state == "windup":
+		_cancel_attack()
+	_knock = dir.normalized() * _knock_force()
+	return true
 
 
 ## Coup qui ne brise pas le sceau : le cadenas tressaute, sa figure rougit (HUD), quelques étincelles qui

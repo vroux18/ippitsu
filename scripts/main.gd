@@ -159,8 +159,9 @@ const SEAL_SCROLL := 0.35  # part des coffres scellés qui offrent un rouleau (l
 const PuzzleArt = preload("res://scripts/puzzle_art.gd")  # décor des énigmes (stèle, tōrō, hitodama)
 const OniShrine = preload("res://scripts/oni_shrine.gd")  # sanctuaire d'oni du défi d'élite (recoins)
 # yōkai scellés (_spawn_list, dès l'étape 2, jamais aux combats de gardien ni de boss) : un cadenas au-dessus de
-# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle brise le sceau et le tue d'un coup (_seal_break) ; tout le reste ricoche
-# (enemy.SEAL_RESIST). Figures tirées parmi celles que le joueur connaît (seal_figs).
+# la tête (dessiné par le HUD, hud._draw_seal_locks) porte une figure ; tracée en le touchant, elle ouvre le cadenas
+# (_seal_break) et il devient vulnérable ; fermé, tout ricoche sans aucun dégât. Figures tirées parmi celles que le
+# joueur connaît (seal_figs).
 const SEALED_FIGS := ["loop", "zigzag", "return", "hook", "straight", "enso", "wave", "point", "triangle"]
 const SEALED_BASE := ["loop", "zigzag", "return", "hook", "straight", "enso"]  # connues d'emblée
 const SEALED_ROOM := 0.7  # part des combats qui ont au moins un scellé
@@ -247,7 +248,9 @@ const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
-const SHOW_DMG := false  # chiffres de dégâts au-dessus des ennemis
+var _fps_free := false  # robot, captures, relevés : aucun plafond (le rythme vient de --fixed-fps)
+var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu
+var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
 var cam: Camera3D
@@ -1838,6 +1841,8 @@ func _load() -> void:
 			ctrl_pref = String(cfg.get_value("settings", "control", "pad"))
 		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
+		show_dmg = String(cfg.get_value("settings", "dmg", "on")) == "on"
+		eco_mode = String(cfg.get_value("settings", "eco", "off")) == "on"
 		god = bool(cfg.get_value("settings", "god", false))
 		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
 		for k in _cam_pref.keys():
@@ -1849,6 +1854,13 @@ func _load() -> void:
 	if not pad_show in ["always", "start", "never"]:
 		pad_show = "start"
 	ctrl_mode = ctrl_pref  # le seul moment où le mode change : au lancement
+	for a in OS.get_cmdline_user_args():
+		var sa := String(a)
+		if sa == "--bot" or sa == "--autoplay" or sa == "--figtest" or sa == "--perf" or sa.begins_with("--shot") or sa.begins_with("--q="):
+			_fps_free = true
+	if _fps_free:
+		Engine.max_fps = 0
+	_apply_fps()
 	if "--bot" in OS.get_cmdline_user_args():
 		ctrl_mode = "screen"  # le robot du CI joue toujours au doigt sur l'écran (sans toucher au choix enregistré)
 		god = false  # jamais de GOD MODE pour le robot
@@ -1866,6 +1878,8 @@ func _save() -> void:
 	cfg.set_value("settings", "version", SETTINGS_V)
 	cfg.set_value("settings", "control", ctrl_pref)
 	cfg.set_value("settings", "pad_size", pad_size)
+	cfg.set_value("settings", "dmg", "on" if show_dmg else "off")
+	cfg.set_value("settings", "eco", "on" if eco_mode else "off")
 	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.set_value("settings", "god", god)
 	for k in _cam_pref.keys():
@@ -1873,11 +1887,22 @@ func _save() -> void:
 	cfg.save(SAVE_PATH)
 
 
+## Images par seconde : 60 en jeu (30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
+## pause) : le téléphone chauffe moins et la batterie tient plus longtemps. Le robot et les captures gardent le
+## rythme imposé par --fixed-fps.
+func _apply_fps() -> void:
+	if _fps_free:
+		return
+	var calm := state in ["menu", "worlds", "paused", "over"]
+	Engine.max_fps = 30 if (eco_mode or calm) else 60
+
+
 func _set_state(s: String) -> void:
 	if s != "menu" and state == "menu":
 		_home_scene_end()
 	state = s
 	_state_t = 0.0
+	_apply_fps()
 	hud.visible = not s in ["menu", "worlds", "sail"]
 	_show_stage(not s in ["menu", "worlds", "sail"])
 	match s:
@@ -2201,7 +2226,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dev": "on" if measure.active else "off"}
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "dev": "on" if measure.active else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
@@ -2222,6 +2247,11 @@ func _on_option(key: String, value: String) -> void:
 			pad_size = value
 			if ctrl_mode == "pad":
 				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
+		"dmg":
+			show_dmg = value == "on"
+		"eco":
+			eco_mode = value == "on"
+			_apply_fps()
 		"pad_show":
 			pad_show = value
 		"dev":
@@ -4299,37 +4329,27 @@ func seal_figs() -> Array:
 	return out
 
 
-## Sceau brisé par la bonne figure (_check_slashes) : il meurt d'un coup, le cadenas s'ouvre (hud.seal_unlock) ;
-## points du sceau (score.on_seal), un peu d'or et d'encre.
+## Sceau brisé par la bonne figure (_slash_hit) : le cadenas s'ouvre (hud.seal_unlock), le yōkai chancelle et
+## devient vulnérable (le coup du trait porte ensuite normalement) ; points du sceau, un peu d'or et d'encre.
 func _seal_break(e: Node3D, dir: Vector3) -> void:
 	var p: Vector3 = e.position
-	_stroke_hit = true
-	_chain_t = 0.0
 	sealed_broken += 1
-	e.unseal_kill(dir)
+	e.unseal(dir)
 	vfx.impact(p, dir, true)
 	_add_hitstop(HITSTOP_KILL)
 	_cam_kick(dir, 0.25)
-	_on_enemy_killed(e)
-	vfx.kill_burst(p, dir, true, _ink_tint(e))
 	vfx.ring(Vector3(p.x, 0.06, p.z), Toon.GOLD, 1.7)
 	hud.screen_flash = maxf(hud.screen_flash, 0.3)
-	kills += 1
-	_stroke_kills += 1
-	powers.on_kill(e)
 	if state != "tuto":
 		score.on_seal(chain)
 	pickups.drop(p, "coin", SEALED_GOLD)
-	elan = minf(elan_max(), elan + ELAN_PER_HIT + elan_max() * SEALED_INK)
-	shake = maxf(shake, 0.4)
-	sfx.play("kill", _combo_pitch())
+	elan = minf(elan_max(), elan + elan_max() * SEALED_INK)
+	shake = maxf(shake, 0.35)
 	sfx.play("strike", 1.7, -6.0)
 	sfx.play("shrine", 1.3, -5.0)
 	feel("kill")
 	hero.slash_pop()
 	_slash_mark(p, dir)
-	if combo >= 3:
-		_combo_label(p, combo)
 	coach.on_event("seal")
 	seal_event()
 
@@ -6498,8 +6518,8 @@ func _seal_disc_tex() -> Texture2D:
 ## Chiffre de dégâts : encre épaisse, rebond à l'apparition, petite courbe en montant ; les touches
 ## rapprochées sur un même ennemi s'additionnent. Blanc normal, or gros coup, vermillon coup fatal.
 func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> void:
-	if not SHOW_DMG:
-		return  # demandé : pas de chiffre à chaque coup (l'impact, la jauge et le score suffisent)
+	if not show_dmg:
+		return
 	var now := Time.get_ticks_msec()
 	var kid := key.get_instance_id() if key != null else -1
 	if kid != -1 and _dmg_labels.has(kid):
@@ -7598,7 +7618,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 		if fig != String(e.seal_fig):
 			charm_fx()
 		_seal_break(e, seg if seg.length_squared() > 0.0001 else hero.facing)
-		return
+		# (puis le trait le frappe normalement : il est ouvert)
 	var dmg := 1.0 * (1.0 + 0.3 * (combo - 1))
 	var dir: Vector3 = seg if seg.length_squared() > 0.0001 else hero.facing
 	var piercing: bool = bool(_fig_mods.get("pierce", false))
