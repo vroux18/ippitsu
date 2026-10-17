@@ -6742,7 +6742,8 @@ func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> vo
 
 
 func _style_dmg(l: Label3D, v: float, killed: bool) -> void:
-	l.text = str(int(round(v))) if absf(v - round(v)) < 0.05 else "%.1f" % v
+	# affichage ×10, toujours entier (un coup de sabre = 10) : jamais de virgule à l'écran
+	l.text = str(maxi(1, int(round(v * 10.0))))
 	var big := v >= 3.0
 	l.pixel_size = 0.006 * (100.0 + 16.0 * minf(v, 8.0)) / 120.0
 	if killed:
