@@ -83,6 +83,22 @@ const OFUDA_INDIGO := Color("#5B7BE0")  # lueur indigo de l'ofuda rare
 const CARD_IN := 0.34  # cartes v2 : durée de l'arrivée (s)
 const CARD_IN_H := 18.0  # cartes v2 : montée depuis ce décalage (× u)
 const CARD_IN_GAP := 0.07  # cartes v2 : décalage d'une carte à la suivante (s)
+# cartes v2 (hors sanctuaire) : chaque emplacement est un tambour de loterie qui fait défiler des silhouettes de
+# rouleaux (d'autres pouvoirs possibles), ralentit et s'arrête « clac » sur le vrai pouvoir, de gauche à droite
+const REEL_AT := 0.04  # premier tambour lancé (s) ; les suivants REEL_KICK plus tard
+const REEL_KICK := 0.035
+const REEL_UP := 0.12  # mise en vitesse (s)
+const REEL_V := 13.0  # vitesse de croisière (silhouettes par seconde, ajustée pour tomber pile)
+const REEL_V_END := 2.2  # vitesse résiduelle à l'arrêt : le choc du « clac » (silhouettes par seconde)
+const REEL_STOP0 := 0.66  # arrêt du premier tambour (s)
+const REEL_GAP := 0.25  # d'un arrêt au suivant (s)
+const REEL_DECEL := [0.32, 0.56, 0.66, 0.8]  # ralenti final par rareté (s) : plus long, c'est l'anticipation
+const REEL_BOUNCE := 0.22  # rebond d'arrêt (s)
+const REEL_REROLL := 0.6  # RELANCER : animation raccourcie (× durées)
+const REEL_FAMILY := 0.3  # la famille (bandeau d'école) tombe sous le tambour avant le pouvoir (s avant l'arrêt)
+const REEL_LEG_FLIP := 0.12  # le légendaire s'arrête face cachée et se retourne juste après (s)
+const REEL_FX := 0.5  # éclat d'encre (et d'or) après l'arrêt (s)
+const REEL_SPLAT := 11  # gouttes de l'éclat
 const DEAL_DUR := 0.3  # ofuda, estampe : la carte monte à sa place (s)
 const DEAL_H := 34.0  # depuis cette distance sous sa place (× u)
 const DEAL_DEG := 3.0  # petite inclinaison qui se redresse
@@ -138,6 +154,21 @@ var _no_v2 := false  # une carte sans rareté hors sanctuaire (« Passer ») : l
 var _v2_title := FontVariation.new()  # UN ROULEAU (espacement 6 u)
 var _v2_caps := FontVariation.new()  # nom japonais de la bulle (espacement 2 u)
 var _v2_btn := FontVariation.new()  # CHOISIR (espacement 6 u)
+# tambours de loterie (cartes v2), par carte : arrêt (s), départ, ralenti, vitesse ajustée, rang d'arrivée,
+# silhouettes défilées (ids), gouttes de l'éclat [angle, vitesse, taille] ; vides : pas de tambours
+var reel_freeze := -1.0  # captures (`&pt=0.4`) : temps du choix figé à cet instant (s), négatif : libre
+var _reel_stop: Array = []
+var _reel_go: Array = []
+var _reel_dec: Array = []
+var _reel_v: Array = []
+var _reel_n: Array = []
+var _reel_ids: Array = []
+var _reel_splat: Array = []
+var _reel_k := 1.0  # échelle des durées (RELANCER : plus court)
+var _rerolled := false  # la prochaine ouverture suit une relance
+var _reel_prev := 0.0  # temps de la dernière image (sons d'arrêt et tics de passage)
+var _no_tag := false  # carte en cours de dessin : bandeau de famille dessiné à part (tambour)
+var _sfx: Node = null
 
 
 func _ready() -> void:
@@ -201,7 +232,104 @@ func open(ids: Array, infos: Array, title := "", sub := "") -> void:
 	_raise = 0.0
 	_cut = NO_CUT
 	_ahead = 0.0
+	_reel_plan()
 	visible = true
+
+
+## Tambours de loterie des cartes v2 (hors sanctuaire) : arrêts de gauche à droite (REEL_GAP d'écart ; une carte
+## rare ralentit plus longtemps et repousse les suivantes), vitesse ajustée pour tomber pile sur le vrai pouvoir,
+## silhouettes défilées (les dernières avant l'arrêt sont de la même école : la famille est tirée avant le pouvoir).
+func _reel_plan() -> void:
+	for arr in [_reel_stop, _reel_go, _reel_dec, _reel_v, _reel_n, _reel_ids, _reel_splat]:
+		arr.clear()
+	_reel_k = REEL_REROLL if _rerolled else 1.0
+	_rerolled = false
+	_reel_prev = 0.0
+	_no_tag = false
+	if _sty() != STYLE_V2 or _curse_mode or _ids.is_empty():
+		return
+	var pool: Array = Data.POWERS.keys()
+	var k := _reel_k
+	var prev := 0.0
+	for i in _infos.size():
+		var info: Dictionary = _infos[i]
+		var rank := clampi(int(info.get("rarity_rank", 0)), 0, 3)
+		var dec := float(REEL_DECEL[rank]) * k
+		var stop := (REEL_STOP0 * k if i == 0 else prev + REEL_GAP * k) + dec - float(REEL_DECEL[0]) * k
+		prev = stop
+		var go := REEL_AT + REEL_KICK * float(i)
+		# distance parcourue = v × kv + élan résiduel du ralenti ; v ajustée pour finir sur un rang entier
+		var kv := REEL_UP * 0.5 + maxf(0.0, stop - dec - go - REEL_UP) + dec / 3.0
+		var rest := dec * REEL_V_END * 2.0 / 3.0
+		var n := maxi(4, roundi(REEL_V * kv + rest))
+		_reel_stop.append(stop)
+		_reel_go.append(go)
+		_reel_dec.append(dec)
+		_reel_v.append((float(n) - rest) / maxf(kv, 0.01))
+		_reel_n.append(n)
+		var real := _id(i)
+		var school := String(info.get("school", UiKit.power_school(real)))
+		var same: Array = []
+		for pid in pool:
+			if String(pid) != real and UiKit.power_school(String(pid)) == school:
+				same.append(String(pid))
+		var seq: Array = []
+		for j in n + 2:
+			var near := j >= n - 3 and not same.is_empty()
+			var pid := String(same[randi() % same.size()] if near else pool[randi() % pool.size()])
+			if pid == real or (j > 0 and pid == String(seq[j - 1])):
+				pid = String(pool[(pool.find(pid) + 7) % pool.size()])
+			seq.append(pid)
+		seq[n] = real
+		_reel_ids.append(seq)
+		var drops: Array = []
+		for d in REEL_SPLAT:
+			# le choc est vertical : les gouttes partent surtout par le haut et le bas de la carte
+			var side := PI * 0.5 if d % 2 == 0 else -PI * 0.5
+			drops.append(Vector3(side + randf_range(-0.85, 0.85), randf_range(0.35, 1.0), randf_range(0.5, 1.0)))
+		_reel_splat.append(drops)
+
+
+## Carte i portée par un tambour ?
+func _reel_on(i: int) -> bool:
+	return i >= 0 and i < _reel_stop.size()
+
+
+## Rebond d'arrêt (s) : raccourci avec l'animation, sans devenir sec.
+func _reel_bounce() -> float:
+	return REEL_BOUNCE * maxf(_reel_k, 0.8)
+
+
+## Position du tambour i à l'instant t, en rangs de silhouettes (le vrai pouvoir au rang _reel_n[i]) : mise en
+## vitesse, croisière, ralenti (la vitesse décroît en carré jusqu'à l'élan résiduel), puis « clac » : l'élan fait
+## dépasser d'un rien, la carte revient se caler avec un petit contre-rebond.
+func _reel_pos(i: int, t: float) -> float:
+	var go: float = _reel_go[i]
+	var v: float = _reel_v[i]
+	var stop: float = _reel_stop[i]
+	var dec: float = _reel_dec[i]
+	if t <= go:
+		return 0.0
+	if t < go + REEL_UP:
+		var tu := t - go
+		return v * tu * tu / (2.0 * REEL_UP)
+	var d0 := stop - dec
+	var cruise := v * (REEL_UP * 0.5 + maxf(0.0, d0 - go - REEL_UP))
+	if t < d0:
+		return v * (REEL_UP * 0.5 + (t - go - REEL_UP))
+	if t < stop:
+		var x := (t - d0) / dec
+		return cruise + dec * (REEL_V_END * x + (v - REEL_V_END) * (1.0 - pow(1.0 - x, 3.0)) / 3.0)
+	var n := float(_reel_n[i])
+	var tb := t - stop
+	var bd := _reel_bounce()
+	var b1 := bd * 0.55
+	var amp := REEL_V_END * b1 / PI
+	if tb < b1:
+		return n + amp * sin(PI * tb / b1)
+	if tb < bd:
+		return n - amp * 0.3 * sin(PI * (tb - b1) / (bd - b1))
+	return n
 
 
 ## Pouvoirs déjà pris, lus sur le nœud de jeu parent qui porte « powers » : [id, niveau, niveau max], par école.
@@ -288,6 +416,8 @@ func _ready_time() -> float:
 		var tf := 0.0
 		for i in _ids.size():
 			tf = maxf(tf, _reveal_start(i) + REVEAL_DUR + (0.1 if _is_leg(i) else 0.05))
+			if _reel_on(i):
+				tf = maxf(tf, float(_reel_stop[i]) + _reel_bounce())
 		return tf
 	var t := _unroll_start(_ids.size() - 1) + UNROLL_DUR
 	if _leg_index >= 0:
@@ -305,6 +435,9 @@ func _is_leg(i: int) -> bool:
 ## Kakemono : le légendaire se retourne juste après son déroulé. Ofuda, estampe : chaque carte se retourne peu
 ## après son arrivée (le légendaire reste un peu plus longtemps face cachée).
 func _reveal_start(i: int) -> float:
+	if _reel_on(i):
+		# tambour : le légendaire s'arrête face cachée et se retourne aussitôt ; les autres arrivent face visible
+		return float(_reel_stop[i]) + REEL_LEG_FLIP * _reel_k if _is_leg(i) else -9.0
 	if _sty() != 0:
 		return _unroll_start(i) + DEAL_FLIP + (LEG_HOLD if _is_leg(i) else 0.0)
 	return _unroll_start(i) + UNROLL_DUR + FLIP_AFTER
@@ -368,6 +501,7 @@ func _gui_input(event: InputEvent) -> void:
 		if rerolls > 0 and _reroll_rect.has_point(event.position):
 			if not event.pressed:
 				rerolls -= 1
+				_rerolled = true  # le nouveau tirage tourne plus vite
 				visible = false
 				reroll.emit()
 			accept_event()
@@ -445,7 +579,11 @@ func _process(_delta: float) -> void:
 	if _t < 0.2:
 		real = minf(real, 1.0 / 30.0)  # borné à l'ouverture seulement : une image lente ne saute pas l'arrivée
 	_t += real
+	if reel_freeze >= 0.0:
+		_t = reel_freeze  # captures : instant figé
 	_sel_t += real
+	_reel_sounds(_reel_prev, _t)
+	_reel_prev = _t
 	_refuse_shake = maxf(0.0, _refuse_shake - real / 0.45)
 	# levée des cartes : amortie (critique, sans rebond) vers la carte touchée
 	var sm := 1.0 - exp(-real * 16.0)
@@ -958,6 +1096,10 @@ func _card_flip(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: i
 	if _chosen < 0:
 		_ct = _t - _reveal_start(i) - REVEAL_DUR * 0.5 + 0.06
 		_sheen = _ct - SHEEN_AT
+		if _reel_on(i) and not leg:
+			# tambour : la face défile entière, le reflet passe à l'arrêt
+			_ct = 99.0
+			_sheen = _t - float(_reel_stop[i]) - 0.02
 	var sx2 := 1.0 if kf >= 1.0 else (kf - 0.5) * 2.0
 	_xf = xf * _squash(c, maxf(sx2, 0.02))
 	draw_set_transform_matrix(_xf)
@@ -2451,6 +2593,10 @@ func _draw_v2() -> void:
 	if _sel >= 0 and _sel < n and _is_card(_sel):
 		order.append(_sel)
 	var lift := V2_LIFT * k * u
+	if _chosen < 0:
+		for i in _reel_stop.size():
+			if _is_card(i):
+				_reel_fx_back(i, _rects[i], u, fade)
 	for oi in order:
 		var i := int(oi)
 		var info: Dictionary = _infos[i]
@@ -2481,6 +2627,15 @@ func _draw_v2() -> void:
 				# les autres s'effacent
 				a = (1.0 - UiKit.ease_out((_t - 0.1) / 0.2)) * lerpf(0.75, 1.0, lf)
 				dy = -lift * lf
+		elif _reel_on(i):
+			# tambour : petit coup de « clac » à l'arrêt (plus franc dès la rareté rare)
+			var tb := _t - float(_reel_stop[i])
+			if tb > 0.0 and tb < 0.16:
+				var rk0 := int(info.get("rarity_rank", 0))
+				sc = 1.0 + (0.03 if rk0 <= 0 else 0.05) * sin(PI * tb / 0.16)
+			dy -= lift * lf
+			if _sel >= 0:
+				a *= lerpf(0.75, 1.0, lf)
 		else:
 			# arrivée : courte montée en fondu, courbe douce (cubique), sans rotation ni rebond
 			var ek := clampf(lt / CARD_IN, 0.0, 1.0)
@@ -2496,8 +2651,15 @@ func _draw_v2() -> void:
 			sc *= 0.97
 		_raise = lf
 		var xf := Transform2D(0.0, Vector2(0, dy)) * _turn(c, rot) * _about(c, sc)
-		_card(base, info, _id(i), u, a, i, xf, 1.0)
+		if _chosen < 0 and _reel_on(i) and _t < float(_reel_stop[i]) + _reel_bounce():
+			_reel_draw(i, base, info, u, a, xf)
+		else:
+			_card(base, info, _id(i), u, a, i, xf, 1.0)
 	_xf = Transform2D.IDENTITY
+	if _chosen < 0:
+		for i in _reel_stop.size():
+			if _is_card(i):
+				_reel_fx(i, _rects[i], u, fade)
 	_raise = 0.0
 	_sheen = -1.0
 
@@ -2537,6 +2699,287 @@ func _draw_v2() -> void:
 	else:
 		_refuse_rect = Rect2()
 		_v2_choose(_confirm_rect, u, fade * lerpf(0.35, 1.0, ck))
+
+
+## Tambour de loterie de la carte i (cartes v2), jusqu'à la fin du rebond d'arrêt : fenêtre d'encre, deux rangs
+## visibles enroulés sur le cylindre (le rang du bas s'écrase en descendant, le suivant s'ouvre par le haut : rien ne
+## déborde de la carte), silhouettes d'autres pouvoirs puis le vrai (face visible ; le légendaire, face cachée),
+## flou de vitesse, ombre du cylindre ; anticipation des cartes rares ; bandeau de famille qui tombe avant l'arrêt.
+func _reel_draw(i: int, r: Rect2, info: Dictionary, u: float, a: float, xf: Transform2D) -> void:
+	if a <= 0.01:
+		return
+	var s := r.size.x / V2_W
+	var c := r.get_center()
+	var hr := r.size.y * 0.5
+	var rank := clampi(int(info.get("rarity_rank", 0)), 0, 3)
+	var stop: float = _reel_stop[i]
+	var tb := _t - stop
+	var p := _reel_pos(i, _t)
+	var vel := absf(_reel_pos(i, _t + 0.01) - p) / 0.01
+	var blur := clampf((vel - 3.0) / 8.0, 0.0, 1.0)
+	var house := a * (1.0 - clampf(tb / 0.1, 0.0, 1.0))  # la fenêtre s'efface sous la carte posée
+	# anticipation (rare et plus) : sur tout le ralenti, la lueur d'or monte et le tambour tremble un peu
+	var ant := 0.0
+	if rank >= 1:
+		var dec: float = _reel_dec[i]
+		ant = clampf(1.0 - (stop - _t) / dec, 0.0, 1.0) if tb < 0.0 else maxf(0.0, 1.0 - tb / 0.15)
+		ant *= [0.0, 0.6, 0.8, 1.0][rank]
+	var jit := Vector2.ZERO
+	if tb < 0.0:
+		jit = Vector2(sin(_t * 73.0 + float(i) * 2.1), 0.5 * cos(_t * 61.0 + float(i))) * 1.6 * u * ant * ant
+	var base := Transform2D(0.0, jit) * xf
+	if ant > 0.01:
+		_reel_glow(r, base, s, a, ant)
+	var body := UiKit.rrect_points(r, 12.0 * s)
+	if house > 0.01:
+		draw_set_transform_matrix(base)
+		draw_colored_polygon(Transform2D(0.0, Vector2(0.0, 4.0 * s)) * body, Color(0, 0, 0, 0.3 * house))
+		draw_colored_polygon(body, Color(UIColors.SUMI, house))
+		draw_set_transform_matrix(Transform2D.IDENTITY)
+	# deux rangs visibles : le rang k0 descend (bas du tambour), le suivant arrive par le haut
+	var k0 := floori(p)
+	var g := -cos((p - float(k0)) * PI)
+	var n := int(_reel_n[i])
+	var seq: Array = _reel_ids[i]
+	for side in 2:
+		var k := k0 + side
+		var y0 := g if side == 0 else -1.0
+		var y1 := 1.0 if side == 0 else g
+		if (y1 - y0) * hr < 1.0:
+			continue
+		var sq := base * _reel_xf(c, hr, y0, y1)
+		# le rang s'assombrit en tournant vers le bord du cylindre
+		var dim := a * 0.85 * (1.0 - (y1 - y0) * 0.5)
+		if k == n:
+			_no_tag = true
+			_card(r, info, _id(i), u, a, i, sq, 1.0)
+			_no_tag = false
+			_reel_dim(r, s, sq, dim)
+			continue
+		var sid := String(seq[clampi(k, 0, seq.size() - 1)])
+		if blur > 0.05:
+			# flou de vitesse : la silhouette s'étire en traînée pâle le long du cylindre
+			var dl := 0.4 * blur
+			_reel_sil(r, sid, base * _reel_xf(c, hr, maxf(y0 - dl, -1.0), minf(y1 + dl, 1.0)), a * 0.16 * blur, 1.0)
+		_reel_sil(r, sid, sq, a, blur)
+		_reel_dim(r, s, sq, dim)
+	if house > 0.01:
+		draw_set_transform_matrix(base)
+		_reel_shade(r, s, house, blur, ant)
+		draw_set_transform_matrix(Transform2D.IDENTITY)
+	# famille : le bandeau de l'école tombe sous le tambour juste avant que le pouvoir s'arrête
+	var fk := clampf((_t - (stop - REEL_FAMILY * _reel_k)) / 0.16, 0.0, 1.0)
+	if fk > 0.0:
+		var school := String(info.get("school", UiKit.power_school(_id(i))))
+		draw_set_transform_matrix(xf * Transform2D(0.0, Vector2(0.0, -12.0 * s * (1.0 - _settle(fk, 1.6)))))
+		_v2_family(r, school, s, a * minf(1.0, fk * 2.0), a * fk)
+		draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+## Rang du tambour étalé de y0 à y1 (en demi-hauteurs de carte autour du centre, -1 haut, 1 bas).
+func _reel_xf(c: Vector2, hr: float, y0: float, y1: float) -> Transform2D:
+	var sy := (y1 - y0) * 0.5
+	return Transform2D(Vector2(1.0, 0.0), Vector2(0.0, sy), Vector2(0.0, c.y + (y0 + y1) * 0.5 * hr - c.y * sy))
+
+
+## Voile d'encre sur un rang du tambour (sous sa transformation xf).
+func _reel_dim(r: Rect2, s: float, xf: Transform2D, a: float) -> void:
+	if a <= 0.01:
+		return
+	draw_set_transform_matrix(xf)
+	draw_colored_polygon(UiKit.rrect_points(r, 12.0 * s), Color(UIColors.SUMI, a))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+## Silhouette d'un pouvoir possible sur le tambour : papier, scène à la couleur de l'école, médaillon et glyphe
+## (effacé par la vitesse), cartouche et lignes d'effet en aplats pâles. blur = 1 : aplats seuls (traînée).
+func _reel_sil(r: Rect2, id: String, xf: Transform2D, a: float, blur: float) -> void:
+	if a <= 0.01:
+		return
+	var s := r.size.x / V2_W
+	var school := UiKit.power_school(id)
+	var el := UIColors.element(school)
+	var rad := 12.0 * s
+	draw_set_transform_matrix(xf)
+	draw_colored_polygon(UiKit.rrect_points(r, rad), Color(UIColors.WASHI_DARK, a))
+	var inner := r.grow(-3.0 * s)
+	draw_colored_polygon(UiKit.rrect_points(Rect2(inner.position, Vector2(inner.size.x, 100.0 * s)), rad - 3.0 * s, true),
+		Color(el, a))
+	var cx := r.get_center().x
+	var mc := Vector2(cx, inner.position.y + 48.0 * s)
+	if blur < 0.75:
+		UiKit.power_medal(self, id, mc, s, UIColors.SUMI, 28.0, 2.5, el, 3.0, a * (1.0 - blur))
+	else:
+		draw_circle(mc, 28.0 * s, Color(UIColors.WASHI_LIGHT, a))
+	draw_rect(Rect2(Vector2(cx - 34.0 * s, inner.position.y + 92.0 * s), Vector2(68.0 * s, 20.0 * s)), Color(UIColors.WASHI_LIGHT, a))
+	for row in 3:
+		var y := inner.position.y + (138.0 + 24.0 * float(row)) * s
+		draw_rect(Rect2(Vector2(inner.position.x + 10.0 * s, y), Vector2(inner.size.x - (20.0 + 16.0 * float(row)) * s, 6.0 * s)),
+			Color(UIColors.LINE_MUTED, a))
+	draw_circle(Vector2(inner.end.x - 27.0 * s, inner.end.y - 27.0 * s), 12.0 * s, Color(el, a * 0.7))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+## Relief du tambour (sous sa transformation) : ombre du cylindre en haut et en bas, filets de vitesse, cadre de
+## papier (doré pendant l'anticipation), deux repères vermillon au milieu des bords (la ligne d'arrêt).
+func _reel_shade(r: Rect2, s: float, a: float, blur: float, ant: float) -> void:
+	var dk := 0.3 * r.size.y
+	var ink := Color(UIColors.SUMI, 0.8 * a)
+	var none := Color(UIColors.SUMI, 0.0)
+	var x0 := r.position.x
+	var x1 := r.end.x
+	draw_polygon(PackedVector2Array([Vector2(x0, r.position.y), Vector2(x1, r.position.y), Vector2(x1, r.position.y + dk), Vector2(x0, r.position.y + dk)]),
+		PackedColorArray([ink, ink, none, none]))
+	draw_polygon(PackedVector2Array([Vector2(x0, r.end.y - dk), Vector2(x1, r.end.y - dk), Vector2(x1, r.end.y), Vector2(x0, r.end.y)]),
+		PackedColorArray([none, none, ink, ink]))
+	if blur > 0.05:
+		for k in 5:
+			var x := lerpf(x0 + 12.0 * s, x1 - 12.0 * s, (float(k) + 0.5) / 5.0)
+			draw_line(Vector2(x, r.position.y + 8.0 * s), Vector2(x, r.end.y - 8.0 * s), Color(UIColors.WASHI, 0.06 * blur * a), maxf(1.0, 2.0 * s))
+	var fl := UiKit.rrect_points(r, 12.0 * s)
+	fl.append(fl[0])
+	draw_polyline(fl, Color(UIColors.WASHI.lerp(GOLD_HI, ant), (0.35 + 0.5 * ant) * a), maxf(1.0, 1.5 * s), true)
+	var cy := r.get_center().y
+	for sd in [-1.0, 1.0]:
+		var ex: float = x0 if sd < 0.0 else x1
+		var tip := Vector2(ex - sd * 7.0 * s, cy)
+		draw_colored_polygon(PackedVector2Array([Vector2(ex, cy - 5.0 * s), tip, Vector2(ex, cy + 5.0 * s)]), Color(Toon.VERMILION, a))
+
+
+## Anticipation d'une carte rare (sous la transformation du tambour) : halo d'or qui s'épaissit et colonne de
+## lumière qui monte le long des bords, du bas vers le haut, à mesure que le tambour ralentit.
+func _reel_glow(r: Rect2, xf: Transform2D, s: float, a: float, ant: float) -> void:
+	draw_set_transform_matrix(xf)
+	var hgt := r.size.y * (0.25 + 0.85 * ant)
+	var gr := r.grow(9.0 * s)
+	var gb := Color(GOLD_HI, 0.42 * ant * a)
+	var gt := Color(GOLD_HI, 0.0)
+	draw_polygon(PackedVector2Array([Vector2(gr.position.x, gr.end.y - hgt), Vector2(gr.end.x, gr.end.y - hgt), gr.end, Vector2(gr.position.x, gr.end.y)]),
+		PackedColorArray([gt, gt, gb, gb]))
+	var pulse := 0.75 + 0.25 * sin(_t * 18.0)
+	for g in 3:
+		var gg := (3.0 + 4.0 * float(g)) * s
+		var pts := UiKit.rrect_points(r.grow(gg), 12.0 * s + gg)
+		pts.append(pts[0])
+		draw_polyline(pts, Color(GOLD_HI, (0.8 - 0.22 * float(g)) * ant * pulse * a), maxf(1.0, (3.5 - float(g)) * s), true)
+	# étincelles d'or qui montent le long des bords
+	for k in 10:
+		var side := -1.0 if k % 2 == 0 else 1.0
+		var ph := fmod(_t * (0.9 + 0.13 * float(k)) + float(k) * 0.37, 1.0)
+		var x := r.get_center().x + side * (r.size.x * 0.5 + (4.0 + 5.0 * float(k % 3)) * s)
+		var y := r.end.y - ph * hgt
+		draw_circle(Vector2(x, y), (1.2 + 0.6 * float(k % 3)) * s, Color(GOLD_HI, ant * a * (1.0 - ph)))
+	draw_set_transform_matrix(Transform2D.IDENTITY)
+
+
+## Arrêt du tambour i : le cadre de papier claque et s'écarte, des gouttes d'encre (papier, une sur quatre vermillon ;
+## or dès la rareté rare) jaillissent du haut et du bas de la carte ; éclat d'or (anneau, rayons) dès la rareté rare.
+func _reel_fx(i: int, r: Rect2, u: float, a: float) -> void:
+	var tb := _t - float(_reel_stop[i])
+	if tb < 0.0 or tb > REEL_FX or a <= 0.01 or r.size.x <= 0.0:
+		return
+	var rank := clampi(int(_infos[i].get("rarity_rank", 0)), 0, 3)
+	var s := r.size.x / V2_W
+	var c := r.get_center()
+	var k := tb / REEL_FX
+	var fk := clampf(tb / 0.25, 0.0, 1.0)
+	if fk < 1.0:
+		var gg := (2.0 + 10.0 * UiKit.ease_out(fk)) * s
+		var pts := UiKit.rrect_points(r.grow(gg), 12.0 * s + gg)
+		pts.append(pts[0])
+		draw_polyline(pts, Color(GOLD_HI if rank >= 1 else UIColors.WASHI, 0.75 * (1.0 - fk) * a), (3.0 * (1.0 - fk) + 1.0) * s, true)
+	var hw := r.size * 0.5
+	var e := UiKit.ease_out(minf(1.0, k * 1.7))
+	var drops: Array = _reel_splat[i]
+	for d in drops.size():
+		var dv: Vector3 = drops[d]
+		var dir := Vector2(cos(dv.x), sin(dv.x))
+		var m := minf(hw.x / maxf(absf(dir.x), 0.001), hw.y / maxf(absf(dir.y), 0.001))
+		var pos := c + dir * (m + (6.0 + 30.0 * dv.y) * u * e)
+		var sz := (1.8 + 3.6 * dv.z) * u * (1.0 - k * 0.8)
+		var col: Color = UIColors.WASHI
+		if rank >= 1:
+			col = GOLD_HI if d % 3 != 0 else UIColors.WASHI_LIGHT
+		elif d % 4 == 0:
+			col = Toon.VERMILION
+		var da := (1.0 - k) * a
+		draw_line(pos - dir * sz * (1.5 + 4.0 * (1.0 - e)), pos, Color(col, 0.55 * da), sz * 0.9)
+		draw_circle(pos, sz, Color(col, 0.9 * da))
+
+
+## Éclat d'or derrière une carte rare qui s'arrête (dessiné avant les cartes) : disque de lumière, anneau qui
+## s'élargit, rayons ; plus ample avec la rareté.
+func _reel_fx_back(i: int, r: Rect2, u: float, a: float) -> void:
+	var tb := _t - float(_reel_stop[i])
+	var rank := clampi(int(_infos[i].get("rarity_rank", 0)), 0, 3)
+	if rank < 1 or tb < 0.0 or tb > 0.5 or a <= 0.01 or r.size.x <= 0.0:
+		return
+	var gk := tb / 0.5
+	var c := r.get_center()
+	var hh := r.size.y * 0.5
+	var ea := (1.0 - gk) * a * (0.5 + 0.17 * float(rank))
+	var e := UiKit.ease_out(gk)
+	draw_circle(c, hh * (0.8 + 0.5 * e), Color(GOLD_HI, 0.22 * ea))
+	draw_arc(c, hh * (0.75 + 0.55 * e), 0.0, TAU, 64, Color(GOLD_HI, 0.85 * ea), 3.0 * u * (1.0 - gk) + 1.0)
+	var nr := 10 + 4 * rank
+	for ray in nr:
+		var ang := TAU * float(ray) / float(nr) + 0.3 * float(i)
+		var dd := Vector2(cos(ang), sin(ang))
+		var r0g := hh * (0.7 + 0.5 * e)
+		draw_line(c + dd * r0g, c + dd * (r0g + hh * (0.25 + 0.1 * float(rank)) * (1.0 - gk)), Color(GOLD_HI, 0.8 * ea), 2.0 * u)
+
+
+## Sons des tambours entre deux images : cliquet pendant le ralenti, « clac » à chaque arrêt (cloche dès la rareté
+## rare, coup sourd au légendaire, puis cloche du torii à son retournement). Un saut (toucher qui achève tout) : un
+## seul arrêt sonne, celui de la plus haute rareté.
+func _reel_sounds(t0: float, t1: float) -> void:
+	if _reel_stop.is_empty() or _chosen >= 0 or t1 <= t0:
+		return
+	if _sfx == null or not is_instance_valid(_sfx):
+		_sfx = _find_sfx()
+		if _sfx == null:
+			return
+	var jump := t1 - t0 > 0.15
+	var best := -1
+	for i in _reel_stop.size():
+		var st: float = _reel_stop[i]
+		var rank := clampi(int(_infos[i].get("rarity_rank", 0)), 0, 3)
+		if t0 < st and st <= t1:
+			if jump:
+				best = maxi(best, rank)
+			else:
+				_stop_sound(rank, i)
+		elif not jump and t1 < st and t1 > st - float(_reel_dec[i]):
+			if floori(_reel_pos(i, t1)) > floori(_reel_pos(i, t0)):
+				_sfx.call("play", "xp", 1.5 + 0.12 * float(i), -20.0)
+		if _is_leg(i) and not jump:
+			var fl := _reveal_start(i) + REVEAL_DUR * 0.5
+			if t0 < fl and fl <= t1:
+				_sfx.call("play", "torii", 1.0, -5.0)
+	if best >= 0:
+		_stop_sound(best, 1)
+
+
+func _stop_sound(rank: int, i: int) -> void:
+	_sfx.call("play", "empty", 0.95 + 0.07 * float(i), -2.0)
+	if rank == 3:
+		_sfx.call("play", "strike", 1.15, -6.0)
+	elif rank >= 1:
+		_sfx.call("play", "coin", 1.0 if rank == 1 else 0.89, -7.0)
+	if _sfx.has_method("haptic"):
+		_sfx.call("haptic", "hit" if rank >= 1 else "dash")
+
+
+## Lecteur de sons du jeu (porté par un nœud parent : « sfx »), null sans lui (tests isolés).
+func _find_sfx() -> Node:
+	var n: Node = get_parent()
+	while n != null:
+		if "sfx" in n:
+			var cand = n.get("sfx")
+			if cand is Node and is_instance_valid(cand) and cand.has_method("play"):
+				return cand
+		n = n.get_parent()
+	return null
 
 
 ## Bande des pouvoirs pris (planche Rouleaux) : médaillons entre deux filets ; ceux que la carte en vue améliore,
@@ -2803,7 +3246,8 @@ func _face_v2(r: Rect2, info: Dictionary, id: String, u: float, a: float, i: int
 		UiKit.harmony_ring(self, rc, 16.0 * s, aff, gain, el, UIColors.LINE_MUTED, ta, nxt >= int(Data.AFF_TIERS[0]), true)
 	UiKit.element_icon(self, school, rc, 15.0 * s, ta)
 	_sheen_pass(r, u, a, rank)
-	_v2_family(r, school, s, a, ta)
+	if not _no_tag:
+		_v2_family(r, school, s, a, ta)
 
 
 ## Bandeau de famille accroché sous la carte, à la couleur de l'école : son nom seul (« FEU ») en capitales

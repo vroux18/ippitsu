@@ -450,6 +450,7 @@ var _force_fig_t := 1.5
 var _fig_shot := ""  # captures `&figshot=` : préfixe des images
 var _fig_shot_n := 0
 var _last_offer: Array = []  # derniers rouleaux proposés (pour le robot)
+var _pick_seq := 0.0  # captures (`&ptseq=dt`) : pas de temps de la séquence d'images du choix de rouleau
 var recap: Control
 var _recap_from := "pause"
 var _shrine: Node3D = null  # autel du sanctuaire (facultatif)
@@ -802,6 +803,19 @@ func _ready() -> void:
 		if ps >= 0:
 			picker.style = clampi(int(wsearch.substr(ps + 10).get_slice("&", 0)), 0, 2)
 		_open_upgrades()
+		# `&rar=common,legendary,rare` (captures) : un tirage imposé, une rareté par carte
+		var rq := wsearch.find("rar=")
+		if rq >= 0:
+			_pick_rarities(wsearch.substr(rq + 4).get_slice("&", 0).split(","))
+		# `&pt=0.4` (captures) : l'animation du choix figée à cet instant (s) ; `&ptseq=0.04` : `--shot` enregistre
+		# toute l'animation, une image tous les 0,04 s (x_000.png, x_001.png…)
+		var pq := wsearch.find("&pt=")
+		if pq >= 0:
+			picker.reel_freeze = float(wsearch.substr(pq + 4).get_slice("&", 0))
+		var sq := wsearch.find("ptseq=")
+		if sq >= 0:
+			_pick_seq = float(wsearch.substr(sq + 6).get_slice("&", 0))
+			picker.reel_freeze = 0.0
 		# `?pick&sel=N` : la carte N déjà levée (capture de la bulle de description)
 		var sl := wsearch.find("sel=")
 		if sl >= 0:
@@ -1268,6 +1282,18 @@ func _shot(arg: String) -> void:
 	var path := arg.get_slice(":", 0)
 	var wait := float(arg.get_slice(":", 1)) if arg.contains(":") else 4.0
 	await get_tree().create_timer(wait, true, false, true).timeout
+	if _pick_seq > 0.0:
+		# `&ptseq=dt` : toute l'animation du choix de rouleau, image par image (temps du choix imposé)
+		var k := 0
+		while float(k) * _pick_seq <= float(picker._ready_time()) + 0.5:
+			picker.reel_freeze = float(k) * _pick_seq
+			await get_tree().process_frame
+			await RenderingServer.frame_post_draw
+			get_viewport().get_texture().get_image().save_png(path.get_basename() + "_%03d.png" % k)
+			k += 1
+		print("SHOT ", path, " (", k, " images)")
+		get_tree().quit()
+		return
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(path)
 	print("SHOT ", path)
@@ -4522,6 +4548,26 @@ func _shrine_spot() -> Vector3:
 	if best == Vector3.INF:
 		best = arena.clamp_walk(hero.position + Vector3(0, 0, -3.0), 0.9)
 	return best
+
+
+## Captures (`&rar=…`) : rouvre le choix de rouleau sur un tirage imposé, un pouvoir de chaque rareté demandée.
+func _pick_rarities(rars: PackedStringArray) -> void:
+	var ids: Array = []
+	var keys: Array = PowerData.POWERS.keys()
+	keys.shuffle()
+	for rar in rars:
+		for k in keys:
+			var d: Dictionary = PowerData.POWERS[k]
+			if String(d["rarity"]) == rar.strip_edges() and not String(k) in ids and int(powers.lvl(String(k))) < int(powers.max_level(String(k))):
+				ids.append(String(k))
+				break
+	if ids.is_empty():
+		return
+	var infos: Array = []
+	for id in ids:
+		infos.append(powers.describe(String(id)))
+	_last_offer = ids
+	picker.open(ids, infos)
 
 
 func _open_upgrades() -> void:
