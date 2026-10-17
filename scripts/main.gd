@@ -7087,9 +7087,9 @@ func _ultimate() -> void:
 	var hp := hero.position
 	var a := Vector3(-HALF.x - 1.0, 0, hp.z + 1.6)
 	var b := Vector3(HALF.x + 1.0, 0, hp.z - 1.6)
-	vfx.slash_line(a, b)
+	vfx.slash_line(a, b, true)  # le grand trait : lame qui tombe, fils de pinceau qui s'écartent
 	vfx.slash_line(Vector3(-HALF.x - 1.0, 0, hp.z - 2.4), Vector3(HALF.x + 1.0, 0, hp.z + 0.8))
-	vfx.ink_wave(hp, 5.5)
+	vfx.ink_wave(hp, 5.5, true)  # ensō géant au pinceau, giclée et éclaboussures
 	float_icon(hp + Vector3(0, 1.2, 0), "hud/pinceau", Toon.SUMI)
 	hud.screen_flash = maxf(hud.screen_flash, 0.5)
 	shake = maxf(shake, 1.68)
@@ -7464,7 +7464,7 @@ func _hurt_hero(n := 1) -> void:
 	shake = 0.69
 	sfx.play("hurt")
 	feel("hurt")
-	_splash(hero.position, Toon.SUMI, 14)
+	_hurt_fx(hero.position)
 	if hero.hp <= 0:
 		game_over = true
 		_ending_victory = false
@@ -7473,6 +7473,14 @@ func _hurt_hero(n := 1) -> void:
 		sfx.play("kill", 0.5)
 		feel("death")
 		_cancel_stroke()
+
+
+## Coup reçu : giclée vermillon et tranchant sur le héros, gouttes de sumi, bref arrêt sur image.
+func _hurt_fx(p: Vector3) -> void:
+	vfx.hurt(p)
+	_splash(p, Toon.SUMI, 14)
+	_splash(p, Toon.VERMILION, 6)
+	_add_hitstop(HITSTOP_HIT)
 
 
 ## Invincibilité après un coup reçu : 1,2 s, puis 1 s dès le monde 3 et 0,85 s dès le monde 6.
@@ -7815,19 +7823,9 @@ func _disc(parent: Node3D, r: float, material: Material, y := 0.01) -> MeshInsta
 
 
 func _slash_mark(pos: Vector3, dir: Vector3) -> void:
-	# éclair blanc en travers de l'ennemi : le « tranchant »
-	var n := Node3D.new()
-	add_child(n)
-	n.position = pos + Vector3(0, 0.7, 0)
-	var d := dir.normalized()
-	n.rotation.y = atan2(-d.x, -d.z) + randf_range(-0.5, 0.5)
-	if not _fx_cache.has("slash"):
-		_fx_cache["slash"] = Toon.box(Vector3(0.06, 0.02, 1.5))
-	# blanc, teinté par une lame qui luit (garde-robe : eau, braise, ombre, or)
-	var bar := Toon.part(n, _fx_cache["slash"], Toon.flat(Color(meta.blade_tint(), 0.95)), Vector3.ZERO)
-	bar.rotation.x = randf_range(-0.25, 0.25)
-	bar.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	effects.append({"node": n, "t": 0.0, "life": 0.14, "kind": "slash", "mats": [bar.material_override], "alpha": 0.95})
+	# le « tranchant » : un coup de pinceau clair cerné d'encre en travers de l'ennemi (vfx), teinté par une lame
+	# qui luit (garde-robe : eau, braise, ombre, or)
+	vfx.slash_mark(pos, dir, meta.blade_tint())
 
 
 func _combo_label(pos: Vector3, n: int) -> void:
