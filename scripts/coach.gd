@@ -56,7 +56,7 @@ const TEXTS_PAD := {
 	"stroke": "Trace dans le pad",
 	"figures": "Un zigzag dans le pad",
 }
-# leçon des figures (planche en arrêt sur image) : une figure reconnue donne d'elle-même +15 % de dégâts
+# leçon des figures (planche en arrêt sur image) : une figure reconnue donne d'elle-même +40 % de dégâts (main.FIG_DMG)
 # à sa ruée et +1 chaîne si elle touche (powers.figure_launch, main._on_dash_finished) ; son rouleau
 # (PowerData.FIG_UNLOCK) débloque sa technique. Une seule ligne, sans chiffre : la planche montre le reste.
 const LESSON := [

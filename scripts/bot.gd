@@ -101,6 +101,23 @@ var _cal_closed: Array = []
 var _cal_seen := {}  # mécanique encore fermée -> {compteur de main: valeur lue tant qu'elle l'était}
 const CAL_COUNTERS := {"gates": ["gates_seen"], "sealed": ["sealed_set", "chests_sealed", "puzzles_seen"],
 	"merchant": ["merchants_seen"], "pact": ["shrines_seen"], "oni": ["elites_seen"]}
+# mesures d'équilibrage (« BOT SALLE ») : temps de combat (ennemis debout), dégâts par source (main.dmg_src)
+var plain_only := false  # `--traits=simples` (campagne) : traits simples seulement, aucune figure (mesure)
+var pick_pref := ""  # `--choix=passif|figures` (campagne) : rouleaux préférés (mesure d'un build), sinon en alternance
+# build « passif » : les pouvoirs de dégâts qui agissent sans figure (le joueur qui roule sur la carte) ;
+# build « figures » : techniques de figure et pouvoirs qui les renforcent
+const PREF := {
+	"passif": ["fire_fudo", "bolt_raijin", "shadow_kitsunebi", "ink_ippitsu", "fire_burn", "fire_edge", "bolt_arc",
+		"bolt_storm", "shadow_back", "shadow_dusk", "fire_hearth", "fire_spark", "fire_trail", "wind_blades", "bolt_static",
+		"wind_tsumuji", "shadow_bunshin", "water_kanagawa", "bolt_raiju", "fire_lantern", "water_tide", "bolt_charge",
+		"bolt_thunder", "shadow_execute", "fire_ash", "shadow_double"],
+	"figures": ["fig_zigzag", "fig_loop", "fig_enso", "fig_hook", "fig_straight", "fig_return", "fig_zigzag_long",
+		"fig_loop_pull", "fig_enso_big", "fig_hook_back", "fig_hook_double", "fig_straight_double", "fig_straight_wave",
+		"fig_return_counter", "ink_enso", "ink_seal", "bolt_inazuma", "fire_kasha", "fig_wave", "fig_point", "fig_triangle"],
+}
+var _fight_t := 0.0
+var _dmg0 := {}
+var _room_hits := 0
 
 
 func begin(m: Node) -> void:
@@ -123,6 +140,10 @@ func begin(m: Node) -> void:
 		elif s.begins_with("--mort="):
 			mort_world = maxi(1, int(s.substr(7).get_slice(":", 0)))
 			mort_stage = maxi(1, int(s.substr(7).get_slice(":", 1)))
+		elif s == "--traits=simples":
+			plain_only = true
+		elif s.begins_with("--choix="):
+			pick_pref = s.substr(8)
 		elif s.begins_with("--monde="):
 			world = clampi(int(s.substr(8)), 1, Worlds.WORLDS.size())  # campagne : départ à ce monde (mesures)
 	if not mode in MODES:
@@ -276,6 +297,8 @@ func step(dt: float) -> void:
 			if is_instance_valid(e) and not e.dead:
 				alive += 1
 		_stat_max("max_on", alive)
+		if alive > 0 and main.bosses.is_empty():
+			_fight_t += dt
 	# protégé seulement au dernier coup encaissable (sauf dans la partie où il doit mourir, et tant que Hōō
 	# attend son coup mortel) : 1 cœur, 2 quand les coups lourds en ôtent 2 (enemy.HEAVY_HIT_WORLD)
 	if not _death_test and h.hp <= _last_stand() and _guard_allowed():
@@ -367,6 +390,11 @@ func _on_room_change() -> void:
 	if _last_room >= 1 and _room_t > 0.0:
 		_stat("rooms", 1)
 		_stat("time", _room_t)
+	if _last_room >= 1 and not _dmg0.is_empty():
+		_room_report()
+	_dmg0 = (main.dmg_src as Dictionary).duplicate()
+	_fight_t = 0.0
+	_room_hits = _hits_taken
 	_last_room = int(main.room)
 	_room_t = 0.0
 	_guarded = false
@@ -390,6 +418,19 @@ func _on_room_change() -> void:
 		_powers_room_start()
 	elif mode == "stress":
 		_stress_room_start()
+
+
+## Bilan d'une salle (mesures d'équilibrage) : temps de combat contre les yōkai (ennemis debout, hors boss),
+## rouleaux pris (niveaux cumulés), cœurs perdus, dégâts ôtés par source depuis l'entrée dans la salle.
+func _room_report() -> void:
+	var cur: Dictionary = main.dmg_src
+	var parts := PackedStringArray()
+	for k in ["trait", "trait_fig", "tech", "pow", "sceau"]:
+		parts.append("%s %.1f" % [k, float(cur.get(k, 0.0)) - float(_dmg0.get(k, 0.0))])
+	var lv := 0
+	for id in main.powers.levels.keys():
+		lv += int(main.powers.levels[id])
+	print("BOT SALLE monde %d salle %d : combat %.1f s, rouleaux %d, cœurs perdus %d, dégâts %s" % [world, _last_room, _fight_t, lv, _hits_taken - _room_hits, " ".join(parts)])
 
 
 func _on_room_end() -> void:
@@ -451,6 +492,16 @@ func _pick() -> void:
 
 
 func _choose(offer: Array) -> String:
+	if mode != "powers" and PREF.has(pick_pref):
+		var best_id := ""
+		var best_i := 999
+		for oid in offer:
+			var i: int = (PREF[pick_pref] as Array).find(String(oid))
+			if i >= 0 and i < best_i:
+				best_i = i
+				best_id = String(oid)
+		if best_id != "":
+			return best_id
 	if mode != "powers":
 		# alterne : premier, deuxième, troisième rouleau (et la malédiction proposée)
 		var id := String(offer[_picks % offer.size()])
@@ -478,6 +529,18 @@ func _over() -> void:
 	# économie de la partie (equilibrage) : gains d'encre et de pétales, or restant, réserves de la sauvegarde
 	var mt = main.meta
 	print("BOT ÉCONOMIE monde %d : salle %d/%d, %d ennemis, gardien %d, boss %d, malédictions %d, défis %d, niveau %d, or restant %d, achats %d, encre +%d (total %d), pétales +%d (total %d), parties %d" % [world, main.room, main.ROOMS, int(main.kills), int(main.mini_kills), int(main.boss_kills), main.curses.size(), int(main.defi_kills), int(main.level), int(main.run_gold), int(main.shop_bought), int(main.menu.gain_sumi), int(mt.sumi), int(main.menu.gain_petals), int(mt.petals), int(mt.runs)])
+	if not (main.dmg_attrib as Dictionary).is_empty():
+		var at: Dictionary = main.dmg_attrib
+		var ks: Array = at.keys()
+		ks.sort_custom(func(a, b): return float(at[a]) > float(at[b]))
+		var parts := PackedStringArray()
+		for k in ks:
+			parts.append("%s %.0f" % [String(k), float(at[k])])
+		print("BOT ATTRIB monde %d : %s" % [world, ", ".join(parts)])
+		at.clear()
+	if _last_room >= 1 and not _dmg0.is_empty():
+		_room_report()
+		_dmg0 = {}
 	print("BOT MARCHAND monde %d : %d marchand(s), %d achat(s), or restant %d" % [world, int(main.merchants_seen), int(main.shop_bought), int(main.run_gold)])
 	# (le marchand n'arrive qu'au monde 2 : meta.feature_open)
 	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0 and bool(main.meta.feature_open("merchant")):
@@ -661,7 +724,29 @@ func _play(dt: float) -> void:
 		if kind == "plain" or not figure(kind, target):
 			stroke_line(target)
 		return
+	if plain_only:
+		stroke_line(target)
+		return
+	if fight and pick_pref == "figures" and _fig_stroke(target):
+		return
 	_stroke(target)
+
+
+## Build « figures » (mesure) : il trace tour à tour les figures dont il a la technique (BotShapes), et un trait
+## simple de temps en temps ; faux sans technique (traits habituels).
+func _fig_stroke(target: Vector3) -> bool:
+	var owned: Array = []
+	for f in BotShapes.SHAPES:
+		if main.powers.fig_on(String(f)):
+			owned.append(String(f))
+	if owned.is_empty():
+		return false
+	owned.append("plain")
+	var kind := String(owned[_n % owned.size()])
+	_n += 1
+	if kind == "plain" or not figure(kind, target):
+		stroke_line(target)
+	return true
 
 
 ## Yōkai scellé en vue : le robot trace la figure de son cadenas à travers lui (BotShapes.through), comme un
