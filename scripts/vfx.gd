@@ -4,6 +4,21 @@ extends Node3D
 ## Les matériaux émissifs brillent grâce au halo (glow) de l'environnement, sans délaver le reste de l'image.
 ## Lisibilité : chaque élément a sa forme (flammes, arcs d'eau, zigzag, croissants, fumée) ; au sol, les ondes
 ## passent SOUS les annonces d'attaque (priorité de rendu négative) et restent pâles.
+##
+## Phase 2 (encre peinte, et MOINS chère qu'avant : le téléphone chauffait) — choix :
+## - Ondes, brûlures, ombres au sol (ink_fx), éclats, giclées et tranchants face caméra (ink_burst), flammes et
+##   lavis de fumée (ink_part) : un quad partagé, une matière partagée par priorité, tout le dessin dans le
+##   shader (pinceau qui trace l'ensō, poils secs, lavis, gouttes, griffes d'écume à la Hokusai, braises qui
+##   refroidissent) ; un appel de dessin par effet au lieu de deux à quatre maillages. Quads repris d'une réserve
+##   (pas de nœud neuf par coup) et plafonnés (FXQ_MAX vivants, moins en mode léger) ; quads au plus juste
+##   (FX_EXT), pixels hors de l'anneau rejetés avant tout bruit.
+## - Pinceaux à trois couches (contour d'encre, corps, cœur : anneaux, croissants, estocs, coupes, éclairs,
+##   ressac, kekkai…) fondus en UNE surface (fx_brush3, couches en couleurs de sommets, teintes en paramètres
+##   d'instance) : un appel de dessin au lieu de trois.
+## - Annonces d'attaque (ink_tele) : un quad, un appel de dessin au lieu de quatre surfaces empilées ; fond hachuré
+##   et front de remplissage plus sombre : on lit d'un coup d'œil la zone ET le temps qui reste.
+## - Émetteurs ponctuels (gouttes, étincelles, flammes, braises, fumée) repris d'une réserve.
+## - Jus : arrêt sur image bref (main), giclée vermillon et tranchant sur un coup reçu, éclat papier à la mise à mort.
 const Perf = preload("res://scripts/perf_probe.gd")  # relevé par image (-- --perf)
 
 const Toon = preload("res://scripts/toon.gd")
@@ -43,6 +58,7 @@ const TELE_RIM := 0.07  # liseré vermillon juste dedans
 const TELE_FLASH := 0.15
 
 var main: Node
+static var _rng := RandomNumberGenerator.new()  # hasards des effets (jamais ceux du jeu : les parties restent reproductibles)
 var _fx: Array = []  # {node, t, life, kind, ...}
 var _trail_pts: Array = []  # [position, âge]
 var _trail_mesh := ImmediateMesh.new()
@@ -56,7 +72,6 @@ var _arc_mesh: ArrayMesh
 var _ring_torus: TorusMesh
 var _mats := {}  # matériaux plats partagés (clé -> StandardMaterial3D)
 var _meshes := {}  # maillages partagés (clé -> Mesh)
-var _tmat := {}  # matériaux des annonces
 var _flame_ramp: Gradient
 var _smoke_ramp: Gradient
 var _flame_curve: Curve
@@ -167,7 +182,7 @@ func _update_trail(dt: float) -> void:
 ## sur un coup fort (mise à mort), plus grand, et l'arc du sabre. (Pas d'anneau ni de « confettis ».)
 func impact(pos: Vector3, dir: Vector3, strong := false) -> void:
 	var p := pos + Vector3(0, 0.9, 0)
-	_bquad(p, 0.62 if strong else 0.48, FXB_CUT, Color(Toon.SUMI, 0.92), Color(BLADE, 1.0), 0.13 if strong else 0.11,
+	_bquad(_to_cam(p, 0.45), 0.8 if strong else 0.64, FXB_CUT, Color(Toon.SUMI, 0.92), Color(BLADE, 1.0), 0.15 if strong else 0.13,
 		_screen_ang(dir), 1.0 if strong else 0.4)
 	if strong:
 		arc(p, dir, true)
@@ -186,7 +201,7 @@ func slash_mark(pos: Vector3, dir: Vector3, tint: Color) -> void:
 	if d.length_squared() < 0.0001:
 		d = Vector3.FORWARD
 	d = d.normalized()
-	node.rotation = Vector3(randf_range(-0.25, 0.25), atan2(-d.x, -d.z) + randf_range(-0.5, 0.5), randf_range(-0.2, 0.2))
+	node.rotation = Vector3(_rng.randf_range(-0.25, 0.25), atan2(-d.x, -d.z) + _rng.randf_range(-0.5, 0.5), _rng.randf_range(-0.2, 0.2))
 	var rr := _bramp(Color(tint, 1.0), 6)
 	node.material_override = rr[0]
 	_anim(node, 0.2, Vector3(1.5, 1.0, 0.45), Vector3(0.9, 1.0, 1.35), {"g": 0.3, "f": 0.25, "lay": [[node, -1, rr]]})
@@ -224,30 +239,31 @@ func _slash_mesh() -> ArrayMesh:
 
 
 ## Coup reçu par le héros : giclée vermillon face caméra (le sang d'encre de l'estampe), gouttes de sumi.
+## Les deux quads sont avancés vers la caméra : sinon le corps du héros (opaque) en cache le cœur.
 func hurt(pos: Vector3) -> void:
-	_bquad(pos + Vector3(0, 0.95, 0), 1.0, FXB_SPLAT, Color(Toon.VERMILION, 0.95), Color(Toon.SUMI, 0.95), 0.4, randf() * TAU, 0.8, false)
-	_bquad(pos + Vector3(0, 0.95, 0), 0.6, FXB_CUT, Color(Toon.SUMI, 0.92), Color(Toon.VERMILION.lightened(0.35), 1.0), 0.14, randf() * TAU, 1.0)
+	var p := _to_cam(pos + Vector3(0, 0.95, 0), 0.7)
+	_bquad(p, 1.35, FXB_SPLAT, Color(Toon.VERMILION, 0.95), Color(Toon.SUMI, 0.95), 0.42, _rng.randf() * TAU, 0.9, false)
+	_bquad(p, 0.75, FXB_CUT, Color(Toon.SUMI, 0.92), Color(Toon.VERMILION.lightened(0.35), 1.0), 0.15, _rng.randf() * TAU, 1.0)
 
 
-## Arc de sabre : un croissant lumineux tracé dans le sens du coup.
+## p avancé de d mètres vers la caméra (éclats posés sur un corps : rester devant lui).
+func _to_cam(p: Vector3, d: float) -> Vector3:
+	if main == null or main.cam == null or not is_instance_valid(main.cam):
+		return p
+	var c: Vector3 = (main.cam as Camera3D).global_position
+	return p + (c - p).normalized() * d
+
+
+## Arc de sabre : un croissant de pinceau tracé dans le sens du coup (tranchant papier cerné d'encre, un seul
+## appel de dessin), qui s'ouvre et sèche en 0,2 s.
 func arc(pos: Vector3, dir: Vector3, strong := false) -> void:
-	if _arc_mesh == null:
-		_arc_mesh = _make_arc_mesh()
-	var node := Node3D.new()
-	add_child(node)
-	node.position = pos
 	var d := dir
 	d.y = 0
 	if d.length_squared() < 0.001:
 		d = Vector3.FORWARD
-	node.rotation.y = atan2(-d.x, -d.z)
-	node.rotation.z = randf_range(-0.5, 0.5)
-	var mi := MeshInstance3D.new()
-	mi.mesh = _arc_mesh
-	mi.material_override = glow_mat(Color(1.0, 0.96, 0.9), 2.5)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	node.add_child(mi)
-	_fx.append({"node": node, "t": 0.0, "life": 0.2, "kind": "arc", "s": 1.25 if strong else 1.0})
+	d = d.normalized()
+	var node := _brush_crescent(pos, d, 1.35 if strong else 1.1, Color(Toon.SUMI, 0.9), BLADE, Color(1, 1, 1, 0.95), 0.2, 0.0, d * 0.6)
+	node.rotation.z = _rng.randf_range(-0.5, 0.5)
 
 
 ## Croissant de l'arc de sabre (forme fixe, construite une fois).
@@ -383,6 +399,7 @@ func _pooled(key: String) -> CPUParticles3D:
 ## Lance un émetteur ponctuel : neuf, il entre dans l'arbre ; repris, il réapparaît et repart de zéro.
 func _emit(p: CPUParticles3D, fresh: bool) -> void:
 	if fresh:
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF  # (un effet ne porte pas d'ombre)
 		add_child(p)
 		p.emitting = true
 	else:
@@ -398,7 +415,8 @@ func _recycle(node: Node3D) -> bool:
 	if not _ppool.has(key):
 		_ppool[key] = []
 	var pool: Array = _ppool[key]
-	if pool.size() >= PPOOL_MAX:
+	# (un émetteur du préchauffage vit dans la cachette miniature : jamais réutilisé)
+	if pool.size() >= PPOOL_MAX or node.get_parent() != self:
 		return false
 	var p := node as CPUParticles3D
 	p.emitting = false
@@ -424,7 +442,7 @@ func kill_burst(pos: Vector3, dir: Vector3, big := false, tint := Color(0, 0, 0,
 	# giclée d'encre face caméra qui éclate derrière la croix, dans le sens du coup (dessinée avant les lueurs) :
 	# digitations, gouttes qui filent et retombent, quelques gouttes vermillon (ou de la couleur du yōkai)
 	var t2 := Color(tint, 1.0) if tint.a > 0.01 else Toon.VERMILION
-	_bquad(p, 0.95 if big else 0.78, FXB_SPLAT, Color(Toon.SUMI, 0.92), t2, 0.36, _screen_ang(d), 1.0 if big else 0.6, false)
+	_bquad(_to_cam(p, 0.3), 0.95 if big else 0.78, FXB_SPLAT, Color(Toon.SUMI, 0.92), t2, 0.36, _screen_ang(d), 1.0 if big else 0.6, false)
 	# tache d'encre liquide au sol : elle gicle dans le sens du coup (digitations, gouttes), brille puis sèche
 	ink_stain(pos, 0.62 if big else 0.5, Color(Toon.SUMI, 0.62), 1.3, d if d.y == 0.0 else Vector3.ZERO, 1.0)
 	# (plus de sceau « entaille » à la mise à mort : les deux traits rouges à chaque coup gênaient)
@@ -598,10 +616,10 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 	_ink_seed += 1
 	mi.position = g
 	var d := Vector3(dir.x, 0, dir.z)
-	mi.rotation.y = atan2(-d.z, d.x) if d.length_squared() > 0.0001 else randf() * TAU
+	mi.rotation.y = atan2(-d.z, d.x) if d.length_squared() > 0.0001 else _rng.randf() * TAU
 	var sz := maxf(r, 0.005) * INK_EXT
 	mi.scale = Vector3(sz, 1.0, sz)
-	var sd := fmod(float(_ink_seed) * 7.31 + randf() * 50.0, 97.0)
+	var sd := fmod(float(_ink_seed) * 7.31 + _rng.randf() * 50.0, 97.0)
 	var st := Vector4(0.0, life, sd, digit)
 	mi.set_instance_shader_parameter(&"ink_color", c)
 	mi.set_instance_shader_parameter(&"ink_state", st)
@@ -714,6 +732,18 @@ func _quad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3) -> v
 	st.add_vertex(a)
 	st.add_vertex(c)
 	st.add_vertex(d)
+
+
+## Pavé de taille `sz` (repère `b`, centre `c`) ajouté à `st` (six faces, couleur courante de st).
+func _box_st(st: SurfaceTool, b: Basis, c: Vector3, sz: Vector3) -> void:
+	var hx := b.x * sz.x * 0.5
+	var hy := b.y * sz.y * 0.5
+	var hz := b.z * sz.z * 0.5
+	for f in [[hx, hy, hz], [-hx, hy, -hz], [hz, hy, -hx], [-hz, hy, hx], [hy, hz, hx], [-hy, hz, -hx]]:
+		var n: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var v: Vector3 = f[2]
+		_quad(st, c + n - u - v, c + n - u + v, c + n + u + v, c + n + u - v)
 
 
 ## Repère qui va de a vers b : -Z local pointe vers b et mesure |b - a| (maillages tracés de 0 à -1 en z).
@@ -848,10 +878,17 @@ func _bramp(c: Color, prio := 4) -> Array:
 
 
 ## Un MeshInstance3D sur `mesh`, une rampe par surface ; renvoie les couches à estomper ([mi, surface, rampe]).
+## Pinceau à deux ou trois couches (rampes _bramp / _sramp sur un maillage de pinceau) : les surfaces sont fondues
+## en une seule (fx_brush3.gdshader), teintes en paramètres d'instance : UN appel de dessin au lieu de trois ;
+## la couche rendue est [mi, -2, null] (estompage par bf_fade).
 func _layers(parent: Node3D, mesh: Mesh, ramps: Array) -> Array:
+	var n := mini(ramps.size(), mesh.get_surface_count())
+	if n >= 2 and n == mesh.get_surface_count():
+		var one := _layers1(parent, mesh, ramps)
+		if one != null:
+			return [[one, -2, null]]
 	var mi := _mi(parent, mesh, null)
 	var out := []
-	var n := mini(ramps.size(), mesh.get_surface_count())
 	for s in n:
 		var r: Array = ramps[s]
 		mi.set_surface_override_material(s, r[0])
@@ -863,12 +900,141 @@ func _lay_set(ly: Array, idx: int) -> void:
 	var mi = ly[0]
 	if not is_instance_valid(mi):
 		return
-	var r: Array = ly[2]
 	var s: int = ly[1]
+	if s == -2:
+		(mi as GeometryInstance3D).set_instance_shader_parameter(&"bf_fade", float(idx) / float(FADE_N))
+		return
+	var r: Array = ly[2]
 	if s < 0:
 		mi.material_override = r[idx]
 	else:
 		mi.set_surface_override_material(s, r[idx])
+
+
+# --- pinceau en un appel de dessin (shaders/fx_brush3.gdshader)
+
+const FX_BRUSH3 = preload("res://shaders/fx_brush3.gdshader")
+var _b3_mats := {}  # priorité -> ShaderMaterial partagée
+var _m3 := {}  # id d'un maillage partagé -> sa version fondue
+var _shared_ids := {}
+var _shared_n := -1
+
+
+func _b3_mat(prio: int) -> ShaderMaterial:
+	if _b3_mats.has(prio):
+		return _b3_mats[prio]
+	var m := ShaderMaterial.new()
+	m.shader = FX_BRUSH3
+	m.render_priority = prio
+	m.set_shader_parameter("dry", 0.6 if Toon.lite else 0.9)
+	_b3_mats[prio] = m
+	return m
+
+
+## Nœud de pinceau fondu : maillage `m3` (déjà fondu), teintes c0 (encre), c1 (corps), c2 (cœur).
+func _b3_node(parent: Node3D, m3: Mesh, c0: Color, c1: Color, c2: Color, prio: int) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = m3
+	mi.material_override = _b3_mat(prio)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.set_instance_shader_parameter(&"bf_c0", c0)
+	mi.set_instance_shader_parameter(&"bf_c1", c1)
+	mi.set_instance_shader_parameter(&"bf_c2", c2)
+	parent.add_child(mi)
+	return mi
+
+
+## Teinte et sorte d'une rampe : [couleur, pinceau ?, priorité] ; vide si ce n'est ni _bramp ni _sramp.
+func _ramp_info(r: Array) -> Array:
+	if r.is_empty():
+		return []
+	var m0 = r[0]
+	if m0 is ShaderMaterial and (m0 as ShaderMaterial).shader == FX_BRUSH:
+		return [(m0 as ShaderMaterial).get_shader_parameter("tint"), true, (m0 as Material).render_priority]
+	if m0 is StandardMaterial3D:
+		var sm := m0 as StandardMaterial3D
+		if sm.billboard_mode != BaseMaterial3D.BILLBOARD_DISABLED:
+			return []
+		return [sm.albedo_color, false, sm.render_priority]
+	return []
+
+
+func _layers1(parent: Node3D, mesh: Mesh, ramps: Array) -> MeshInstance3D:
+	var info := []
+	for r in ramps:
+		var ri := _ramp_info(r)
+		if ri.is_empty():
+			return null
+		info.append(ri)
+	var flags := PackedFloat32Array()
+	for ri in info:
+		flags.append(1.0 if bool(ri[1]) else 0.0)
+	var m3 := _merge3(mesh, flags, PackedFloat32Array())
+	if m3 == null:
+		return null
+	var cs: Array = []
+	for i in 3:
+		cs.append(info[i][0] if i < info.size() else Color(0, 0, 0, 0))
+	return _b3_node(parent, m3, cs[0], cs[1], cs[2], int(info[0][2]))
+
+
+func _is_shared(mesh: Mesh) -> bool:
+	if _meshes.size() != _shared_n:
+		_shared_ids.clear()
+		for m in _meshes.values():
+			if m is Mesh:
+				_shared_ids[(m as Mesh).get_instance_id()] = true
+		_shared_n = _meshes.size()
+	return _shared_ids.has(mesh.get_instance_id())
+
+
+## Fond les surfaces d'un maillage de pinceau en une seule (dans l'ordre : encre, corps, cœur), la couche en
+## couleur de sommet (voir fx_brush3). flags[s] : 1 pinceau, 0 aplat ; dry[s] : séchage d'avance de la couche.
+## Mis en cache pour les maillages partagés (_meshes). null si une surface n'a pas d'UV2 (pas un pinceau).
+func _merge3(mesh: Mesh, flags: PackedFloat32Array, dry: PackedFloat32Array) -> ArrayMesh:
+	var shared := _is_shared(mesh)
+	var key := mesh.get_instance_id()
+	if shared and _m3.has(key):
+		return _m3[key]
+	var vs := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
+	var cols := PackedColorArray()
+	var ns := mesh.get_surface_count()
+	for s in ns:
+		var arr := mesh.surface_get_arrays(s)
+		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var uv = arr[Mesh.ARRAY_TEX_UV]
+		var uv2 = arr[Mesh.ARRAY_TEX_UV2]
+		if uv == null or uv2 == null or (uv as PackedVector2Array).size() != v.size() or (uv2 as PackedVector2Array).size() != v.size():
+			return null
+		var pu: PackedVector2Array = uv
+		var pu2: PackedVector2Array = uv2
+		var c := Color(float(s) * 0.5, flags[s] if s < flags.size() else 1.0, dry[s] if s < dry.size() else 0.0, 1.0)
+		var idx = arr[Mesh.ARRAY_INDEX]
+		if idx != null and (idx as PackedInt32Array).size() > 0:
+			for i: int in (idx as PackedInt32Array):
+				vs.append(v[i])
+				uvs.append(pu[i])
+				uv2s.append(pu2[i])
+				cols.append(c)
+		else:
+			vs.append_array(v)
+			uvs.append_array(pu)
+			uv2s.append_array(pu2)
+			for i in v.size():
+				cols.append(c)
+	var out := ArrayMesh.new()
+	var a := []
+	a.resize(Mesh.ARRAY_MAX)
+	a[Mesh.ARRAY_VERTEX] = vs
+	a[Mesh.ARRAY_TEX_UV] = uvs
+	a[Mesh.ARRAY_TEX_UV2] = uv2s
+	a[Mesh.ARRAY_COLOR] = cols
+	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, a)
+	if shared:
+		_m3[key] = out
+	return out
 
 
 func _safe_scale(v: Vector3) -> Vector3:
@@ -1258,7 +1424,7 @@ func _decal(g: Vector3, r: float, c: Color, life: float) -> void:
 
 ## Éclat d'encre face caméra qui jaillit puis se disperse (même langage que la mise à mort).
 func _ink_pop(p: Vector3, s: float) -> void:
-	_bquad(p, s * 1.15, FXB_SPLAT, Color(Toon.SUMI, 0.9), Color(Toon.VERMILION, 0.95), 0.34, randf() * TAU, 0.3, false)
+	_bquad(p, s * 1.15, FXB_SPLAT, Color(Toon.SUMI, 0.9), Color(Toon.VERMILION, 0.95), 0.34, _rng.randf() * TAU, 0.3, false)
 
 
 ## Éclaboussures d'encre au sol, en couronne de rayon r.
@@ -1297,7 +1463,7 @@ func _crest(g: Vector3, dir: Vector3, s: float, life: float, vel := Vector3.ZERO
 
 
 ## Croissant de pinceau qui file vers d en tournoyant (lames de vent, toupie).
-func _brush_crescent(p: Vector3, d: Vector3, s: float, ink: Color, body: Color, core: Color, life: float, spin: float, vel: Vector3) -> void:
+func _brush_crescent(p: Vector3, d: Vector3, s: float, ink: Color, body: Color, core: Color, life: float, spin: float, vel: Vector3) -> Node3D:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = p
@@ -1305,6 +1471,7 @@ func _brush_crescent(p: Vector3, d: Vector3, s: float, ink: Color, body: Color, 
 	var lay := _layers(node, _cres_mesh(), [_bramp(ink, 4), _bramp(body, 5), _sramp("cres" + core.to_html(), core, 6, true)])
 	_anim(node, life, Vector3.ONE * s * 0.55, Vector3.ONE * s * 1.15, {"g": 0.3, "f": 0.4, "lay": lay, "spin": spin,
 		"vel": vel, "pu": 0.15})
+	return node
 
 
 ## Trait de vitesse (fer d'estoc étiré) qui part de p vers d.
@@ -1326,7 +1493,7 @@ func _streak_line(p: Vector3, d: Vector3, ln: float, w: float, ink: Color, body:
 const INK_FX = preload("res://shaders/ink_fx.gdshader")
 const INK_BURST = preload("res://shaders/ink_burst.gdshader")
 const INK_PART = preload("res://shaders/ink_part.gdshader")
-const FX_EXT := 1.6  # demi-côté du quad au sol, en rayons d'effet (EXT de ink_fx.gdshader)
+const FX_EXT := 1.45  # demi-côté du quad au sol, en rayons d'effet (EXT de ink_fx.gdshader)
 const FXQ_ENSO := 0
 const FXQ_SCORCH := 1
 const FXQ_SHADE := 2
@@ -1351,9 +1518,63 @@ func _fxq_mat(shader: Shader, prio: int) -> ShaderMaterial:
 	return m
 
 
+## Plafond des quads peints vivants (ondes, éclats, brûlures) : au-delà, les nouveaux sont simplement omis (en
+## rafale, une onde de plus ne se voit pas ; l'image, elle, coûte). Les taches au sol (minor) cèdent plus tôt.
+const FXQ_MAX := 26
+const FXQ_MAX_LITE := 14
+const QPOOL_MAX := 8  # quads gardés par matière
+var _fxq_live := 0
+var _qpool := {}  # matière -> Array de MeshInstance3D cachés
+
+
+func _fxq_room(minor: bool) -> bool:
+	if _warming:
+		return true
+	var cap := FXQ_MAX_LITE if Toon.lite else FXQ_MAX
+	if minor:
+		cap = int(cap * 0.7)
+	return _fxq_live < cap
+
+
+## Quad peint repris de la réserve de sa matière (caché, rangé en fin de vie), sinon neuf : pas de nœud créé à
+## chaque coup.
+func _qnode(mesh: Mesh, mat: Material) -> MeshInstance3D:
+	var key := mat.get_instance_id()
+	var pool: Array = _qpool.get(key, [])
+	_fxq_live += 1
+	while not pool.is_empty():
+		var pv = pool.pop_back()
+		if is_instance_valid(pv):
+			var q: MeshInstance3D = pv
+			q.mesh = mesh
+			q.rotation = Vector3.ZERO
+			q.visible = true
+			return q
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.set_meta(&"qpool", key)
+	add_child(mi)
+	return mi
+
+
+## Quad peint fini : caché et rangé (vrai), ou à libérer (faux).
+func _qrecycle(node: Node3D) -> bool:
+	var key: int = node.get_meta(&"qpool")
+	if not _qpool.has(key):
+		_qpool[key] = []
+	var pool: Array = _qpool[key]
+	if pool.size() >= QPOOL_MAX or node.get_parent() != self:
+		return false
+	node.visible = false
+	pool.append(node)
+	return true
+
+
 func _next_seed() -> float:
 	_fx_seed += 1
-	return fmod(float(_fx_seed) * 0.6180339 + randf() * 0.25, 1.0)
+	return fmod(float(_fx_seed) * 0.6180339 + _rng.randf() * 0.25, 1.0)
 
 
 ## Effet au sol peint (ink_fx) en `g`, rayon final r, vie life s (après delay s). prio : -2 sous les annonces
@@ -1362,13 +1583,11 @@ func _gquad(g: Vector3, r: float, mode: int, body: Color, edge: Color, core: Col
 	if _ink_quad == null:
 		_ink_quad = PlaneMesh.new()
 		_ink_quad.size = Vector2(2.0, 2.0)
-	var mi := MeshInstance3D.new()
-	mi.mesh = _ink_quad
-	mi.material_override = _fxq_mat(INK_FX, prio)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+	if not _fxq_room(prio <= -4):
+		return null
+	var mi := _qnode(_ink_quad, _fxq_mat(INK_FX, prio))
 	mi.position = g
-	mi.rotation.y = randf() * TAU
+	mi.rotation.y = _rng.randf() * TAU
 	var sz := maxf(r, 0.01) * FX_EXT
 	mi.scale = Vector3(sz, 1.0, sz)
 	var st := Vector4(0.0, life, _next_seed(), float(mode))
@@ -1387,11 +1606,9 @@ func _bquad(p: Vector3, r: float, mode: int, col: Color, col2: Color, life: floa
 	if _bquad_mesh == null:
 		_bquad_mesh = QuadMesh.new()
 		_bquad_mesh.size = Vector2(2.0, 2.0)
-	var mi := MeshInstance3D.new()
-	mi.mesh = _bquad_mesh
-	mi.material_override = _fxq_mat(INK_BURST, 8 if front else -1)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
+	if not _fxq_room(false):
+		return null
+	var mi := _qnode(_bquad_mesh, _fxq_mat(INK_BURST, 8 if front else -1))
 	mi.position = p
 	mi.scale = Vector3.ONE * maxf(r, 0.01)
 	var st := Vector4(0.0, life, _next_seed() * 17.0, float(mode))
@@ -1407,7 +1624,7 @@ func _bquad(p: Vector3, r: float, mode: int, col: Color, col2: Color, life: floa
 ## Sens d'une direction du monde à l'écran (angle, rad ; 0 = vers la droite de l'écran).
 func _screen_ang(d: Vector3) -> float:
 	if main == null or main.cam == null or not is_instance_valid(main.cam) or d.length_squared() < 0.0001:
-		return randf() * TAU
+		return _rng.randf() * TAU
 	var b: Basis = (main.cam as Camera3D).global_transform.basis
 	return atan2(d.dot(b.y), d.dot(b.x))
 
@@ -1442,9 +1659,9 @@ func _part_mat(key: String) -> ShaderMaterial:
 
 
 # ------------------------------------------------------------------ annonces d'attaque
-# Une annonce = un nœud racine (posé par l'appelant) avec : fond vermillon + contour d'encre (un seul maillage,
-# deux surfaces), remplissage qui grandit jusqu'au contour, liseré vermillon qui pulse. Les 0.15 dernières
-# secondes, le remplissage flashe. Tout est partagé (maillages par taille, matériaux uniques), rien par instance.
+# Une annonce = un nœud racine (posé par l'appelant) avec : fond vermillon hachuré + contour d'encre, remplissage
+# qui grandit jusqu'au contour (front plus sombre), liseré vermillon qui pulse. Les 0.15 dernières secondes, tout
+# flashe.
 #   tele_disc(parent, r)                       disque centré
 #   tele_rect(parent, hx, hz, grow)            rectangle centré (demi-tailles) ; grow = côté d'où part le remplissage
 #                                              (Vector2.ZERO : du centre ; (±1, 0) : du bord ±x ; (0, ±1) : du bord ±z)
@@ -1452,150 +1669,67 @@ func _part_mat(key: String) -> ShaderMaterial:
 #   tele_update(zone, k, t_left)               k = avancement 0..1, t_left = temps avant le coup
 #   tele_dot(parent, r) / tele_dot_flash(dot, on)   petite marque de chemin (même langage)
 
-func _tele_init() -> void:
-	if not _tmat.is_empty():
-		return
-	_tmat["base"] = _mat("tele_base", Color(Toon.VERMILION, 0.24), 1)
-	_tmat["fill"] = _mat("tele_fill", Color(0.88, 0.2, 0.13, 0.58), 2)
-	_tmat["flash"] = _mat("tele_flash", Color(1.0, 0.95, 0.86, 0.92), 2)
-	_tmat["rim"] = _mat("tele_rim", Color(0.95, 0.24, 0.15, 0.95), 3)
-	_tmat["ink"] = _mat("tele_ink", Color(Toon.SUMI, 0.9), 4)
-	_tmat["dot"] = _mat("tele_dot", Color(0.92, 0.22, 0.14, 0.9), 2)
+# Une annonce = UN quad à shader (shaders/ink_tele.gdshader) posé sur la boîte de la forme : fond hachuré,
+# remplissage et son front, liseré qui pulse, contour d'encre et flash final en un seul appel de dessin (au lieu de
+# quatre maillages empilés). Matière unique ; forme, avancée et flash en paramètres d'instance.
+
+const INK_TELE = preload("res://shaders/ink_tele.gdshader")
+const TELE_PAD := 0.16  # marge du quad autour de la forme (contour d'encre compris)
+var _tele_m: ShaderMaterial
 
 
-func _circle(r: float, n: int) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	for i in n:
-		var a := TAU * float(i) / float(n)
-		out.append(Vector2(cos(a), sin(a)) * r)
-	return out
+func _tele_mat() -> ShaderMaterial:
+	if _tele_m == null:
+		_tele_m = ShaderMaterial.new()
+		_tele_m.shader = INK_TELE
+		_tele_m.render_priority = 2
+	return _tele_m
 
 
-func _rect_pts(hx: float, hz: float) -> PackedVector2Array:
-	return PackedVector2Array([Vector2(-hx, -hz), Vector2(hx, -hz), Vector2(hx, hz), Vector2(-hx, hz)])
+## Quad d'annonce dans `parent` : forme (sorte, tailles), boîte (demi-tailles, centre) dans le plan de l'annonce.
+func _tele_quad(parent: Node3D, shape: Vector4, half: Vector2, cen: Vector2) -> MeshInstance3D:
+	if _ink_quad == null:
+		_ink_quad = PlaneMesh.new()
+		_ink_quad.size = Vector2(2.0, 2.0)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _ink_quad
+	mi.material_override = _tele_mat()
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = Vector3(cen.x, TELE_Y, cen.y)
+	mi.scale = Vector3(maxf(half.x, 0.01), 1.0, maxf(half.y, 0.01))
+	mi.set_instance_shader_parameter(&"tl_shape", shape)
+	mi.set_instance_shader_parameter(&"tl_box", Vector4(half.x, half.y, cen.x, cen.y))
+	parent.add_child(mi)
+	return mi
 
 
-func _fan_pts(half: float, length: float) -> PackedVector2Array:
-	var out := PackedVector2Array([Vector2.ZERO])
-	var steps := 12
-	for i in steps + 1:
-		var a := lerpf(-half, half, float(i) / float(steps))
-		out.append(Vector2(sin(a), cos(a)) * length)
-	return out
-
-
-func _edge_normal(a: Vector2, b: Vector2, cen: Vector2) -> Vector2:
-	var e := b - a
-	var nrm := Vector2(-e.y, e.x).normalized()
-	if nrm.dot((a + b) * 0.5 - cen) < 0.0:
-		nrm = -nrm
-	return nrm
-
-
-## Bande le long du contour d'un polygone convexe, de d0 à d1 (négatif = dedans).
-func _poly_band(st: SurfaceTool, pts: PackedVector2Array, d0: float, d1: float) -> void:
-	var n := pts.size()
-	var cen := Vector2.ZERO
-	for p in pts:
-		cen += p
-	cen /= float(n)
-	var offs := PackedVector2Array()
-	for i in n:
-		var na := _edge_normal(pts[(i - 1 + n) % n], pts[i], cen)
-		var nb := _edge_normal(pts[i], pts[(i + 1) % n], cen)
-		var m := (na + nb).normalized()
-		offs.append(m / maxf(m.dot(nb), 0.35))
-	for i in n:
-		var j := (i + 1) % n
-		var a0 := pts[i] + offs[i] * d0
-		var a1 := pts[i] + offs[i] * d1
-		var b0 := pts[j] + offs[j] * d0
-		var b1 := pts[j] + offs[j] * d1
-		_quad(st, Vector3(a0.x, 0, a0.y), Vector3(a1.x, 0, a1.y), Vector3(b1.x, 0, b1.y), Vector3(b0.x, 0, b0.y))
-
-
-## Intérieur d'un polygone convexe (éventail depuis le barycentre).
-func _poly_fill(st: SurfaceTool, pts: PackedVector2Array) -> void:
-	var n := pts.size()
-	var cen := Vector2.ZERO
-	for p in pts:
-		cen += p
-	cen /= float(n)
-	var c3 := Vector3(cen.x, 0, cen.y)
-	for i in n:
-		var a := pts[i]
-		var b := pts[(i + 1) % n]
-		st.add_vertex(c3)
-		st.add_vertex(Vector3(a.x, 0, a.y))
-		st.add_vertex(Vector3(b.x, 0, b.y))
-
-
-func _tele_mesh(key: String, pts: PackedVector2Array, part: String) -> ArrayMesh:
-	var ck := part + key
-	if _meshes.has(ck):
-		return _meshes[ck]
-	var mesh := ArrayMesh.new()
-	if part == "frame":
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_poly_fill(st, pts)
-		st.commit(mesh)
-		var st2 := SurfaceTool.new()
-		st2.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_poly_band(st2, pts, -0.02, TELE_INK)
-		st2.commit(mesh)
-		mesh.surface_set_material(0, _tmat["base"])
-		mesh.surface_set_material(1, _tmat["ink"])
-	elif part == "rim":
-		var st3 := SurfaceTool.new()
-		st3.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_poly_band(st3, pts, -0.02 - TELE_RIM, -0.02)
-		st3.commit(mesh)
-		mesh.surface_set_material(0, _tmat["rim"])
-	else:
-		var st4 := SurfaceTool.new()
-		st4.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_poly_fill(st4, pts)
-		st4.commit(mesh)
-	_meshes[ck] = mesh
-	return mesh
-
-
-func _tele_make(parent: Node3D, key: String, pts: PackedVector2Array, fill_mesh: Mesh, fs: Vector3, grow: Vector2) -> Node3D:
-	_tele_init()
+func _tele_make(parent: Node3D, shape: Vector4, half: Vector2, cen: Vector2, grow: Vector2) -> Node3D:
 	var root := Node3D.new()
 	parent.add_child(root)
-	_mi(root, _tele_mesh(key, pts, "frame"), null, TELE_Y)
-	var fill := _mi(root, fill_mesh, _tmat["fill"], TELE_Y + 0.004)
-	var rim := _mi(root, _tele_mesh(key, pts, "rim"), null, TELE_Y + 0.008)
-	root.set_meta("fill", fill)
-	root.set_meta("rim", rim)
-	root.set_meta("fs", fs)
-	root.set_meta("grow", grow)
+	var q := _tele_quad(root, shape, half, cen)
+	q.set_instance_shader_parameter(&"tl_grow", Vector4(grow.x, grow.y, 0.0, 0.0))
+	root.set_meta("tq", q)
 	tele_update(root, 0.0, 99.0)
 	return root
 
 
 func tele_disc(parent: Node3D, r: float) -> Node3D:
-	_tele_init()
-	var unit := _tele_mesh("u", _circle(1.0, 40), "fdisc")
-	return _tele_make(parent, "d%.2f" % r, _circle(r, 40), unit, Vector3(r, 1, r), Vector2.ZERO)
+	var h := r + TELE_PAD
+	return _tele_make(parent, Vector4(0.0, r, r, 0.0), Vector2(h, h), Vector2.ZERO, Vector2.ZERO)
 
 
 func tele_rect(parent: Node3D, hx: float, hz: float, grow := Vector2.ZERO) -> Node3D:
-	_tele_init()
-	var unit := _tele_mesh("u", _rect_pts(1.0, 1.0), "frect")
-	# tailles arrondies à 5 cm : le cache de maillages reste petit même si les longueurs varient
-	var sx := maxf(snappedf(hx, 0.05), 0.05)
-	var sz := maxf(snappedf(hz, 0.05), 0.05)
-	return _tele_make(parent, "r%.2f_%.2f" % [sx, sz], _rect_pts(sx, sz), unit, Vector3(sx, 1, sz), grow)
+	var sx := maxf(hx, 0.05)
+	var sz := maxf(hz, 0.05)
+	return _tele_make(parent, Vector4(1.0, sx, sz, 0.0), Vector2(sx + TELE_PAD, sz + TELE_PAD), Vector2.ZERO, grow)
 
 
 func tele_fan(parent: Node3D, half_angle: float, length: float) -> Node3D:
-	_tele_init()
-	var unit := _tele_mesh("u%.3f" % half_angle, _fan_pts(half_angle, 1.0), "ffan")
-	var sl := maxf(snappedf(length, 0.05), 0.05)
-	return _tele_make(parent, "f%.3f_%.2f" % [half_angle, sl], _fan_pts(half_angle, sl), unit, Vector3(sl, 1, sl), Vector2.ZERO)
+	var sl := maxf(length, 0.05)
+	var sx := sl * (1.0 if half_angle >= PI * 0.5 else sin(half_angle))
+	var z0 := minf(0.0, sl * cos(half_angle))
+	var half := Vector2(sx + TELE_PAD, (sl - z0) * 0.5 + TELE_PAD)
+	return _tele_make(parent, Vector4(2.0, half_angle, sl, 0.0), half, Vector2(0.0, (sl + z0) * 0.5), Vector2.ZERO)
 
 
 ## Avance une annonce : remplissage k (0..1) jusqu'au contour, pulsation, flash final.
@@ -1604,59 +1738,29 @@ func tele_update(zone_v: Variant, k: float, t_left: float) -> void:
 	if zone_v == null or not is_instance_valid(zone_v):
 		return
 	var zone: Node3D = zone_v
-	if not zone.has_meta("fill"):
+	if not zone.has_meta("tq"):
 		return
-	var kk := clampf(k, 0.01, 1.0)
-	var fill: MeshInstance3D = zone.get_meta("fill")
-	var rim: MeshInstance3D = zone.get_meta("rim")
-	var fs: Vector3 = zone.get_meta("fs")
-	var g: Vector2 = zone.get_meta("grow")
-	if g.x != 0.0:
-		fill.scale = Vector3(fs.x * kk, 1, fs.z)
-		fill.position.x = g.x * fs.x * (1.0 - kk)
-	elif g.y != 0.0:
-		fill.scale = Vector3(fs.x, 1, fs.z * kk)
-		fill.position.z = g.y * fs.z * (1.0 - kk)
-	else:
-		fill.scale = Vector3(fs.x * kk, 1, fs.z * kk)
-	var flash := t_left < TELE_FLASH
-	var m: Material = _tmat["flash"] if flash else _tmat["fill"]
-	if fill.material_override != m:
-		fill.material_override = m
-	# pulsation du liseré, plus marquée à l'approche du coup
+	var q: GeometryInstance3D = zone.get_meta("tq")
+	if not is_instance_valid(q):
+		return
+	# pulsation du liseré, plus marquée à l'approche du coup ; flash les 0.15 dernières secondes
 	var w := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.014)
-	rim.scale = Vector3.ONE * (1.0 - (0.01 + 0.035 * kk) * w)
-	rim.visible = not flash
+	q.set_instance_shader_parameter(&"tl_state", Vector4(clampf(k, 0.01, 1.0), 1.0 if t_left < TELE_FLASH else 0.0, w, 0.0))
 
 
+## Petite marque de chemin (même langage) : pastille vermillon cernée d'encre, rayon r ; flash : tele_dot_flash.
 func tele_dot(parent: Node3D, r: float) -> MeshInstance3D:
-	_tele_init()
-	if not _meshes.has("tele_dot"):
-		var mesh := ArrayMesh.new()
-		var pts := _circle(1.0, 16)
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_poly_fill(st, pts)
-		st.commit(mesh)
-		var st2 := SurfaceTool.new()
-		st2.begin(Mesh.PRIMITIVE_TRIANGLES)
-		_poly_band(st2, pts, 0.0, 0.45)
-		st2.commit(mesh)
-		mesh.surface_set_material(0, _tmat["dot"])
-		mesh.surface_set_material(1, _tmat["ink"])
-		_meshes["tele_dot"] = mesh
-	var mi := _mi(parent, _meshes["tele_dot"], null, TELE_Y)
-	mi.scale = Vector3(r, 1, r)
-	return mi
+	var h := r * 1.45 + 0.03
+	return _tele_quad(parent, Vector4(3.0, r, r, 0.0), Vector2(h, h), Vector2.ZERO)
 
 
 func tele_dot_flash(dot: MeshInstance3D, on: bool) -> void:
-	_tele_init()
-	if on:
-		if dot.material_override == null:
-			dot.material_override = _tmat["flash"]
-	elif dot.material_override != null:
-		dot.material_override = null
+	if dot == null or not is_instance_valid(dot):
+		return
+	var on_f := 1.0 if on else 0.0
+	if float(dot.get_meta(&"tl_on", 0.0)) != on_f:
+		dot.set_meta(&"tl_on", on_f)
+		dot.set_instance_shader_parameter(&"tl_state", Vector4(1.0, on_f, 0.0, 0.0))
 
 
 # ------------------------------------------------------------------ foudre (雷) : éclair en zigzag
@@ -1674,7 +1778,7 @@ func bolt(a: Vector3, b: Vector3, sparks_n := 3, hero := false, gold := false) -
 	var core := Toon.WASHI if gold else BOLT_CORE
 	var mi := _bolt_node(a, b, 0.24 if rich else 0.2, 1.0, rich, gold)
 	_pop(b, core, 0.7 if rich else 0.55)
-	_play("zap", randf_range(0.9, 1.15), -5.0)
+	_play("zap", _rng.randf_range(0.9, 1.15), -5.0)
 	if sparks_n > 0:
 		sparks(b, b - a, sparks_n + (1 if rich else 0), body)
 	if not rich:
@@ -1685,11 +1789,11 @@ func bolt(a: Vector3, b: Vector3, sparks_n := 3, hero := false, gold := false) -
 	sparks(b, Vector3.UP, 2, core, 4.0, 8.0, 80.0)
 	# fourche : une branche fine part du milieu
 	if not Toon.lite and l > 1.0:
-		var m := a.lerp(b, randf_range(0.35, 0.6))
+		var m := a.lerp(b, _rng.randf_range(0.35, 0.6))
 		var side := (b - a).cross(Vector3.UP).normalized()
 		if side.length_squared() < 0.01:
 			side = Vector3.RIGHT
-		var tip := m + (b - a) * 0.22 + side * randf_range(-1.0, 1.0) * l * 0.28 + Vector3(0, randf_range(-0.25, 0.25), 0)
+		var tip := m + (b - a) * 0.22 + side * _rng.randf_range(-1.0, 1.0) * l * 0.28 + Vector3(0, _rng.randf_range(-0.25, 0.25), 0)
 		_bolt_node(m, tip, 0.16, 0.55, false, gold)
 	# rémanence : le même tracé, additif, qui s'estompe juste après l'éclair
 	var ghost := MeshInstance3D.new()
@@ -1706,13 +1810,11 @@ func bolt(a: Vector3, b: Vector3, sparks_n := 3, hero := false, gold := false) -
 func _bolt_node(a: Vector3, b: Vector3, life: float, thin: float, punch: bool, gold := false) -> MeshInstance3D:
 	var l := a.distance_to(b)
 	var bucket := maxi(1, int(round(l / 0.5)))
-	var v := randi() % 3
-	var mi := MeshInstance3D.new()
-	mi.mesh = _bolt_mesh(bucket, v)
+	var v := _rng.randi() % 3
+	# un seul appel de dessin (fx_brush3) : contour d'encre au pinceau sec, corps jaune (ou or), cœur net
+	var mi := _b3_node(self, _bolt_mesh(bucket, v), Color(Toon.SUMI, 0.72), BOLT, BOLT_CORE, 5)
 	if gold:
 		_bolt_gold(mi)
-	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(mi)
 	var xf := _seg_xform(a, b)
 	if thin != 1.0:
 		xf.basis = Basis(xf.basis.x * thin, xf.basis.y * thin, xf.basis.z)
@@ -1728,7 +1830,7 @@ func _bolt_node(a: Vector3, b: Vector3, life: float, thin: float, punch: bool, g
 ## cernée d'encre, gerbe d'étincelles et brûlure étoilée.
 func sky_bolt(p: Vector3, big := false, gold := false) -> void:
 	var g := Vector3(p.x, 0.05, p.z)
-	var top := g + Vector3(randf_range(-0.6, 0.6), 7.0, randf_range(-0.6, 0.6))
+	var top := g + Vector3(_rng.randf_range(-0.6, 0.6), 7.0, _rng.randf_range(-0.6, 0.6))
 	var body := GOLD if gold else BOLT
 	var core := Toon.WASHI if gold else BOLT_CORE
 	var rich := _rich(3.0)
@@ -1741,8 +1843,8 @@ func sky_bolt(p: Vector3, big := false, gold := false) -> void:
 		_bolt_node(top, g, 0.26, 1.35 if big else 1.15, true, gold)
 		_pop(g + Vector3(0, 0.3, 0), core, 0.9 if big else 0.7)
 		if not Toon.lite:
-			var mid := top.lerp(g, randf_range(0.3, 0.5))
-			_bolt_node(mid, g + Vector3(randf_range(-1.2, 1.2), 0.3, randf_range(-1.2, 1.2)), 0.18, 0.6, false, gold)
+			var mid := top.lerp(g, _rng.randf_range(0.3, 0.5))
+			_bolt_node(mid, g + Vector3(_rng.randf_range(-1.2, 1.2), 0.3, _rng.randf_range(-1.2, 1.2)), 0.18, 0.6, false, gold)
 		_flare(g + Vector3(0, 0.35, 0), body, 1.3 if big else 0.95, 0.18)
 		_shock(Vector3(p.x, 0.07, p.z), 1.25 if big else 0.9, Color(INK, 0.8), body, core, true, 0.38)
 		sparks(g + Vector3(0, 0.2, 0), Vector3.UP, 7 if big else 5, body, 5.0, 11.0, 70.0)
@@ -1750,19 +1852,23 @@ func sky_bolt(p: Vector3, big := false, gold := false) -> void:
 		_decal(g, 0.45 if big else 0.32, Color(0.12, 0.09, 0.05, 0.5), 1.0)
 		if big:
 			_shake(0.14)
-	_play("thunder", randf_range(0.85, 0.95) if big else randf_range(1.0, 1.15), -3.0 if big else -7.0)
-
-
-## Éclair au pinceau sec (fx_brush) : contour d'encre aux poils secs, corps jaune un peu cassé, cœur blanc net.
-func _bolt_mats() -> Array:
-	return [_bramp(Color(Toon.SUMI, 0.72), 5)[2], _bramp(BOLT, 6)[1], _mat("bolt_core", BOLT_CORE, 7)]
+	_play("thunder", _rng.randf_range(0.85, 0.95) if big else _rng.randf_range(1.0, 1.15), -3.0 if big else -7.0)
 
 
 ## Maillage d'éclair (longueur bucket × 0.5 m, variante v), tracé de 0 à -1 en z (mis à l'échelle par _seg_xform).
+## Une surface (fx_brush3) : contour d'encre au pinceau sec (séché d'avance), corps au pinceau un peu cassé,
+## cœur en aplat net.
 func _bolt_mesh(bucket: int, v: int) -> ArrayMesh:
 	var key := "bolt%d_%d" % [bucket, v]
 	if _meshes.has(key):
 		return _meshes[key]
+	var m3 := _merge3(_bolt_mesh3(bucket, v), PackedFloat32Array([1.0, 1.0, 0.0]), PackedFloat32Array([0.25, 0.125, 0.0]))
+	_meshes[key] = m3
+	return m3
+
+
+## Les trois surfaces de l'éclair, avant fusion.
+func _bolt_mesh3(bucket: int, v: int) -> ArrayMesh:
 	var length := float(bucket) * 0.5
 	var n := clampi(bucket * 2, 3, 12)
 	var jit := clampf(length * 0.12, 0.08, 0.3)
@@ -1771,10 +1877,9 @@ func _bolt_mesh(bucket: int, v: int) -> ArrayMesh:
 		var u := float(i) / float(n)
 		var j := 0.0 if (i == 0 or i == n) else 1.0
 		var side := 1.0 if i % 2 == 0 else -1.0  # alterne : vrai zigzag
-		path.append(Vector3(side * randf_range(0.4, 1.0) * jit * j, randf_range(-0.5, 0.5) * jit * j, -u * length))
+		path.append(Vector3(side * _rng.randf_range(0.4, 1.0) * jit * j, _rng.randf_range(-0.5, 0.5) * jit * j, -u * length))
 	var mesh := ArrayMesh.new()
 	var widths := [0.11, 0.065, 0.025]
-	var mats := _bolt_mats()
 	for s in 3:
 		var st := SurfaceTool.new()
 		st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -1795,8 +1900,6 @@ func _bolt_mesh(bucket: int, v: int) -> ArrayMesh:
 			_uquad(st, a3 - ox, a3 + ox, b3 + ox, b3 - ox, u0, u1, length)
 			_uquad(st, a3 - oy, a3 + oy, b3 + oy, b3 - oy, u0, u1, length)
 		st.commit(mesh)
-		mesh.surface_set_material(s, mats[s])
-	_meshes[key] = mesh
 	return mesh
 
 
@@ -1866,9 +1969,10 @@ func flame_mat(c: Color) -> StandardMaterial3D:
 
 
 ## Émetteur de flammes : disque de rayon r au sol (ou points `pts`). emit > 0 : émission continue pendant emit s.
-func _flame_emitter(pos: Vector3, r: float, amount: int, emit: float) -> CPUParticles3D:
+func _flame_emitter(pos: Vector3, r: float, amount: int, emit: float, reuse: CPUParticles3D = null) -> CPUParticles3D:
 	_flame_res()
-	var p := CPUParticles3D.new()
+	var p := reuse if reuse != null else CPUParticles3D.new()
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# langue peinte (shaders/ink_part.gdshader) : contour de braise, corps vermillon, cœur or, pointe qui fume
 	p.mesh = _flame_quad()
 	p.material_override = _part_mat("flame")
@@ -1910,9 +2014,13 @@ func _flame_quad() -> QuadMesh:
 
 ## Gerbe de flammes (brève) : langues qui montent et vacillent.
 func flames(pos: Vector3, r: float, amount := 8) -> void:
-	var p := _flame_emitter(pos, r, amount, 0.0)
-	add_child(p)
-	p.emitting = true
+	# émetteur repris de la réserve (tous les réglages reposés par _flame_emitter)
+	var pv := _pooled("flame_b")
+	var fresh := pv == null
+	var p := _flame_emitter(pos, r, amount, 0.0, pv)
+	if fresh:
+		p.set_meta("pool", "flame_b")
+	_emit(p, fresh)
 	_fx.append({"node": p, "t": 0.0, "life": 0.8, "kind": "none"})
 
 
@@ -1939,7 +2047,11 @@ func _ember_mesh() -> Mesh:
 
 ## Braises : petits points chauds qui montent (life : durée de vie d'une braise).
 func embers(pos: Vector3, r: float, amount := 5, life := 0.8) -> void:
-	var p := CPUParticles3D.new()
+	var p := _pooled("ember_b")
+	var fresh := p == null
+	if fresh:
+		p = CPUParticles3D.new()
+		p.set_meta("pool", "ember_b")
 	p.mesh = _ember_mesh()
 	p.amount = amount
 	p.lifetime = life
@@ -1957,8 +2069,7 @@ func embers(pos: Vector3, r: float, amount := 5, life := 0.8) -> void:
 	p.scale_amount_min = 0.6
 	p.scale_amount_max = 1.2
 	p.position = pos + Vector3(0, 0.3, 0)
-	add_child(p)
-	p.emitting = true
+	_emit(p, fresh)
 	_fx.append({"node": p, "t": 0.0, "life": life + 0.2, "kind": "none"})
 
 
@@ -1972,7 +2083,7 @@ func scorch(pos: Vector3, r: float, life := 1.2) -> void:
 ## onde de chaleur au pinceau cernée de braise sombre, braises qui s'attardent, brûlure étoilée.
 func fire_burst(pos: Vector3, r: float, hero := false) -> void:
 	flames(pos, r * 0.85, clampi(int(6.0 + r * 4.0), 6, 16))
-	_play("fire", randf_range(0.9, 1.1), -4.0)
+	_play("fire", _rng.randf_range(0.9, 1.1), -4.0)
 	if not hero or not _rich(4.0):
 		ring(Vector3(pos.x, 0.07, pos.z), FIRE, r)
 		embers(pos, r * 0.5, 5)
@@ -1997,7 +2108,11 @@ func _flame_crown(g: Vector3, r: float) -> void:
 	var n := clampi(int(r * 5.0), 6, 12)
 	if Toon.lite:
 		n = maxi(4, int(n * 0.5))
-	var p := _flame_emitter(g, r * 0.8, n + 2, 0.0)
+	var pv := _pooled("flame_c")
+	var fresh := pv == null
+	var p := _flame_emitter(g, r * 0.8, n + 2, 0.0, pv)
+	if fresh:
+		p.set_meta("pool", "flame_c")
 	p.position = Vector3(g.x, 0.05, g.z)
 	p.emission_ring_inner_radius = r * 0.55
 	p.explosiveness = 1.0
@@ -2009,8 +2124,7 @@ func _flame_crown(g: Vector3, r: float) -> void:
 	p.scale_amount_min = 1.7
 	p.scale_amount_max = 2.6
 	p.scale_amount_curve = _crown_curve()
-	add_child(p)
-	p.emitting = true
+	_emit(p, fresh)
 	_fx.append({"node": p, "t": 0.0, "life": 0.75, "kind": "none"})
 
 
@@ -2049,7 +2163,7 @@ func fire_trail(points: PackedVector3Array, dur: float) -> void:
 	p.emitting = true
 	_fx.append({"node": p, "t": 0.0, "life": dur + 0.6, "kind": "emit", "stop": dur, "game": true})
 	if main:
-		_play("crackle", randf_range(0.9, 1.1), -6.0)
+		_play("crackle", _rng.randf_range(0.9, 1.1), -6.0)
 	# suie : ruban au sol, propre à ce trait (il s'efface d'un bloc)
 	# + fil de braise incandescent au milieu, qui refroidit vite (additif, propre au trait aussi)
 	var st := SurfaceTool.new()
@@ -2112,38 +2226,30 @@ func fire_trail(points: PackedVector3Array, dur: float) -> void:
 func wave_arc(pos: Vector3, dir: Vector3, s := 1.0, hero := false) -> void:
 	if hero and _rich(1.0):
 		_crest(Vector3(pos.x, 0.0, pos.z), dir, s * 0.75, 0.42)
-	if _arc_mesh == null:
-		_arc_mesh = _make_arc_mesh()
-	var node := Node3D.new()
-	add_child(node)
-	node.position = Vector3(pos.x, 0.25, pos.z)
 	var d := Vector3(dir.x, 0, dir.z)
 	if d.length_squared() < 0.001:
 		d = Vector3.FORWARD
-	node.rotation.y = atan2(-d.x, -d.z)
-	_mi(node, _arc_mesh, glow_mat(WATER, 2.2))
-	var foam := _mi(node, _arc_mesh, glow_mat(WATER_FOAM, 2.0))
-	foam.scale = Vector3(0.8, 1, 0.8)
-	foam.position.y = 0.02
-	_fx.append({"node": node, "t": 0.0, "life": 0.3, "kind": "arc", "s": s})
+	d = d.normalized()
+	# croissant d'eau au pinceau : bleu de Prusse cerné, crête d'écume (un appel de dessin), qui file vers d
+	_brush_crescent(Vector3(pos.x, 0.25, pos.z), d, s * 1.15, Color(WATER_DEEP, 0.9), WATER, WATER_FOAM, 0.32, 0.0, d * 1.4)
 	if main:
-		_play("splash", randf_range(1.2, 1.4), -10.0)
+		_play("splash", _rng.randf_range(1.2, 1.4), -10.0)
 
 
 ## Éclat d'eau : anneau bleu, anneau d'écume, croissants de vague, gouttes.
 ## hero (Marée, écume, tourbillon) : éclat d'écume, crêtes de vague à la Hokusai qui se dressent tout autour,
 ## courent vers l'extérieur et s'abattent ; ondes au pinceau en cascade ; gerbes de gouttes.
 func water_burst(pos: Vector3, r: float, hero := false) -> void:
-	_play("splash", randf_range(0.9, 1.1), -4.0)
+	_play("splash", _rng.randf_range(0.9, 1.1), -4.0)
 	if hero and _rich(5.0):
 		var g := Vector3(pos.x, 0.0, pos.z)
 		_flare(g + Vector3(0, 0.4, 0), WATER_FOAM, clampf(r * 0.55, 0.6, 1.4), 0.14)
 		var n := 3 if Toon.lite else 5
-		var wa0 := randf() * TAU
+		var wa0 := _rng.randf() * TAU
 		for i in n:
-			var wa := wa0 + TAU * float(i) / float(n) + randf_range(-0.25, 0.25)
+			var wa := wa0 + TAU * float(i) / float(n) + _rng.randf_range(-0.25, 0.25)
 			var wd := Vector3(cos(wa), 0, sin(wa))
-			_crest(g + wd * r * 0.3, wd, clampf(r * 0.5, 0.55, 1.2) * randf_range(0.85, 1.1), 0.55, wd * r * 1.5)
+			_crest(g + wd * r * 0.3, wd, clampf(r * 0.5, 0.55, 1.2) * _rng.randf_range(0.85, 1.1), 0.55, wd * r * 1.5)
 		_shock(Vector3(pos.x, 0.07, pos.z), r * 1.05, Color(WATER_DEEP, 0.85), WATER, WATER_FOAM, true, 0.5)
 		if not Toon.lite:
 			_shock(Vector3(pos.x, 0.08, pos.z), r * 0.7, Color(WATER_DEEP, 0.7), WATER, WATER_FOAM, true, 0.45, 0.1)
@@ -2155,7 +2261,7 @@ func water_burst(pos: Vector3, r: float, hero := false) -> void:
 		return
 	# onde d'eau peinte : bleu de Prusse qui s'éclaircit vers l'écume, griffes d'écume à la Hokusai, embruns
 	_gquad(Vector3(pos.x, 0.07, pos.z), r * 1.3, FXQ_WATER, Color(WATER, 0.9), Color(WATER_DEEP, 0.92), Color(WATER_FOAM, 0.95), 0.5)
-	var a0 := randf() * TAU
+	var a0 := _rng.randf() * TAU
 	for i in 2:
 		var a := a0 + PI * float(i)
 		var d := Vector3(cos(a), 0, sin(a))
@@ -2183,21 +2289,13 @@ func wind_slash(pos: Vector3, dir: Vector3, s := 0.9, hero := false) -> void:
 		if not Toon.lite:
 			_streak_line(p - d * 0.9 - side * 0.28, d, 1.3 * s, 0.45, Color(WIND_DEEP, 0.5), WIND_PALE, WIND_PALE, 0.22, 0.04)
 		sparks(p, d, 2, WIND_PALE, 5.0, 9.0, 25.0)
-		_play("swish", randf_range(0.9, 1.15), -6.0)
+		_play("swish", _rng.randf_range(0.9, 1.15), -6.0)
 		return
-	if _arc_mesh == null:
-		_arc_mesh = _make_arc_mesh()
-	var node := Node3D.new()
-	add_child(node)
-	node.position = pos + Vector3(0, 0.7, 0)
-	node.rotation.y = atan2(-d.x, -d.z)
-	node.rotation.z = randf_range(-0.3, 0.3)
-	_mi(node, _arc_mesh, glow_mat(WIND, 2.4))
-	var core := _mi(node, _arc_mesh, glow_mat(WIND_PALE, 2.0))
-	core.scale = Vector3(0.88, 1, 0.88)
-	_fx.append({"node": node, "t": 0.0, "life": 0.22, "kind": "spinarc", "s": s})
+	# croissant jade au pinceau qui tourne à plat (un appel de dessin)
+	var node := _brush_crescent(pos + Vector3(0, 0.7, 0), d, s * 1.1, Color(WIND_DEEP, 0.85), WIND, WIND_PALE, 0.22, 9.0, d * 1.5)
+	node.rotation.z = _rng.randf_range(-0.3, 0.3)
 	if main:
-		_play("swish", randf_range(0.9, 1.15), -6.0)
+		_play("swish", _rng.randf_range(0.9, 1.15), -6.0)
 
 
 func _swirl_mesh() -> Mesh:
@@ -2230,14 +2328,51 @@ func swirl(pos: Vector3, r: float) -> void:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = Vector3(pos.x, 0.35, pos.z)
-	_mi(node, _swirl_mesh(), glow_mat(WIND, 2.2))
-	var inner := _mi(node, _swirl_mesh(), glow_mat(WIND_PALE, 2.0))
-	inner.scale = Vector3(0.6, 1, 0.6)
-	inner.rotation.y = PI / 2.0
-	inner.position.y = 0.15
+	var sm := _swirl2_mesh()
+	_mi(node, sm, _mats["swirl_v"])
 	_fx.append({"node": node, "t": 0.0, "life": 0.45, "kind": "swirl", "r": r})
 	if main:
-		_play("gust", randf_range(0.9, 1.1), -5.0)
+		_play("gust", _rng.randf_range(0.9, 1.1), -5.0)
+
+
+## Tourbillon en une surface (couleurs de sommets) : spirale jade cernée de vert profond, spirale pâle intérieure
+## tournée d'un quart et un peu plus haute.
+func _swirl2_mesh() -> Mesh:
+	if _meshes.has("swirl2"):
+		return _meshes["swirl2"]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := 16
+	# [couleur, échelle, rotation, hauteur, élargissement]
+	var lays := [[Color(WIND_DEEP, 0.85), 1.0, 0.0, 0.0, 0.035], [Color(WIND, 0.95), 1.0, 0.0, 0.004, 0.0],
+		[Color(WIND_PALE, 0.95), 0.6, PI / 2.0, 0.15, 0.0]]
+	for ly: Array in lays:
+		st.set_color(ly[0])
+		var sc: float = ly[1]
+		var rot: float = ly[2]
+		var y: float = ly[3]
+		var grow: float = ly[4]
+		for arm in 2:
+			var a0 := PI * float(arm) + rot
+			for i in n:
+				var u0 := float(i) / float(n)
+				var u1 := float(i + 1) / float(n)
+				var r0 := lerpf(0.2, 1.0, u0) * sc
+				var r1 := lerpf(0.2, 1.0, u1) * sc
+				var g0 := a0 + u0 * 4.2
+				var g1 := a0 + u1 * 4.2
+				var w0 := (0.09 * sin(PI * u0) + 0.01 + grow) * sc
+				var w1 := (0.09 * sin(PI * u1) + 0.01 + grow) * sc
+				var d0 := Vector3(cos(g0), 0, sin(g0))
+				var d1 := Vector3(cos(g1), 0, sin(g1))
+				var lift := Vector3(0, y, 0)
+				_quad(st, d0 * (r0 - w0) + lift, d0 * (r0 + w0) + lift, d1 * (r1 + w1) + lift, d1 * (r1 - w1) + lift)
+	var m := st.commit()
+	if not _mats.has("swirl_v"):
+		var mt := _mat("swirl_v", Color.WHITE, 3, true)
+		mt.vertex_color_is_srgb = true
+	_meshes["swirl2"] = m
+	return m
 
 
 ## Spirale persistante (zones des pouvoirs) : l'appelant la fait tourner et la libère.
@@ -2254,7 +2389,7 @@ func toupie(pos: Vector3, r: float) -> void:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = Vector3(pos.x, 0.55, pos.z)
-	node.rotation.y = randf() * TAU
+	node.rotation.y = _rng.randf() * TAU
 	var rs := [_bramp(Color(INK, 0.9), 4), _bramp(BLADE, 5), _sramp("toupie_core", Color(1, 1, 1, 0.9), 6, true)]
 	var n := 2 if Toon.lite else 3
 	var lay := []
@@ -2284,7 +2419,7 @@ func wind_burst(pos: Vector3, r: float) -> void:
 	if not Toon.lite:
 		_shock(g + Vector3(0, 0.01, 0), r * 0.62, Color(WIND_DEEP, 0.7), WIND, WIND_PALE, true, 0.38, 0.08)
 	var n := 3 if Toon.lite else 5
-	var a0 := randf() * TAU
+	var a0 := _rng.randf() * TAU
 	for i in n:
 		var a := a0 + TAU * float(i) / float(n)
 		var d := Vector3(cos(a), 0, sin(a))
@@ -2311,7 +2446,11 @@ func _smoke_res() -> void:
 ## Bouffées de fumée violette et noire.
 func smoke(pos: Vector3, r: float, amount := 6) -> void:
 	_smoke_res()
-	var p := CPUParticles3D.new()
+	var p := _pooled("smoke_b")
+	var fresh := p == null
+	if fresh:
+		p = CPUParticles3D.new()
+		p.set_meta("pool", "smoke_b")
 	# bouffées de lavis (shaders/ink_part.gdshader) : tache diluée au bord mouillé, qui s'étale et pâlit
 	p.mesh = _part_quad()
 	p.material_override = _part_mat("lavis")
@@ -2337,8 +2476,7 @@ func smoke(pos: Vector3, r: float, amount := 6) -> void:
 	p.scale_amount_curve = _smoke_curve
 	p.color_ramp = _smoke_ramp
 	p.position = pos + Vector3(0, 0.5, 0)
-	add_child(p)
-	p.emitting = true
+	_emit(p, fresh)
 	_fx.append({"node": p, "t": 0.0, "life": 0.8, "kind": "none"})
 
 
@@ -2368,21 +2506,14 @@ func shadow_stab(a: Vector3, b: Vector3, hero := false) -> void:
 			_ghost(a)
 		smoke(a, 0.25, 3)
 		smoke(b, 0.3, 5)
-		_play("stab", randf_range(0.9, 1.1), -4.0)
+		_play("stab", _rng.randf_range(0.9, 1.1), -4.0)
 		return
-	var node := Node3D.new()
-	add_child(node)
-	node.transform = _seg_xform(pa, pb)
-	var edge := _mi(node, _unit_box(), _mat("stab_edge", Color(SHADOW, 0.9), 5))
-	edge.scale = Vector3(0.14, 0.14, 1.0)
-	edge.position.z = -0.5
-	var core := _mi(node, _unit_box(), _mat("stab_core", SHADOW_DARK, 6))
-	core.scale = Vector3(0.06, 0.06, 1.02)
-	core.position.z = -0.5
-	_fx.append({"node": node, "t": 0.0, "life": 0.2, "kind": "stab"})
+	if l > 0.05:
+		# fer de pinceau sombre liseré de violet (un appel de dessin)
+		_streak_line(pa, d / l, l + 0.3, 0.75, Color(INK, 0.95), SHADOW_DARK, SHADOW, 0.22)
 	smoke(b, 0.3, 5)
 	if main:
-		_play("stab", randf_range(0.9, 1.1), -4.0)
+		_play("stab", _rng.randf_range(0.9, 1.1), -4.0)
 
 
 ## Éclat d'ombre (instant volé, voile) : tache d'ombre au sol, onde violette au pinceau, fumée, éclat.
@@ -2407,7 +2538,7 @@ func shadow_burst(pos: Vector3, r: float) -> void:
 func ink_wave(pos: Vector3, r: float, hero := false) -> void:
 	if main:
 		main.splash(pos, INK, 10)
-	_play("ink", randf_range(0.9, 1.1), -4.0)
+	_play("ink", _rng.randf_range(0.9, 1.1), -4.0)
 	if not hero or not _rich(5.0):
 		ring(Vector3(pos.x, 0.09, pos.z), INK, r)
 		ring(Vector3(pos.x, 0.07, pos.z), Toon.WASHI, r * 1.08)
@@ -2429,17 +2560,21 @@ func ink_wave(pos: Vector3, r: float, hero := false) -> void:
 func _blade_mesh() -> ArrayMesh:
 	if _meshes.has("blade"):
 		return _meshes["blade"]
-	var mesh := ArrayMesh.new()
+	# une surface, deux losanges effilés de z = 0.5 à -0.5 (contour d'encre puis lame blanche, couleurs de sommets) :
+	# un appel de dessin au lieu de deux
 	var widths := [0.17, 0.09]
-	var mats := [_mat("iai_ink", Color(Toon.SUMI, 0.85), 5), _mat("iai_white", Color(1, 1, 1, 1), 6)]
+	var cols := [Color(Toon.SUMI, 0.85), Color(1, 1, 1, 1)]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for s in 2:
 		var w: float = widths[s]
-		var st := SurfaceTool.new()
-		st.begin(Mesh.PRIMITIVE_TRIANGLES)
-		# losange effilé de z = 0.5 à -0.5
-		_quad(st, Vector3(0, 0, 0.5), Vector3(w, 0, 0.1), Vector3(0, 0, -0.5), Vector3(-w, 0, 0.1))
-		st.commit(mesh)
-		mesh.surface_set_material(s, mats[s])
+		st.set_color(cols[s])
+		_quad(st, Vector3(0, 0.002 * float(s), 0.5), Vector3(w, 0.002 * float(s), 0.1), Vector3(0, 0.002 * float(s), -0.5), Vector3(-w, 0.002 * float(s), 0.1))
+	var mesh := st.commit()
+	if not _mats.has("iai_v"):
+		var m := _mat("iai_v", Color.WHITE, 5, true)
+		m.vertex_color_is_srgb = true
+	mesh.surface_set_material(0, _mats["iai_v"])
 	_meshes["blade"] = mesh
 	return mesh
 
@@ -2457,7 +2592,7 @@ func slash_line(a: Vector3, b: Vector3, hero := false) -> void:
 	var l := d.length() + 1.0
 	if main:
 		main.splash(b, INK, 6)
-	_play("iai", randf_range(0.95, 1.05), -3.0)
+	_play("iai", _rng.randf_range(0.95, 1.05), -3.0)
 	if hero and _rich(4.0):
 		var pre := Node3D.new()
 		add_child(pre)
@@ -2505,7 +2640,7 @@ func guard(pos: Vector3, r: float) -> void:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = g
-	node.rotation.y = randf() * TAU
+	node.rotation.y = _rng.randf() * TAU
 	var lay := _layers(node, _ring_mesh(), [_bramp(Color(INK, 0.85), 4), _bramp(fc, 5),
 		_sramp("guard_core", Color(0.85, 0.93, 1.0, 0.9), 6, true)])
 	_anim(node, 0.45, Vector3.ONE * r * 1.25, Vector3.ONE * r * 0.75, {"g": 0.45, "f": 0.5, "lay": lay, "spin": 4.0})
@@ -2577,7 +2712,7 @@ func blot(g: Vector3, r: float, life: float, delay := 0.0, sc := Vector3.ONE, di
 		# trace de pas : étirée dans le sens de la marche (+x local = dir)
 		mi.scale = _safe_scale(Vector3(mi.scale.x * sc.z, 1.0, mi.scale.z * sc.x))
 	if delay <= 0.0 and not _warming:
-		_play("ink", randf_range(1.1, 1.3), -12.0)
+		_play("ink", _rng.randf_range(1.1, 1.3), -12.0)
 
 
 ## Trace de pas d'encre d'un ennemi englué : petite tache étirée dans le sens de la marche, décalée à gauche
@@ -2613,8 +2748,7 @@ func static_charge(target: Node3D, level: int, life := 2.2) -> void:
 		n = maxi(2, n - 1)
 	var arcs := []
 	for i in n:
-		var mi := _mi(node, _bolt_mesh(1, i % 3), null)
-		_bolt_gold(mi)
+		var mi := _b3_node(node, _bolt_mesh(1, i % 3), Color(Toon.SUMI, 0.72), GOLD, Toon.WASHI, 5)
 		mi.scale = Vector3(1.1, 1.1, 1.0 + 0.25 * float(i % 3))
 		arcs.append(mi)
 	# anneau d'or au sol, plus large et plus franc à chaque palier
@@ -2653,11 +2787,10 @@ func static_charge(target: Node3D, level: int, life := 2.2) -> void:
 	_play("zap", 0.7 + 0.18 * float(level), -11.0 + float(level))
 
 
-## Teinte un éclair en or / écume (surfaces 0 encre, 1 corps, 2 cœur).
+## Teinte un éclair en or / écume (couches de fx_brush3 : corps or, cœur washi).
 func _bolt_gold(mi: MeshInstance3D) -> void:
-	mi.set_surface_override_material(0, _bramp(Color(Toon.SUMI, 0.72), 5)[2])
-	mi.set_surface_override_material(1, _bramp(GOLD, 6)[1])
-	mi.set_surface_override_material(2, _mat("gbolt_core", Toon.WASHI, 7))
+	mi.set_instance_shader_parameter(&"bf_c1", GOLD)
+	mi.set_instance_shader_parameter(&"bf_c2", Toon.WASHI)
 
 
 ## Repose les arcs de l'aura au hasard autour du corps (tangents à un cylindre de rayon 0,38).
@@ -2665,12 +2798,12 @@ func _crackle_place(fx: Dictionary) -> void:
 	var arcs: Array = fx["arcs"]
 	for a in arcs:
 		var mi: MeshInstance3D = a
-		var ang := randf() * TAU
-		var h := randf_range(-0.5, 0.6)
+		var ang := _rng.randf() * TAU
+		var h := _rng.randf_range(-0.5, 0.6)
 		mi.position = Vector3(cos(ang) * 0.48, h, sin(ang) * 0.48)
-		mi.rotation = Vector3(randf_range(-0.6, 0.6), ang + PI / 2.0 + randf_range(-0.5, 0.5), 0.0)
-		mi.visible = randf() < 0.8
-		mi.mesh = _bolt_mesh(1, randi() % 3)
+		mi.rotation = Vector3(_rng.randf_range(-0.6, 0.6), ang + PI / 2.0 + _rng.randf_range(-0.5, 0.5), 0.0)
+		mi.visible = _rng.randf() < 0.8
+		mi.mesh = _bolt_mesh(1, _rng.randi() % 3)
 
 
 func _crackle_step(fx: Dictionary, node: Node3D, k: float, dt: float) -> void:
@@ -2692,13 +2825,13 @@ func _crackle_step(fx: Dictionary, node: Node3D, k: float, dt: float) -> void:
 			if em != null and is_instance_valid(em):
 				(em as CPUParticles3D).emitting = false
 	if float(fx["tick"]) <= 0.0:
-		fx["tick"] = 0.06 + 0.02 * randf()
+		fx["tick"] = 0.06 + 0.02 * _rng.randf()
 		_crackle_place(fx)
 		# en fin de vie, de moins en moins d'arcs allumés
 		if k > 0.75:
 			var arcs: Array = fx["arcs"]
 			for a in arcs:
-				if randf() < (k - 0.75) * 4.0:
+				if _rng.randf() < (k - 0.75) * 4.0:
 					(a as MeshInstance3D).visible = false
 
 
@@ -2775,7 +2908,7 @@ func static_nova(pos: Vector3, r: float) -> void:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = Vector3(pos.x, 0.55, pos.z)
-	node.rotation.y = randf() * TAU
+	node.rotation.y = _rng.randf() * TAU
 	var lay := _layers(node, _nova_mesh(), [_bramp(Color(Toon.SUMI, 0.7), 4), _bramp(GOLD, 5),
 		_sramp("nova_core", Color(Toon.WASHI, 0.95), 6, true)])
 	_anim(node, 0.6, Vector3.ONE * r * 0.2, Vector3.ONE * r, {"g": 0.5, "f": 0.45, "lay": lay, "spin": 1.6})
@@ -2784,7 +2917,7 @@ func static_nova(pos: Vector3, r: float) -> void:
 		var node2 := Node3D.new()
 		add_child(node2)
 		node2.position = Vector3(pos.x, 0.9, pos.z)
-		node2.rotation.y = randf() * TAU
+		node2.rotation.y = _rng.randf() * TAU
 		var lay2 := _layers(node2, _nova_mesh(), [_bramp(Color(Toon.SUMI, 0.5), 4), _bramp(Color(GOLD, 0.8), 5),
 			_sramp("nova_core", Color(Toon.WASHI, 0.95), 6, true)])
 		_anim(node2, 0.42, Vector3.ONE * r * 0.15, Vector3.ONE * r * 0.7, {"g": 0.6, "f": 0.4, "lay": lay2, "spin": -2.2, "t": -0.04})
@@ -2842,14 +2975,14 @@ func ash_pile(node: Node3D, r: float, dur: float) -> void:
 	heap.set_surface_override_material(0, _mat("ash_dark", ASH_DARK, -2))
 	heap.set_surface_override_material(1, _mat("ash_pale", ASH_PALE, -1))
 	heap.scale = Vector3(r * 0.85, 1.0, r * 0.7)
-	heap.rotation.y = randf() * TAU
+	heap.rotation.y = _rng.randf() * TAU
 	_anim(heap, 0.5, Vector3(r * 0.35, 1.6, r * 0.3), Vector3(r * 0.85, 1.0, r * 0.7), {"g": 0.7, "keep": true})
 	_decal(node.position, r * 0.9, Color(0.16, 0.12, 0.12, 0.45), minf(dur, 1.3))
 	var embers := []
 	var em := _mat("ember_disc", Color(Toon.VERMILION, 0.95), 0)
 	for i in 4:
-		var a := TAU * float(i) / 4.0 + randf_range(-0.4, 0.4)
-		var d := r * randf_range(0.15, 0.45)
+		var a := TAU * float(i) / 4.0 + _rng.randf_range(-0.4, 0.4)
+		var d := r * _rng.randf_range(0.15, 0.45)
 		var e := _mi(node, _unit_disc(), em, 0.2 if d < r * 0.3 else 0.12)
 		e.position.x = cos(a) * d
 		e.position.z = sin(a) * d
@@ -2860,7 +2993,7 @@ func ash_pile(node: Node3D, r: float, dur: float) -> void:
 	embers.append(core)
 	# temps du jeu : la zone de powers compte en temps du jeu (ralentis, arrêts sur image) ; en temps réel les
 	# braises s'éteignaient et la brume se dissipait alors que la zone agissait encore
-	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "pulse", "keep": true, "items": embers, "ph": randf() * TAU, "game": true})
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "pulse", "keep": true, "items": embers, "ph": _rng.randf() * TAU, "game": true})
 	# flocons : ils retombent du nuage de la mort, en tournant
 	var p := _pooled("flake")
 	var fresh := p == null
@@ -2938,7 +3071,7 @@ func ash_puff(pos: Vector3) -> void:
 	flames(pos, 0.3, 5)
 	sparks(pos + Vector3(0, 0.4, 0), Vector3.UP, 3, FIRE_HOT, 3.0, 7.0, 70.0)
 	_flare(pos + Vector3(0, 0.5, 0), Toon.VERMILION, 0.55, 0.12)
-	_play("crackle", randf_range(1.0, 1.2), -7.0)
+	_play("crackle", _rng.randf_range(1.0, 1.2), -7.0)
 
 
 func _pulse_step(fx: Dictionary, k: float) -> void:
@@ -3009,14 +3142,14 @@ func lantern_burst(pos: Vector3) -> void:
 		var hot := i % 2 == 0
 		var f := _mi(col, _tongue(), flame_mat(FIRE_HOT if hot else Toon.VERMILION))
 		var u := float(i) / float(n - 1)
-		f.position = Vector3(randf_range(-0.12, 0.12), 0.25 + u * 1.7, randf_range(-0.12, 0.12))
+		f.position = Vector3(_rng.randf_range(-0.12, 0.12), 0.25 + u * 1.7, _rng.randf_range(-0.12, 0.12))
 		f.scale = Vector3.ONE * lerpf(3.0, 1.4, u) * (1.15 if hot else 1.0)
 	_anim(col, 0.65, Vector3(0.7, 0.15, 0.7), Vector3.ONE, {"g": 0.35, "pu": 0.12, "sh": 0.5, "sm": Vector3(0.35, 1.0, 0.35), "up": 0.9})
 	flames(pos, 0.5, 8)
 	_shock(g, 1.6, Color(FIRE_DEEP, 0.85), Toon.VERMILION, GOLD, true, 0.45)
 	embers(pos, 0.5, 6 if Toon.lite else 10, 1.2)
 	# éclats vers les voisins : quatre traits horizontaux
-	var a0 := randf() * TAU
+	var a0 := _rng.randf() * TAU
 	for i in 4:
 		var a := a0 + TAU * float(i) / 4.0
 		var d := Vector3(cos(a), 0, sin(a))
@@ -3024,7 +3157,7 @@ func lantern_burst(pos: Vector3) -> void:
 	sparks(pos + Vector3(0, 0.8, 0), Vector3.UP, 5, GOLD, 4.0, 9.0, 85.0)
 	_decal(g, 0.7, Color(0.13, 0.06, 0.04, 0.5), 1.4)
 	_shake(0.1)
-	_play("fire", randf_range(0.85, 0.95), -3.0)
+	_play("fire", _rng.randf_range(0.85, 0.95), -3.0)
 	_play("crackle", 1.0, -5.0)
 
 
@@ -3069,17 +3202,17 @@ func mist(node: Node3D, r: float, dur: float) -> void:
 		(m as StandardMaterial3D).vertex_color_use_as_albedo = true
 	var items := []
 	var n := 5 if Toon.lite else 8
-	var a0 := randf() * TAU
+	var a0 := _rng.randf() * TAU
 	for i in n:
-		var a := a0 + TAU * float(i) / float(n) + randf_range(-0.3, 0.3)
-		var d := r * (0.15 if i == 0 else randf_range(0.3, 0.62))
+		var a := a0 + TAU * float(i) / float(n) + _rng.randf_range(-0.3, 0.3)
+		var d := r * (0.15 if i == 0 else _rng.randf_range(0.3, 0.62))
 		var mi := _mi(node, _puff_mesh(), rm[0])
-		var base := Vector3(cos(a) * d, randf_range(0.12, 0.7), sin(a) * d)
+		var base := Vector3(cos(a) * d, _rng.randf_range(0.12, 0.7), sin(a) * d)
 		mi.position = base
-		mi.rotation.y = randf() * TAU
-		var s := r * randf_range(0.5, 0.7) * (1.3 if i == 0 else 1.0)
+		mi.rotation.y = _rng.randf() * TAU
+		var s := r * _rng.randf_range(0.5, 0.7) * (1.3 if i == 0 else 1.0)
 		mi.scale = Vector3.ONE * 0.01
-		items.append([mi, base, randf() * TAU, s, randf_range(0.4, 0.9) * (1.0 if i % 2 == 0 else -1.0)])
+		items.append([mi, base, _rng.randf() * TAU, s, _rng.randf_range(0.4, 0.9) * (1.0 if i % 2 == 0 else -1.0)])
 	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "mist", "keep": true, "items": items, "ramp": rm, "fi": 0, "r": r, "game": true})
 	_shock(node.position + Vector3(0, 0.07, 0), r * 0.9, Color(WATER_DEEP, 0.6), Color(WATER_FOAM, 0.8), Toon.WASHI, false, 0.6)
 	_flare(node.position + Vector3(0, 0.6, 0), Toon.WASHI, 0.9, 0.2)
@@ -3125,7 +3258,7 @@ func mist_pop(pos: Vector3) -> void:
 	_pop(pos, WATER_FOAM, 0.6)
 	ink_drops(pos, Vector3.UP, 6, WATER_FOAM)
 	ink_drops(pos, Vector3.UP, 3, WATER)
-	_play("splash", randf_range(1.5, 1.7), -12.0)
+	_play("splash", _rng.randf_range(1.5, 1.7), -12.0)
 
 
 # --- Source (Izumi) : jaillissement et cœur
@@ -3147,11 +3280,11 @@ func spring(pos: Vector3) -> void:
 	var g := Vector3(pos.x, 0.05, pos.z)
 	_flare(pos + Vector3(0, 0.5, 0), WATER_FOAM, 1.0, 0.14)
 	var n := 4 if Toon.lite else 6
-	var a0 := randf() * TAU
+	var a0 := _rng.randf() * TAU
 	for i in n:
 		var a := a0 + TAU * float(i) / float(n)
 		var d := Vector3(cos(a) * 0.32, 1.0, sin(a) * 0.32)
-		_jet(g + Vector3(cos(a), 0, sin(a)) * 0.15, d, randf_range(2.0, 2.8), 0.8, 0.6, 0.03 * float(i))
+		_jet(g + Vector3(cos(a), 0, sin(a)) * 0.15, d, _rng.randf_range(2.0, 2.8), 0.8, 0.6, 0.03 * float(i))
 	_jet(g, Vector3.UP, 3.2, 1.1, 0.65, 0.0)
 	ink_drops(pos + Vector3(0, 1.4, 0), Vector3.UP, 8 if Toon.lite else 12, WATER)
 	ink_drops(pos + Vector3(0, 1.6, 0), Vector3.UP, 6, WATER_FOAM)
@@ -3245,7 +3378,7 @@ func gale_blow(bullet: Node3D, dir: Vector3) -> void:
 	_anim(node, 0.55, Vector3.ONE * 0.6, Vector3.ONE, {"g": 0.25, "f": 0.45, "lay": lay, "fol": bullet, "off": Vector3.ZERO})
 	_anim(cres, 0.5, Vector3.ONE, Vector3.ONE, {"ns": true, "spin": 16.0, "keep": true})
 	sparks(bullet.position, d, 2, Toon.WASHI, 3.0, 6.0, 40.0)
-	_play("swish", randf_range(1.1, 1.3), -8.0)
+	_play("swish", _rng.randf_range(1.1, 1.3), -8.0)
 
 
 # --- Vent arrière (Oikaze) : traits de vent dans le dos du héros
@@ -3344,7 +3477,7 @@ func double_dress(node: Node3D, dur: float) -> void:
 	mi.set_surface_override_material(0, _mat("ronin_ink", Color(Toon.SUMI, 0.6), 2, false, 2))
 	mi.set_surface_override_material(1, _mat("ronin_gold", Color(GOLD, 0.95), 3, false, 2, true))
 	mi.scale = Vector3.ONE * 0.01
-	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "wobble", "keep": true, "mi": mi, "ph": randf() * TAU, "game": true})
+	_fx.append({"node": node, "t": 0.0, "life": dur, "kind": "wobble", "keep": true, "mi": mi, "ph": _rng.randf() * TAU, "game": true})
 	spawn_ink(node.position, 0.5)
 	_ink_pop(node.position + Vector3(0, 0.9, 0), 0.6)
 	_play("ink", 0.85, -8.0)
@@ -3380,7 +3513,7 @@ func double_strike(a: Vector3, b: Vector3) -> void:
 	_ink_pop(b + Vector3(0, 0.8, 0), 0.6)
 	ink_drops(b + Vector3(0, 0.8, 0), d, 6, INK)
 	_flare(b + Vector3(0, 0.8, 0), GOLD, 0.6, 0.12, 0.05)
-	_play("iai", randf_range(0.9, 1.1), -6.0)
+	_play("iai", _rng.randf_range(0.9, 1.1), -6.0)
 
 
 # --- Pas d'ombre (Kage-ashi) : l'arrivée est couverte
@@ -3551,7 +3684,7 @@ func seal_stamp(pos: Vector3, ring: Node3D) -> void:
 	var node := Node3D.new()
 	add_child(node)
 	node.position = g
-	node.rotation.y = randf_range(-0.2, 0.2)
+	node.rotation.y = _rng.randf_range(-0.2, 0.2)
 	var hr := _bramp(Color(HANKO, 0.92), -1)
 	var mi := _mi(node, _hanko_mesh(), hr[0])
 	# tombe de haut (grand, pâle) et s'imprime : rapide, un petit rebond, puis il reste, puis il sèche
@@ -3682,9 +3815,9 @@ func _dbg_trigger(id: String, p: Vector3, tgt: Node3D) -> void:
 		"ult":
 			if main:
 				var hp: Vector3 = hero.position
-				slash_line(Vector3(hp.x - 5.0, 0, hp.z + 1.6), Vector3(hp.x + 5.0, 0, hp.z - 1.6))
+				slash_line(Vector3(hp.x - 5.0, 0, hp.z + 1.6), Vector3(hp.x + 5.0, 0, hp.z - 1.6), true)
 				slash_line(Vector3(hp.x - 5.0, 0, hp.z - 2.4), Vector3(hp.x + 5.0, 0, hp.z + 0.8))
-				ink_wave(hp, 5.5)
+				ink_wave(hp, 5.5, true)
 		"tele":
 			_dbg_teles = [tele_disc(tgt, 1.2), tele_rect(tgt, 0.6, 1.4, Vector2(0, 1)), tele_fan(tgt, 0.5, 2.4)]
 			(_dbg_teles[1] as Node3D).position = Vector3(2.0, 0, 0)
@@ -3701,6 +3834,32 @@ func _dbg_trigger(id: String, p: Vector3, tgt: Node3D) -> void:
 		"kekkai":
 			var tri := PackedVector3Array([p + Vector3(0, 0, -1.4), p + Vector3(1.3, 0, 0.8), p + Vector3(-1.3, 0, 0.8)])
 			_dbg_ring = kekkai(tri, p, fig_ink("triangle"))
+		"salvo":
+			for i in 5:
+				var q := p + Vector3(float(i) - 2.0, 0, -0.6 * float(i % 2))
+				impact(q, fwd, i % 2 == 0)
+				if main:
+					main.call("_slash_mark", q, fwd)
+			for i in 3:
+				kill_burst(p + Vector3(float(i) * 1.2 - 1.2, 0, 0.8), fwd, i == 1, Toon.VERMILION)
+			fire_burst(p + Vector3(-1.6, 0, -1.2), 1.2, true)
+			water_burst(p + Vector3(1.6, 0, -1.2), 1.2, true)
+			bolt(p + Vector3(-2.0, 0.9, 0.6), p + Vector3(0, 0.9, -0.4), 3, true)
+			bolt(p + Vector3(0, 0.9, -0.4), p + Vector3(2.0, 0.9, 0.6), 3, true)
+			wind_burst(p + Vector3(0, 0, -2.0), 1.2)
+			shadow_burst(p + Vector3(-2.0, 0, 1.2), 1.0)
+			shadow_stab(p + Vector3(-2.0, 0, -0.6), p + Vector3(1.8, 0, 0.6), true)
+			ink_wave(p, 1.4, true)
+			slash_line(p + Vector3(-2.6, 0, 0.6), p + Vector3(2.6, 0, -0.6), true)
+			guard(p + Vector3(0, 0, 1.6), 1.2)
+			ring(Vector3(p.x, 0.08, p.z), Toon.GOLD, 1.6)
+			smoke(p, 0.5, 6)
+			sparks(p + Vector3(0, 0.8, 0), fwd, 8, Toon.GOLD)
+			_dbg_teles = [tele_disc(tgt, 1.2), tele_rect(tgt, 0.6, 1.4, Vector2(0, 1)), tele_fan(tgt, 0.5, 2.4)]
+			(_dbg_teles[1] as Node3D).position = Vector3(2.0, 0, 0)
+			(_dbg_teles[2] as Node3D).position = Vector3(-2.2, 0, 0.6)
+			if main:
+				main.call("_splash", p, Toon.SUMI, 14)
 		"ink_thick":
 			for i in 4:
 				blot(p + fwd * (float(i) - 1.5) * 1.1 + Vector3(0.3 * float(i % 2), 0, 0), 0.75, 2.2, 0.08 * float(i))
@@ -3813,7 +3972,7 @@ func _dbg_step(dt: float) -> void:
 		if _dbg_dir != "" and _dbg_shot < _dbg_shots.size() and _dbg_since >= float(_dbg_shots[_dbg_shot]):
 			var path := "%s/%s_%d.png" % [_dbg_dir, _dbg_cur, _dbg_shot]
 			get_viewport().get_texture().get_image().save_png(path)
-			print("FXSHOT ", path)
+			print("FXSHOT ", path, " fx ", fx_draws(), " draws ", Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME), " prims ", Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME), " objets ", Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME), " noeuds ", Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
 			_dbg_shot += 1
 			if _dbg_shot >= _dbg_shots.size() and _dbg_cycle_i >= _dbg_list.size():
 				get_tree().quit()
@@ -3840,6 +3999,20 @@ func warm(p: Vector3) -> void:
 	guard(p, 1.2)
 	chest_burst(p)
 	kill_burst(p, Vector3.FORWARD, false, Toon.VERMILION)
+	# phase 2 : tranchant, coup reçu, annonce et marque (ink_tele), pinceau fondu (fx_brush3), kunai, kekkai
+	impact(p, Vector3.FORWARD, true)
+	hurt(p)
+	slash_mark(p, Vector3.FORWARD, BLADE)
+	scorch(p, 0.6, 0.5)
+	_decal(p, 0.6, Color(SHADOW_DARK, 0.6), 0.5)
+	smoke(p, 0.3, 3)
+	var tz := tele_disc(self, 1.0)
+	tz.position = p
+	tele_update(tz, 0.5, 1.0)
+	tele_dot(tz, 0.2)
+	_fx.append({"node": tz, "t": 0.0, "life": 0.5, "kind": "none"})
+	kunai(p, q, fig_ink("point"))
+	kekkai(PackedVector3Array([p + Vector3(0, 0, -0.8), p + Vector3(0.7, 0, 0.4), p + Vector3(-0.7, 0, 0.4)]), p, fig_ink("triangle"))
 	var wave := Node3D.new()
 	add_child(wave)
 	wave.position = p
@@ -3896,8 +4069,95 @@ func warm(p: Vector3) -> void:
 	_warming = false
 
 
+## Relevé (-- --perf, captures) : appels de dessin des effets (surfaces visibles sous vfx) et nœuds sous vfx.
+func fx_draws() -> Vector3i:
+	var d := 0
+	var n := 0
+	var tri := 0
+	var st: Array = [self]
+	var roots: Array = []  # effets de main (tranchants, gerbes) : comptés aussi
+	if main != null and main.get("effects") is Array:
+		for e in main.effects:
+			if e is Dictionary and is_instance_valid(e.get("node")):
+				roots.append(e["node"])
+	while not st.is_empty() or not roots.is_empty():
+		var nd: Node
+		if st.is_empty():
+			nd = roots.pop_back()
+			n += 1
+			if nd is Node3D and not (nd as Node3D).visible:
+				continue
+			if nd is CPUParticles3D:
+				d += 1
+				tri += _mesh_tris((nd as CPUParticles3D).mesh) * (nd as CPUParticles3D).amount
+			elif nd is MeshInstance3D and (nd as MeshInstance3D).mesh != null:
+				d += 1
+				tri += _mesh_tris((nd as MeshInstance3D).mesh)
+		else:
+			nd = st.pop_back()
+		for c in nd.get_children():
+			n += 1
+			if c is Node3D and not (c as Node3D).visible:
+				continue
+			if c is MeshInstance3D:
+				var mi := c as MeshInstance3D
+				if mi.mesh != null:
+					d += 1 if mi.material_override != null else mi.mesh.get_surface_count()
+					tri += _mesh_tris(mi.mesh)
+			elif c is CPUParticles3D:
+				d += 1
+				tri += _mesh_tris((c as CPUParticles3D).mesh) * (c as CPUParticles3D).amount
+			elif c is Sprite3D:
+				d += 1
+				tri += 2
+			st.append(c)
+	return Vector3i(d, n, tri)
+
+
+var _tri_cache := {}
+
+
+func _mesh_tris(m: Mesh) -> int:
+	if m == null:
+		return 0
+	var k := m.get_instance_id()
+	if _tri_cache.has(k):
+		return _tri_cache[k]
+	var t := m.get_faces().size() / 3
+	_tri_cache[k] = t
+	return t
+
+
+var _cen_f := 0
+var _cen_d := 0
+var _cen_n := 0
+var _cen_s := 0
+var _cen_max := 0
+var _cen_t := 0
+
+
+func _census_step() -> void:
+	_cen_f += 1
+	if _cen_f % 5 == 0:
+		var v := fx_draws()
+		_cen_d += v.x
+		_cen_n += v.y
+		_cen_t += v.z
+		_cen_s += 1
+		_cen_max = maxi(_cen_max, v.x)
+	if _cen_f % 150 == 0 and _cen_s > 0:
+		print("VFXCENSUS appels %.1f max %d noeuds %.1f prims %.0f" % [float(_cen_d) / _cen_s, _cen_max, float(_cen_n) / _cen_s, float(_cen_t) / _cen_s])
+		_cen_t = 0
+		_cen_d = 0
+		_cen_n = 0
+		_cen_s = 0
+		_cen_max = 0
+
+
 func _process(delta: float) -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
+	if _pt != 0:
+		_census_step()
 	# temps réel : les effets ne ralentissent pas avec le jeu
 	var dt := UiKit.unscaled(delta, 0.05)
 	_frame_big = false
@@ -3911,6 +4171,7 @@ func _process(delta: float) -> void:
 	_update_trail(dt)
 	_budget = minf(_budget + dt * (12.0 if Toon.lite else 26.0), 9.0 if Toon.lite else 18.0)
 	var gdt := minf(delta, 0.05)  # temps du jeu (sillage de feu)
+	var nq := 0  # quads peints encore vivants (plafond _fxq_room), recomptés à chaque image
 	for i in range(_fx.size() - 1, -1, -1):
 		var fx: Dictionary = _fx[i]
 		# non typé d'abord : le nœud peut avoir été libéré (parent libéré par un appelant)
@@ -3925,6 +4186,7 @@ func _process(delta: float) -> void:
 		match fx.kind:  # déjà une String : pas de copie par effet et par image
 			"fxq":
 				# quad à shader (ink_fx / ink_burst) : l'âge, après un éventuel départ différé
+				nq += 1
 				var qa := float(fx.t)
 				if qa >= 0.0:
 					if not node.visible:
@@ -3982,7 +4244,7 @@ func _process(delta: float) -> void:
 				if iu >= 0.0:
 					if not node.visible:
 						node.visible = true
-						_play("ink", randf_range(1.1, 1.3), -12.0)
+						_play("ink", _rng.randf_range(1.1, 1.3), -12.0)
 					ink_age(node as GeometryInstance3D, iu)
 			"inkpool":
 				# flaque d'un yōkai : s'ouvre (jaillissement), reste mouillée, puis se résorbe (rétrécit)
@@ -4031,9 +4293,13 @@ func _process(delta: float) -> void:
 				l.position.y += dt * 1.2
 		if k >= 1.0:
 			# keep : le nœud appartient à l'appelant (zone de powers, enfant d'un autre effet) : on le lâche seulement
-			if not fx.has("keep") and not _recycle(node):
+			if fx.kind == "fxq":
+				if not _qrecycle(node):
+					node.queue_free()
+			elif not fx.has("keep") and not _recycle(node):
 				node.queue_free()
 			_fx.remove_at(i)
+	_fxq_live = nq
 	if _dbg_fx != "":
 		_dbg_step(dt)
 	if _pt != 0:
@@ -4218,14 +4484,20 @@ func kekkai(tri: PackedVector3Array, c: Vector3, col: Color) -> Node3D:
 		inv.append(-p * 0.45)
 	_layers(inner, _tri_mesh(inv, 0.05), [_bramp(Color(INK, 0.7), -3), _bramp(Color(col, 0.8), -2)])
 	_anim(inner, 9999.0, Vector3.ONE, Vector3.ONE, {"ns": true, "spin": 0.5, "keep": true})
-	# ofuda aux sommets : papier washi barré d'encre
+	# ofuda aux sommets : papier washi barré d'encre (les trois en un maillage, couleurs de sommets : un appel de dessin)
+	var ost := SurfaceTool.new()
+	ost.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for p in rel:
-		var o := _mi(node, _unit_box(), _mat("kekkai_ofuda", Toon.WASHI, 0))
-		o.position = p + Vector3(0, 0.25, 0)
-		o.scale = Vector3(0.22, 0.5, 0.05)
-		o.rotation.y = atan2(p.x, p.z)
-		var bar := _mi(o, _unit_box(), _mat("kekkai_bar", Color(col.darkened(0.3), 1.0), 1))
-		bar.scale = Vector3(0.5, 0.6, 1.2)
+		var ob := Basis(Vector3.UP, atan2(p.x, p.z))
+		var oc := p + Vector3(0, 0.25, 0)
+		ost.set_color(Toon.WASHI)
+		_box_st(ost, ob, oc, Vector3(0.22, 0.5, 0.05))
+		ost.set_color(Color(col.darkened(0.3), 1.0))
+		_box_st(ost, ob, oc, Vector3(0.11, 0.3, 0.06))
+	if not _mats.has("ofuda_v"):
+		var om := _mat("ofuda_v", Color.WHITE, 0, true)
+		om.vertex_color_is_srgb = true
+	_mi(node, ost.commit(), _mats["ofuda_v"])
 	_flare(c + Vector3(0, 0.6, 0), col.lightened(0.5), 0.8, 0.18)
 	_ink_pop(c + Vector3(0, 0.5, 0), 0.6)
 	_play("ink", 0.8, -4.0)

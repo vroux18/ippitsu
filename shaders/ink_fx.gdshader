@@ -19,7 +19,7 @@ render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
 //   3 EAU : comme l'ensō, au bleu de Prusse qui s'éclaircit vers l'écume, griffes d'écume à la Hokusai sur le bord
 //     extérieur et embruns.
 
-const float EXT = 1.6;  // demi-côté du quad, en rayons d'effet (gouttes et griffes comprises) ; vfx.FX_EXT
+const float EXT = 1.45;  // demi-côté du quad, en rayons d'effet (gouttes et griffes comprises) ; vfx.FX_EXT
 
 instance uniform vec4 fx_body : source_color = vec4(0.1, 0.1, 0.12, 1.0);  // corps du trait (teinte de l'école)
 instance uniform vec4 fx_edge : source_color = vec4(0.1, 0.1, 0.12, 1.0);  // contour (encre)
@@ -70,6 +70,10 @@ vec4 enso(float age, float life, float seed, bool water) {
 	// l'anneau s'ouvre (vite puis lentement)
 	float ko = clamp(t / 0.6, 0.0, 1.0);
 	float R = mix(0.2, 1.0, 1.0 - (1.0 - ko) * (1.0 - ko) * (1.0 - ko));
+	// au-delà des gouttes et des griffes : rien à peindre (la plupart des pixels du quad sortent ici, sans bruit)
+	if (r > R + 0.42 || t >= 1.0) {
+		return vec4(0.0);
+	}
 	// le pinceau fait le tour d'un geste : le trait est peint jusqu'à `paint` (en tours)
 	float paint = 1.08 * smoothstep(0.0, 0.26, t);
 	float a0 = seed * 6.2832;
@@ -163,8 +167,8 @@ vec4 scorch(float age, float life, float seed) {
 	float mott = fbm2(q * 4.3 + seed * 5.0);
 	float rim = smoothstep(-0.28, -0.02, d);
 	vec3 soot = fx_body.rgb;
-	vec3 col = mix(soot * 1.35 + 0.03, soot * 0.7, rim * 0.6 + mott * 0.4);
-	float a = cov * fx_body.a * (0.62 + 0.38 * rim) * (0.75 + 0.25 * mott);
+	vec3 col = mix(soot * 1.15 + 0.02, soot * 0.55, rim * 0.6 + mott * 0.4);
+	float a = cov * min(fx_body.a * 1.25, 1.0) * (0.78 + 0.22 * rim) * (0.82 + 0.18 * mott);
 	// fentes de braise : lignes de niveau du bruit
 	float cr = abs(vnoise(q * 5.5 + seed * 2.0) - 0.5);
 	float crack = (1.0 - smoothstep(0.02, 0.06, cr)) * smoothstep(-0.55, -0.12, d) * cov;
