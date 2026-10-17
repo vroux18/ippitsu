@@ -16,6 +16,7 @@ const ROWS := [
 	{"key": "sound", "label": "SON", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 	{"key": "vibration", "label": "VIBRATIONS", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 	{"key": "dmg", "label": "CHIFFRES DE DÉGÂTS", "toggle": true, "opts": [["on", ""], ["off", ""]]},
+	{"key": "eco", "label": "ÉCONOMIE BATTERIE", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 	{"key": "control", "label": "CONTRÔLES", "opts": [["screen", "ÉCRAN"], ["pad", "PAD"]]},
 	# réglages du pad : grisés (et sans effet) quand on trace sur l'écran
 	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "S"], ["m", "M"], ["l", "L"]]},
@@ -33,7 +34,7 @@ const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sou
 const ROW_STEP := 84.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
-var values := {"sound": "on", "vibration": "on", "dmg": "on", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off"}
+var values := {"sound": "on", "vibration": "on", "dmg": "on", "eco": "off", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off"}
 var active_control := "screen"  # mode de contrôle de la session en cours (lu par main au lancement)
 
 var _t := 0.0

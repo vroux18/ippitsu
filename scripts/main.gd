@@ -248,6 +248,8 @@ const ULT_DAMAGE := 4.0
 const FIG_SLOW_LEN := 0.55  # figure reconnue : durée du léger ralenti (s réelles)
 const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
+var _fps_free := false  # robot, captures, relevés : aucun plafond (le rythme vient de --fixed-fps)
+var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu
 var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
@@ -1840,6 +1842,7 @@ func _load() -> void:
 		pad_size = String(cfg.get_value("settings", "pad_size", "m")) if sv >= SETTINGS_V else "m"
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
 		show_dmg = String(cfg.get_value("settings", "dmg", "on")) == "on"
+		eco_mode = String(cfg.get_value("settings", "eco", "off")) == "on"
 		god = bool(cfg.get_value("settings", "god", false))
 		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
 		for k in _cam_pref.keys():
@@ -1851,6 +1854,13 @@ func _load() -> void:
 	if not pad_show in ["always", "start", "never"]:
 		pad_show = "start"
 	ctrl_mode = ctrl_pref  # le seul moment où le mode change : au lancement
+	for a in OS.get_cmdline_user_args():
+		var sa := String(a)
+		if sa == "--bot" or sa == "--autoplay" or sa == "--figtest" or sa == "--perf" or sa.begins_with("--shot") or sa.begins_with("--q="):
+			_fps_free = true
+	if _fps_free:
+		Engine.max_fps = 0
+	_apply_fps()
 	if "--bot" in OS.get_cmdline_user_args():
 		ctrl_mode = "screen"  # le robot du CI joue toujours au doigt sur l'écran (sans toucher au choix enregistré)
 		god = false  # jamais de GOD MODE pour le robot
@@ -1869,6 +1879,7 @@ func _save() -> void:
 	cfg.set_value("settings", "control", ctrl_pref)
 	cfg.set_value("settings", "pad_size", pad_size)
 	cfg.set_value("settings", "dmg", "on" if show_dmg else "off")
+	cfg.set_value("settings", "eco", "on" if eco_mode else "off")
 	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.set_value("settings", "god", god)
 	for k in _cam_pref.keys():
@@ -1876,11 +1887,22 @@ func _save() -> void:
 	cfg.save(SAVE_PATH)
 
 
+## Images par seconde : 60 en jeu (30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
+## pause) : le téléphone chauffe moins et la batterie tient plus longtemps. Le robot et les captures gardent le
+## rythme imposé par --fixed-fps.
+func _apply_fps() -> void:
+	if _fps_free:
+		return
+	var calm := state in ["menu", "worlds", "paused", "over"]
+	Engine.max_fps = 30 if (eco_mode or calm) else 60
+
+
 func _set_state(s: String) -> void:
 	if s != "menu" and state == "menu":
 		_home_scene_end()
 	state = s
 	_state_t = 0.0
+	_apply_fps()
 	hud.visible = not s in ["menu", "worlds", "sail"]
 	_show_stage(not s in ["menu", "worlds", "sail"])
 	match s:
@@ -2204,7 +2226,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "dev": "on" if measure.active else "off"}
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "dev": "on" if measure.active else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
 		options.values["tuto"] = "replay"  # tutoriel en cours ou à revoir : la case reste cochée
@@ -2227,6 +2249,9 @@ func _on_option(key: String, value: String) -> void:
 				_fit_camera()  # le pad change de hauteur : l'arène se recadre au-dessus
 		"dmg":
 			show_dmg = value == "on"
+		"eco":
+			eco_mode = value == "on"
+			_apply_fps()
 		"pad_show":
 			pad_show = value
 		"dev":
