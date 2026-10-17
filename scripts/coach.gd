@@ -24,6 +24,9 @@ const Toon = preload("res://scripts/toon.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")
 const PowerData = preload("res://scripts/power_data.gd")
+const Bestiary = preload("res://scripts/bestiary.gd")
+const Gear = preload("res://scripts/gear_data.gd")
+const Meta = preload("res://scripts/meta.gd")
 
 # une bulle = quelques mots ; le geste fantôme (main, trait, taps) montre le reste
 const TEXTS := {
@@ -109,7 +112,7 @@ const HINTS := {
 	"scroll": {"t": "Tes pouvoirs", "s": "Deux rouleaux d'une même famille s'allient.", "icon": "hud/rouleau"},
 	"ult": {"t": "Double tap : ultime", "s": "Deux taps : la lame balaie l'écran.", "icon": "interface/double_tap", "life": 6.0},
 	"run": {"t": "Maintiens : cours", "s": "Hors combat, doigt posé : le rōnin court.", "icon": "effets/vitesse"},
-	"gates": {"t": "Choisis ta porte", "s": "Chaque sceau promet : or, cœur, oni, école.", "icon": "hud/torii", "life": 5.5},
+	"gates": {"t": "Choisis ta porte", "s": "Chaque sceau promet sa récompense : passe sous l'une.", "icon": "hud/torii", "life": 5.5},
 	"pz_stele": {"t": "La stèle", "s": "Trace son symbole tout près d'elle.", "icon": "hud/etoile"},
 	"pz_lanterns": {"t": "Les lanternes", "s": "Relie-les d'un seul trait, dans l'ordre.", "icon": "hud/etoile"},
 	"pz_spirit": {"t": "L'esprit", "s": "Entoure-le d'une boucle complète.", "icon": "hud/etoile"},
@@ -127,6 +130,9 @@ const HINT_ORDER := ["seal", "danger", "stroke", "fig_straight", "guardian", "bo
 	"gates", "chest", "pz_stele", "pz_lanterns", "pz_spirit", "merchant", "pact", "oni", "run", "tree"]
 # indice déjà donné par l'ancien tutoriel (sauvegarde existante : on ne le revoit pas)
 const HINT_OLD := {"stroke": "stroke", "ink": "ink", "ult": "ult", "run": "run", "figures": "figures", "fig_straight": "figures"}
+# la figure avec son article, pour les annonces (« tu sais tracer la boucle »)
+const FIG_THE := {"loop": "la boucle", "zigzag": "le zigzag", "straight": "le trait droit", "return": "l'aller-retour",
+	"enso": "l'ensō", "hook": "le crochet", "wave": "la vague", "point": "la pointe", "triangle": "le triangle"}
 const HINT_LIFE := 4.2  # bulle non bloquante : elle s'efface seule (s réelles)
 const HINT_GAP := 20.0  # silence entre deux indices (s réelles)...
 const HINT_SOON := 4.0  # ... ou au moins ceci, si un combat s'est fini entre-temps
@@ -135,7 +141,8 @@ const NEAR_HINT := 7.0  # distance (m) d'un recoin (stèle, marchand, autel…) 
 
 var main: Node
 var muted := false  # robot (hors mode ui) et captures : aucun indice
-var _due := {}  # indices d'événement en attente (« figures », « scroll », « fig_<figure> ») -> true
+var _due := {}  # indices d'événement en attente (« figures », « scroll », « fig_<figure> », « brush_<id> », « charm ») -> true
+var _charm_id := ""  # omamori annoncé (« charm »)
 var _clock := 0.0  # temps réel du coach (espacement des indices)
 var _free_at := 0.0  # prochain indice permis (HINT_GAP)...
 var _soon_at := 0.0  # ... ou dès ceci si le moment a changé
@@ -296,6 +303,60 @@ func force(id: String) -> void:
 func announce_fig(kind: String) -> void:
 	if kind != "":
 		_due["fig_" + kind] = true
+
+
+## Pinceau gagné (main._award : NOUVEAU PINCEAU, ce qu'il change, où le choisir) ; premier omamori gagné (une fois).
+func announce_gear(kind: String, id: String) -> void:
+	if kind == "brush" and id != "fude":
+		_due["brush_" + id] = true
+	elif kind == "charm" and not seen("charm"):
+		_due["charm"] = true
+		_charm_id = id
+
+
+## Annonce (figure, pinceau, omamori) : elle passe avant les indices, sans attendre l'espacement.
+static func _is_news(id: String) -> bool:
+	return (id.begins_with("fig_") and id != "fig_straight") or id.begins_with("brush_") or id == "charm"
+
+
+## Nom d'un gardien (mini) ou d'un boss de monde, en casse de phrase (« Ō-Kappa », « Uwabami »).
+func foe_name(wid: int, mini: bool) -> String:
+	var tbl: Dictionary = main.MINI_BOSS if mini else main.WORLD_BOSS
+	var k := String(tbl.get(wid, ""))
+	var nm := String((Bestiary.BOSS_INFO[k] as Array)[0] if Bestiary.BOSS_INFO.has(k) else Bestiary.name_of(k)).to_lower()
+	var out := ""
+	var up := true
+	for i in nm.length():
+		var c := nm.substr(i, 1)
+		out += c.to_upper() if up else c
+		up = c == "-" or c == " "
+	return out
+
+
+## Ce qu'il faut faire pour gagner la figure `kind` (« atteindre l'étape 3 », « battre Ō-Kappa », « battre Kyūbi
+## (monde 2) ») ; l'Arbre pour vague, pointe et triangle ; "" pour le trait droit (connu d'emblée).
+func fig_goal(kind: String) -> String:
+	if Meta.FIG_GATES.has(kind):
+		var g: Array = Meta.FIG_GATES[kind]
+		var wid := int(g[0])
+		var w := "" if wid == 1 else " (monde %d)" % wid
+		match String(g[1]):
+			"stage3":
+				return "atteindre l'étape 3" + w
+			"mini":
+				return "battre " + foe_name(wid, true) + w
+		return "battre " + foe_name(wid, false) + w
+	if kind in PowerData.FIG_TREE:
+		return "l'Arbre, branche Voie"
+	return ""
+
+
+## Prochaine figure à gagner, dans l'ordre du calendrier : son but (« battre Uwabami »), "" si toutes sont connues.
+func fig_next() -> String:
+	for k in Meta.FIG_GATE_ORDER + PowerData.FIG_TREE:
+		if not bool(main.meta.fig_learned(String(k))):
+			return fig_goal(String(k))
+	return ""
 
 
 ## Nouvelle partie, retour à l'accueil : rien d'affiché.
@@ -459,8 +520,30 @@ func _hint(id: String) -> Dictionary:
 		return HINTS[id]
 	if id.begins_with("fig_"):
 		var k := id.substr(4)
-		return {"t": "Nouvelle figure · " + String(UiKit.FIG_WORD.get(k, k)).to_lower(), "s": "%s : essaie-la !" % String(FIG_TEXT.get(k, "Une figure")),
-			"icon": "fig:" + k, "stop": true, "life": 7.0}
+		# comment on l'a gagnée (étape 3, gardien, boss) ; la carte dessous dit ce qui vient ensuite
+		var how := "Nouvelle figure"
+		if Meta.FIG_GATES.has(k):
+			var g: Array = Meta.FIG_GATES[k]
+			match String(g[1]):
+				"stage3":
+					how = "Étape 3 atteinte"
+				"mini":
+					how = "Gardien vaincu"
+				_:
+					how = foe_name(int(g[0]), false) + " vaincu"
+		elif k in PowerData.FIG_TREE:
+			how = "Apprise dans l'Arbre"
+		return {"t": "Nouvelle figure · " + String(UiKit.FIG_WORD.get(k, k)).to_lower(),
+			"s": "%s : tu sais tracer %s." % [how, String(FIG_THE.get(k, "cette figure"))],
+			"icon": "fig:" + k, "stop": true, "life": 7.5}
+	if id.begins_with("brush_"):
+		var b: Dictionary = Gear.brush(id.substr(6))
+		return {"t": "Nouveau pinceau · " + String(b.get("word", "")), "s": "Il se choisit à l'écran AVANT LE DÉPART.",
+			"icon": "hud/pinceau", "life": 8.0, "card": [String(b.get("name", "")), String(b.get("rule", ""))]}
+	if id == "charm":
+		var c: Dictionary = Gear.CHARMS.get(_charm_id, {})
+		return {"t": "Nouvel omamori · " + String(c.get("short", "")), "s": "Porte-le : choisis-le AVANT LE DÉPART.",
+			"icon": "hud/etoile", "life": 8.0, "card": [String(c.get("name", "")).to_upper(), String(c.get("effect", ""))]}
 	return {}
 
 
@@ -481,7 +564,7 @@ func _off_play() -> bool:
 
 
 func _off_hint(id: String) -> bool:
-	return id == "tree" or (id.begins_with("fig_") and id != "fig_straight")
+	return id == "tree" or _is_news(id)
 
 
 ## Le coach peut montrer (ou garder) sa bulle ici : en jeu ; indices : aussi les annonces hors du jeu.
@@ -496,7 +579,7 @@ func _pick_hint() -> void:
 	var play := _in_play()
 	for k in _due.keys():
 		var fid := String(k)
-		if fid.begins_with("fig_") and fid != "fig_straight":
+		if _is_news(fid):
 			if seen(fid):
 				_due.erase(fid)
 				continue
@@ -926,6 +1009,8 @@ func _draw() -> void:
 		# hors du jeu (victoire, résultats) : la bulle et la figure seulement
 		if _hint_fig() != "":
 			_draw_fig_card(_hint_fig(), u, a)
+		elif not ENABLED and _hint(mark).has("card"):
+			_draw_text_card(_hint(mark)["card"], u, a)
 		_place_fingers()
 		if _pt != 0:
 			Perf.add(&"coach_draw", _pt)
@@ -982,6 +1067,8 @@ func _draw() -> void:
 		_:
 			if mark.begins_with("fig_"):
 				_draw_fig_card(mark.substr(4), u, a)
+			elif not ENABLED and _hint(mark).has("card"):
+				_draw_text_card(_hint(mark)["card"], u, a)
 	if _fz >= 0.0:
 		_draw_hint(u, insets)
 	_place_fingers()
@@ -1010,11 +1097,19 @@ func _draw_fig_card(kind: String, u: float, a: float) -> void:
 	if hb != null and float(hb) >= 0.0:
 		top += 64.0 * u
 	var side := 132.0 * u
-	var r := Rect2(Vector2((size.x - side) * 0.5, top + 8.0 * u + 60.0 * u * _big + 12.0 * u), Vector2(side, side + 34.0 * u))
+	# annonce d'une figure gagnée : ce qui vient ensuite, en bas de la carte (« PROCHAINE : battre Uwabami »)
+	var nxt := ""
+	if mark.begins_with("fig_") and mark != "fig_straight":
+		nxt = fig_next()
+	var w := side
+	if nxt != "":
+		nxt = "Prochaine : " + nxt
+		w = maxf(side, UiKit.UI_FONT.get_string_size(UiKit.plain(nxt), HORIZONTAL_ALIGNMENT_LEFT, -1, int(10.0 * u)).x + 24.0 * u)
+	var r := Rect2(Vector2((size.x - w) * 0.5, top + 8.0 * u + 60.0 * u * _big + 12.0 * u), Vector2(w, side + (52.0 if nxt != "" else 34.0) * u))
 	r.position.y += (1.0 - UiKit.ease_out(a)) * 8.0 * u
 	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(14.0 * u)), Rect2(r.position + Vector2(0, 3.0 * u), r.size))
 	draw_style_box(UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14.0 * u), Color(Toon.ui_ink, 0.85 * a), maxi(1, int(1.5 * u))), r)
-	var g := Rect2(r.position + Vector2(10.0, 10.0) * u, Vector2(side - 20.0 * u, side - 20.0 * u))
+	var g := Rect2(Vector2(r.get_center().x - side * 0.5, r.position.y) + Vector2(10.0, 10.0) * u, Vector2(side - 20.0 * u, side - 20.0 * u))
 	UiKit.draw_gesture(self, _sb, kind, g, u * 1.4, a, _t, Toon.ui_ink, true, true)
 	# le doigt suit la pointe du trait (même horloge que draw_gesture)
 	var pts := UiKit.gesture_points(kind)
@@ -1023,9 +1118,35 @@ func _draw_fig_card(kind: String, u: float, a: float) -> void:
 		var k := clampf(fmod(maxf(_t, 0.0), 2.2) / 1.6, 0.0, 1.0)
 		var tip: Vector2 = inner.position + pts[int(k * float(pts.size() - 1))] * inner.size
 		_finger(tip, u * 0.8, a * 0.9)
-	var ny := r.end.y - 22.0 * u
+	var ny := r.position.y + side + 12.0 * u
 	UiKit.text(self, _title, UiKit.plain(String(UiKit.FIG_WORD.get(kind, kind))), Vector2(r.get_center().x, ny), int(13.0 * u), Color(Toon.ui_ink, a))
 	UiKit.text(self, _ui, UiKit.plain(String(TECH.get(kind, ""))), Vector2(r.get_center().x, ny + 14.0 * u), int(10.0 * u), Color(Toon.ui_ink, 0.6 * a))
+	if nxt != "":
+		UiKit.text(self, UiKit.UI_FONT, UiKit.plain(nxt), Vector2(r.get_center().x, ny + 32.0 * u), int(10.0 * u), Color(Toon.VERMILION, a))
+
+
+## Annonce d'un pinceau ou d'un omamori : carte de papier sous le bandeau, son nom et ce qu'il change (lines :
+## [nom, texte], le texte coupé en lignes).
+func _draw_text_card(lines: Array, u: float, a: float) -> void:
+	if lines.size() < 2:
+		return
+	var top: float = main.hud.top_clear()
+	var hb = main.hud.get("_banner_t")
+	if hb != null and float(hb) >= 0.0:
+		top += 64.0 * u
+	var w := minf(size.x - 48.0 * u, 300.0 * u)
+	var fs := int(12.0 * u)
+	var body := UiKit.wrap(UiKit.UI_FONT, UiKit.plain(String(lines[1])), fs, w - 28.0 * u, GLUE)
+	var lh := float(fs) * 1.35
+	var r := Rect2(Vector2((size.x - w) * 0.5, top + 8.0 * u + 60.0 * u * _big + 12.0 * u), Vector2(w, 46.0 * u + lh * float(body.size())))
+	r.position.y += (1.0 - UiKit.ease_out(a)) * 8.0 * u
+	draw_style_box(UiKit.box(_sb, Color(0, 0, 0, 0.25 * a), int(14.0 * u)), Rect2(r.position + Vector2(0, 3.0 * u), r.size))
+	draw_style_box(UiKit.box(_sb, Color(Toon.ui_paper, 0.96 * a), int(14.0 * u), Color(Toon.ui_ink, 0.85 * a), maxi(1, int(1.5 * u))), r)
+	var cx := r.get_center().x
+	UiKit.text(self, _title, UiKit.plain(String(lines[0])), Vector2(cx, r.position.y + 24.0 * u), int(14.0 * u), Color(Toon.ui_ink, a))
+	draw_rect(Rect2(Vector2(cx - 14.0 * u, r.position.y + 31.0 * u), Vector2(28.0 * u, 2.5 * u)), Color(Toon.VERMILION, a))
+	for i in body.size():
+		UiKit.text(self, UiKit.UI_FONT, String(body[i]), Vector2(cx, r.position.y + 50.0 * u + lh * float(i)), fs, Color(Toon.ui_ink, 0.85 * a))
 
 
 ## Invite à toucher (arrêt sur image) : une main fantôme qui pulse en bas, sans un mot, un instant après l'arrêt.

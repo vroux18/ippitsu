@@ -655,7 +655,10 @@ func _draw() -> void:
 	if _tab == 0:
 		_draw_tree(w, h, u)
 	elif _tab == TAB_BRUSHES:
-		_draw_brushes(w, h, u)
+		if brushes_locked():
+			_draw_brushes_locked(w, h, u)
+		else:
+			_draw_brushes(w, h, u)
 	else:
 		_draw_filters(w, u)
 		_draw_info(w, h, u)
@@ -751,6 +754,47 @@ func _draw_tabs(w: float, u: float) -> void:
 	var trs: Array = UiKit.tabs(self, TABS, bar, _seg, Toon.WASHI, Toon.SUMI, Color(Toon.WASHI, 0.75), a, u, dots)
 	for i in trs.size():
 		_hits.append([trs[i], "tab:%d" % i])
+	# onglet PINCEAUX verrouillé (aucun pinceau gagné après le Fude) : un cadenas après le mot
+	if brushes_locked() and trs.size() > TAB_BRUSHES:
+		var tr: Rect2 = trs[TAB_BRUSHES]
+		var fs := maxi(1, int(UiKit.FS_BODY * u))
+		var tw := UiKit.tab_font().get_string_size(UiKit.plain(String(TABS[TAB_BRUSHES])), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var on := clampf(1.0 - absf(_seg - float(TAB_BRUSHES)), 0.0, 1.0)
+		UiKit.draw_icon(self, "interface/cadenas", Vector2(tr.get_center().x + tw / 2.0 + 9.0 * u, bar.get_center().y), 12.0 * u, a,
+			Color(Toon.WASHI, 0.75).lerp(Toon.SUMI, on))
+
+
+## Onglet PINCEAUX verrouillé tant qu'aucun pinceau n'est gagné après le Fude (le Hake : boss du monde 1).
+func brushes_locked() -> bool:
+	if meta == null:
+		return false
+	for b in Gear.ORDER:
+		if String(b) != "fude" and bool(meta.brush_unlocked(String(b))):
+			return false
+	return true
+
+
+## Onglet PINCEAUX verrouillé : washi, cadenas, et la condition du premier pinceau à gagner.
+func _draw_brushes_locked(w: float, h: float, u: float) -> void:
+	var a := UiKit.ease_out(_tab_t / 0.3)
+	_washi_y = _top + WASHI_Y * u
+	var wp := PackedVector2Array()
+	for q in TreeArt.torn(true):
+		wp.append(Vector2(q.x * w, _washi_y + (q.y - 100.0) * u))
+	wp.append(Vector2(w, h))
+	wp.append(Vector2(0, h))
+	draw_colored_polygon(wp, Color(TREE_WASHI, a))
+	var cx := w / 2.0
+	var cy := _washi_y + (h - _washi_y) * 0.36
+	draw_circle(Vector2(cx, cy), 46.0 * u, Color(TREE_SUMI, 0.08 * a))
+	UiKit.draw_icon(self, "interface/cadenas", Vector2(cx, cy), 52.0 * u, a, TREE_SUMI)
+	var nx := String(Gear.ORDER[1]) if Gear.ORDER.size() > 1 else "hake"
+	var bd: Dictionary = Gear.brush(nx)
+	UiKit.text(self, _lab, "PINCEAUX", Vector2(cx, cy + 86.0 * u), int(22.0 * u), Color(TREE_SUMI, a))
+	var l1 := "Le Fude te suffit pour l'instant."
+	var l2 := "%s : %s." % [String(bd.get("word", "")), String(bd.get("how", "")).to_lower()]
+	UiKit.text(self, UiKit.UI_FONT, l1, Vector2(cx, cy + 116.0 * u), int(13.0 * u), Color(BR_TEXT, a))
+	UiKit.text(self, _state, l2.to_upper(), Vector2(cx, cy + 140.0 * u), _fit(_state, l2.to_upper(), int(11.0 * u), w - 40.0 * u, int(8.0 * u)), Color(TREE_MISS.darkened(0.25), a))
 
 
 # ------------------------------------------------------------------ arbre du pinceau

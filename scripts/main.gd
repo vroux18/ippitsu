@@ -512,6 +512,9 @@ var chests_sealed := 0  # coffres scellés posés / ouverts (robot de campagne)
 var chests_unsealed := 0
 var sealed_set := 0  # yōkai scellés posés / brisés à la figure (robot de campagne)
 var sealed_broken := 0
+var gates_seen := 0  # fins d'étape à portes à sceaux, sanctuaires de pacte, sanctuaires d'oni posés (robot : calendrier)
+var shrines_seen := 0
+var elites_seen := 0
 var _seal_quota := 0  # scellés encore possibles dans ce combat
 var _room_spawned := 0  # ennemis posés depuis le début du combat (le premier n'est jamais scellé)
 var _cap_fige := -1.0  # captures (`fige=`) : délai entre le coup sur le sceau et l'image figée (< 0 : rien)
@@ -2178,24 +2181,39 @@ func _on_atelier() -> void:
 
 ## `?tutoarbre[&etape=N]` (captures) : le tutoriel de l'Arbre du pinceau, à l'étape N (1 accueil, 2 nœud, 3 APPRENDRE,
 ## 4 bulle finale) ; arbre vide, une partie jouée, 140 encre ; rien n'est sauvegardé par le tutoriel.
+## `&guide=dojo` (accueil : DOJO) ou `&guide=pinceau` (avec `&won=1` : 1 ATELIER, 2 onglet, 3 le pinceau, 4 bulle
+## finale) : les autres guides de l'accueil.
 func _capture_tree_coach(q: String) -> void:
 	meta.tree = {}
 	meta.purse_rank = 0
 	meta.runs = maxi(1, meta.runs)
 	meta.sumi = 140
-	meta.coach_seen.erase("arbre")
+	var gq := q.find("guide=")
+	var g := q.substr(gq + 6).get_slice("&", 0) if gq >= 0 else "arbre"
+	if not g in TreeCoach.GUIDES:
+		g = "arbre"
+	meta.coach_seen.erase(g)
+	meta.hints_on = true
 	menu.sumi = meta.sumi
 	tree_coach.dry = true
 	tree_coach.hold = true
 	var eq := q.find("etape=")
 	var n := clampi(int(q.substr(eq + 6).get_slice("&", 0)), 1, 4) if eq >= 0 else 1
+	if g == "dojo":
+		n = 1
 	if n >= 2:
 		_on_atelier()
-	if n == 4:
+	if g == "pinceau":
+		if n >= 3:
+			refuge.set("_tab", 2)
+			refuge.set("_seg", 2.0)
+		if n == 4:
+			refuge.call("show_brush", String(tree_coach.call("_new_brush")))
+	elif n == 4:
 		var nid := String(refuge.call("_default_node"))
 		refuge.call("select_node", nid)
 		refuge.call("_learn")
-	tree_coach.request(n)
+	tree_coach.request(n, g)
 
 
 func _on_refuge_closed() -> void:
@@ -2248,12 +2266,8 @@ func _on_option(key: String, value: String) -> void:
 			meta.save_data()
 			coach.clear()
 		"hints":
-			# INDICES : OUI / NON ; REVOIR : tous les indices reviendront (et l'option repasse à OUI)
-			if value == "replay":
-				meta.hints_reset()
-				options.values["hints"] = "on"
-			else:
-				meta.hints_on = value == "on"
+			# INDICES : OUI / NON (NON coupe les indices du coach et les guides de l'accueil)
+			meta.hints_on = value == "on"
 			meta.save_data()
 			coach.clear()
 	sfx.play("empty", 1.4, -6.0)
@@ -3579,6 +3593,9 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	chests_unsealed = 0
 	sealed_set = 0
 	sealed_broken = 0
+	gates_seen = 0
+	shrines_seen = 0
+	elites_seen = 0
 	_seal_quota = 0
 	run_dist = 0.0
 	hud.dying = 0.0
@@ -4508,6 +4525,7 @@ func _after_room_pick() -> void:
 ## et des recoins. Le toucher (anneau d'approche au sol) propose un pacte ; passer le torii l'ignore.
 func _spawn_shrine() -> void:
 	var p := _shrine_spot()
+	shrines_seen += 1
 	_shrine = Node3D.new()
 	add_child(_shrine)
 	_shrine.position = Vector3(p.x, 0, p.z)
@@ -4959,6 +4977,8 @@ func _build_segment(sliced := false) -> void:
 	# fois par monde, la première fois qu'il y a un choix, trois portes
 	var nk := 3 if charm == "portes" and not _portes_used and _gate_force.is_empty() else 2
 	arena.gate_kinds = _gate_force.duplicate() if not _gate_force.is_empty() else (_draw_seals(nk) if gate_choice(stage_i) else [])
+	if not (arena.gate_kinds as Array).is_empty():
+		gates_seen += 1
 	var gen := _load_gen
 	var t_sl := Time.get_ticks_usec()
 	if sliced:
@@ -5129,6 +5149,7 @@ func _build_pockets(sliced := false) -> void:
 			_seal_spring(pn)  # sceau du cœur : la source elle-même est vermillon (plus de sceau flottant)
 		var pk := {"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed}
 		if k == "elite":
+			elites_seen += 1
 			pk["oni"] = pn.get_meta("oni")
 			if sealed:
 				OniShrine.mark_seal(pk["oni"])  # sceau de l'oni : le sanctuaire couve déjà (lanternes rouges, braises)
@@ -6156,6 +6177,8 @@ func _award(victory: bool) -> void:
 	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory else []
 	if _bot != null and not menu.unlock_gear.is_empty():
 		print("BOT ÉQUIPEMENT gagné : %s" % str(menu.unlock_gear))
+	for ug: Dictionary in menu.unlock_gear:
+		coach.announce_gear(String(ug.get("kind", "")), String(ug.get("id", "")))  # NOUVEAU PINCEAU (feuille de résultats)
 	# ce que la victoire débloque : le monde suivant et une famille de rouleaux (rangée DÉBLOQUÉ des résultats)
 	menu.unlock_world = int(un.get("world", 0))
 	var ups: Array = un.get("powers", [])
@@ -6332,6 +6355,7 @@ func _award_score() -> void:
 	var cid: String = meta.check_charm(current_world)
 	if cid != "":
 		menu.unlock_gear.append({"kind": "charm", "id": cid, "k": 0})
+		coach.announce_gear("charm", cid)  # premier omamori : où le porter (une fois)
 		if _bot != null:
 			print("BOT OMAMORI gagné : %s (monde %d)" % [cid, current_world])
 	menu.gain_sumi += int(r.get("sumi", 0))

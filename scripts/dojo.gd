@@ -769,8 +769,8 @@ func _draw_page() -> void:
 		var rr := Rect2(Vector2(x0 + float(i % 2) * (tw + gap), y + float(int(i / 2.0)) * (th + gap)), Vector2(tw, th))
 		hits.append([Rect2(Vector2(rr.position.x, rr.position.y - top), rr.size), kind])
 		var n := int(counts.get(kind, 0))
-		# figure de l'arbre pas encore apprise : tuile pâle (elle ne se lit pas encore)
-		var learned: bool = not kind in UiKit.FIGURES_TREE or (main != null and main.meta != null and bool(main.meta.fig_learned(kind)))
+		# figure pas encore gagnée (progression, ou Arbre) : tuile pâle (elle ne se lit pas encore), cadenas et condition
+		var learned: bool = main == null or main.meta == null or bool(main.meta.fig_learned(kind))
 		if rr.end.y > 0.0 and rr.position.y < h:
 			ci.draw_style_box(UiKit.box(_psb, Color(ink, 0.05), int(12 * u), Color(col, 0.95 if is_t else 0.35), maxi(1, int((2.2 if is_t else 1.2) * u))), rr)
 			# le geste, en grand (trait sumi, départ vermillon)
@@ -784,6 +784,20 @@ func _draw_page() -> void:
 			var fw := String(UiKit.FIG_WORD.get(kind, kind)).to_lower()
 			fw = fw.substr(0, 1).to_upper() + fw.substr(1)
 			ci.draw_string(UiKit.TITLE_FONT, Vector2(rr.position.x + 10.0 * u, ty), UiKit.plain(fw), HORIZONTAL_ALIGNMENT_LEFT, -1, nfs, Color(ink, 1.0 if n > 0 else 0.6))
+			if not learned:
+				UiKit.draw_icon(ci, "interface/cadenas", Vector2(rr.end.x - 18.0 * u, ty - nfs * 0.36), 16.0 * u, 0.8, ink)
+				var goal := String(main.coach.fig_goal(kind)) if main != null and main.coach != null else ""
+				if goal != "":
+					goal = goal.substr(0, 1).to_upper() + goal.substr(1)
+					var gfs := int(10.0 * u)
+					while gfs > 7 and _ui.get_string_size(UiKit.plain(goal), HORIZONTAL_ALIGNMENT_LEFT, -1, gfs).x > tw - 12.0 * u:
+						gfs -= 1
+					var gy := gr.get_center().y
+					var gw := _ui.get_string_size(UiKit.plain(goal), HORIZONTAL_ALIGNMENT_LEFT, -1, gfs).x
+					ci.draw_style_box(UiKit.box(_psb, Color(Toon.ui_paper, 0.92), int(8 * u), Color(Toon.VERMILION, 0.7), maxi(1, int(1.2 * u))),
+						Rect2(Vector2(rr.get_center().x - gw / 2.0 - 7.0 * u, gy - 11.0 * u), Vector2(gw + 14.0 * u, 22.0 * u)))
+					UiKit.text(ci, _ui, UiKit.plain(goal), Vector2(rr.get_center().x, gy + gfs * 0.36), gfs, Color(Toon.VERMILION, 1.0))
+				continue
 			var ct := str(n)
 			var cfs := int(12 * u)
 			var ctw := nf.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x

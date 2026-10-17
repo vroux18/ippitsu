@@ -91,6 +91,11 @@ var _seal_seen := 0  # coffres scellés posés / ouverts sur toute la campagne
 var _seal_open := 0
 var _sealed_set := 0  # yōkai scellés posés / tués à la figure de leur cadenas sur toute la partie du robot
 var _sealed_kill := 0
+# campagne : mécaniques fermées au départ de la partie (meta.feature_open), contrôlées à sa fin
+var _cal_closed: Array = []
+var _cal_seen := {}  # mécanique encore fermée -> {compteur de main: valeur lue tant qu'elle l'était}
+const CAL_COUNTERS := {"gates": ["gates_seen"], "sealed": ["sealed_set", "chests_sealed", "puzzles_seen"],
+	"merchant": ["merchants_seen"], "pact": ["shrines_seen"], "oni": ["elites_seen"]}
 
 
 func begin(m: Node) -> void:
@@ -142,8 +147,8 @@ func begin(m: Node) -> void:
 	# (aucune bulle, aucun arrêt sur image ; le robot ui les teste à part)
 	if mode != "ui":
 		main.meta.tuto_done = true
-		main.coach.muted = true
-		main.coach.clear()
+	main.coach.muted = true  # (mode ui : _step_progression les rallume le temps de ses contrôles)
+	main.coach.clear()
 	# figures et mécaniques (portes, scellés, marchand, pacte, oni) : la campagne suit le calendrier réel de la
 	# sauvegarde (meta.feature_open, meta.fig_learned) ; les autres modes jouent tout ouvert (meta.test_open)
 	main.meta.test_open = mode != "campaign"
@@ -212,6 +217,14 @@ func _new_run() -> void:
 	_prev_utsu = 0
 	_last_hp = -1  # la nouvelle partie rend tous les cœurs : ce n'est pas un soin
 	_world_t0 = _total
+	_cal_closed = []
+	_cal_seen = {}
+	for f in Meta.FEATURES:
+		if not bool(main.meta.feature_open(String(f))):
+			_cal_closed.append(String(f))
+	if mode == "campaign":
+		print("BOT CALENDRIER monde %d : figures %s, fermé %s" % [world,
+			str(StrokeShapes.ORDER.filter(func(k): return bool(main.meta.fig_learned(String(k))))), str(_cal_closed)])
 	if mode == "powers":
 		_runs += 1
 		_group = _next_group()
@@ -264,6 +277,7 @@ func step(dt: float) -> void:
 		h.guard_t = 99999.0
 	if mode == "powers":
 		_watch_triggers()
+	_cal_tick()
 	if not _room_ended and bool(main._room_done) and int(main.room) >= 1:
 		_room_ended = true
 		_on_room_end()
@@ -274,6 +288,18 @@ func step(dt: float) -> void:
 			_over()
 		"play":
 			_play(dt)
+
+
+## Calendrier : tant qu'une mécanique fermée au départ l'est encore, on relève ce que la partie en a posé
+## (contrôlé à la fin : rien). Un gardien vaincu en cours de partie ouvre les portes des étapes suivantes.
+func _cal_tick() -> void:
+	for f in _cal_closed:
+		if bool(main.meta.feature_open(String(f))):
+			continue
+		var d := {}
+		for cn in CAL_COUNTERS.get(f, []):
+			d[String(cn)] = int(main.get(String(cn)))
+		_cal_seen[f] = d
 
 
 ## Mesure des combats de gardien et de boss : de la fin de l'entrée en scène à la chute du dernier boss.
@@ -442,6 +468,17 @@ func _over() -> void:
 	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0 and bool(main.meta.feature_open("merchant")):
 		alert("marchand : aucun posé dans le monde %d" % world)
 	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
+	# calendrier : une mécanique fermée au départ et toujours fermée à la fin n'a rien posé (gardien vaincu en cours
+	# de partie : les portes s'ouvrent pour les étapes suivantes)
+	_cal_tick()
+	for f in _cal_seen.keys():
+		var cs: Dictionary = _cal_seen[f]
+		for cn in cs.keys():
+			if int(cs[cn]) > 0:
+				alert("calendrier : %s fermé mais %s = %d (monde %d)" % [String(f), String(cn), int(cs[cn]), world])
+	if mode == "campaign":
+		print("BOT CALENDRIER monde %d fini : portes %d, scellés %d, coffres scellés %d, énigmes %d, marchands %d, pactes %d, oni %d" % [world,
+			int(main.gates_seen), int(main.sealed_set), int(main.chests_sealed), int(main.puzzles_seen), int(main.merchants_seen), int(main.shrines_seen), int(main.elites_seen)])
 	print("BOT ÉNIGMES monde %d : %d résolues sur %d posées" % [world, int(main.puzzles_solved), int(main.puzzles_seen)])
 	_pz_seen += int(main.puzzles_seen)
 	_pz_solved += int(main.puzzles_solved)

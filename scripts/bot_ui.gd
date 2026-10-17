@@ -11,6 +11,8 @@ const PowerData = preload("res://scripts/power_data.gd")
 const Options = preload("res://scripts/options.gd")
 const Gear = preload("res://scripts/gear_data.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
+const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
+const TreeCoach = preload("res://scripts/tree_coach.gd")
 const TIMEOUT := 15.0  # secondes réelles
 
 var bot: Node
@@ -42,6 +44,10 @@ func run() -> void:
 	if not await _step_departure():
 		await _recover()
 	if not await _step_dojo():
+		await _recover()
+	if not await _step_calendar():
+		await _recover()
+	if not await _step_guides():
 		await _recover()
 	for w in range(1, Worlds.WORLDS.size() + 1):
 		if not await _step_world(w):
@@ -562,6 +568,10 @@ func _option_applied(key: String, val: String) -> bool:
 				and bool(opt.restart_pending()) == (val != String(main.ctrl_mode))
 		"dmg":
 			return bool(main.show_dmg) == (val == "on")
+		"hints":
+			# indices du coach et guides de l'accueil (sauvegardé)
+			var cf := ConfigFile.new()
+			return bool(main.meta.hints_on) == (val == "on") and cf.load(Meta.SAVE_PATH) == OK and bool(cf.get_value("meta", "hints", true)) == (val == "on")
 		"pad_size":
 			return String(main.pad_size) == val
 		"pad_show":
@@ -607,7 +617,7 @@ func _step_options(from: String) -> bool:
 	var keys: Array = []
 	for row in Options.ROWS:
 		keys.append(String(row["key"]))
-	_check(keys == ["sound", "vibration", "dmg", "control", "pad_size", "pad_show", "dev"] and String(opt.values.get("control", "")) == "screen"
+	_check(keys == ["sound", "vibration", "dmg", "control", "pad_size", "pad_show", "hints", "dev"] and String(opt.values.get("control", "")) == "screen"
 		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
 	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable
@@ -698,6 +708,224 @@ func _ref_scroll() -> void:
 	await _drag(ref, view.get_center(), view.get_center() + Vector2(0.0, -view.size.y * 0.3))
 	var s2: float = ref._scroll
 	_check(s1 > s0 and absf(s2 - s1) > 0.5, "atelier : défilement de l'onglet %d (molette, glissé)" % int(ref._tab), "%.0f -> %.0f -> %.0f" % [s0, s1, s2])
+
+
+## Calendrier de la progression (meta.fig_learned, meta.feature_open), sur une sauvegarde neuve puis palier par palier :
+## au départ le trait droit seul (reconnu, les autres gestes restent des traits simples), ni portes, ni scellés, ni
+## marchand, ni pacte, ni oni ; étape 3 du monde 1 : le zigzag ; gardien : la boucle et les portes (annoncée une
+## fois) ; boss : l'aller-retour, scellés et énigmes ; monde 2 : marchand et pacte ; monde 3 : l'oni. Une ancienne
+## sauvegarde (mondes vaincus) retrouve tout ce qu'elle a atteint.
+func _step_calendar() -> bool:
+	var mt = main.meta
+	var keep := [mt.figs_won.duplicate(), int(mt.entered_top), bool(mt.test_open), int(mt.won_top), int(mt.test_won)]
+	mt.test_open = false
+	mt.figs_won = {}
+	mt.entered_top = 1
+	mt.won_top = 0
+	mt.test_won = 0
+	# (figures de base : celles de l'arbre, vague, pointe et triangle, suivent l'Arbre appris plus tôt par le robot)
+	var known := func() -> Array: return StrokeShapes.ORDER.filter(func(k): return not String(k) in PowerData.FIG_TREE and bool(mt.fig_learned(String(k))))
+	var closed := func() -> Array: return Meta.FEATURES.filter(func(f): return not bool(mt.feature_open(String(f))))
+	_check(known.call() == ["straight"] and closed.call() == Meta.FEATURES, "calendrier : joueur neuf, trait droit seul, rien d'autre ouvert",
+		"figures %s, fermé %s" % [str(known.call()), str(closed.call())])
+	main._sync_fig_lock()
+	var st := StrokeShapes._resample_step(PackedVector3Array([Vector3(0, 0, 0), Vector3(0, 0, -8.0)]), 0.25)
+	var zz := StrokeShapes._resample_step(PackedVector3Array([Vector3(0, 0, 0), Vector3(1.6, 0, -2.2), Vector3(3.2, 0, 0), Vector3(4.8, 0, -2.2), Vector3(6.4, 0, 0)]), 0.25)
+	var was: Array = StrokeShapes.locked
+	StrokeShapes.locked = []
+	var zz_free := String(StrokeShapes.detect(zz).get("shape", ""))
+	main._sync_fig_lock()
+	_check(String(StrokeShapes.detect(st).get("shape", "")) == "straight" and zz_free == "zigzag" and String(StrokeShapes.detect(zz).get("shape", "")) == "",
+		"calendrier : seul le trait droit est reconnu (le zigzag reste un trait simple)", "droit %s, zigzag %s / libre %s" % [
+		str(StrokeShapes.detect(st).get("shape", "")), str(StrokeShapes.detect(zz).get("shape", "")), zz_free])
+	var hub0 := bool(main.in_hub)
+	main.in_hub = false  # (portes lues comme en partie : l'accueil garde le sanctuaire de départ)
+	var gates := false
+	for si in (main.STAGE_PLAN as Array).size():
+		gates = gates or bool(main.gate_choice(si))
+	var sf: Array = (main.seal_figs() as Array).filter(func(k): return not String(k) in PowerData.FIG_TREE)
+	_check(not gates and sf == ["straight"] and main.known_figs(["loop", "zigzag"]) == ["straight"]
+		and not bool(main.powers._eligible("fig_zigzag", 0, 0)) and bool(main.refuge.brushes_locked()),
+		"calendrier : monde 1 neuf, torii simple, sceaux sur le trait droit seul, pas de rouleau de zigzag, onglet PINCEAUX verrouillé",
+		"portes %s, sceaux %s, rouleau zigzag %s, pinceaux verrouillés %s" % [str(gates), str(sf), str(main.powers._eligible("fig_zigzag", 0, 0)), str(main.refuge.brushes_locked())])
+	var s3: Array = mt.fig_win(1, "stage3")
+	var g1: Array = mt.fig_win(1, "mini")
+	var g2: Array = mt.fig_win(1, "mini")
+	_check(s3 == ["zigzag"] and g1 == ["loop"] and g2.is_empty() and bool(mt.feature_open("gates")) and not bool(mt.feature_open("sealed"))
+		and bool(main.gate_choice(0)) and String(main.coach.fig_next()) == "battre Uwabami",
+		"calendrier : étape 3 -> zigzag, gardien -> boucle et portes à sceaux (une fois), prochaine : battre Uwabami",
+		"étape 3 %s, gardien %s puis %s, portes %s, scellés %s, prochaine « %s »" % [str(s3), str(g1), str(g2), str(mt.feature_open("gates")),
+		str(mt.feature_open("sealed")), String(main.coach.fig_next())])
+	var b1: Array = mt.fig_win(1, "boss")
+	_check(b1 == ["return"] and bool(mt.feature_open("sealed")) and not bool(mt.feature_open("merchant")),
+		"calendrier : boss du monde 1 -> aller-retour, scellés, coffres et énigmes (pas encore le marchand)", "boss %s, fermé %s" % [str(b1), str(closed.call())])
+	main.in_hub = hub0
+	mt.enter_world(2)
+	var c2: Array = closed.call()
+	mt.enter_world(3)
+	_check(c2 == ["oni"] and (closed.call() as Array).is_empty(), "calendrier : monde 2 -> marchand et pacte, monde 3 -> oni", "fermé %s puis %s" % [str(c2), str(closed.call())])
+	# ancienne sauvegarde : deux mondes vaincus, aucune figure notée -> tout ce qui a été atteint revient
+	mt.figs_won = {}
+	mt.entered_top = 1
+	mt.won_top = 2
+	mt._retro_figs(true)
+	# (les Vues des mondes vaincus, offertes plus tôt par le robot, comptent aussi : le crochet peut revenir)
+	var kn: Array = known.call()
+	_check(["zigzag", "loop", "return", "enso"].all(func(k): return k in kn) and (closed.call() as Array).is_empty(), "calendrier : ancienne sauvegarde (2 mondes vaincus), figures et mécaniques acquises",
+		"figures %s, fermé %s" % [str(known.call()), str(closed.call())])
+	mt.figs_won = keep[0]
+	mt.entered_top = int(keep[1])
+	mt.test_open = bool(keep[2])
+	mt.won_top = int(keep[3])
+	mt.test_won = int(keep[4])
+	StrokeShapes.locked = was
+	main._sync_fig_lock()
+	mt.save_data()
+	return true
+
+
+## Indices juste à temps (coach.gd), en combat au monde 1 : une figure gagnée s'annonce (NOUVELLE FIGURE, comment
+## on l'a gagnée), en arrêt sur image court, une seule fois ; un indice simple (ultime prêt) vient en bulle non
+## bloquante qui s'efface seule, une seule fois ; option INDICES à NON : plus rien.
+func _step_hints() -> bool:
+	var co = main.coach
+	var mt = main.meta
+	var seen0: Dictionary = mt.coach_seen.duplicate()
+	var ult0 := float(main.ult)
+	var tuto0 := bool(mt.tuto_done)
+	for id in Meta.COACH_MARKS + Meta.COACH_EXTRA:
+		mt.coach_seen[String(id)] = true  # (les autres indices ne s'en mêlent pas)
+	mt.coach_seen.erase("fig_loop")
+	mt.coach_seen.erase("ult")
+	mt.hints_on = true
+	co.muted = false
+	co.clear()
+	co.announce_fig("loop")
+	var ok := await _until(func(): return String(co.mark) == "fig_loop", "indices : annonce NOUVELLE FIGURE · BOUCLE", 6.0)
+	if ok:
+		var hd: Dictionary = co._hint("fig_loop")
+		_check(String(hd.get("t", "")).to_lower().contains("boucle") and String(hd.get("s", "")).begins_with("Gardien vaincu"),
+			"indices : annonce « %s » / « %s »" % [String(hd.get("t", "")), String(hd.get("s", ""))], "texte inattendu")
+		_check(await _until(func(): return bool(co.frozen()), "indices : arrêt sur image de l'annonce", 4.0), "indices : arrêt sur image court pour essayer la figure", "jeu jamais figé")
+		ok = await _until(func(): return String(co.mark) == "" and not bool(co.frozen()), "indices : l'annonce s'efface seule", 16.0)
+	if ok:
+		co.announce_fig("loop")
+		await _frames(60)
+		_check(String(co.mark) != "fig_loop" and bool(mt.coach_seen.has("fig_loop")), "indices : l'annonce ne revient pas", "bulle %s" % String(co.mark))
+		mt.tuto_done = false  # (toutes les bulles vues : l'ancien tutoriel compterait l'ultime comme expliqué)
+		co._free_at = 0.0
+		main.ult = 1.0
+		ok = await _until(func(): return String(co.mark) == "ult", "indices : bulle « ultime prêt »", 6.0)
+	if ok:
+		await _frames(10)
+		_check(not bool(co.frozen()), "indices : bulle simple sans arrêt sur image", "jeu figé")
+		ok = await _until(func(): return String(co.mark) == "", "indices : la bulle s'efface seule (~4 s)", 10.0)
+	if ok:
+		co._free_at = 0.0
+		main.ult = 1.0
+		await _frames(60)
+		_check(String(co.mark) == "" and bool(mt.coach_seen.has("ult")), "indices : chaque indice une seule fois", "bulle %s" % String(co.mark))
+		mt.coach_seen.erase("ult")
+		mt.hints_on = false
+		co._free_at = 0.0
+		await _frames(60)
+		_check(String(co.mark) == "" and not bool(co.active()), "indices : option INDICES à NON, aucune bulle", "bulle %s" % String(co.mark))
+	mt.hints_on = true
+	co.muted = true
+	co.clear()
+	main.ult = ult0
+	mt.coach_seen = seen0
+	mt.tuto_done = tuto0
+	mt.save_data()
+	return ok
+
+
+## Guides de l'accueil (tree_coach.gd) : après la toute première partie, le dojo seul (l'Arbre attend le monde 1,
+## jamais avant) ; INDICES à NON : aucun ; projecteur sur DOJO, PASSER le ferme, il ne revient pas. Monde 1 vaincu :
+## le guide de l'Arbre (_step_tree_coach), puis celui du pinceau gagné (ATELIER, onglet PINCEAUX, le Hake).
+func _step_guides() -> bool:
+	var mt = main.meta
+	var tc = main.tree_coach
+	var mn = main.menu
+	var ref = main.refuge
+	var keep := [int(mt.runs), int(mt.sumi), mt.tree.duplicate(), int(mt.purse_rank), mt.coach_seen.duplicate(), bool(mt.hints_on), int(mt.test_won)]
+	mt.hints_on = true
+	for g in TreeCoach.GUIDES:
+		mt.coach_seen.erase(String(g))
+	mt.runs = 1
+	mt.test_won = 0
+	mt.tree = {}
+	mt.purse_rank = 0
+	mt.sumi = 500
+	mn.sumi = mt.sumi
+	var ok := await _until(func(): return String(main.state) == "menu" and String(mn.mode) == "home" and float(mn._t) > 2.2, "guides : accueil")
+	if ok:
+		_check(bool(tc.guide_due("dojo")) and not bool(tc.guide_due("arbre")) and not bool(tc.guide_due("pinceau")),
+			"guides : après la 1re partie, le dojo seul (l'Arbre attend le monde 1)", "dojo %s, arbre %s, pinceau %s" % [str(tc.guide_due("dojo")), str(tc.guide_due("arbre")), str(tc.guide_due("pinceau"))])
+		mt.hints_on = false
+		_check(not bool(tc.guide_due("dojo")), "guides : INDICES à NON, aucun guide", "dojo dû")
+		mt.hints_on = true
+		tc.auto = true
+		ok = await _until(func(): return int(tc.step) == 1 and String(tc.guide) == "dojo" and (tc.spot as Rect2).has_area(), "guides : projecteur sur DOJO")
+		tc.auto = false
+	if ok:
+		var dr: Rect2 = (mn._dojo as Control).get_global_rect()
+		_check((tc.spot as Rect2).is_equal_approx(dr) and bool(mt.coach_seen.has("dojo")), "guides : DOJO éclairé, drapeau posé", "%s au lieu de %s" % [str(tc.spot), str(dr)])
+		await _frames(12)
+		var sk: Rect2 = tc._skip_rect
+		for pr in [true, false]:
+			var ev := InputEventMouseButton.new()
+			ev.button_index = MOUSE_BUTTON_LEFT
+			ev.pressed = pr
+			ev.position = sk.get_center()
+			tc._input(ev)
+		ok = _check(int(tc.step) == 0, "guides : PASSER ferme le guide du dojo", "étape %d" % int(tc.step))
+		tc.auto = true
+		await _frames(20)
+		tc.auto = false
+		_check(int(tc.step) == 0, "guides : le guide du dojo ne revient pas", "étape %d" % int(tc.step))
+	if ok:
+		mt.test_won = 1
+		mt.coach_seen["pinceau"] = true  # (un guide à la fois : l'Arbre d'abord)
+		_check(not bool(ref.brushes_locked()), "atelier : onglet PINCEAUX ouvert une fois le Hake gagné", "toujours verrouillé")
+		ok = await _step_tree_coach()
+	if ok:
+		mt.coach_seen.erase("pinceau")
+		ref.show_brush("fude")
+		_check(bool(tc.guide_due("pinceau")), "guides : pinceau gagné -> guide du pinceau dû", "pas dû")
+		tc.auto = true
+		ok = await _until(func(): return int(tc.step) == 1 and String(tc.guide) == "pinceau" and (tc.spot as Rect2).has_area(), "guides (pinceau) : projecteur sur ATELIER")
+		tc.auto = false
+	if ok:
+		await _frames(10)
+		await _press(mn._atelier, "ATELIER (guide du pinceau)")
+		ok = await _until(func(): return int(tc.step) == 2 and (tc.spot as Rect2).has_area(), "guides (pinceau) : onglet PINCEAUX")
+	if ok:
+		_check((tc.spot as Rect2).is_equal_approx(ref.hit_rect("tab:2")), "guides (pinceau) : projecteur sur l'onglet PINCEAUX", str(tc.spot))
+		await _frames(10)
+		await _ref_tap("tab:2")
+		ok = await _until(func(): return int(tc.step) == 3 and (tc.spot as Rect2).has_area(), "guides (pinceau) : le Hake")
+	if ok:
+		_check((tc.spot as Rect2).is_equal_approx(ref.hit_rect("brush:hake")), "guides (pinceau) : projecteur sur le Hake", str(tc.spot))
+		await _frames(10)
+		await _ref_tap("brush:hake")
+		ok = await _until(func(): return int(tc.step) == 4, "guides (pinceau) : bulle finale (AVANT LE DÉPART)")
+	if ok:
+		ok = await _until(func(): return int(tc.step) == 0, "guides (pinceau) : la bulle finale part seule")
+	if bool(ref.visible):
+		await _ref_tap("back")
+		await _until(func(): return not bool(ref.visible), "guides : retour à l'accueil")
+	tc.auto = false
+	mt.runs = int(keep[0])
+	mt.sumi = int(keep[1])
+	mt.tree = keep[2]
+	mt.purse_rank = int(keep[3])
+	mt.coach_seen = keep[4]
+	mt.hints_on = bool(keep[5])
+	mt.test_won = int(keep[6])
+	mn.sumi = mt.sumi
+	mt.save_data()
+	return ok
 
 
 ## Tutoriel de l'Arbre du pinceau (tree_coach.gd) : une partie jouée, de quoi apprendre un nœud, arbre vide ; le
@@ -1028,6 +1256,8 @@ func _step_world(w: int) -> bool:
 		return false
 	if w == 1:
 		if not await _step_pause_recap():
+			return false
+		if not await _step_hints():
 			return false
 		if not await _step_pickers():
 			return false

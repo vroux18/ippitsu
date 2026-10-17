@@ -69,7 +69,7 @@ const TREE := {
 }
 ## Figures de base. Elles se gagnent petit à petit (FIG_GATES) : au départ, le trait droit seul ; puis une figure
 ## à chaque palier de la progression (étape 3 du monde 1, gardiens et boss). Les trois de l'arbre s'apprennent
-## dans la branche VOIE (nœuds « fig »), une fois deux figures de base gagnées (FIG_NODE_MIN).
+## dans la branche VOIE (nœuds « fig »), comme avant.
 const BASE_FIGURES := ["loop", "zigzag", "return", "hook", "straight", "enso"]
 ## Figure -> [monde, palier] qui la donne la première fois : « stage3 » (étape 3 atteinte), « mini » (gardien de
 ## mi-parcours vaincu), « boss » (boss du monde vaincu). Dans l'ordre où on les gagne (FIG_GATE_ORDER).
@@ -78,7 +78,6 @@ const FIG_GATES := {"zigzag": [1, "stage3"], "loop": [1, "mini"], "return": [1, 
 const FIG_GATE_ORDER := ["zigzag", "loop", "return", "enso", "hook"]
 const START_FIGURES := ["straight"]  # la figure du départ : le trait droit (iaï), connu dès la première partie
 const FIG_STAGE3_ROOM := 6  # = main.STAGE_PLAN[2][0] : premier combat de l'étape 3
-const FIG_NODE_MIN := 2  # figures de base à connaître avant d'apprendre une figure de l'arbre
 ## Mécaniques introduites une à une (feature_open) : portes à sceaux après le gardien du monde 1 (comme la
 ## boucle) ; yōkai scellés, coffres scellés et énigmes après le boss du monde 1 (comme l'aller-retour) ; marchand et
 ## sanctuaire de pacte en entrant dans le monde 2 ; sanctuaire d'oni (défi d'élite, sceau de l'oni) dans le monde 3.
@@ -266,9 +265,11 @@ var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passée
 const COACH_MARKS := ["stroke", "cut", "ink", "figure", "ult", "run", "figures"]  # bulles du coach (coach.gd)
 const COACH_EXTRA := ["seal", "danger", "scroll", "gates", "pz_stele", "pz_lanterns", "pz_spirit", "chest", "merchant",
 	"pact", "oni", "guardian", "boss", "tree", "fig_zigzag", "fig_straight", "fig_loop", "fig_return", "fig_enso", "fig_hook",
-	"fig_wave", "fig_point", "fig_triangle"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
+	"fig_wave", "fig_point", "fig_triangle", "brush_hake", "brush_menso", "brush_warefude", "brush_chi", "charm"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
 const PROG_VERSION := 1  # sauvegarde : 0 = avant le déblocage progressif des figures et des mécaniques
-const COACH_HOME := ["arbre"]  # tutoriels de l'accueil (tree_coach.gd : l'Arbre du pinceau), une fois, hors « Passer »
+## guides de l'accueil (tree_coach.gd), une fois chacun, hors « Passer » : le dojo (après la toute première partie),
+## l'Arbre du pinceau (après le monde 1), le pinceau gagné (Atelier, onglet PINCEAUX)
+const COACH_HOME := ["arbre", "dojo", "pinceau"]
 var coach_seen := {}  # id de bulle -> true : déjà montrée
 var hints_on := true  # option INDICES : les règles expliquées juste à temps par le coach
 var figs_won := {}  # figure de base gagnée (FIG_GATES) -> true
@@ -519,6 +520,7 @@ func unlock_all() -> void:
 	entered_top = WORLD_COUNT
 	purse_rank = PURSE_COSTS.size()
 	coach_seen["arbre"] = true
+	coach_seen["pinceau"] = true
 	if not Data.POWERS.has(start_power_id):
 		start_power_id = _first_choice()
 	for id in PRINT_ORDER:
@@ -695,15 +697,6 @@ func coach_reset() -> void:
 	tuto_done = false
 
 
-## Option INDICES, « REVOIR » : les indices du coach (et les bulles de l'ancien tutoriel qu'ils reprennent)
-## reviendront ; l'option repasse à OUI. (Le tutoriel de l'Arbre, lui, reste vu.)
-func hints_reset() -> void:
-	for id in COACH_MARKS + COACH_EXTRA:
-		coach_seen.erase(id)
-	tuto_done = false
-	hints_on = true
-
-
 ## Tout premier lancement (ou tutoriel à revoir) : JOUER mène droit au monde 1, avec le coach.
 func coach_first_run() -> bool:
 	return false  # tutoriel retiré : JOUER suit toujours le chemin normal (le tout premier lancement est géré par main)
@@ -744,7 +737,7 @@ func node_cost(id: String) -> int:
 
 
 func can_learn(id: String) -> bool:
-	return node_open(id) and sumi >= node_cost(id) and not fig_node_blocked(id)
+	return node_open(id) and sumi >= node_cost(id)
 
 
 ## Débite l'encre, apprend le nœud et sauvegarde.
@@ -830,11 +823,6 @@ func base_known() -> int:
 	return n
 
 
-## Nœud de figure de l'arbre (v2, v4, v6) pas encore achetable : moins de FIG_NODE_MIN figures de base connues.
-func fig_node_blocked(id: String) -> bool:
-	return TREE.has(id) and String(TREE[id].get("fig", "")) != "" and base_known() < FIG_NODE_MIN
-
-
 ## Palier franchi (monde wid ; what : « stage3 », « mini » ou « boss ») : les figures qu'il vient de donner (vide
 ## sinon), sauvegardées. main les annonce (coach : NOUVELLE FIGURE).
 func fig_win(wid: int, what: String) -> Array:
@@ -868,6 +856,11 @@ func _retro_figs(legacy: bool) -> void:
 		if ok:
 			figs_won[String(k)] = true
 	if legacy:
+		# guides de l'accueil : qui a déjà joué connaît le dojo ; qui a déjà un 2e pinceau, l'onglet PINCEAUX
+		if runs >= 1:
+			coach_seen["dojo"] = true
+		if has_gear_choice():
+			coach_seen["pinceau"] = true
 		for wid in range(1, WORLD_COUNT + 1):
 			if int(world_best.get(wid, 0)) > 0:
 				entered_top = maxi(entered_top, wid)
@@ -903,6 +896,22 @@ func feature_open(f: String) -> bool:
 		"oni":
 			return entered_top >= 3
 	return true
+
+
+## Captures (`&calendrier&prog=N`) : la progression d'un joueur qui a franchi les N premiers paliers du calendrier
+## (0 : neuf ; 1 : étape 3 du monde 1, zigzag ; 2 : gardien, boucle et portes ; 3 : boss du monde 1, aller-retour
+## et scellés ; 4 : entré dans le monde 2, marchand et pacte ; 5 : boss du monde 2, ensō, et monde 3 : oni ;
+## 6 : boss du monde 3, crochet). Rien n'est sauvegardé.
+func test_prog(n: int) -> void:
+	test_open = false
+	figs_won = {}
+	for i in mini(n, 3):
+		figs_won[String(FIG_GATE_ORDER[i])] = true
+	if n >= 5:
+		figs_won["enso"] = true
+	if n >= 6:
+		figs_won["hook"] = true
+	entered_top = 3 if n >= 5 else (2 if n >= 4 else 1)
 
 
 ## Une partie commence dans le monde wid : marchand et pacte s'ouvrent au monde 2, l'oni au monde 3 (sauvegardé).
