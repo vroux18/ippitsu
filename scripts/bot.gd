@@ -36,6 +36,8 @@ var gear_brush := ""  # `--pinceau=` (gear_data.ORDER)
 var gear_aspect := 0  # `--aspect=` (0..2)
 var gear_charm := ""  # `--charme=` (gear_data.CHARM_ORDER)
 var tree_full := false  # `--arbre=plein` : l'arbre du pinceau entier appris (mesures d'équilibrage des boss)
+var mort_world := 0  # `--mort=W:S` : mort forcée au monde W dès le premier combat de l'étape S (mesures de l'économie)
+var mort_stage := 0
 # combats de gardien et de boss (campagne) : mesure par combat, de l'entrée en scène à la chute
 var _bf := {}  # combat en cours : {kind, mini, t, hits, strokes0, hp, room, win, vul}
 var _boss_log: Array = []  # [monde, kind, gardien ?, durée, cœurs perdus, traits, PV max]
@@ -110,6 +112,9 @@ func begin(m: Node) -> void:
 			gear_charm = s.substr(9)
 		elif s == "--arbre=plein":
 			tree_full = true
+		elif s.begins_with("--mort="):
+			mort_world = maxi(1, int(s.substr(7).get_slice(":", 0)))
+			mort_stage = maxi(1, int(s.substr(7).get_slice(":", 1)))
 		elif s.begins_with("--monde="):
 			world = clampi(int(s.substr(8)), 1, Worlds.WORLDS.size())  # campagne : départ à ce monde (mesures)
 	if not mode in MODES:
@@ -330,6 +335,10 @@ func _on_room_change() -> void:
 	_last_room = int(main.room)
 	_room_t = 0.0
 	_guarded = false
+	if mort_world > 0 and world == mort_world and not _death_test and int(main.room) >= 1 \
+			and int(main.stage_of(int(main.room))) >= mort_stage:
+		_death_test = true  # `--mort=W:S` : il se laisse tuer dans ce combat (la campagne s'arrête là)
+		print("BOT MORT FORCÉE monde %d étape %d (salle %d)" % [world, mort_stage, main.room])
 	_force_pending = false
 	_measure_t = 0.0
 	main.hero.guard_t = 0.0
@@ -431,6 +440,9 @@ func _choose(offer: Array) -> String:
 
 
 func _over() -> void:
+	# économie de la partie (equilibrage) : gains d'encre et de pétales, or restant, réserves de la sauvegarde
+	var mt = main.meta
+	print("BOT ÉCONOMIE monde %d : salle %d/%d, %d ennemis, gardien %d, boss %d, malédictions %d, défis %d, niveau %d, or restant %d, achats %d, encre +%d (total %d), pétales +%d (total %d), parties %d" % [world, main.room, main.ROOMS, int(main.kills), int(main.mini_kills), int(main.boss_kills), main.curses.size(), int(main.defi_kills), int(main.level), int(main.run_gold), int(main.shop_bought), int(main.menu.gain_sumi), int(mt.sumi), int(main.menu.gain_petals), int(mt.petals), int(mt.runs)])
 	print("BOT MARCHAND monde %d : %d marchand(s), %d achat(s), or restant %d" % [world, int(main.merchants_seen), int(main.shop_bought), int(main.run_gold)])
 	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0:
 		alert("marchand : aucun posé dans le monde %d" % world)
