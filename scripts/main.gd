@@ -1066,16 +1066,21 @@ func _ready() -> void:
 			departure.call("tap", "charm:" + wsearch.substr(cq + 4).get_slice("&", 0))
 	if "options" in wsearch:
 		_open_options()
-	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée (étape 5, chiffres de démo)
+	# `?victoire`, `?defaite` (captures) : la feuille de résultats d'une partie simulée, chiffres de démo réalistes
+	# (défaite : étape 4 sur 8, face au gardien Ō-Kappa ; victoire : les 8 étapes, boss vaincu)
 	if "victoire" in wsearch or "defaite" in wsearch:
 		_start(false)
-		room = 5
-		stage_i = 2
-		kills = 23
-		max_chain = 14
-		run_time = 312.0
-		score.points = 61280 if "victoire" in wsearch else 18420
-		shape_counts = {"loop": 12, "zigzag": 7, "straight": 31, "return": 4, "enso": 2}
+		var won_demo := "victoire" in wsearch
+		room = 9 if won_demo else 4
+		stage_i = 7 if won_demo else 3
+		kills = 96 if won_demo else 44
+		max_chain = 24 if won_demo else 20
+		run_time = 742.0 if won_demo else 305.0
+		score.points = 61280 if won_demo else 20100
+		if won_demo:
+			shape_counts = {"loop": 22, "zigzag": 31, "straight": 40, "return": 9, "enso": 6, "hook": 4, "wave": 2}
+		else:
+			shape_counts = {"zigzag": 20, "straight": 13, "loop": 12, "return": 8, "enso": 3, "hook": 1}
 		powers.levels = {"fire_burn": 2, "fire_spark": 1, "water_tide": 1, "fig_loop": 1}  # build de démo (médaillons, étiquettes)
 		_ending_victory = "victoire" in wsearch
 		_finish_run()
@@ -1090,11 +1095,13 @@ func _ready() -> void:
 			menu.unlock_gear = [{"kind": "aspect", "id": "fude", "k": 1}, {"kind": "brush", "id": "hake", "k": 0}, {"kind": "charm", "id": "garde", "k": 0}]
 			if _ending_victory:
 				menu.unlock_world = 2
+				menu.unlock_world_name = String(Worlds.world(2).get("name", ""))
 				menu.unlock_world_kanji = String(Worlds.world(2).get("kanji", "道"))
 				menu.unlock_world_color = Worlds.world(2).get("color", Toon.PRUSSIAN)
 				menu.unlock_powers = ["fire_burn", "water_tide", "fire_spark"]
 		if not _ending_victory:
-			menu.killer_kind = "oni"  # coup fatal de démo (aucun ennemi en vie à cet instant)
+			menu.killer_name = "Ō-Kappa"  # coup fatal de démo : le gardien de l'étape 4 (aucun ennemi en vie à cet instant)
+			menu.killer_hint = String(BOSS_HINTS["okappa"])
 	# ouverture à l'encre du tout premier démarrage (rejouable avec `?opening` ; `?opening&t=N` : depuis la
 	# seconde N, pour les captures) ; jamais pour le robot ni les tests
 	var auto_run := autoplay or "--bot" in OS.get_cmdline_user_args()
@@ -6267,6 +6274,7 @@ func _finish_run() -> void:
 	# coup fatal : le boss ou l'ennemi le plus proche du héros à sa chute
 	menu.killer_kind = ""
 	menu.killer_name = ""
+	menu.killer_hint = ""  # point faible du boss (BOSS_HINTS) : le conseil de la feuille
 	if not won:
 		var best_d := 1.0e9
 		for bo in bosses:
@@ -6278,6 +6286,7 @@ func _finish_run() -> void:
 				var tl = bo.get("title")
 				menu.killer_name = String(tl) if tl is String and String(tl) != "" else "le gardien"
 				menu.killer_kind = ""
+				menu.killer_hint = String(BOSS_HINTS.get(String(bo.kind), ""))
 		for e in enemies:
 			if not is_instance_valid(e) or e.dead or e.dummy or e.is_harmless():
 				continue
@@ -6285,6 +6294,7 @@ func _finish_run() -> void:
 			if ed < best_d:
 				best_d = ed
 				menu.killer_name = ""
+				menu.killer_hint = ""
 				menu.killer_kind = String(e.kind)
 	_set_state("over")
 
