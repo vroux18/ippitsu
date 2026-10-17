@@ -593,20 +593,21 @@ func _play(dt: float) -> void:
 		if target == Vector3.INF:
 			return
 	target = Vector3(target.x, 0, target.z)
+	# yōkai scellé : seule sa figure l'ouvre (les coups ricochent), en mode pouvoirs aussi
+	if fight and _seal_attack():
+		return
 	if mode == "powers" and fight:
 		var kind := String(STROKE_KINDS[_n % STROKE_KINDS.size()])
 		_n += 1
 		if kind == "plain" or not figure(kind, target):
 			stroke_line(target)
 		return
-	if fight and _seal_attack():
-		return
 	_stroke(target)
 
 
 ## Yōkai scellé en vue : le robot trace la figure de son cadenas à travers lui (BotShapes.through), comme un
 ## joueur ; trop loin pour la figure, un trait court vers lui qui s'arrête avant de le toucher. Faux s'il n'y en a
-## pas (ou plus d'essai sur lui : il l'use alors à coups normaux, qui ricochent).
+## pas (ou plus d'essai sur lui après 40 tracés ratés).
 func _seal_attack() -> bool:
 	var hp: Vector3 = main.hero.position
 	var best: Node3D = null
@@ -614,7 +615,7 @@ func _seal_attack() -> bool:
 	for e in main.enemies:
 		if not is_instance_valid(e) or e.dead or e.is_harmless() or String(e.seal_fig) == "":
 			continue
-		if not BotShapes.SHAPES.has(String(e.seal_fig)) or int(e.get_meta("bot_seal", 0)) >= 6:
+		if not BotShapes.SHAPES.has(String(e.seal_fig)) or int(e.get_meta("bot_seal", 0)) >= 40:
 			continue
 		var d := Vector2(e.position.x - hp.x, e.position.z - hp.z).length()
 		if d < bd:
