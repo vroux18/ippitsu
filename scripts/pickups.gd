@@ -113,6 +113,11 @@ func drop(pos: Vector3, kind: String, count: int, value := 1) -> void:
 		_items.append({"node": n, "disc": disc, "star": star, "kind": kind, "value": value, "vel": v, "t": randf() * 3.0, "pull": false})
 
 
+## Butin au sol ou en vol (main : encombrement sous les grappes du HUD).
+func items() -> Array:
+	return _items
+
+
 ## Préchauffage (main._warmup) : gemme, pièce, trou, halos et étincelle posés une fois sous `parent`
 ## (shaders compilés d'avance, pas de butin ramassable).
 func warm(parent: Node3D, at: Vector3) -> void:
