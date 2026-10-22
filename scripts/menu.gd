@@ -784,7 +784,7 @@ func _draw_ink_counter(p: Vector2, u: float) -> void:
 ## et le portrait du yokai ; le score et le rang expliqué (« Rang Prunier — prochain : Bambou à 22 000 », RECORD) ;
 ## puis des sections titrées : la partie (chiffres libellés, deux colonnes), les figures tracées (nommées, les plus
 ## tracées d'abord), les pouvoirs (victoire), les gains (« +98 encre — pour l'Arbre (Atelier) ») et ce qui vient
-## d'être débloqué en toutes lettres.
+## d'être débloqué en toutes lettres ; enfin, s'il y a quelque chose de précis à dire, un conseil en une phrase (_advice).
 ## Jamais de kanji ni de macron (polices réduites : UiKit.plain), les chiffres en num_font, pas de flou.
 func _draw_results() -> void:
 	var w := size.x
@@ -870,7 +870,9 @@ func _results_layout(u: float) -> Dictionary:
 	if victory:
 		blocks.append(["build", _SEC_H * u + 40.0 * u])
 	blocks.append(["gains", _SEC_H * u + _gains_h(u, cw)])
-	# (pas de conseil sur la feuille de fin : retiré à la demande de Victor)
+	# conseil seulement s'il tient à la partie (point faible du tueur, figures, chaîne) : jamais de rappel générique
+	if not _advice().is_empty():
+		blocks.append(["advice", _advice_h(u, cw)])
 	var total := 0.0
 	for b in blocks:
 		total += float(b[1])

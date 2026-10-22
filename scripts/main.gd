@@ -187,7 +187,7 @@ const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du h�
 const CAM_TILT := 48.0
 const CAM_FOV := 34.0
 const HOME_FOV := 44.0  # accueil, barque et carte : cadrage d'origine
-const CAM_RECUL := 0.9
+const CAM_RECUL := 0.95
 ## Réglage de la caméra (mode mesure seulement, panneau CAMÉRA de la pause : cam_panel.gd) : plongée, focale et
 ## recul (facteur sur la distance du cadrage). Hors mode mesure : toujours les valeurs du jeu ci-dessus.
 const CAM_RANGE := {"tilt": [35.0, 70.0, 2.0], "fov": [30.0, 60.0, 2.0], "recul": [0.7, 1.6, 0.05]}  # min, max, pas
@@ -6797,12 +6797,12 @@ const DMG_DOT_T := 0.5
 const DMG_RANK := {"dull": 0, "pow": 1, "norm": 2, "big": 3, "crit": 4, "kill": 5}
 # tier -> [taille du pixel, vie (s), montée (m), inclinaison max (°), ampleur du pop]
 const DMG_TIER := {
-	"dull": [0.0050, 0.55, 0.5, 4.0, 0.2],
-	"pow": [0.0050, 0.55, 0.55, 5.0, 0.3],
-	"norm": [0.0066, 0.65, 0.7, 6.0, 0.55],
-	"big": [0.0088, 0.8, 0.8, 7.0, 0.7],
-	"crit": [0.0098, 0.85, 0.85, 8.0, 0.85],
-	"kill": [0.0086, 0.85, 0.6, 9.0, 0.6],
+	"dull": [0.0044, 0.55, 0.5, 4.0, 0.2],
+	"pow": [0.0044, 0.55, 0.55, 5.0, 0.3],
+	"norm": [0.0058, 0.65, 0.7, 6.0, 0.55],
+	"big": [0.0077, 0.8, 0.8, 7.0, 0.7],
+	"crit": [0.0086, 0.85, 0.85, 8.0, 0.85],
+	"kill": [0.0076, 0.85, 0.6, 9.0, 0.6],
 }
 var _dmg_pool: Array = []  # chiffres libres (nœuds cachés)
 var _dmg_live: Array = []  # chiffres à l'écran, le plus ancien d'abord
