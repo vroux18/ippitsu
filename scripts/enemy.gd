@@ -654,7 +654,8 @@ func _setup_extra() -> void:
 			_timer = randf_range(1.5, 2.2)
 		"kanabo":
 			# oni à massue : ao-oni bleu à crinière blanche, plastron de fer, kanabō ; armure de face et bouclier
-			hp = 4.0
+			hp = 3.5  # (4 avant la passe d'ensemble : deuxième lourd des salles 10-14, armure et bouclier en plus, il
+			# faisait du monde 4 une marche ; 3,5 comme la brute)
 			speed = 1.25
 			radius = 0.8
 			_zone_r = 1.6
@@ -1184,7 +1185,9 @@ func heal_pct(f: float) -> bool:
 	var mh := float(get_meta("max_hp", hp))
 	if hp >= mh - 0.01:
 		return false
+	var hp0 := hp
 	hp = minf(mh, hp + mh * f)
+	main.dmg_src["soin"] = float(main.dmg_src.get("soin", 0.0)) + hp - hp0  # (mesures du robot : BOT SALLE)
 	main.float_text(position, "+", HEAL_C)
 	return true
 

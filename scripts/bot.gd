@@ -425,7 +425,7 @@ func _on_room_change() -> void:
 func _room_report() -> void:
 	var cur: Dictionary = main.dmg_src
 	var parts := PackedStringArray()
-	for k in ["trait", "trait_fig", "tech", "pow", "sceau"]:
+	for k in ["trait", "trait_fig", "tech", "pow", "sceau", "soin"]:
 		parts.append("%s %.1f" % [k, float(cur.get(k, 0.0)) - float(_dmg0.get(k, 0.0))])
 	var lv := 0
 	for id in main.powers.levels.keys():

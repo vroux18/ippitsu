@@ -156,7 +156,7 @@ const WORLDS: Array = [
 		"void_metal": false,
 		"bridge_wood": [Color("#4A3A30"), Color("#5C4A3C"), Color("#3A2E26")],  # bois brûlé
 		"enemies": {"oni": 2, "kappa": 1, "brute": 2, "tate": 1, "funa": 1, "kasha": 2, "hinotama": 2, "teppo": 2, "tengu": 2, "kanabo": 1, "moryo": 1},
-		"hp_mult": 1.45,
+		"hp_mult": 1.35,  # 1,45 avant la passe d'ensemble : marche trop haute après le monde 3 (salles plus longues qu'au monde 5)
 		"tokens": 3, "tele": 0.88, "b0": 7, "per": 1.8, "elite": 0.25, "bullet": 4.0,
 	},
 	{
@@ -242,8 +242,8 @@ const WORLDS: Array = [
 		"void_metal": true,
 		"bridge_wood": [Color("#8A8270"), Color("#9C9480"), Color("#6E6858")],  # bois flotté blanchi
 		"enemies": {"oni": 2, "kappa": 1, "brute": 1, "tate": 1, "funa": 2, "umibozu": 1, "ika": 2, "umi_nyobo": 1, "kani": 3, "ningyo": 2, "fugu": 2},
-		"hp_mult": 1.8,
-		"tokens": 4, "tele": 0.8, "b0": 10, "per": 2.4, "elite": 0.38, "bullet": 4.6,
+		"hp_mult": 1.7,  # 1,8 avant la passe d'ensemble : Ryūgū-jō était le mur de la campagne (salles 10-14 à 45 s)
+		"tokens": 4, "tele": 0.8, "b0": 10, "per": 2.3, "elite": 0.38, "bullet": 4.6,
 	},
 	{
 		"id": 8,
