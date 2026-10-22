@@ -56,6 +56,16 @@ var chain_lost := 0
 var score := -1  # points de la partie (-1 : pas de score, dojo)
 var score_mult := 1.0  # multiplicateur de points de la chaîne en cours
 var enemy_bars: Array = []  # [position écran, ratio de vie, (ratio de bouclier, élite)]
+var occluders: Array = []  # rectangles écran des acteurs (main) : ennemis, gardiens, tirs, butin, coffres, héros
+const FADE_ALPHA := 0.25  # opacité d'une grappe latérale recouverte par un acteur
+const FADE_MARGIN := 24.0  # marge (px à u = 1) autour de la grappe : le fondu commence avant que l'acteur la touche
+const FADE_IN := 0.15  # s : la grappe s'efface
+const FADE_OUT := 0.35  # s : elle revient
+const FADE_MARKS := 6  # repères au plus par grappe
+var _fade_l := 1.0  # opacité de la grappe gauche (vie, XP, niveau) et de la droite (encre, ultime)
+var _fade_r := 1.0
+var _marks_l := PackedFloat32Array()  # y écran des acteurs cachés derrière chaque grappe (repère vermillon)
+var _marks_r := PackedFloat32Array()
 const SHIELD_BAR := Color("#7FA6D9")  # bouclier des élites (bleu de Prusse clair, UI v2) : fine barre sur leur vie
 const ELITE_MARK := Color("#FFB23E")
 var in_play := false
@@ -384,6 +394,7 @@ func _process(delta: float) -> void:
 	var scene := get_tree().current_scene
 	picking = in_play and scene != null and str(scene.get("state")) == "pick"
 	_pause.visible = in_play and pause_enabled and dying <= 0.0 and not dojo and not picking
+	_tick_fade(real, u)
 	_pause.size = Vector2(BAR_H, BAR_H) * u
 	_pause.position = Vector2(size.x - 58.0 * u, BAR_Y * u + top_off)
 	# hors jeu (accueil, carte, refuge…) et sans rien d'animé : _draw ne dessinerait rien ;
@@ -517,6 +528,7 @@ func _draw_over(sz: Vector2, u: float) -> void:
 		_draw_power_pops(sz, u)
 		if gate_hint and not dojo:
 			_draw_gate_hint(sz, u)
+		_draw_fade_marks(u)
 
 	if screen_flash > 0.0:
 		_ci.draw_rect(Rect2(Vector2.ZERO, sz), Color(1.0, 0.97, 0.9, screen_flash * 0.5))
@@ -646,7 +658,7 @@ func _refresh_layers() -> void:
 			or not _locks_gone.is_empty())) \
 		or screen_flash > 0.0 or hurt_flash > 0.0 or (_toast_t >= 0.0 and in_play) or cine > 0.001 \
 		or (_card_t >= 0.0 and _card.size() == 4) or (_banner_t >= 0.0 and not picking) or dying > 0.0 or show_fps \
-		or wipe > 0.001 or wash > 0.001:
+		or wipe > 0.001 or wash > 0.001 or _fade_l < 0.999 or _fade_r < 0.999:
 		_layer_anim(L_OVER)
 	else:
 		_layer_check(L_OVER, [vis, size, in_play, picking])
@@ -775,6 +787,66 @@ func _tick_status(real: float) -> void:
 	_vuln_was = vuln
 
 
+## Fondu des grappes latérales : un acteur (hud.occluders, posé par main) dont l'encombrement écran touche la grappe
+## de vie ou celle d'encre (à FADE_MARGIN près) l'efface à FADE_ALPHA, par la modulation de ses couches (le dessin en
+## cache n'est pas refait) ; ses y écran sont gardés pour les repères (_draw_fade_marks). Tests de rectangles seulement.
+func _tick_fade(real: float, u: float) -> void:
+	var tl := 1.0
+	var tr := 1.0
+	_marks_l.clear()
+	_marks_r.clear()
+	if in_play and not picking and not occluders.is_empty():
+		var m := FADE_MARGIN * u
+		var lr := left_rect().grow(m)
+		var rr := right_rect().grow(m)
+		for o in occluders:
+			var r: Rect2 = o
+			if lr.intersects(r):
+				tl = FADE_ALPHA
+				if _marks_l.size() < FADE_MARKS:
+					_marks_l.append(r.get_center().y)
+			if rr.intersects(r):
+				tr = FADE_ALPHA
+				if _marks_r.size() < FADE_MARKS:
+					_marks_r.append(r.get_center().y)
+	_fade_l = _fade_step(_fade_l, tl, real)
+	_fade_r = _fade_step(_fade_r, tr, real)
+	var cl := Color(1, 1, 1, _fade_l)
+	var cr := Color(1, 1, 1, _fade_r)
+	for part in [L_LIFE, L_XP]:
+		var ly: CanvasItem = _layers[part]
+		if ly.modulate != cl:
+			ly.modulate = cl
+	for part in [L_INK, L_ULT]:
+		var ly: CanvasItem = _layers[part]
+		if ly.modulate != cr:
+			ly.modulate = cr
+
+
+## Un pas du fondu : vite à l'aller (FADE_IN), plus lent au retour (FADE_OUT).
+static func _fade_step(a: float, target: float, real: float) -> float:
+	var span := 1.0 - FADE_ALPHA
+	return move_toward(a, target, real * span / (FADE_IN if target < a else FADE_OUT))
+
+
+## Repères des acteurs cachés : point vermillon cerné de papier sur le bord intérieur de la grappe effacée, à la
+## hauteur écran de l'acteur (bornée à la grappe) ; il paraît avec le fondu et s'efface avec son retour.
+func _draw_fade_marks(u: float) -> void:
+	for side in 2:
+		var fade := _fade_l if side == 0 else _fade_r
+		var k := clampf((1.0 - fade) / (1.0 - FADE_ALPHA), 0.0, 1.0)
+		if k <= 0.01:
+			continue
+		var marks := _marks_l if side == 0 else _marks_r
+		var rect := left_rect() if side == 0 else right_rect()
+		var x := rect.end.x + 7.0 * u if side == 0 else rect.position.x - 7.0 * u
+		var rad := (2.6 + 1.4 * k) * u
+		for y in marks:
+			var c := Vector2(x, clampf(y, rect.position.y + rad, rect.end.y - rad))
+			_ci.draw_circle(c, rad + 1.5 * u, Color(UIColors.WASHI, 0.9 * k))
+			_ci.draw_circle(c, rad, Color(Toon.VERMILION, k))
+
+
 ## Bas de la zone du haut (en u, sous la marge) : sous la barre haute, ou sous le makimono du gardien et ses libellés.
 func _below_k() -> float:
 	if boss_name == "":
@@ -824,6 +896,18 @@ func ink_rect() -> Rect2:
 func life_rect() -> Rect2:
 	var u := size.x / 400.0
 	return Rect2(Vector2(8.0 * u, _cluster_top()), Vector2(32.0 * u, 188.0 * u))
+
+
+## Grappe gauche entière (fourreau de vie, filet d'XP, hexagone de niveau), en pixels écran.
+func left_rect() -> Rect2:
+	var u := size.x / 400.0
+	return Rect2(Vector2(8.0 * u, _cluster_top()), Vector2(45.0 * u, 238.0 * u))
+
+
+## Grappe droite entière (goutte, jauge d'encre, sceau d'ultime), en pixels écran.
+func right_rect() -> Rect2:
+	var u := size.x / 400.0
+	return Rect2(Vector2(size.x - 60.0 * u, _cluster_top()), Vector2(52.0 * u, 244.0 * u))
 
 
 ## Filet d'expérience, collé à la vie côté terrain.

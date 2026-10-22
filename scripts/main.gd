@@ -965,6 +965,10 @@ func _ready() -> void:
 	var fz := wsearch.find("figer=")
 	if fz >= 0:
 		get_tree().create_timer(float(wsearch.substr(fz + 6).get_slice("&", 0)), true, false, true).timeout.connect(func() -> void: _cap_frozen = true)
+	# `?room=2&sousbarre&figer=2` (captures du fondu des barres latérales) : au bout d'une seconde, un mannequin
+	# posé sous la jauge de vie et un autre sous la jauge d'encre (yōkai du monde, immobiles)
+	if "sousbarre" in wsearch and state == "play":
+		get_tree().create_timer(1.0, true, false, true).timeout.connect(_capture_under_bars)
 	if "autel" in wsearch and state == "play":
 		# comme après le dernier combat de l'étape : zones nettoyées, torii ouvert, puis l'autel
 		for zi in arena.zones.size():
@@ -4479,6 +4483,21 @@ func _capture_sealed(fig: String, k: String, far: bool) -> void:
 		enemies.append(e)
 
 
+## Capture (`&sousbarre`) : un mannequin au sol sous le milieu de chaque grappe latérale du HUD (vie à gauche, encre à
+## droite), là où un yōkai qui longe le bord disparaît derrière les jauges.
+func _capture_under_bars() -> void:
+	var kinds: Array = Worlds.world(current_world).get("enemies", {"oni": 1}).keys()
+	for r in [hud.left_rect(), hud.right_rect()]:
+		var rr: Rect2 = r
+		var e := Enemy.new()
+		e.setup(String(kinds[0]), hero, self)
+		e.position = arena.clamp_walk(_ground(rr.get_center()), 0.6)
+		add_child(e)
+		e.dummy = true
+		e.set_meta("max_hp", e.hp)
+		enemies.append(e)
+
+
 ## Capture : le héros trace un trait à travers le scellé : sa figure (`right`, le sceau se brise) ou un trait droit
 ## (le coup ricoche).
 func _capture_seal_stroke(right: bool) -> void:
@@ -7457,6 +7476,19 @@ func _input(event: InputEvent) -> void:
 		_touch_move(event.position)
 
 
+## Encombrement à l'écran d'un acteur posé en `p` (hauteur h, demi-largeur r, en m) : rectangle du pied à la tête,
+## ajouté à `out` s'il est devant la caméra.
+func _occ_add(out: Array, p: Vector3, h: float, r: float) -> void:
+	if cam.is_position_behind(p):
+		return
+	var foot := cam.unproject_position(p)
+	var head := cam.unproject_position(p + Vector3(0, h, 0))
+	var side := cam.unproject_position(p + Vector3(r, 0, 0))
+	var hw := maxf(absf(side.x - foot.x), 4.0)
+	var top := minf(foot.y, head.y)
+	out.append(Rect2(minf(foot.x, head.x) - hw, top, absf(head.x - foot.x) + hw * 2.0, maxf(absf(foot.y - head.y), 4.0)))
+
+
 func _ground(sp: Vector2) -> Vector3:
 	var o := cam.project_ray_origin(sp)
 	var n := cam.project_ray_normal(sp)
@@ -9143,10 +9175,34 @@ func _process(_delta: float) -> void:
 	hud.score_mult = Score.mult(chain, score.chain_early) if state != "tuto" else 1.0
 	var bars: Array = []
 	var locks: Array = []
+	# acteurs qui passent sous les grappes latérales du HUD (vie, encre) : leur encombrement à l'écran ; le HUD
+	# efface la grappe recouverte (hud.occluders, tests de rectangles seulement)
+	var occ: Array = []
+	if hud.in_play:
+		if is_instance_valid(hero):
+			_occ_add(occ, hero.position, 2.0, 0.55)
+		for b in bosses:
+			# (les géants daidara et kuronami n'ont pas de rayon : 1 m)
+			if is_instance_valid(b) and not bool(b.get("dead")):
+				var br := float(b.get("radius")) if b.get("radius") != null else 1.0
+				_occ_add(occ, b.position, maxf(2.0, br * 2.6), br)
+		for b in bullets:
+			var bn: Node3D = b.node
+			if is_instance_valid(bn):
+				_occ_add(occ, bn.position, 0.6, 0.3)
+		for it in pickups.items():
+			var pn = it.get("node")
+			if is_instance_valid(pn):
+				_occ_add(occ, (pn as Node3D).position, 0.7, 0.35)
+		for pk in _pockets:
+			if String(pk["kind"]) == "chest" and not bool(pk["used"]) and is_instance_valid(pk["node"]):
+				_occ_add(occ, (pk["node"] as Node3D).position, 1.6, 0.9)
 	for e in enemies:
 		if is_instance_valid(e) and e.seal_shown() and not cam.is_position_behind(e.seal_anchor()):
 			# yōkai scellé : son cadenas (figure qui le brise, ricochet), au-dessus de sa barre de vie
 			locks.append([cam.unproject_position(e.seal_anchor()), e.seal_fig, e.seal_rico])
+		if is_instance_valid(e) and not e.dead and hud.in_play:
+			_occ_add(occ, e.position, e.bar_top(), maxf(0.5, float(e.radius)) * e.scale.x)
 		if is_instance_valid(e) and not e.dead and e.has_meta("max_hp"):
 			var mh: float = e.get_meta("max_hp")
 			var sr: float = e.shield_ratio()
@@ -9157,6 +9213,7 @@ func _process(_delta: float) -> void:
 				bars.append([cam.unproject_position(e.position + Vector3(0, top, 0)), e.hp / mh, sr, el])
 	hud.enemy_bars = bars
 	hud.seal_locks = locks
+	hud.occluders = occ
 	hud.hp = hero.hp
 	hud.max_hp = hero.max_hp
 	if _explore:
