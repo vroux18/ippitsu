@@ -302,8 +302,8 @@ func force(id: String) -> void:
 			_charm_id = String(Gear.CHARM_ORDER[0])
 
 
-## Figure gagnée (main._fig_gained) : annonce NOUVELLE FIGURE dès que possible (même à la victoire ou sur la
-## feuille de résultats), une fois.
+## Figure gagnée hors boss (main._fig_gained : étape 3, gardien) : annonce NOUVELLE FIGURE dès que possible, une
+## fois. (Celle du boss d'un monde a sa cérémonie plein écran avant la feuille de résultats : fig_ceremony.gd.)
 func announce_fig(kind: String) -> void:
 	if kind != "":
 		_due["fig_" + kind] = true

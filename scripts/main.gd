@@ -66,6 +66,7 @@ const Tutorial = preload("res://scripts/tutorial.gd")  # hôte du dojo
 const Coach = preload("res://scripts/coach.gd")  # tutoriel en jeu : bulles du premier monde
 const TreeCoach = preload("res://scripts/tree_coach.gd")  # tutoriel de l'Arbre du pinceau (accueil, Atelier)
 const Intro = preload("res://scripts/intro.gd")
+const FigCeremony = preload("res://scripts/fig_ceremony.gd")  # cérémonie de nouvelle figure (boss d'un monde vaincu)
 const Opening = preload("res://scripts/opening.gd")
 const Music = preload("res://scripts/music_player.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
@@ -458,6 +459,10 @@ var pad_show := "start"  # always | start | never
 var _strokes_done := 0
 var _run_anchor := Vector2.ZERO  # mode pad : point où le doigt s'est posé pendant la course (manette)
 var intro: Control  # planches illustrées : premier JOUER, ou bouton « ? » de l'accueil
+var fig_ceremony: Control  # NOUVELLE FIGURE après le boss d'un monde, avant la feuille de résultats (fig_ceremony.gd)
+var _figs_run: Array = []  # figures de base gagnées pendant la partie (ligne « Nouvelle figure » des GAINS)
+var _figs_ceremony: Array = []  # celles gagnées sur le boss du monde : la cérémonie les attend à la fin de partie
+var _cer_hold := -1.0  # captures (`&ft=`) : horloge du geste de la cérémonie figée
 var opening: Control  # ouverture à l'encre du tout premier démarrage (mini-histoire, opening.gd), au-dessus de tout
 var vfx: Node3D
 var options: Control
@@ -738,6 +743,9 @@ func _ready() -> void:
 	opt_layer.add_child(intro)
 	intro.finished.connect(_on_intro_finished)
 	menu.tuto_pressed.connect(_open_intro.bind(true))
+	fig_ceremony = FigCeremony.new()
+	opt_layer.add_child(fig_ceremony)
+	fig_ceremony.closed.connect(_on_fig_ceremony_closed)
 	var open_layer := CanvasLayer.new()
 	open_layer.layer = 6
 	add_child(open_layer)
@@ -1197,6 +1205,19 @@ func _ready() -> void:
 			shape_counts = {"zigzag": 20, "straight": 13, "loop": 12, "return": 8, "enso": 3, "hook": 1}
 		powers.levels = {"fire_burn": 2, "fire_spark": 1, "water_tide": 1, "fig_loop": 1}  # build de démo (médaillons, étiquettes)
 		_ending_victory = "victoire" in wsearch
+		# `&figure=return` : la cérémonie NOUVELLE FIGURE avant la feuille ; `&ft=1.2` : le geste figé à cet instant
+		var fgq := wsearch.find("figure=")
+		if fgq >= 0:
+			var fk := wsearch.substr(fgq + 7).get_slice("&", 0)
+			_figs_ceremony = [fk]
+			_figs_run = [fk]
+			for gk in Meta.FIG_GATE_ORDER:  # (les figures d'avant sont acquises : la ligne « Prochaine » suit)
+				meta.figs_won[String(gk)] = true
+				if String(gk) == fk:
+					break
+			var ftq := wsearch.find("&ft=")
+			if ftq >= 0:
+				_cer_hold = float(wsearch.substr(ftq + 4).get_slice("&", 0))
 		_finish_run()
 		menu.new_prints = ["w1_room"]  # estampe de démo (vignette des gains)
 		if "gain" in wsearch:
@@ -2218,6 +2239,8 @@ func _notification(what: int) -> void:
 			opening.call("skip")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and intro != null and intro.visible:
 			intro.close()
+		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and fig_ceremony != null and fig_ceremony.visible:
+			fig_ceremony.call("close")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and wardrobe != null and wardrobe.visible:
 			wardrobe.call("close")
 		elif what == NOTIFICATION_WM_GO_BACK_REQUEST and departure != null and departure.visible:
@@ -3665,6 +3688,10 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	_new_kinds.clear()
 	if coach != null:
 		coach.clear()
+	_figs_run.clear()
+	_figs_ceremony.clear()
+	if fig_ceremony != null:
+		fig_ceremony.visible = false  # (nouvelle partie lancée par-dessus : la cérémonie n'a plus lieu d'être)
 	stage_i = 0
 	_enc = -1
 	_slowmo_t = -1.0
@@ -4296,7 +4323,10 @@ func boss_killed(b: Node3D) -> void:
 	pickups.drop(b.position, "coin", 10)
 	var clean := not _scratched
 	if state != "tuto" and not in_hub:
-		_fig_gained(meta.fig_win(current_world, "mini" if is_mini_boss(String(b.kind)) else "boss"))
+		# gardien : annonce du coach en jeu ; boss du monde : la cérémonie attend la fin de partie (la partie
+		# s'achève aussitôt, une annonce ici serait coupée par la feuille de résultats)
+		var mini_b := is_mini_boss(String(b.kind))
+		_fig_gained(meta.fig_win(current_world, "mini" if mini_b else "boss"), not mini_b)
 	if is_mini_boss(String(b.kind)):
 		mini_kills += 1
 		if meta.learned("p4"):
@@ -4334,12 +4364,72 @@ func boss_killed(b: Node3D) -> void:
 
 
 ## Figures que la progression vient de donner (meta.fig_win) : annoncées par le coach (NOUVELLE FIGURE, le
-## geste qui se trace), reconnues dès le trait suivant.
-func _fig_gained(figs: Array) -> void:
+## geste qui se trace), reconnues dès le trait suivant. `ceremony` (boss du monde vaincu) : juste une pastille en
+## jeu, la cérémonie NOUVELLE FIGURE vient après la victoire, avant la feuille de résultats (_finish_run) ; le coach
+## ne l'annonce pas (vue). Toutes vont aux GAINS de la feuille.
+func _fig_gained(figs: Array, ceremony := false) -> void:
 	for f in figs:
-		coach.announce_fig(String(f))
+		var fk := String(f)
+		_figs_run.append(fk)
+		if ceremony:
+			_figs_ceremony.append(fk)
+			meta.coach_see("fig_" + fk)
+			hud.toast("NOUVELLE FIGURE · " + String(UiKit.FIG_WORD.get(fk, fk.to_upper())))
+		else:
+			coach.announce_fig(fk)
 		if _bot != null:
-			print("BOT FIGURE gagnée : %s (monde %d, salle %d)" % [String(f), current_world, room])
+			print("BOT FIGURE gagnée : %s (monde %d, salle %d%s)" % [fk, current_world, room, ", cérémonie" if ceremony else ""])
+
+
+## Cérémonie de la prochaine figure gagnée sur le boss (_figs_ceremony) : la feuille de résultats attend derrière.
+func _open_fig_ceremony() -> void:
+	var k := String(_figs_ceremony.pop_front())
+	var how := "Nouvelle figure"
+	if Meta.FIG_GATES.has(k):
+		var g: Array = Meta.FIG_GATES[k]
+		match String(g[1]):
+			"stage3":
+				how = "Étape 3 atteinte"
+			"mini":
+				how = coach.foe_name(int(g[0]), true) + " vaincu"
+			_:
+				how = coach.foe_name(int(g[0]), false) + " vaincu"
+	elif k in PowerData.FIG_TREE:
+		how = "Apprise dans l'Arbre"
+	# ce qu'elle fait : sa technique si la partie l'a (rouleau de la figure), sinon ce que toute figure donne
+	var tid := String(PowerData.FIG_UNLOCK.get(k, ""))
+	var what := "+%d %% de dégâts et une technique à découvrir" % int(round((FIG_DMG - 1.0) * 100.0))
+	if tid != "" and int(powers.levels.get(tid, 0)) > 0:
+		what = "Technique %s : %s" % [UiKit.power_label(tid), UiKit.fx_line(tid)]
+	# la prochaine à gagner, dans l'ordre du calendrier (figs_won : le robot et les captures ouvrent tout par
+	# ailleurs), puis celles de l'Arbre
+	var nxt := ""
+	for nk in Meta.FIG_GATE_ORDER:
+		if not meta.figs_won.has(String(nk)):
+			nxt = String(coach.fig_goal(String(nk)))
+			break
+	if nxt != "":
+		nxt = "Prochaine : " + nxt
+	else:
+		for nk in PowerData.FIG_TREE:
+			if not bool(meta.fig_learned(String(nk))):
+				nxt = "Les suivantes : " + String(coach.fig_goal(String(nk)))  # « l'Arbre, branche Voie »
+				break
+	menu.show_mode("hidden")
+	fig_ceremony.set("hold", _cer_hold)
+	fig_ceremony.call("open", k, how, what, nxt)
+	sfx.play("torii", 1.0, -2.0)
+	if _bot != null:
+		print("BOT CÉRÉMONIE : nouvelle figure %s (%s ; %s)" % [k, how, nxt if nxt != "" else "dernière"])
+
+
+## CONTINUER : la figure suivante s'il en reste une, sinon la feuille de résultats.
+func _on_fig_ceremony_closed() -> void:
+	if not _figs_ceremony.is_empty():
+		_open_fig_ceremony()
+		return
+	sfx.play("whoosh", 1.1, -6.0)
+	menu.show_mode("over")
 
 
 ## Retour haptique nommé (motifs dans sfx.gd) : sans effet hors mobile ou si l'option est coupée.
@@ -6815,7 +6905,10 @@ func _finish_run() -> void:
 				menu.killer_name = ""
 				menu.killer_hint = ""
 				menu.killer_kind = String(e.kind)
+	menu.new_figs = _figs_run.duplicate()  # GAINS : « Nouvelle figure : Aller-retour »
 	_set_state("over")
+	if not _figs_ceremony.is_empty():
+		_open_fig_ceremony()  # boss du monde vaincu : NOUVELLE FIGURE d'abord, la feuille derrière
 
 
 ## Score de la partie : record du monde, rang, prime d'encre (ajoutée aux gains de la feuille de résultats).
