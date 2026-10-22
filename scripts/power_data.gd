@@ -157,7 +157,7 @@ const POWERS := {
 	# ---------------------------------------------------------------- EAU
 	"water_push": {"school": "water", "rarity": "common", "unlock": 0, "label": "Ressac", "short": "Tes coups repoussent de {v} m", "icon": "push_wave", "trig": "hit",
 		"name": "Ressac", "sub": "Vague qui repousse", "when": "À CHAQUE COUP",
-		"text": "Chaque ennemi que tu tranches est projeté loin de ton trait.",
+		"text": "Chaque ennemi que tu tranches est projeté loin de ton trait. Les colosses et les oni à massue ne bougent pas.",
 		"stat": "Recul : {v} m", "v": [2.5, 3.2, 4.0]},
 	"water_dew": {"school": "water", "rarity": "common", "unlock": 0, "label": "Rosée", "short": "+1 cœur tous les {v} tués", "icon": "heart_drop", "trig": "kill",
 		"name": "Rosée", "sub": "Soin par les victoires", "when": "EN TUANT",

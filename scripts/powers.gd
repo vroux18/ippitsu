@@ -1156,7 +1156,8 @@ func on_hit(e: Node3D, dmg: float, dir: Vector3) -> float:
 		var side := Vector3(-dir.z, 0, dir.x).normalized()
 		if side.dot(e.position - main.hero.position) < 0.0:
 			side = -side
-		e.push(side * val("water_push") * 3.0 * _wave_mult())
+		# le recul est freiné à 8/s (enemy._knock) : une impulsion de 8 × d parcourt d mètres, comme l'annonce la carte
+		e.push(side * val("water_push") * 8.0 * _wave_mult())
 		main.vfx.wave_arc(e.position, side, 0.7, true)
 		_flash_e(e, "water")
 		_tag("water_push", e.position, false)
