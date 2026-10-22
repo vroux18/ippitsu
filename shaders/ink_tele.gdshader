@@ -18,12 +18,20 @@ instance uniform vec4 tl_grow = vec4(0.0, 0.0, 0.0, 0.0);  // côté d'où part 
 const float INK_W = 0.09;  // contour d'encre (à cheval sur le bord, surtout dehors) : vfx.TELE_INK
 const float RIM_W = 0.07;  // liseré : vfx.TELE_RIM
 
-varying vec2 p;
+varying highp vec2 p;  // position dans le plan de l'annonce (m), centre du quad en 0
 
+// Hachage sur les BITS des flottants (arithmétique entière 32 bits, exacte) : le même résultat sur bureau et sur
+// GPU de téléphone, quelle que soit la précision flottante (l'ancien hachage par fract de grands produits se
+// dégrade en blocs ou en zéros dès que le pilote calcule en 16 bits).
 float hash12(vec2 q) {
-	vec3 p3 = fract(vec3(q.x, q.y, q.x) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
+	uvec2 b = floatBitsToUint(q + vec2(0.5));
+	uint h = (b.x * 1597334677u) ^ (b.y * 3812015801u + 2654435769u);
+	h ^= h >> 16u;
+	h *= 2146121005u;
+	h ^= h >> 15u;
+	h *= 2221713035u;
+	h ^= h >> 16u;
+	return float(h >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 q) {
@@ -34,8 +42,10 @@ float vnoise(vec2 q) {
 }
 
 void vertex() {
-	// le nœud est posé sur la boîte (échelle = demi-tailles, position = centre) : p en mètres de l'annonce
-	p = VERTEX.xz * tl_box.xy + tl_box.zw;
+	// le nœud est posé sur la boîte (échelle = demi-tailles, position = centre) : p en mètres depuis le centre du
+	// quad, lu dans l'échelle du nœud (le sommet ne lit aucun paramètre d'instance ; le centre tl_box.zw est
+	// ajouté dans fragment())
+	p = VERTEX.xz * vec2(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[2].xyz));
 }
 
 float sd_box(vec2 q, vec2 h) {
@@ -52,19 +62,19 @@ float sd_pie(vec2 q, float a, float r) {
 	return max(l, m * sign(c.y * q.x - c.x * q.y));
 }
 
-// distance au bord de la forme, à l'avancée k (1 : forme entière)
-float shape_d(float k) {
+// distance au bord de la forme, à l'avancée k (1 : forme entière) ; pa : position dans le repère de l'annonce
+float shape_d(vec2 pa, float k) {
 	float mode = tl_shape.x;
 	if (mode < 0.5 || mode > 2.5) {
-		return length(p) - tl_shape.y * k;
+		return length(pa) - tl_shape.y * k;
 	} else if (mode < 1.5) {
 		vec2 h = tl_shape.yz;
 		vec2 g = tl_grow.xy;
 		vec2 hk = vec2(g.y != 0.0 ? h.x : h.x * k, g.x != 0.0 ? h.y : h.y * k);
 		vec2 c = vec2(g.x * h.x * (1.0 - k), g.y * h.y * (1.0 - k));
-		return sd_box(p - c, hk);
+		return sd_box(pa - c, hk);
 	}
-	return sd_pie(p, tl_shape.y, tl_shape.z * k);
+	return sd_pie(pa, tl_shape.y, tl_shape.z * k);
 }
 
 vec4 over(vec4 dst, vec4 src) {
@@ -76,8 +86,11 @@ vec4 over(vec4 dst, vec4 src) {
 void fragment() {
 	float k = clamp(tl_state.x, 0.01, 1.0);
 	bool flash = tl_state.y > 0.5;
-	float d = shape_d(1.0);
-	float aa = max(fwidth(d), 0.004);
+	highp vec2 pa = p + tl_box.zw;  // repère de l'annonce (m)
+	float d = shape_d(pa, 1.0);
+	// anticrénelage : largeur d'un pixel, BORNÉE (une dérivée aberrante ne doit jamais déformer l'annonce : tout le
+	// jeu repose sur sa lecture)
+	float aa = clamp(fwidth(d), 0.004, 0.05);
 	float size = tl_shape.x > 2.5 ? tl_shape.y : max(tl_shape.y, tl_shape.z);
 	vec4 col = vec4(0.0);
 	if (tl_shape.x > 2.5) {
@@ -92,10 +105,10 @@ void fragment() {
 	} else {
 		float inside = 1.0 - smoothstep(-aa, aa, d);
 		// fond : vermillon pâle, hachures diagonales (lisibles même sur un sol rouge ou sombre)
-		float hat = smoothstep(0.35, 0.5, abs(fract((p.x + p.y) * 3.2) - 0.5));
+		float hat = smoothstep(0.35, 0.5, abs(fract((pa.x + pa.y) * 3.2) - 0.5));
 		col = over(col, vec4(0.9, 0.24, 0.15, (0.15 + 0.17 * hat) * inside));
 		// remplissage qui avance, front plus sombre
-		float fd = shape_d(k);
+		float fd = shape_d(pa, k);
 		float fill = (1.0 - smoothstep(-aa, aa, fd)) * inside;
 		vec4 fc = flash ? vec4(1.0, 0.95, 0.86, 0.92) : vec4(0.88, 0.2, 0.13, 0.58);
 		col = over(col, vec4(fc.rgb, fc.a * fill));
@@ -111,7 +124,7 @@ void fragment() {
 			col = over(col, vec4(0.95, 0.24, 0.15, 0.95 * rim));
 		}
 		// contour d'encre au pinceau : épaisseur qui respire le long du bord
-		float wob = (vnoise(p * 5.0) - 0.5) * 0.035;
+		float wob = (vnoise(pa * 5.0) - 0.5) * 0.035;
 		float ink = smoothstep(-aa, aa, d + 0.02) * (1.0 - smoothstep(-aa, aa, d - INK_W - wob));
 		col = over(col, vec4(0.1, 0.1, 0.12, 0.9 * ink));
 	}

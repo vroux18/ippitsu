@@ -17,6 +17,15 @@ extends RefCounted
 ## Nœuds à paramètres d'instance vivants au plus : 56 × 16 = 896 emplacements < 1024 (16 Kio, minimum GLES3).
 const BUDGET := 56
 
+## Téléphone : AUCUN paramètre d'instance, chaque effet a sa matière propre (même shader, même nombre d'appels de
+## dessin). Sur un GPU Mali, des annonces d'attaque (ink_tele) et des traits (ink_stroke) se sont dégradés par
+## moments en damiers de blocs de 16 × 16 pixels (la taille des tuiles du GPU) : des tuiles entières rendues avec
+## des valeurs fausses, le genre de dégât qu'une lecture de travers du tampon global des paramètres d'instance
+## (déjà vu : flaque magenta) produit quand ses emplacements sont réécrits/réattribués pendant que le GPU, qui a
+## une image de retard, dessine encore. Les uniform ordinaires d'une matière propre ne passent pas par ce tampon.
+## `--lite` (rendu téléphone sur bureau) suit la même voie, pour que les tests l'exercent.
+static var phone_own: bool = OS.has_feature("mobile") or "--lite" in OS.get_cmdline_user_args()
+
 static var live := 0  # nœuds liés à une matière partagée et présents dans l'arbre
 static var force_own := false  # préchauffage : forcer la matière propre (compile la variante d'avance)
 static var _variants := {}  # Shader partagé -> sa variante sans paramètres d'instance
@@ -24,7 +33,7 @@ static var _variants := {}  # Shader partagé -> sa variante sans paramètres d'
 
 ## Pose la matière de `gi` : la matière partagée `mat` tant que le budget le permet, sinon une matière propre.
 static func bind(gi: GeometryInstance3D, mat: ShaderMaterial) -> void:
-	if not force_own and live < BUDGET:
+	if not force_own and not phone_own and live < BUDGET:
 		gi.material_override = mat
 		if gi.is_inside_tree():
 			live += 1

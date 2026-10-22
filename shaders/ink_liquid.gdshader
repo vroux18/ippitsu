@@ -26,14 +26,22 @@ instance uniform vec4 ink_state = vec4(0.0, 1.3, 0.0, 1.0);
 // z : distance des gouttes (rayons), w : taille des gouttes
 instance uniform vec4 ink_shape = vec4(1.0, 0.7, 1.55, 1.0);
 
-varying vec2 q;
-varying vec2 wxz;
+varying highp vec2 q;
+varying highp vec2 wxz;  // position dans le plan de la tache, en mètres depuis son centre (fibres du papier)
 varying vec2 lq;  // direction de la lumière (vers la lumière) dans le repère de la tache
 
+// Hachage sur les BITS des flottants (arithmétique entière 32 bits, exacte) : le même résultat sur bureau et sur
+// GPU de téléphone, quelle que soit la précision flottante (l'ancien hachage par fract de grands produits se
+// dégrade en blocs ou en zéros dès que le pilote calcule en 16 bits).
 float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
+	uvec2 b = floatBitsToUint(p + vec2(0.5));
+	uint h = (b.x * 1597334677u) ^ (b.y * 3812015801u + 2654435769u);
+	h ^= h >> 16u;
+	h *= 2146121005u;
+	h ^= h >> 15u;
+	h *= 2221713035u;
+	h ^= h >> 16u;
+	return float(h >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 p) {
@@ -67,8 +75,9 @@ float taper(vec2 p, vec2 a, vec2 b, float ra, float rb) {
 
 void vertex() {
 	q = VERTEX.xz * EXT;
-	vec4 w = MODEL_MATRIX * vec4(VERTEX, 1.0);
-	wxz = w.xz;
+	// coordonnées LOCALES (m) et non du monde : petites quelle que soit la place de la tache dans l'arène (un GPU
+	// de téléphone qui arrondit perd le bruit sur de grandes coordonnées -> blocs) ; la graine décale le motif
+	wxz = VERTEX.xz * vec2(length(MODEL_MATRIX[0].xyz), length(MODEL_MATRIX[2].xyz));
 	// lumière venue du haut-gauche de l'écran (au loin, à gauche), ramenée dans le repère du nœud
 	vec3 lw = normalize(vec3(-0.5, 0.0, -0.85));
 	vec3 ll = transpose(mat3(MODEL_MATRIX)) * lw;
@@ -97,12 +106,12 @@ void fragment() {
 
 	// --- forme
 	// léger gauchissement du domaine : rien n'est tout à fait rond
-	vec2 p = q + (vec2(vnoise(q * 1.7 + seed * 13.1), vnoise(q * 1.7 + seed * 7.7 + 31.0)) - 0.5) * 0.22;
+	vec2 p = q + (vec2(vnoise(q * 1.7 + seed * 1.31), vnoise(q * 1.7 + seed * 0.77 + 31.0)) - 0.5) * 0.22;
 	float r = length(p);
 	vec2 dir = p / max(r, 0.0001);
 	// bord du corps : FBM sur la direction (pas de couture à l'angle ±π)
-	float nb = fbm2(dir * 1.9 + seed * 3.7);
-	float nh = vnoise(dir * 6.5 + seed * 5.3);
+	float nb = fbm2(dir * 1.9 + seed * 0.37);
+	float nh = vnoise(dir * 6.5 + seed * 0.53);
 	float Rb = R * (0.8 + 0.34 * nb + 0.07 * nh);
 	float d = core > 0.001 ? (r - Rb) * 0.85 : 10.0;
 
@@ -152,14 +161,14 @@ void fragment() {
 	float fib = vnoise(wxz * 26.0 + seed);
 	float fib2 = vnoise(wxz * 9.0 - seed);
 	d += (fib - 0.5) * (0.025 + 0.07 * dry) + (fib2 - 0.5) * 0.04 * dry - 0.035 * dry;
-	float aa = max(fwidth(d), 0.002);
+	float aa = clamp(fwidth(d), 0.002, 0.08);  // borné : une dérivée aberrante n'étale pas la tache
 	float soft = aa * 0.8 + 0.02 * dry;
 	float cov = 1.0 - smoothstep(-soft, soft, d);
 
 	// --- auréole du séchage (coffee ring) et marbrure de l'intérieur
 	float ringw = 0.075 + 0.05 * fib2;
 	float rim = 1.0 - smoothstep(0.0, ringw, -d);
-	float mott = fbm2(wxz * 3.1 + seed * 2.0) * 0.75 + vnoise(wxz * 15.0 - seed) * 0.25;  // marbrure + granulation
+	float mott = fbm2(wxz * 3.1 + seed * 0.2) * 0.75 + vnoise(wxz * 15.0 - seed) * 0.25;  // marbrure + granulation
 	float a_in = mix(1.0, 0.3 + 0.45 * mott * mott, dry);
 	float dens = ink_color.a;
 	float alpha = clamp(dens * 1.45, 0.0, 1.0) * mix(a_in, 1.0, rim * dry);

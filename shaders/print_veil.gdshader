@@ -20,10 +20,18 @@ uniform vec4 haze_col : source_color = vec4(0.5, 0.55, 0.7, 1.0);
 uniform float haze_k = 0.0;
 uniform float haze_from = 0.62;  // hauteur (UV.y) où la brume commence (0 : haut de l'écran)
 
+// Hachage sur les BITS des flottants (arithmétique entière 32 bits, exacte) : le même résultat sur bureau et sur
+// GPU de téléphone, quelle que soit la précision flottante (l'ancien hachage par fract de grands produits se
+// dégrade en blocs ou en zéros dès que le pilote calcule en 16 bits).
 float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
+	uvec2 b = floatBitsToUint(p + vec2(0.5));
+	uint h = (b.x * 1597334677u) ^ (b.y * 3812015801u + 2654435769u);
+	h ^= h >> 16u;
+	h *= 2146121005u;
+	h ^= h >> 15u;
+	h *= 2221713035u;
+	h ^= h >> 16u;
+	return float(h >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 p) {

@@ -27,12 +27,20 @@ instance uniform vec4 fx_core : source_color = vec4(1.0, 1.0, 1.0, 1.0);  // fil
 // x : âge (s), y : vie (s), z : graine, w : sorte
 instance uniform vec4 fx_state = vec4(0.0, 0.5, 0.0, 0.0);
 
-varying vec2 q;
+varying highp vec2 q;
 
+// Hachage sur les BITS des flottants (arithmétique entière 32 bits, exacte) : le même résultat sur bureau et sur
+// GPU de téléphone, quelle que soit la précision flottante (l'ancien hachage par fract de grands produits se
+// dégrade en blocs ou en zéros dès que le pilote calcule en 16 bits).
 float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
+	uvec2 b = floatBitsToUint(p + vec2(0.5));
+	uint h = (b.x * 1597334677u) ^ (b.y * 3812015801u + 2654435769u);
+	h ^= h >> 16u;
+	h *= 2146121005u;
+	h ^= h >> 15u;
+	h *= 2221713035u;
+	h ^= h >> 16u;
+	return float(h >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 p) {
@@ -92,7 +100,7 @@ vec4 enso(float age, float life, float seed, bool water) {
 	float en = vnoise(vec2(ang * 9.0 + seed * 5.0, r * 6.0)) - 0.5;
 	float across = (r - R) / max(W, 0.001);  // -1 dedans .. 1 dehors
 	float d = abs(r - R) - W + en * 0.018;
-	float aa = max(fwidth(r), 0.002);
+	float aa = clamp(fwidth(r), 0.002, 0.05);  // borné (téléphone)
 	float cov = 1.0 - smoothstep(-aa, aa, d);
 	// poils secs : stries le long du trait, qui gagnent avec l'âge et vers la queue
 	float hair = vnoise(vec2(s * 5.0 + seed, across * 4.5 + 7.0)) * 0.6 + vnoise(vec2(s * 13.0 - seed, across * 11.0)) * 0.4;
@@ -161,7 +169,7 @@ vec4 scorch(float age, float life, float seed) {
 	float grow = 1.0 - pow(1.0 - clamp(age / 0.12, 0.0, 1.0), 3.0);
 	float Rb = (0.25 + 0.75 * grow) * (0.72 + 0.32 * fbm2(dir * 2.3 + seed * 3.1) + 0.08 * vnoise(dir * 9.0 + seed));
 	float d = r - Rb;
-	float aa = max(fwidth(d), 0.002);
+	float aa = clamp(fwidth(d), 0.002, 0.05);  // borné (téléphone)
 	float cov = 1.0 - smoothstep(-aa * 2.0, aa * 2.0, d);
 	// suie : marbrée, plus dense au bord (le papier roussi fonce sur son pourtour)
 	float mott = fbm2(q * 4.3 + seed * 5.0);
@@ -202,7 +210,7 @@ vec4 shade(float age, float life, float seed) {
 	float fing = pow(vnoise(vec2(ang * 2.0 + seed * 9.0, seed)) * 0.5 + vnoise(dir * 3.5 + seed * 3.0) * 0.5, 2.6);
 	float Rb = 0.48 * grow * (0.82 + 0.3 * fbm2(dir * 2.0 + seed * 2.0)) + fing * (0.25 + 0.55 * creep) * grow;
 	float d = r - Rb;
-	float aa = max(fwidth(d), 0.002);
+	float aa = clamp(fwidth(d), 0.002, 0.05);  // borné (téléphone)
 	float fib = vnoise(q * 22.0 + seed);
 	d += (fib - 0.5) * (0.03 + 0.05 * creep);
 	float cov = 1.0 - smoothstep(-aa - 0.02 * creep, aa + 0.02 * creep, d);
