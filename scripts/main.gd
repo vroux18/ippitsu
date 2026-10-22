@@ -481,7 +481,7 @@ var _boss_seen: Node3D = null
 var _boss_hp_seen := 0.0
 var _boss_sh_seen := 0.0  # bouclier du boss vu à l'image précédente (astuce du point faible)
 var _boss_dry_t := 0.0  # temps sans dégât sur le boss (affiche son point faible)
-var _dmg_labels := {}  # id ennemi -> chiffre en cours (cumul des touches rapprochées)
+var _dmg_labels := {}  # id ennemi -> [chiffre en cours, son numéro] (cumul des touches rapprochées)
 var _ricochets := {}  # ricochets sur les boss de la partie (astuces)
 var _auto_step := false  # pas de côté automatique en cours (ne compte pas comme un trait)
 var run_time := 0.0
@@ -1108,6 +1108,12 @@ func _ready() -> void:
 			_cam_dz = _cam_target()
 			arena.follow_camera(_cam_dz)
 		hero.invuln = 999.0
+	# `&degats` (captures, avec `combat`) : planche de chiffres de dégâts autour du héros (normal, gros, fatal,
+	# atténué par l'encre dure, pouvoirs, critique, figure), puis l'image se fige au bout de `dmgt=` s (0,22)
+	if "degats" in wsearch and state == "play":
+		var dtq := wsearch.find("dmgt=")
+		var dft := float(wsearch.substr(dtq + 5).get_slice("&", 0)) if dtq >= 0 else 0.22
+		get_tree().create_timer(1.6, true, false, true).timeout.connect(_capture_dmg.bind(dft))
 	# `?carnet` (captures) : le dojo, carnet des figures ouvert
 	if "carnet" in wsearch:
 		_start_dojo()
@@ -1194,6 +1200,26 @@ func _ready() -> void:
 	perf_mark("boot_ready", _ticks - t_ready)
 	# la suite (squelettes, boss, préchauffage) vient après l'affichage de l'accueil
 	_boot_async(t_ready)
+
+
+## Capture `&degats` : un chiffre de chaque sorte, posés à l'instant `fz` de leur animation, puis l'image se fige.
+func _capture_dmg(fz: float) -> void:
+	var h: Vector3 = hero.position
+	_dmg_text(h + Vector3(-2.4, 0, -2.6), 1.0, false)  # coup normal (10)
+	_dmg_text(h + Vector3(0.4, 0, -3.6), 4.2, false)  # gros coup (42)
+	_dmg_text(h + Vector3(2.6, 0, -2.2), 2.5, true)  # coup fatal (25)
+	_dmg_text(h + Vector3(-2.6, 0, 0.6), 0.6, false, null, "dull")  # trait simple atténué par l'encre dure (6)
+	_dmg_text(h + Vector3(2.4, 0, 0.8), 0.3, false, null, "pow", "fire")  # brûlure (3)
+	_dmg_text(h + Vector3(0.6, 0, 2.2), 0.5, false, null, "pow", "bolt")  # foudre (5)
+	_dmg_text(h + Vector3(-0.6, 0, -0.9), 1.0, false)  # deux touches au même endroit : décalées
+	_dmg_text(h + Vector3(-0.5, 0, -0.9), 1.2, false)
+	_dmg_text(h + Vector3(1.6, 0, -0.6), 1.6, false, null, "crit")  # critique (16)
+	_dmg_text(h + Vector3(-1.2, 0, 1.6), 1.8, false, null, "fig")  # figure qui perce l'encre dure (18)
+	# (le rendu logiciel des captures tourne à ~1 image/s : l'instant de l'animation est imposé, puis figé)
+	for en in _dmg_live:
+		en.t = fz
+		_dmg_pose(en, cam.global_basis)
+	_cap_frozen = true
 
 
 ## Captures `?encre` : 4 rangées de taches (mise à mort sumi, tache vermillon, encre épaisse, éclaboussures) à
@@ -3622,7 +3648,7 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	_pick_context = "room"
 	foam = 0
 	ult = 0.0
-	_dmg_labels.clear()
+	_dmg_reset()
 	_ricochets = {}
 	wave_wait = 0.8
 	room = 0
@@ -3800,7 +3826,7 @@ func _update_bleeds(dt: float) -> void:
 		if float(b[2]) <= 0.0:
 			b[2] = 0.3
 			_splash(e.position, Toon.VERMILION, 2)  # gouttes vermillon
-		damage_enemy(e, Meta.BLEED_DPS * dt, false, true)  # (né d'une figure : perce l'encre dure)
+		damage_enemy(e, Meta.BLEED_DPS * dt, false, true, "bleed")  # (né d'une figure : perce l'encre dure)
 
 
 ## Combat suivant (zone d'une étape, ou arène d'un gardien) : 3 vagues d'ennemis à tuer, tirées selon
@@ -5069,6 +5095,7 @@ func _rebuild_room(sliced := false) -> void:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
+	_dmg_reset()
 	var gen := _load_gen
 	_loading = sliced
 	await _build_segment(sliced)
@@ -6486,18 +6513,24 @@ func _award_score() -> void:
 
 # ------------------------------------------------------------------ aides pour les pouvoirs
 
-## `pierce` (ou powers.src_tech : techniques de figure) : perce l'encre dure et use vite les boucliers.
-func damage_enemy(e: Node3D, dmg_in: float, fx := true, pierce := false) -> void:
+## `pierce` (ou powers.src_tech : techniques de figure) : perce l'encre dure et use vite les boucliers ;
+## `school` : école du pouvoir (teinte de son chiffre de dégâts).
+func damage_enemy(e: Node3D, dmg_in: float, fx := true, pierce := false, school := "") -> void:
 	if not is_instance_valid(e) or e.dead:
 		return
 	var dmg := dmg_in * curse_dmg_mult()
 	var scope := bool(powers.src_tech)
 	var tech := pierce or scope
 	var src := "tech" if tech else "pow"
+	var dull := false
 	if not tech:
 		dmg = _hard_ink_hit(e.position, dmg)  # pouvoir hors technique : l'encre dure encaisse
+		dull = hard_ink() > 0.0
 	var hp0 := float(e.hp)
+	var dp: Vector3 = e.position
 	var killed: bool = e.hurt_dot(dmg, tech)
+	if show_dmg and dmg_in < 90.0:  # (99, 999… : mises à mort du robot et des captures)
+		_dmg_power(e, dmg, killed, tech, dull, fx, school, dp)
 	dmg_src[src] = float(dmg_src[src]) + hp0 - maxf(float(e.hp), 0.0)
 	if _attrib_on:
 		var who := src
@@ -6549,7 +6582,7 @@ func damage_bosses(center: Vector3, r: float, dmg_in: float, fx := true) -> Arra
 			continue
 		hits.append(p)
 		if fx:
-			_dmg_text(p, dmg, false)
+			_dmg_text(p, dmg, false, bo)
 			_splash(p, Toon.SUMI, 4)
 	return hits
 
@@ -6564,7 +6597,7 @@ func damage_bosses_line(pts: PackedVector3Array, r: float, dmg_in: float, fx := 
 			var p: Vector3 = bo.aoe_hit(pts[i], r, dmg * BOSS_TOUGH, fx)
 			if p != Vector3.INF:
 				if fx:
-					_dmg_text(p, dmg, false)
+					_dmg_text(p, dmg, false, bo)
 					_splash(p, Toon.SUMI, 4)
 				break
 
@@ -6709,51 +6742,319 @@ func _seal_disc_tex() -> Texture2D:
 	return UiKit.svg_tex('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><circle cx="32" cy="32" r="29" fill="#FFFFFF" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="4"/></svg>', 128.0, {}, "seal_disc")
 
 
-## Chiffre de dégâts au-dessus de l'ennemi : blanc cerclé d'encre, vermillon s'il tue ou en combo.
-## Chiffre de dégâts : encre épaisse, rebond à l'apparition, petite courbe en montant ; les touches
-## rapprochées sur un même ennemi s'additionnent. Blanc normal, or gros coup, vermillon coup fatal.
-func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null) -> void:
-	if not show_dmg:
+## Chiffres de dégâts, à l'estampe : chiffres mincho à l'encre cernés d'un halo de papier. Hiérarchie (« tier ») :
+##   "pow"  pouvoir (brûlure, foudre…) : petit, à l'encre de son école ;
+##   "dull" trait simple ou pouvoir encaissé par l'encre dure (HARD_INK) : encre délavée, petit, sans élan ;
+##   "norm" coup de sabre : encre sumi sur un lavis de papier ;
+##   "big"  gros coup (≥ 30), ou figure qui perce l'encre dure ("fig") : vermillon sur une bande de papier au pinceau ;
+##   "crit" critique (coup net, menso) : vermillon sur un trait de pinceau d'or, plus grand, pop plus fort ;
+##   "kill" coup fatal : chiffres papier dans un sceau vermillon (hanko), qui claque comme un tampon.
+## Réserve de DMG_POOL nœuds réutilisés (aucun nœud créé par coup) ; au plus DMG_POOL chiffres à l'écran, et les petits
+## s'effacent au-delà de DMG_SOFT_CAP ; touches rapprochées d'un même ennemi additionnées ; dégâts continus regroupés
+## toutes les DMG_DOT_T s ; chiffres décalés à l'apparition pour ne pas se chevaucher ; animation au temps réel.
+const DMG_POOL := 18
+const DMG_SOFT_CAP := 12
+const DMG_MERGE_MS := 380
+const DMG_DOT_T := 0.5
+const DMG_RANK := {"dull": 0, "pow": 1, "norm": 2, "big": 3, "crit": 4, "kill": 5}
+# tier -> [taille du pixel, vie (s), montée (m), inclinaison max (°), ampleur du pop]
+const DMG_TIER := {
+	"dull": [0.0050, 0.55, 0.5, 4.0, 0.2],
+	"pow": [0.0050, 0.55, 0.55, 5.0, 0.3],
+	"norm": [0.0066, 0.65, 0.7, 6.0, 0.55],
+	"big": [0.0088, 0.8, 0.8, 7.0, 0.7],
+	"crit": [0.0098, 0.85, 0.85, 8.0, 0.85],
+	"kill": [0.0086, 0.85, 0.6, 9.0, 0.6],
+}
+var _dmg_pool: Array = []  # chiffres libres (nœuds cachés)
+var _dmg_live: Array = []  # chiffres à l'écran, le plus ancien d'abord
+var _dmg_dot := {}  # id ennemi -> [ennemi, somme, temps, tier, école] : dégâts continus en attente
+var _dmg_sid := 0
+
+
+func _dmg_text(pos: Vector3, dmg: float, killed: bool, key: Object = null, tier := "", school := "") -> void:
+	if not show_dmg or dmg <= 0.0:
 		return
+	var t := "kill" if killed else ("norm" if tier == "" else tier)
+	if t == "fig" or (t == "norm" and dmg >= 3.0):
+		t = "big"
+	var small := t == "pow" or t == "dull"
 	var now := Time.get_ticks_msec()
 	var kid := key.get_instance_id() if key != null else -1
 	if kid != -1 and _dmg_labels.has(kid):
-		var prev: Dictionary = _dmg_labels[kid]
-		var pl = prev["fx"]["node"]
-		if is_instance_valid(pl) and now - int(prev["ms"]) < 380:
-			prev["sum"] = float(prev["sum"]) + dmg
-			prev["ms"] = now
-			_style_dmg(pl as Label3D, float(prev["sum"]), killed)
-			prev["fx"]["t"] = 0.0
+		var m: Array = _dmg_labels[kid]
+		var pe: Dictionary = m[0]
+		var psmall: bool = String(pe.tier) == "pow" or String(pe.tier) == "dull"
+		if bool(pe.live) and int(pe.sid) == int(m[1]) and now - int(pe.ms) < DMG_MERGE_MS and (killed or psmall == small):
+			# même ennemi, touches rapprochées : un seul chiffre qui grossit et repart d'un petit coup
+			pe.sum = float(pe.sum) + dmg
+			pe.ms = now
+			if int(DMG_RANK[t]) > int(DMG_RANK[String(pe.tier)]) or (String(pe.tier) == "norm" and float(pe.sum) >= 3.0):
+				pe.tier = "big" if t == "norm" else t
+			_dmg_style(pe)
+			pe.t = minf(float(pe.t), 0.18)
+			pe.punch = 0.0
 			return
-	var l := Label3D.new()
-	l.font = KANJI_FONT
-	l.font_size = 120
-	l.outline_size = 30
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	l.no_depth_test = true
-	l.position = pos + Vector3(randf_range(-0.35, 0.35), 2.7, 0)
-	_style_dmg(l, dmg, killed)
-	add_child(l)
-	var fx := {"node": l, "t": 0.0, "life": 0.8, "kind": "dmg", "vx": randf_range(-0.9, 0.9), "y0": l.position.y}
-	effects.append(fx)
+	if small and _dmg_live.size() >= DMG_SOFT_CAP:
+		return  # écran chargé : les petits chiffres se taisent
+	var en := _dmg_entry()
+	_dmg_sid += 1
+	en.sid = _dmg_sid
+	en.live = true
+	en.sum = dmg
+	en.ms = now
+	en.tier = t
+	en.school = school
+	en.t = 0.0
+	en.punch = 9.0
+	var spec: Array = DMG_TIER[t]
+	en.rot = deg_to_rad(randf_range(-float(spec[3]), float(spec[3])))
+	en.vx = randf_range(0.2, 0.45) * (1.0 if randf() < 0.5 else -1.0)
+	_dmg_style(en)
+	en.base = _dmg_place(pos + Vector3(randf_range(-0.2, 0.2), 2.1 if small else 2.45, 0))
+	_dmg_pose(en, cam.global_basis if is_instance_valid(cam) else Basis.IDENTITY)
+	en.root.visible = true
+	_dmg_live.append(en)
 	if kid != -1:
-		_dmg_labels[kid] = {"fx": fx, "sum": dmg, "ms": now}
+		_dmg_labels[kid] = [en, en.sid]
 
 
-func _style_dmg(l: Label3D, v: float, killed: bool) -> void:
+## Chiffre de la réserve (le plus ancien à l'écran est repris si elle est vide et le plafond atteint).
+func _dmg_entry() -> Dictionary:
+	if not _dmg_pool.is_empty():
+		return _dmg_pool.pop_back()
+	if _dmg_live.size() >= DMG_POOL:
+		return _dmg_live.pop_front()
+	var root := Node3D.new()
+	var back := Sprite3D.new()
+	back.no_depth_test = true
+	back.render_priority = 24
+	root.add_child(back)
+	var lab := Label3D.new()
+	lab.font = KANJI_FONT
+	lab.font_size = 96
+	lab.no_depth_test = true
+	lab.render_priority = 26
+	lab.outline_render_priority = 25
+	lab.position.z = 0.01
+	root.add_child(lab)
+	root.visible = false
+	add_child(root)
+	return {"root": root, "lab": lab, "back": back, "live": false, "sid": 0}
+
+
+## Décale vers le haut un chiffre qui tomberait sur un autre à l'écran (au plus 5 crans).
+func _dmg_place(p: Vector3) -> Vector3:
+	if not is_instance_valid(cam) or _dmg_live.is_empty():
+		return p
+	var vh := get_viewport().get_visible_rect().size.y
+	for _i in 5:
+		if cam.is_position_behind(p):
+			return p
+		var sp := cam.unproject_position(p)
+		var hit := false
+		for o in _dmg_live:
+			var oq: Vector3 = (o.root as Node3D).global_position
+			if cam.is_position_behind(oq):
+				continue
+			var d := cam.unproject_position(oq) - sp
+			if absf(d.y) < vh * 0.03 and absf(d.x) < vh * 0.05:
+				hit = true
+				break
+		if not hit:
+			return p
+		p.y += 0.42
+	return p
+
+
+func _dmg_style(en: Dictionary) -> void:
+	var t := String(en.tier)
+	var spec: Array = DMG_TIER[t]
+	var lab: Label3D = en.lab
+	var back: Sprite3D = en.back
+	var v := float(en.sum)
 	# affichage ×10, toujours entier (un coup de sabre = 10) : jamais de virgule à l'écran
-	l.text = str(maxi(1, int(round(v * 10.0))))
-	var big := v >= 3.0
-	l.pixel_size = 0.006 * (100.0 + 16.0 * minf(v, 8.0)) / 120.0
-	if killed:
-		l.modulate = Toon.VERMILION
-	elif big:
-		l.modulate = Toon.GOLD.lightened(0.15)
+	lab.text = str(maxi(1, int(round(v * 10.0))))
+	var grow := 1.0 + 0.035 * clampf(v - 3.0, 0.0, 6.0) if t == "big" or t == "crit" or t == "kill" else 1.0
+	lab.pixel_size = float(spec[0]) * grow
+	var col := Toon.SUMI
+	var halo := Color(Toon.PAPER, 0.95)
+	var ba := 0.0
+	lab.outline_size = 22
+	match t:
+		"dull":
+			col = Color(0.42, 0.41, 0.44, 0.9)  # encre délavée : l'encre dure a bu le coup
+			halo = Color(Toon.PAPER, 0.7)
+			lab.outline_size = 16
+		"pow":
+			col = _dmg_school_col(String(en.school))
+			halo = Color(Toon.PAPER, 0.9)
+			lab.outline_size = 16
+		"norm":
+			back.texture = _dmg_wash_tex()
+			back.modulate = Toon.PAPER
+			ba = 0.7
+		"big", "crit":
+			col = Toon.VERMILION
+			back.texture = _dmg_brush_tex()
+			back.modulate = Toon.GOLD.lightened(0.1) if t == "crit" else Toon.PAPER  # bande de papier ; critique : trait d'or
+			ba = 0.92
+		"kill":
+			col = Toon.PAPER
+			halo = Color("#7A1A12")
+			lab.outline_size = 6
+			back.texture = _dmg_seal_tex()
+			back.modulate = Color.WHITE
+			ba = 1.0
+	en.col = col
+	en.halo = halo
+	en.ba = ba
+	lab.modulate = col
+	lab.outline_modulate = halo
+	back.visible = ba > 0.0
+	if ba <= 0.0 or back.texture == null:
+		back.visible = false
+		return
+	# le fond épouse le chiffre
+	var em := float(lab.font_size) * lab.pixel_size
+	var w := KANJI_FONT.get_string_size(lab.text, HORIZONTAL_ALIGNMENT_LEFT, -1, lab.font_size).x * lab.pixel_size
+	var bw := w * 1.7 + em * 0.3
+	var bh := em * 0.95
+	var by := 0.0
+	match t:
+		"big", "crit":
+			bw = w + em * 0.8
+			bh = em * 0.78
+			by = -em * 0.04
+		"kill":
+			bw = w + em * 0.5
+			bh = em * 0.98
+	var tex := back.texture
+	back.pixel_size = bh / float(tex.get_height())
+	back.scale = Vector3(bw / (float(tex.get_width()) * back.pixel_size), 1.0, 1.0)
+	back.position = Vector3(0, by, 0)
+
+
+func _dmg_school_col(s: String) -> Color:
+	match s:
+		"fire":
+			return Vfx.FIRE.darkened(0.12)
+		"water":
+			return Vfx.WATER.darkened(0.2)
+		"bolt":
+			return Color("#B98B00")
+		"wind":
+			return Vfx.WIND.darkened(0.42)
+		"shadow":
+			return Vfx.SHADOW.darkened(0.08)
+		"bleed":
+			return Toon.VERMILION.darkened(0.15)
+	return Color(0.27, 0.26, 0.3)
+
+
+func _dmg_wash_tex() -> Texture2D:
+	return UiKit.svg_tex('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="64" viewBox="0 0 128 64"><defs><radialGradient id="g"><stop offset="0" stop-color="#FFFFFF" stop-opacity="1"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.7"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></radialGradient></defs><ellipse cx="64" cy="32" rx="63" ry="31" fill="url(#g)"/></svg>', 128.0, {}, "dmg_wash")
+
+
+func _dmg_brush_tex() -> Texture2D:
+	return UiKit.svg_tex('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="64" viewBox="0 0 256 64"><path d="M6 33 C28 13 110 7 196 9 C228 10 247 17 252 27 C247 41 222 49 190 51 C130 55 60 57 14 53 C4 49 2 41 6 33 Z" fill="#FFFFFF"/><path d="M26 60 C90 58 150 57 214 54" stroke="#FFFFFF" stroke-width="2.5" fill="none" opacity="0.7"/><path d="M52 4 C120 2 176 3 232 9" stroke="#FFFFFF" stroke-width="1.6" fill="none" opacity="0.55"/><path d="M204 55 C224 53 240 48 250 42" stroke="#FFFFFF" stroke-width="1.4" fill="none" opacity="0.5"/></svg>', 256.0, {}, "dmg_brush2")
+
+
+func _dmg_seal_tex() -> Texture2D:
+	return UiKit.svg_tex('<svg xmlns="http://www.w3.org/2000/svg" width="128" height="112" viewBox="0 0 128 112"><path d="M14 10 C40 5 90 7 116 11 C122 30 122 80 117 102 C90 107 40 105 12 101 C6 80 6 32 14 10 Z" fill="#D7372B"/><path d="M22 18 C48 15 84 15 108 19 C111 38 112 76 109 94 C84 97 46 97 20 94 C17 76 17 38 22 18 Z" fill="none" stroke="#F5EEDD" stroke-opacity="0.5" stroke-width="3"/><circle cx="104" cy="99" r="3" fill="#F5EEDD" opacity="0.45"/><circle cx="18" cy="24" r="2.2" fill="#F5EEDD" opacity="0.4"/><circle cx="60" cy="9" r="2" fill="#F5EEDD" opacity="0.35"/></svg>', 160.0, {}, "dmg_seal")
+
+
+## Animation des chiffres (temps réel) : pop élastique (le sceau fatal claque en tombant), montée en courbe qui
+## ralentit, léger rétrécissement et fondu en fin de vie ; toujours face à la caméra, un peu inclinés.
+func _update_dmg(real: float) -> void:
+	if not _dmg_dot.is_empty():
+		for k in _dmg_dot.keys():
+			var d: Array = _dmg_dot[k]
+			d[2] = float(d[2]) + real
+			if float(d[2]) >= DMG_DOT_T:
+				_dmg_dot.erase(k)
+				var de = d[0]
+				if is_instance_valid(de) and not de.dead:
+					_dmg_text(de.position, float(d[1]), false, null, String(d[3]), String(d[4]))
+	if _dmg_live.is_empty():
+		return
+	var cb := cam.global_basis if is_instance_valid(cam) else Basis.IDENTITY
+	for i in range(_dmg_live.size() - 1, -1, -1):
+		var en: Dictionary = _dmg_live[i]
+		en.t = float(en.t) + real
+		en.punch = float(en.punch) + real
+		if not _dmg_pose(en, cb):
+			_dmg_live.remove_at(i)
+			_dmg_free(en)
+
+
+## Pose d'un chiffre à l'instant `en.t` ; faux quand sa vie est finie.
+func _dmg_pose(en: Dictionary, cb: Basis) -> bool:
+	var tier := String(en.tier)
+	var spec: Array = DMG_TIER[tier]
+	var tt := float(en.t)
+	var k := tt / float(spec[1])
+	if k >= 1.0:
+		return false
+	var amp := float(spec[4])
+	var s: float
+	if tier == "kill":
+		s = 1.0 + amp * exp(-tt * 15.0) * cos(tt * 21.0)  # tampon : arrive gros, claque, se pose
 	else:
-		l.modulate = Color(1, 1, 1)
-	l.outline_modulate = Toon.SUMI
-	l.set_meta("big", big or killed)
+		s = 1.0 - amp * exp(-tt * 11.0) * cos(tt * 22.0)  # pop élastique : petit, dépasse, se pose
+	s += 0.28 * exp(-float(en.punch) * 12.0)
+	s *= 1.0 - 0.15 * smoothstep(0.7, 1.0, k)
+	var up := float(spec[2]) * (1.0 - pow(1.0 - k, 3.0))
+	var side := float(en.vx) * (1.0 - pow(1.0 - k, 2.0))
+	var a := clampf((1.0 - k) / 0.3, 0.0, 1.0)
+	var root: Node3D = en.root
+	root.transform = Transform3D(cb * Basis(Vector3.BACK, float(en.rot)) * Basis.from_scale(Vector3.ONE * s),
+		(en.base as Vector3) + cb.x * side + Vector3(0, up, 0))
+	var lab: Label3D = en.lab
+	var col: Color = en.col
+	var halo: Color = en.halo
+	lab.modulate.a = col.a * a
+	lab.outline_modulate.a = halo.a * a
+	if float(en.ba) > 0.0:
+		var back: Sprite3D = en.back
+		back.modulate.a = float(en.ba) * a
+	return true
+
+
+func _dmg_free(en: Dictionary) -> void:
+	en.live = false
+	(en.root as Node3D).visible = false
+	_dmg_pool.append(en)
+
+
+## Nouvelle étape : plus aucun chiffre en vol (les nœuds restent dans la réserve).
+func _dmg_reset() -> void:
+	for en in _dmg_live:
+		_dmg_free(en)
+	_dmg_live.clear()
+	_dmg_dot.clear()
+	_dmg_labels.clear()
+
+
+## Dégâts d'un pouvoir (main.damage_enemy) : coup isolé tout de suite (cumulé avec les touches proches), dégâts
+## continus (`fx` faux : brûlure, zones, saignement) regroupés par ennemi ; un coup fatal vide son attente.
+func _dmg_power(e: Node3D, dmg: float, killed: bool, tech: bool, dull: bool, fx: bool, school: String, pos: Vector3) -> void:
+	var kid := e.get_instance_id()
+	var t := "dull" if dull else "pow"
+	if tech and fx:
+		t = "fig" if hard_ink() > 0.0 else "norm"
+	if fx or killed:
+		var sum := dmg
+		if _dmg_dot.has(kid):
+			sum += float(_dmg_dot[kid][1])
+			_dmg_dot.erase(kid)
+		_dmg_text(pos, sum, killed, e, t, school)
+		return
+	if _dmg_dot.has(kid):
+		var d: Array = _dmg_dot[kid]
+		d[1] = float(d[1]) + dmg
+	else:
+		_dmg_dot[kid] = [e, dmg, 0.0, t, school]
 
 
 ## Lame qui ricoche sur un boss : au 2e ricochet, une astuce explique son point faible (une fois par boss),
@@ -7857,13 +8158,21 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 		return
 	dmg *= float(_fig_mods.get("dmg", 1.0))
 	dmg *= chain_mult() * curse_dmg_mult() * meta.dmg_mult(chain)
-	dmg *= _net_crit(p)
+	var crit := _net_crit(p)
+	dmg *= crit
 	dmg *= k * brush_dmg()
+	# chiffre : atténué si l'encre dure encaisse, marqué si une figure la perce, critique au-dessus de tout
+	var tier := "crit" if crit > 1.0 else ""
 	if _shape.is_empty():
 		dmg = _hard_ink_hit(p, dmg)  # trait simple : l'encre dure encaisse (les figures la percent)
+		if hard_ink() > 0.0 and tier == "":
+			tier = "dull"
+	elif hard_ink() > 0.0 and tier == "":
+		tier = "fig"
 	if brush == "menso" and dist < float(e.radius) * Gear.MENSO_CENTER:
 		# Menso : le trait passe au centre de l'ennemi, critique garanti
 		dmg *= Gear.MENSO_CRIT
+		tier = "crit"
 		float_text(p + Vector3(0, 0.5, 0), "CRITIQUE", Toon.GOLD)
 		vfx.dusk_crit(p)
 		if aspect == 1 and fig != "" and _aiguille_key != stroke_id:
@@ -7883,7 +8192,7 @@ func _slash_hit(e: Node3D, seg: Vector3, k: float, dist: float) -> void:
 		e.push(dir.normalized() * Gear.HAKE_PUSH)  # Balai : repoussé dans le sens du trait
 	if brush == "menso" and aspect == 2:
 		_add_chain(1)  # Fil : chaque ennemi transpercé
-	_dmg_text(p, dmg, killed, e)
+	_dmg_text(p, dmg, killed, e, tier)
 	vfx.impact(p, dir, killed)
 	_add_hitstop(HITSTOP_KILL if killed else HITSTOP_HIT)
 	_cam_kick(dir, 0.25 if killed else 0.12)
@@ -8096,22 +8405,13 @@ func _update_effects(dt: float, real: float) -> void:
 	for i in range(effects.size() - 1, -1, -1):
 		var fx = effects[i]
 		var node: Node3D = fx.node
-		fx.t += real if fx.kind == "label" or fx.kind == "dmg" or fx.kind == "icon" else dt
+		fx.t += real if fx.kind == "label" or fx.kind == "icon" else dt
 		var k: float = fx.t / fx.life
 		match fx.kind:
 			"slash":
 				node.scale = Vector3(1, 1, 1.0 + k)
 				for m in fx.mats:
 					m.albedo_color.a = fx.alpha * (1.0 - k)
-			"dmg":
-				# rebond (1.7 → 1), courbe latérale, montée qui ralentit, fondu final
-				var pop := 1.0 + 0.7 * maxf(0.0, 1.0 - k * 7.0) - 0.1 * maxf(0.0, sin(minf(k * 7.0, 1.0) * PI))
-				var big: bool = node.get_meta("big", false)
-				node.scale = Vector3.ONE * pop * (1.25 if big else 1.0)
-				node.position.x += float(fx.vx) * real * (1.0 - k)
-				node.position.y = float(fx.y0) + 1.1 * (1.0 - pow(1.0 - k, 2.0))
-				node.modulate.a = clampf((1.0 - k) * 3.5, 0.0, 1.0)
-				node.outline_modulate.a = node.modulate.a
 			"label":
 				node.position.y += real * 1.5
 				var s := 1.0 + 0.4 * maxf(0.0, 1.0 - k * 6.0)
@@ -8225,6 +8525,7 @@ func _process(_delta: float) -> void:
 	_update_bullets(dt)
 	_update_rain(dt)
 	_update_effects(dt, real)
+	_update_dmg(real)
 
 	# nettoyage et vagues
 	for i in range(enemies.size() - 1, -1, -1):
