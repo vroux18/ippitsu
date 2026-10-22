@@ -28,6 +28,7 @@ var _imesh := ImmediateMesh.new()
 # encre liquide (shaders/ink_stroke.gdshader) : une seule matière pour tous les traits, l'état du trait (horloge,
 # séchage, graine) en paramètre d'instance
 const INK_STROKE = preload("res://shaders/ink_stroke.gdshader")
+const InstParams = preload("res://scripts/inst_params.gd")
 static var _smat: ShaderMaterial
 static var _seed_n := 0
 var _seed := 0.0
@@ -62,10 +63,10 @@ func _init(start: Vector3, layer: int) -> void:
 	if _smat == null:
 		_smat = ShaderMaterial.new()
 		_smat.shader = INK_STROKE
-	material_override = _smat
+	InstParams.bind(self, _smat)  # sous budget : voir inst_params.gd
 	_seed_n += 1
 	_seed = fmod(float(_seed_n) * 13.7 + randf() * 40.0, 89.0)
-	set_instance_shader_parameter(&"stroke_state", Vector4(0.0, 0.0, _seed, 0.0))
+	InstParams.set_param(self, &"stroke_state", Vector4(0.0, 0.0, _seed, 0.0))
 	_add(Vector3(start.x, 0, start.z))
 
 
@@ -137,7 +138,7 @@ func _process(delta: float) -> void:
 	var _pt := Time.get_ticks_usec() if Perf.on else 0
 	_clock += delta
 	if not drying:
-		set_instance_shader_parameter(&"stroke_state", Vector4(_clock, 0.0, _seed, 0.0))
+		InstParams.set_param(self, &"stroke_state", Vector4(_clock, 0.0, _seed, 0.0))
 		if not _col.is_equal_approx(_goal):
 			_col = _col.lerp(_goal, minf(1.0, delta * 10.0))
 			if absf(_col.r - _goal.r) + absf(_col.g - _goal.g) + absf(_col.b - _goal.b) < 0.01:
@@ -164,7 +165,7 @@ func _process(delta: float) -> void:
 		queue_free()
 	else:
 		# l'encre sèche (shader) : bord plus sombre, intérieur qui pâlit et se marbre, puis s'efface par érosion
-		set_instance_shader_parameter(&"stroke_state", Vector4(_clock, _dry_t, _seed, 0.0))
+		InstParams.set_param(self, &"stroke_state", Vector4(_clock, _dry_t, _seed, 0.0))
 	if _pt != 0:
 		Perf.add(&"ink_stroke", _pt)
 

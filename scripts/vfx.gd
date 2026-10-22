@@ -26,6 +26,8 @@ const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")  # hex des pictos v2 (sceau de mise à mort)
 const FX_BRUSH = preload("res://shaders/fx_brush.gdshader")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
+# paramètres d'instance sous budget (tampon global borné : 64 nœuds sur Mali) : voir inst_params.gd
+const InstParams = preload("res://scripts/inst_params.gd")
 
 const TRAIL_LIFE := 0.16
 const TRAIL_TIP := 0.96  # pointe de la traînée : largeur pleine à ~0,7 m de la tête (0,45 par point à 60 Hz, ruée 28 m/s)
@@ -610,7 +612,7 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 		_ink_quad.size = Vector2(2.0, 2.0)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _ink_quad
-	mi.material_override = ink_material()
+	InstParams.bind(mi, ink_material())
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
 	_ink_seed += 1
@@ -621,9 +623,9 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 	mi.scale = Vector3(sz, 1.0, sz)
 	var sd := fmod(float(_ink_seed) * 7.31 + _rng.randf() * 50.0, 97.0)
 	var st := Vector4(0.0, life, sd, digit)
-	mi.set_instance_shader_parameter(&"ink_color", c)
-	mi.set_instance_shader_parameter(&"ink_state", st)
-	mi.set_instance_shader_parameter(&"ink_shape", shape)
+	InstParams.set_param(mi, &"ink_color", c)
+	InstParams.set_param(mi, &"ink_state", st)
+	InstParams.set_param(mi, &"ink_shape", shape)
 	mi.set_meta(&"ink_st", st)
 	return mi
 
@@ -632,7 +634,7 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 static func ink_age(mi: GeometryInstance3D, age: float) -> void:
 	var st: Vector4 = mi.get_meta(&"ink_st")
 	st.x = age
-	mi.set_instance_shader_parameter(&"ink_state", st)
+	InstParams.set_param(mi, &"ink_state", st)
 
 
 ## ink_age pour tween_method (la valeur vient d'abord).
@@ -902,7 +904,7 @@ func _lay_set(ly: Array, idx: int) -> void:
 		return
 	var s: int = ly[1]
 	if s == -2:
-		(mi as GeometryInstance3D).set_instance_shader_parameter(&"bf_fade", float(idx) / float(FADE_N))
+		InstParams.set_param((mi as GeometryInstance3D), &"bf_fade", float(idx) / float(FADE_N))
 		return
 	var r: Array = ly[2]
 	if s < 0:
@@ -935,11 +937,11 @@ func _b3_mat(prio: int) -> ShaderMaterial:
 func _b3_node(parent: Node3D, m3: Mesh, c0: Color, c1: Color, c2: Color, prio: int) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = m3
-	mi.material_override = _b3_mat(prio)
+	InstParams.bind(mi, _b3_mat(prio))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.set_instance_shader_parameter(&"bf_c0", c0)
-	mi.set_instance_shader_parameter(&"bf_c1", c1)
-	mi.set_instance_shader_parameter(&"bf_c2", c2)
+	InstParams.set_param(mi, &"bf_c0", c0)
+	InstParams.set_param(mi, &"bf_c1", c1)
+	InstParams.set_param(mi, &"bf_c2", c2)
 	parent.add_child(mi)
 	return mi
 
@@ -1552,7 +1554,7 @@ func _qnode(mesh: Mesh, mat: Material) -> MeshInstance3D:
 			return q
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
-	mi.material_override = mat
+	InstParams.bind(mi, mat as ShaderMaterial)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.set_meta(&"qpool", key)
 	add_child(mi)
@@ -1591,10 +1593,10 @@ func _gquad(g: Vector3, r: float, mode: int, body: Color, edge: Color, core: Col
 	var sz := maxf(r, 0.01) * FX_EXT
 	mi.scale = Vector3(sz, 1.0, sz)
 	var st := Vector4(0.0, life, _next_seed(), float(mode))
-	mi.set_instance_shader_parameter(&"fx_body", body)
-	mi.set_instance_shader_parameter(&"fx_edge", edge)
-	mi.set_instance_shader_parameter(&"fx_core", core)
-	mi.set_instance_shader_parameter(&"fx_state", st)
+	InstParams.set_param(mi, &"fx_body", body)
+	InstParams.set_param(mi, &"fx_edge", edge)
+	InstParams.set_param(mi, &"fx_core", core)
+	InstParams.set_param(mi, &"fx_state", st)
 	mi.visible = delay <= 0.0
 	_fx.append({"node": mi, "t": -delay, "life": life, "kind": "fxq", "st": st})
 	return mi
@@ -1612,10 +1614,10 @@ func _bquad(p: Vector3, r: float, mode: int, col: Color, col2: Color, life: floa
 	mi.position = p
 	mi.scale = Vector3.ONE * maxf(r, 0.01)
 	var st := Vector4(0.0, life, _next_seed() * 17.0, float(mode))
-	mi.set_instance_shader_parameter(&"fx_col", col)
-	mi.set_instance_shader_parameter(&"fx_col2", col2)
-	mi.set_instance_shader_parameter(&"fx_state", st)
-	mi.set_instance_shader_parameter(&"fx_dir", Vector4(ang, force, 0.0, 0.0))
+	InstParams.set_param(mi, &"fx_col", col)
+	InstParams.set_param(mi, &"fx_col2", col2)
+	InstParams.set_param(mi, &"fx_state", st)
+	InstParams.set_param(mi, &"fx_dir", Vector4(ang, force, 0.0, 0.0))
 	mi.visible = delay <= 0.0
 	_fx.append({"node": mi, "t": -delay, "life": life, "kind": "fxq", "st": st})
 	return mi
@@ -1693,12 +1695,12 @@ func _tele_quad(parent: Node3D, shape: Vector4, half: Vector2, cen: Vector2) -> 
 		_ink_quad.size = Vector2(2.0, 2.0)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _ink_quad
-	mi.material_override = _tele_mat()
+	InstParams.bind(mi, _tele_mat())
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = Vector3(cen.x, TELE_Y, cen.y)
 	mi.scale = Vector3(maxf(half.x, 0.01), 1.0, maxf(half.y, 0.01))
-	mi.set_instance_shader_parameter(&"tl_shape", shape)
-	mi.set_instance_shader_parameter(&"tl_box", Vector4(half.x, half.y, cen.x, cen.y))
+	InstParams.set_param(mi, &"tl_shape", shape)
+	InstParams.set_param(mi, &"tl_box", Vector4(half.x, half.y, cen.x, cen.y))
 	parent.add_child(mi)
 	return mi
 
@@ -1707,7 +1709,7 @@ func _tele_make(parent: Node3D, shape: Vector4, half: Vector2, cen: Vector2, gro
 	var root := Node3D.new()
 	parent.add_child(root)
 	var q := _tele_quad(root, shape, half, cen)
-	q.set_instance_shader_parameter(&"tl_grow", Vector4(grow.x, grow.y, 0.0, 0.0))
+	InstParams.set_param(q, &"tl_grow", Vector4(grow.x, grow.y, 0.0, 0.0))
 	root.set_meta("tq", q)
 	tele_update(root, 0.0, 99.0)
 	return root
@@ -1745,7 +1747,7 @@ func tele_update(zone_v: Variant, k: float, t_left: float) -> void:
 		return
 	# pulsation du liseré, plus marquée à l'approche du coup ; flash les 0.15 dernières secondes
 	var w := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.014)
-	q.set_instance_shader_parameter(&"tl_state", Vector4(clampf(k, 0.01, 1.0), 1.0 if t_left < TELE_FLASH else 0.0, w, 0.0))
+	InstParams.set_param(q, &"tl_state", Vector4(clampf(k, 0.01, 1.0), 1.0 if t_left < TELE_FLASH else 0.0, w, 0.0))
 
 
 ## Petite marque de chemin (même langage) : pastille vermillon cernée d'encre, rayon r ; flash : tele_dot_flash.
@@ -1760,7 +1762,7 @@ func tele_dot_flash(dot: MeshInstance3D, on: bool) -> void:
 	var on_f := 1.0 if on else 0.0
 	if float(dot.get_meta(&"tl_on", 0.0)) != on_f:
 		dot.set_meta(&"tl_on", on_f)
-		dot.set_instance_shader_parameter(&"tl_state", Vector4(1.0, on_f, 0.0, 0.0))
+		InstParams.set_param(dot, &"tl_state", Vector4(1.0, on_f, 0.0, 0.0))
 
 
 # ------------------------------------------------------------------ foudre (雷) : éclair en zigzag
@@ -2789,8 +2791,8 @@ func static_charge(target: Node3D, level: int, life := 2.2) -> void:
 
 ## Teinte un éclair en or / écume (couches de fx_brush3 : corps or, cœur washi).
 func _bolt_gold(mi: MeshInstance3D) -> void:
-	mi.set_instance_shader_parameter(&"bf_c1", GOLD)
-	mi.set_instance_shader_parameter(&"bf_c2", Toon.WASHI)
+	InstParams.set_param(mi, &"bf_c1", GOLD)
+	InstParams.set_param(mi, &"bf_c2", Toon.WASHI)
 
 
 ## Repose les arcs de l'aura au hasard autour du corps (tangents à un cylindre de rayon 0,38).
@@ -4041,6 +4043,20 @@ func warm(p: Vector3) -> void:
 	dusk_crit(p)
 	seal_stamp(p, null)
 	shadow_step(p)
+	# variantes sans paramètres d'instance (matière propre, au-delà du budget d'inst_params.gd) : compilées ici
+	# plutôt qu'au premier combat chargé
+	InstParams.force_own = true
+	scorch(p, 0.4, 0.5)
+	_bquad(p, 0.5, FXB_FLARE, Color(GOLD, 0.9), Color(Toon.WASHI, 0.9), 0.3)
+	ink_stain(p, 0.4, Color(Toon.SUMI, 0.6), 0.5)
+	_bolt_node(p, q, 0.2, 1.0, false)
+	var tz2 := tele_disc(self, 0.5)
+	tz2.position = p
+	_fx.append({"node": tz2, "t": 0.0, "life": 0.5, "kind": "none"})
+	var stk := InkStroke.new(p, 0)
+	add_child(stk)
+	_fx.append({"node": stk, "t": 0.0, "life": 0.5, "kind": "none"})
+	InstParams.force_own = false
 	# les effets posés au ras du sol (ondes, taches, sillage) descendent eux aussi dans la cachette
 	for i in range(first, get_child_count()):
 		var ch := get_child(i) as Node3D
@@ -4193,7 +4209,7 @@ func _process(delta: float) -> void:
 						node.visible = true
 					var qst: Vector4 = fx.st
 					qst.x = qa
-					(node as GeometryInstance3D).set_instance_shader_parameter(&"fx_state", qst)
+					InstParams.set_param((node as GeometryInstance3D), &"fx_state", qst)
 			"anim":
 				_anim_step(fx, node, k, sdt)
 			"crackle":
