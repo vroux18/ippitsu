@@ -389,7 +389,9 @@ const MOOD_INK := Color("#14111A")
 var _light_mode := false  # rendu allégé (téléphone)
 var _veil_mat: ShaderMaterial  # voile d'estampe (vignette, grain, brume du lointain : _haze)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
-const SPLASH_POOL_MAX := 10  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup)
+const SPLASH_POOL_MAX := 40  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup) ; 10 ne suffisait pas : les brûlures et les zones des pouvoirs en lancent des dizaines par seconde
+var _splash_waits: Array = []  # gerbes lancées : [émetteur, échéance sur _splash_clock], par échéance croissante
+var _splash_clock := 0.0  # temps de jeu des gerbes (avance dans _update_effects)
 var _splash_pool := {}  # "drop" + couleur -> Array de CPUParticles3D éteints et cachés
 var _sun: DirectionalLight3D
 var arena: Node3D
@@ -5069,6 +5071,10 @@ func _rebuild_room(sliced := false) -> void:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
+	for sw in _splash_waits:
+		if is_instance_valid(sw[0]):
+			(sw[0] as Node).queue_free()
+	_splash_waits.clear()
 	var gen := _load_gen
 	_loading = sliced
 	await _build_segment(sliced)
@@ -8004,7 +8010,12 @@ func _splash(pos: Vector3, color: Color, amount: int) -> void:
 	else:
 		p.visible = true
 		p.restart()
-	effects.append({"node": p, "t": 0.0, "life": 1.0, "kind": "none"})
+	# gerbe : rien à animer, seulement à ranger au bout d'une seconde de jeu (échéancier, pas dans effects)
+	var due := _splash_clock + 1.0
+	var at := _splash_waits.size()
+	while at > 0 and float(_splash_waits[at - 1][1]) > due:
+		at -= 1
+	_splash_waits.insert(at, [p, due])
 
 
 ## Goutte (deux plans croisés le long de +y : tête ronde, queue effilée) ; une par couleur (cache de _splash).
@@ -8093,6 +8104,11 @@ func _combo_label(pos: Vector3, n: int) -> void:
 
 
 func _update_effects(dt: float, real: float) -> void:
+	_splash_clock += dt
+	while not _splash_waits.is_empty() and float(_splash_waits[0][1]) <= _splash_clock:
+		var sv = _splash_waits.pop_front()[0]
+		if is_instance_valid(sv) and not _recycle_splash(sv):
+			(sv as Node).queue_free()
 	for i in range(effects.size() - 1, -1, -1):
 		var fx = effects[i]
 		var node: Node3D = fx.node

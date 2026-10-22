@@ -270,7 +270,7 @@ func _note_slow(ms: float, proc: float, phys: float, st: String) -> void:
 			parts.append("bulle %s%s" % [String(co.mark), " figée" if bool(co.frozen()) else ""])
 		parts.append("%d enn" % main.enemies.size())
 		if main.vfx != null:
-			parts.append("%d vfx" % (main.vfx.get("_fx") as Array).size())
+			parts.append("%d vfx" % ((main.vfx.get("_fx") as Array).size() + (main.vfx.get("_waits") as Array).size() + (main.vfx.get("_gwaits") as Array).size()))
 		if not bool(main.warmed):
 			parts.append("préchauffage en cours")
 	parts.append("proc %.0f phys %.0f reste %.0f" % [proc, phys, maxf(0.0, ms - proc - phys)])
