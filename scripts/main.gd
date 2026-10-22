@@ -243,10 +243,12 @@ const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès le départ)
 const ELAN_REGEN := 7.0  # par seconde réelle, hors tracé (jauge pleine en ~2 s)
 const ELAN_PER_HIT := 3.5
-## PV des yōkai : base de la sorte × hp_mult du monde × ENEMY_HP_MULT × (1 + 0,04 par combat du monde), arrondis au
+## PV des yōkai : base de la sorte × hp_mult du monde × ENEMY_HP_MULT × (1 + ENEMY_HP_ROOM par combat du monde), arrondis au
 ## dixième (enemy_hp_round) : avec les chiffres affichés ×10, un oni du premier combat a 20 PV, deux coups de sabre.
 ## (2,05 avant la passe d'équilibrage d'ensemble : l'oni du monde 1 demandait 3 coups pour 0,05 PV.)
 const ENEMY_HP_MULT := 2.0
+## +3 % de PV par combat dans le monde (4 % avant la passe d'ensemble : les salles 10-14 des mondes 6-8 dépassaient 35 s).
+const ENEMY_HP_ROOM := 0.03
 ## Encre dure (mondes 2+) : part des dégâts du trait simple et des pouvoirs que les yōkai encaissent (index : monde).
 ## Les figures la percent : ruée en figure, techniques (et les pouvoirs qui les prolongent), sceaux brisés.
 ## Le trait simple seul ne suffit plus dès le monde 2 ; les pouvoirs renforcent les figures sans les remplacer.
@@ -4375,8 +4377,8 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 		_apply_curses(e)
 		if _gentle_room():
 			e._tempo *= 0.75  # premier tutoriel : plus lents (marche, annonces)
-		# plus robustes : ×2, et +4 % par combat dans le monde
-		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + 0.04 * float(maxi(room - 1, 0)))
+		# plus robustes : ×2, et +3 % par combat dans le monde
+		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + ENEMY_HP_ROOM * float(maxi(room - 1, 0)))
 		if elite_n > 0 and idx >= elite_at:
 			if e.can_be_elite():
 				e.promote(Enemy.roll_affixes(current_world))
