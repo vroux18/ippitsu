@@ -121,10 +121,10 @@ var _t := 0.0
 var _sb := StyleBoxFlat.new()  # réutilisée pour chaque cadre dessiné
 # Couches : chaque grappe est un enfant (_Layer) qui garde son dessin tant que ses entrées ne changent pas ; tout
 # redessiner à chaque image coûtait ~0,7 ms de script (relevé --perf). Les tracés visent _ci : le HUD ou la couche.
-enum { L_LIFE, L_XP, L_INK, L_ULT, L_POP, L_BAR, L_SCORE, L_GAIN, L_OVER }
+enum { L_LIFE, L_XP, L_INK, L_ULT, L_POP, L_BAR, L_GOLD, L_SCORE, L_GAIN, L_OVER }
 var _ci: CanvasItem = self
 var _layers: Array = []
-var _layer_sig: Array = [null, null, null, null, null, null, null, null, null]  # entrées du dernier dessin de chaque couche (null : à refaire)
+var _layer_sig: Array = [null, null, null, null, null, null, null, null, null, null]  # entrées du dernier dessin de chaque couche (null : à refaire)
 var _title_sp := FontVariation.new()  # Shippori espacée (bandeau, nom du gardien)
 var _caps_sp := FontVariation.new()  # Zen Kaku espacée (petites capitales)
 var _xp_shown := 0.0  # remplissage affiché de la barre d'expérience (rattrape xp_ratio)
@@ -478,11 +478,15 @@ func _draw_layer(ly: CanvasItem, part: int) -> void:
 				_ci.draw_set_transform(Vector2(0, top_off))
 				_draw_stage(u)
 				_draw_pause_disc(sz, u)
-		L_SCORE:
-			# pilules d'or et de score (elles bondissent un instant à chaque gain)
+		L_GOLD:
+			# pilule d'or (elle bondit un instant à chaque gain) ; couche à part : le score qui défile ne la redessine plus
 			if in_play and not picking and not dojo:
 				_ci.draw_set_transform(Vector2(0, top_off))
 				_draw_gold(u)
+		L_SCORE:
+			# pilule de score (elle bondit à chaque gain), juste après celle d'or : même ordre de tracé qu'avant
+			if in_play and not picking and not dojo:
+				_ci.draw_set_transform(Vector2(0, top_off))
 				_draw_score(sz, u)
 		L_GAIN:
 			# sous la barre : gains d'or « +N », chaîne brisée, primes (elles montent et s'effacent en 1,3 à 1,6 s) ;
@@ -626,10 +630,14 @@ func _refresh_layers() -> void:
 	# la pilule d'or se pose après celle d'étape (_stage_end_x) : les couches qui en dépendent reprennent ses entrées
 	var bar := [vis, size, top_off, in_play, picking, dojo, _wave_txt, _rooms_txt, enc_total, enc_done, world_color, world_kanji]
 	_layer_check(L_BAR, bar + [_pause.visible])
-	if _gold_pop > 0.0 or _score_pop > 0.0 or _mult_pop > 0.0 or _mult_lost_t > 0.0:
+	if _gold_pop > 0.0:
+		_layer_anim(L_GOLD)
+	else:
+		_layer_check(L_GOLD, bar + [score < 0, gold])
+	if _score_pop > 0.0 or _mult_pop > 0.0 or _mult_lost_t > 0.0:
 		_layer_anim(L_SCORE)
 	else:
-		_layer_check(L_SCORE, bar + [score, gold, _score_txt, score_mult, _mult_txt, _mult_lost, _mult_lost_txt])
+		_layer_check(L_SCORE, bar + [score, _score_txt, score_mult, _mult_txt, _mult_lost, _mult_lost_txt])
 	if not _gold_pops.is_empty() or chain_break > 0.0 or not _score_pops.is_empty():
 		_layer_anim(L_GAIN)
 	else:
