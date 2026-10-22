@@ -8,6 +8,7 @@ extends RefCounted
 ## Un pinceau à gagner est « au lavis » : ses couleurs posées à l'opacité `op` sur le papier `paper`.
 
 const Gear = preload("res://scripts/gear_data.gd")
+const UiKit = preload("res://scripts/ui_kit.gd")
 
 const SUMI := Color("#1B1A1E")
 const WOOD := Color("#6B4A2B")
@@ -83,7 +84,7 @@ static func _ring(ci: CanvasItem, loop: PackedVector2Array, col: Color, w: float
 
 
 ## Contour en tirets le long d'une boucle (px).
-static func _dashed(ci: CanvasItem, loop: PackedVector2Array, col: Color, w: float, on: float, off: float) -> void:
+static func dashed(ci: CanvasItem, loop: PackedVector2Array, col: Color, w: float, on: float, off: float) -> void:
 	var acc := 0.0
 	var n := loop.size()
 	for i in n:
@@ -100,20 +101,66 @@ static func _dashed(ci: CanvasItem, loop: PackedVector2Array, col: Color, w: flo
 		acc += l
 
 
-## Sceau hanko d'un aspect (maquette Depart.dc.html), centré en `c` (écran), `s` px par unité (sceau de 58) :
-## vermillon cerné, liseré de papier, s'il est acquis ; contour en tirets s'il reste à gagner ; cadre doré s'il
-## est choisi. Le nom (police du titre) est écrit par l'appelant.
-static func aspect_seal(ci: CanvasItem, c: Vector2, s: float, rot: float, own: bool, sel: bool, a := 1.0) -> void:
+## Pictogrammes des aspects (gabarit 32 × 32, tracés SVG comme ui_icons.gd, rasterisés par UiKit.draw_path) :
+## [tracé principal, rempli ?, second tracé au trait seul]. Chacun illustre l'effet de l'aspect, lisible à ~40 px.
+const ASPECT_PICTO := {
+	# Fude : le trait de référence ; le trait qui sèche en gouttes ; les souffles du vent (icône elements/vent)
+	"fude:0": ["M5 26 C 8 17, 15 10, 27 5 C 20 12, 13 19, 9 27 Z", true, ""],
+	"fude:1": ["M8.5 13 c2.3 3.5 3.5 5.2 3.5 7 a3.5 3.5 0 0 1 -7 0 c0 -1.8 1.2 -3.5 3.5 -7 Z M23.5 13 c2.3 3.5 3.5 5.2 3.5 7 a3.5 3.5 0 0 1 -7 0 c0 -1.8 1.2 -3.5 3.5 -7 Z M16 19 c2.3 3.5 3.5 5.2 3.5 7 a3.5 3.5 0 0 1 -7 0 c0 -1.8 1.2 -3.5 3.5 -7 Z",
+		true, "M4 8 C 12 4.5, 20 4.5, 28 8"],
+	"fude:2": ["M4 12 H19 C25 12 26 5 21.5 5 C18.5 5 17.5 8.5 20 10 M4 19 H23 C29 19 29 27 24 27 C21 27 20.5 23.5 23 22.5", false, ""],
+	# Hake : la large bande ; le mur qui arrête les projectiles ; le balai qui repousse
+	"hake:0": ["M4 10 C 11 7.5, 21 7.5, 28 9 L27 23 C 20 25.5, 10 25.5, 5 24 Z", true, ""],
+	"hake:1": ["M21 4 L22.5 28", false, "M3 10 H15 M3 16 H16 M3 22 H15 M11.5 6.5 L15 10 L11.5 13.5 M11.5 18.5 L15 22 L11.5 25.5"],
+	"hake:2": ["M4 16 H22", false, "M17 10 L24 16 L17 22 M5 9 H10 M4 23 H9 M27 10 V22"],
+	# Menso : le trait fin et son critique au centre ; l'aiguille qui déclenche la technique ; le fil qui enfile
+	"menso:0": ["M5 27 L27 5", false, "M16 16 m-4.5 0 a4.5 4.5 0 1 0 9 0 a4.5 4.5 0 1 0 -9 0"],
+	"menso:1": ["M26 6 L27.5 2.5 L29 6 L32.5 7.5 L29 9 L27.5 12.5 L26 9 L22.5 7.5 Z", true, "M4 28 L24 8"],
+	"menso:2": ["M8 16 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0 M16 16 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0 M24 16 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0",
+		false, "M2 16 H5 M11 16 H13 M19 16 H21 M27 16 H30"],
+	# Warefude : deux lignes ; les jumelles qui s'écartent ; la tresse qui se croise
+	"warefude:0": ["M5 21 L21 5 M11 27 L27 11", false, ""],
+	"warefude:1": ["M4 14 C 12 14, 19 10, 28 5 M4 18 C 12 18, 19 22, 28 27", false, ""],
+	"warefude:2": ["M4 10 C 10 10, 12 22, 16 22 C 20 22, 22 10, 28 10 M4 22 C 10 22, 12 10, 16 10 C 20 10, 22 22, 28 22", false, ""],
+	# Calame de sang : la goutte sous le trait ; le demi-cœur rendu ; le démon
+	"chi:0": ["M16 13 c3 4.5 4.5 7 4.5 9.5 a4.5 4.5 0 0 1 -9 0 c0 -2.5 1.5 -5 4.5 -9.5 Z", true, "M5 9 C 12 5, 20 5, 28 8"],
+	"chi:1": ["M14 28 C 5 21, 2.5 16.5, 5 12 C 7.5 8.5, 12 9.5, 14 13 C 16 9.5, 20.5 8.5, 23 12 C 25.5 16.5, 23 21, 14 28 Z", false, "M14 13 V28 M26 4.5 V12.5 M22 8.5 H30"],
+	"chi:2": ["M16 19 m-8 0 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0", false, "M10.5 13 L7 4 M21.5 13 L25 4 M11.5 18 L15 20.5 M20.5 18 L17 20.5"],
+}
+const PICTO_SW := 2.6  # épaisseur du trait des pictogrammes (unités du gabarit)
+const LOCK_INK := Color("#6A5F50")
+
+
+## Pictogramme de l'aspect `k` du pinceau `id`, centré en `c`, de `sz` px, à l'encre `col`.
+static func aspect_picto(ci: CanvasItem, id: String, k: int, c: Vector2, sz: float, col: Color, a := 1.0) -> void:
+	var key := "%s:%d" % [id, k]
+	if not ASPECT_PICTO.has(key):
+		return
+	var pd: Array = ASPECT_PICTO[key]
+	var filled := bool(pd[1])
+	UiKit.draw_path(ci, String(pd[0]), 32, c, sz, col, PICTO_SW * (0.6 if filled else 1.0), col if filled else Color(0, 0, 0, 0), a, String(pd[2]))
+
+
+## Sceau hanko d'un aspect (cartouches de l'Atelier), centré en `c` (écran), `s` px par unité (sceau de 58) :
+## vermillon cerné, liseré de papier, pictogramme de l'effet en papier s'il est acquis ; contour en tirets,
+## pictogramme grisé et cadenas en coin s'il reste à gagner (le cadre d'or du choisi est celui de la carte).
+static func aspect_seal(ci: CanvasItem, c: Vector2, s: float, rot: float, id: String, k: int, own: bool, a := 1.0) -> void:
 	var sv := Vector2(s, s)
-	if sel:
-		_ring(ci, _rrect(36, 36, 10, c, sv), Color(GOLD, a), 2.5 * s)
 	var outer := _rrect(29, 29, 7, c, sv, rot)
 	if own:
 		ci.draw_colored_polygon(outer, Color(SEAL, a))
 		_ring(ci, outer, Color(SEAL_EDGE, a), maxf(1.0, s))
-		_ring(ci, _rrect(24, 24, 4, c, sv, rot), Color(PAPER_HI, 0.6 * a), maxf(1.0, s))
+		_ring(ci, _rrect(24.5, 24.5, 4, c, sv, rot), Color(PAPER_HI, 0.55 * a), maxf(1.0, s))
+		aspect_picto(ci, id, k, c, 46.0 * s, PAPER_HI, a)
 	else:
-		_dashed(ci, outer, Color(DASH, a), 1.6 * s, 5.0 * s, 4.0 * s)
+		ci.draw_colored_polygon(outer, Color(PAPER_HI, 0.35 * a))
+		dashed(ci, outer, Color(DASH, a), 1.6 * s, 5.0 * s, 4.0 * s)
+		aspect_picto(ci, id, k, c, 46.0 * s, DASH, 0.9 * a)
+		# cadenas en coin : petit disque de papier sur le sceau
+		var lc := c + Vector2(24.0, 24.0) * s
+		ci.draw_circle(lc, 11.0 * s, Color(PAPER_HI, a))
+		ci.draw_arc(lc, 11.0 * s, 0.0, TAU, 24, Color(DASH, a), maxf(1.0, s), true)
+		UiKit.draw_icon(ci, "interface/cadenas", lc, 17.0 * s, a, LOCK_INK)
 
 
 ## Barre de bois du râtelier centrée en `c` (écran, axe de la barre), embouts sombres aux deux bouts.

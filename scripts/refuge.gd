@@ -9,7 +9,8 @@ extends Control
 ## - Estampes : la collection des Vues (filtre par apparence) ; toucher ouvre la fiche de l'estampe, toucher encore
 ##   porte l'apparence : un sceau vermillon s'imprime ;
 ## - Pinceaux : le râtelier de l'écran de départ (scripts/brush_art.gd) sur le washi ; toucher un pinceau montre ses
-##   trois aspects en sceaux hanko (vermillon acquis, tirets à gagner, cadre doré sur le choisi) ; toucher un aspect
+##   trois aspects en cartouches de papier (sceau hanko au pictogramme de l'effet : vermillon acquis, tirets et
+##   cadenas à gagner, liseré d'or sur le choisi ; nom, état) ; toucher un aspect
 ##   acquis le choisit (meta.aspect_sel, sauvegardé) : il part avec ce pinceau (l'écran de départ ne l'affiche plus).
 ##   Le panneau sombre du bas décrit l'aspect touché (effet, état ou condition).
 
@@ -70,6 +71,10 @@ const BR_MUTED := Color("#9A8E78")
 const BR_SUB := Color("#6A5F50")
 const BR_OK := Color("#3E7A4A")
 const BR_W := 390.0  # repère de la maquette du râtelier (Depart.dc.html), en largeur
+# cartouches des aspects (× sx en largeur, × u en hauteur, sous le mot ASPECTS)
+const ASP_W := 106.0
+const ASP_H := 110.0
+const ASP_Y := 480.0
 const FILTERS := ["TOUT", "ÉCHARPES", "SILLAGES", "ENCRES"]
 const FILTER_KINDS := ["", "cape", "trail", "ink"]
 const KIND_LABELS := {"cape": "ÉCHARPE", "trail": "SILLAGE", "ink": "ENCRE"}
@@ -1415,7 +1420,7 @@ func _draw_brushes(w: float, h: float, u: float) -> void:
 	var rl := UiKit.wrap(UiKit.UI_FONT, String(bd["rule"]), rfs, w - 44.0 * u, [":", "%", "·"])
 	for li in mini(rl.size(), 2):
 		UiKit.text(self, UiKit.UI_FONT, rl[li], Vector2(cx, _top + (418.0 + 15.0 * float(li)) * u), rfs, Color(BR_TEXT, a))
-	# les trois aspects
+	# les trois aspects : cartouches de papier (sceau hanko au pictogramme de l'effet, nom, état)
 	draw_string(_cap, Vector2(22.0 * sx, _top + 468.0 * u), "ASPECTS", HORIZONTAL_ALIGNMENT_LEFT, -1, int(UiKit.FS_CAPTION * u), Color(BR_CAPTION, a))
 	var asp: Array = bd["aspects"]
 	var ck := chosen_aspect(_bview)
@@ -1423,17 +1428,7 @@ func _draw_brushes(w: float, h: float, u: float) -> void:
 	_seal_pos.clear()
 	for k in 3:
 		var key := "asp:%d" % k
-		var c := Vector2((75.0 + float(k) * 120.0) * sx, _top + 518.0 * u)
-		if _shake_key == key and _shake > 0.0:
-			c.x += sin(_t * 60.0) * 4.0 * u * _shake
-		_seal_pos[key] = c
 		var own := bool(meta.aspect_owned(_bview, k))
-		var rot := deg_to_rad((TreeArt.rnd(float(k + Gear.ORDER.find(_bview) * 3) + 0.5) - 0.5) * 10.0)
-		var pk := 0.95 if _pressed == key else 1.0
-		BrushArt.aspect_seal(self, c, u * pk, rot, own, bopen and k == ck, a)
-		var an := String(asp[k][0]).to_upper()
-		var afs := _fit(UiKit.TITLE_FONT, an, int(12.0 * u), 50.0 * u, int(8.0 * u))
-		UiKit.text(self, UiKit.TITLE_FONT, an, Vector2(c.x, c.y + float(afs) * 0.36), afs, Color(TREE_PAPER if own else Color("#A09480"), a))
 		var cap := "PINCEAU À GAGNER"
 		var cc: Color = BR_MUTED
 		if own:
@@ -1441,13 +1436,54 @@ func _draw_brushes(w: float, h: float, u: float) -> void:
 			cc = GOLD_INK if k == ck else BR_OK
 		elif bopen:
 			cap = "BOSS AVEC " + who
-		var cfs := _fit(_state, cap, int(9.0 * u), 104.0 * sx, int(7.0 * u))
-		UiKit.text(self, _state, cap, Vector2(c.x, _top + 576.0 * u), cfs, Color(cc, a))
-		var hs := maxf(UiKit.TOUCH_MIN, 76.0) * u / 2.0
-		_hits.append([Rect2(c - Vector2(hs, hs), Vector2(hs, hs) * 2.0), key])
+		var rot := deg_to_rad((TreeArt.rnd(float(k + Gear.ORDER.find(_bview) * 3) + 0.5) - 0.5) * 8.0)
+		_aspect_card(Rect2(Vector2((75.0 + float(k) * 120.0) * sx - ASP_W * sx / 2.0, _top + ASP_Y * u), Vector2(ASP_W * sx, ASP_H * u)),
+			key, k, String(asp[k][0]).to_upper(), cap, cc, own, own and bopen and k == ck, rot, u, a)
 	if _stamp > 0.0 and _seal_pos.has(_stamp_key):
 		_stamp_fx(self, _seal_pos[_stamp_key], "", u)
 	_draw_aspect_detail(w, u, a)
+
+
+## Cartouche d'un aspect (maquette : carte de papier 106 × 110 sous le mot ASPECTS) : sceau hanko vermillon au
+## pictogramme de l'effet, nom en capitales du titre, état en petites capitales (ACQUIS vert d'encre, CHOISI or
+## avec une coche, condition grisée). Choisi : liseré d'or et halo ; à gagner : papier passé, cadre en tirets,
+## sceau en tirets avec un cadenas. Sous le doigt la carte s'enfonce (×0,97) ; refusée elle se secoue ; choisie
+## elle blanchit et le sceau s'imprime (_stamp_fx). La carte entière est la cible tactile.
+func _aspect_card(r0: Rect2, key: String, k: int, name: String, cap: String, cc: Color, own: bool, sel: bool, rot: float, u: float, a: float) -> void:
+	_hits.append([r0, key])
+	var r := r0
+	if _shake_key == key and _shake > 0.0:
+		r.position.x += sin(_t * 60.0) * 4.0 * u * _shake
+	if _pressed == key:
+		r = Rect2(r.get_center() - r.size * 0.485, r.size * 0.97)
+	var rad := UiKit.R_M * u
+	var cx := r.get_center().x
+	var sc := Vector2(cx, r.position.y + 36.0 * u)
+	_seal_pos[key] = sc
+	if own:
+		if sel:
+			_panel(self, r.grow(3.0 * u), Color(0, 0, 0, 0), rad + 3.0 * u, Color(GOLD_HI, 0.3 * a), 1.5 * u)
+		_panel(self, r, Color(TREE_PAPER, a), rad, Color(GOLD_HI, a) if sel else Color(TREE_SUMI, 0.16 * a),
+			(UiKit.BW_STRONG if sel else UiKit.BW) * u, (0.22 if sel else 0.12) * a, u)
+	else:
+		_panel(self, r, Color("#E9E0CC", 0.7 * a), rad)
+		BrushArt.dashed(self, UiKit.rrect_points(r, rad), Color(BrushArt.DASH, a), 1.3 * u, 5.0 * u, 4.0 * u)
+	BrushArt.aspect_seal(self, sc, u * 0.76, rot, _bview, k, own, a)
+	var ny := r.position.y + 74.0 * u
+	var nfs := _fit(UiKit.TITLE_FONT, name, int(11.0 * u), r.size.x - 10.0 * u, int(8.0 * u))
+	UiKit.text(self, UiKit.TITLE_FONT, name, Vector2(cx, ny), nfs, Color(TREE_SUMI if own else BR_MUTED, a))
+	var cfs := _fit(_state, cap, int(8.0 * u), r.size.x - 12.0 * u, int(6.5 * u))
+	var cy := ny + 20.0 * u
+	if sel:
+		# CHOISI : une coche d'or devant le mot
+		var cw := _state.get_string_size(cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs).x
+		var x0 := cx - (cw + 11.0 * u) / 2.0
+		UiKit.glyph(self, "check", Vector2(x0 + 3.5 * u, cy - 0.5 * u), 3.6 * u, Color(GOLD_INK, a))
+		draw_string(_state, Vector2(x0 + 11.0 * u, cy + cfs * 0.36), cap, HORIZONTAL_ALIGNMENT_LEFT, -1, cfs, Color(cc, a))
+	else:
+		UiKit.text(self, _state, cap, Vector2(cx, cy + cfs * 0.36), cfs, Color(cc, a))
+	if _stamp_key == key and _stamp > 0.0:
+		_panel(self, r, Color(1, 1, 1, 0.45 * _stamp * _stamp), rad)
 
 
 ## Panneau sombre du bas de l'onglet Pinceaux : pinceau et rang de l'aspect, nom, effet, état (choisi, acquis, ou ce
