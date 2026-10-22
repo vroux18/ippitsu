@@ -79,6 +79,7 @@ var stat_shapes := {}  # figure -> nombre réalisé
 var build := {}  # pouvoir -> niveau (powers.levels)
 var affinities := {}  # école -> [nombre de pouvoirs, palier] (powers.affinities())
 var new_prints: Array = []  # Vues gagnées à cette partie (ids de meta.PRINTS)
+var new_figs: Array = []  # figures de base gagnées à cette partie (meta.FIG_GATES) : « Nouvelle figure : Aller-retour »
 var new_looks: Array = []  # garde-robe : éléments gagnés par exploit à cette partie ({name, col, col2})
 var killer_kind := ""  # type d'ennemi du coup fatal (vide : inconnu ou boss)
 var killer_name := ""  # nom du boss du coup fatal
@@ -1220,6 +1221,9 @@ func _draw_build(x0: float, x1: float, y: float, rh: float, u: float, a: float) 
 ## Ce qui vient d'être débloqué, en toutes lettres : [[libellé, nom, couleur de la pastille], ...].
 func _unlock_items() -> Array:
 	var out: Array = []
+	for fk in new_figs:
+		var f := String(fk)
+		out.append(["Nouvelle figure", UiKit.plain(String(UiKit.FIG_GESTURE.get(f, f))), UIColors.FIGURES_INK.get(f, UIColors.GOLD)])
 	if victory and unlock_world > 0:
 		out.append(["Monde ouvert", UiKit.plain(unlock_world_name if unlock_world_name != "" else "monde %d" % unlock_world), unlock_world_color])
 	if victory and not unlock_powers.is_empty():

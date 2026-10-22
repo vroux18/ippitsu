@@ -1990,10 +1990,21 @@ func _step_victory() -> bool:
 	# (le robot joue avec tout débloqué, meta.test_unlock_all : seule la feuille de résultats en dépend)
 	main.meta.unlocked = 1
 	main.meta.power_tier = 0
-	# le boss tombe : salle 15 nettoyée, vrai chemin de fin (_room_cleared -> _victory -> _finish_run)
+	# sauvegarde neuve : l'aller-retour n'est pas encore connu, le boss du monde 1 le donne (cérémonie NOUVELLE
+	# FIGURE avant la feuille ; le calendrier réel le temps de la lire, pour la ligne « Prochaine »)
+	var mt = main.meta
+	var open0 := bool(mt.test_open)
+	mt.figs_won["zigzag"] = true  # (étape 3 et gardien passés)
+	mt.figs_won["loop"] = true
+	mt.figs_won.erase("return")
+	mt.coach_seen.erase("fig_return")
+	mt.test_open = false
+	var fc = main.fig_ceremony
+	# le boss tombe : salle 15 nettoyée, vrai chemin de fin (boss_killed -> _room_cleared -> _victory -> _finish_run)
 	var t0 := Time.get_ticks_msec()
 	while String(main.state) == "play" or String(main.state) == "pick":
 		if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
+			mt.test_open = open0
 			_fail("salle 15 nettoyée -> victoire (délai dépassé)")
 			return false
 		# une montée de niveau en attente (dernières pertes d'XP) peut ouvrir son rouleau avant la chute du boss
@@ -2002,6 +2013,8 @@ func _step_victory() -> bool:
 			await _settle_play("rouleau de niveau avant la victoire")
 		for bo in main.bosses:
 			if is_instance_valid(bo):
+				if not bool(bo.dead) and not bool(main.is_mini_boss(String(bo.kind))):
+					main.boss_killed(bo)  # (la chute du boss donne la figure : meta.fig_win)
 				bo.queue_free()
 		main.bosses.clear()
 		for e in main.enemies:
@@ -2011,12 +2024,35 @@ func _step_victory() -> bool:
 		main._waves_left.clear()
 		await _frame()
 	if not await _until(func(): return String(main.state) == "dying" or String(main.state) == "over", "salle 15 nettoyée -> victoire"):
+		mt.test_open = open0
 		return false
 	_ok("victoire : fin au ralenti")
-	if not await _until(func(): return String(main.state) == "over" and String(main.menu.mode) == "over", "victoire -> résultats"):
+	_check(String(main.coach.mark) != "fig_return", "victoire : pas d'annonce du coach pour l'aller-retour (la cérémonie s'en charge)", "bulle %s" % String(main.coach.mark))
+	# cérémonie NOUVELLE FIGURE : plein écran, l'aller-retour, Uwabami vaincu, la prochaine ; un toucher avant 1 s
+	# ne fait rien, puis n'importe où ferme vers la feuille
+	if not await _until(func(): return String(main.state) == "over" and bool(fc.visible), "victoire -> cérémonie NOUVELLE FIGURE"):
+		mt.test_open = open0
 		return false
+	_check(String(main.menu.mode) == "hidden" and String(fc.fig) == "return" and String(fc.how) == "Uwabami vaincu"
+		and String(fc.what).begins_with("+40 % de dégâts") and String(fc.next_line) == "Prochaine : battre Kyūbi (monde 2)"
+		and bool(mt.figs_won.has("return")) and bool(mt.coach_seen.has("fig_return")),
+		"cérémonie : « %s », %s, %s" % [String(fc.fig), String(fc.how), String(fc.next_line)],
+		"feuille %s, figure %s, « %s » / « %s » / « %s », gagnée %s" % [String(main.menu.mode), String(fc.fig), String(fc.how), String(fc.what), String(fc.next_line), str(mt.figs_won.has("return"))])
+	_tap(fc, fc.size / 2.0)
+	await _frames(3)
+	_check(bool(fc.visible), "cérémonie : un toucher trop tôt ne la ferme pas", "fermée à %.2f s" % float(fc._t))
+	if not await _until(func(): return bool(fc.ready_to_close()), "cérémonie : CONTINUER disponible après 1 s"):
+		mt.test_open = open0
+		return false
+	_tap(fc, fc._btn.get_center())
+	if not await _until(func(): return not bool(fc.visible) and String(main.state) == "over" and String(main.menu.mode) == "over", "cérémonie : CONTINUER -> résultats"):
+		mt.test_open = open0
+		return false
+	_ok("cérémonie NOUVELLE FIGURE -> feuille de résultats")
+	mt.test_open = open0
 	_check(bool(main.menu.victory), "résultats de victoire", "menu.victory faux")
 	var menu = main.menu
+	_check(_unlock_labels(menu).has("Nouvelle figure") and (menu.new_figs as Array).has("return"), "résultats : GAINS « Nouvelle figure : Aller-retour »", "gains %s" % str(_unlock_labels(menu)))
 	var n_new: int = main.meta.powers_of_tier(1).size()
 	# (plus les pinceaux, aspects et omamori gagnés : lignes « Débloqué » des gains, en toutes lettres)
 	var gear: Array = menu.unlock_gear

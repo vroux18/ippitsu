@@ -99,6 +99,7 @@ var _sealed_kill := 0
 # campagne : mécaniques fermées au départ de la partie (meta.feature_open), contrôlées à sa fin
 var _cal_closed: Array = []
 var _cal_seen := {}  # mécanique encore fermée -> {compteur de main: valeur lue tant qu'elle l'était}
+var _cer_t := 0.0  # temps passé sur la cérémonie NOUVELLE FIGURE (s) : elle se lit avant CONTINUER
 const CAL_COUNTERS := {"gates": ["gates_seen"], "sealed": ["sealed_set", "chests_sealed", "puzzles_seen"],
 	"merchant": ["merchants_seen"], "pact": ["shrines_seen"], "oni": ["elites_seen"]}
 # mesures d'équilibrage (« BOT SALLE ») : temps de combat (ennemis debout), dégâts par source (main.dmg_src)
@@ -276,6 +277,15 @@ func step(dt: float) -> void:
 		if guard_all and is_instance_valid(main.hero):
 			main.hero.guard_t = 99999.0
 		return
+	# cérémonie NOUVELLE FIGURE (boss du monde vaincu, avant la feuille) : lue un instant, puis CONTINUER
+	var fc = main.get("fig_ceremony")
+	if fc != null and bool(fc.visible):
+		_cer_t += dt
+		if _cer_t >= 1.5:
+			print("BOT CÉRÉMONIE : figure %s lue, CONTINUER (monde %d)" % [String(fc.fig), world])
+			fc.call("close")
+		return
+	_cer_t = 0.0
 	if not is_instance_valid(main.hero):
 		return
 	var h = main.hero
