@@ -6883,8 +6883,8 @@ func _dmg_style(en: Dictionary) -> void:
 	lab.outline_size = 22
 	match t:
 		"dull":
-			col = Color(0.42, 0.41, 0.44, 0.9)  # encre délavée : l'encre dure a bu le coup
-			halo = Color(Toon.PAPER, 0.7)
+			col = Color(0.4, 0.39, 0.42, 0.95)  # encre délavée : l'encre dure a bu le coup
+			halo = Color(Toon.PAPER, 0.8)
 			lab.outline_size = 16
 		"pow":
 			col = _dmg_school_col(String(en.school))
@@ -6909,6 +6909,7 @@ func _dmg_style(en: Dictionary) -> void:
 	en.col = col
 	en.halo = halo
 	en.ba = ba
+	en.a = 1.0
 	lab.modulate = col
 	lab.outline_modulate = halo
 	back.visible = ba > 0.0
@@ -7006,10 +7007,14 @@ func _dmg_pose(en: Dictionary, cb: Basis) -> bool:
 	s *= 1.0 - 0.15 * smoothstep(0.7, 1.0, k)
 	var up := float(spec[2]) * (1.0 - pow(1.0 - k, 3.0))
 	var side := float(en.vx) * (1.0 - pow(1.0 - k, 2.0))
-	var a := clampf((1.0 - k) / 0.3, 0.0, 1.0)
 	var root: Node3D = en.root
 	root.transform = Transform3D(cb * Basis(Vector3.BACK, float(en.rot)) * Basis.from_scale(Vector3.ONE * s),
 		(en.base as Vector3) + cb.x * side + Vector3(0, up, 0))
+	# fondu par crans de 1/20 : changer la couleur d'un Label3D refait son maillage, pas à chaque image
+	var a := roundf(clampf((1.0 - k) / 0.3, 0.0, 1.0) * 20.0) / 20.0
+	if a == float(en.a):
+		return true
+	en.a = a
 	var lab: Label3D = en.lab
 	var col: Color = en.col
 	var halo: Color = en.halo
