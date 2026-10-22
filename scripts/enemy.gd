@@ -294,7 +294,9 @@ var seal_fig := ""
 var seal_rico := 0.0  # ricochet du cadenas (1 -> 0 en SEAL_RICO_T) : il tressaute, sa figure rougit
 var _seal_spark_t := -9.0
 const SEAL_RICO_T := 0.42
-const NO_SEAL := ["kitsunebi", "kitsunebi_s", "tanuki_d", "sumidama", "sumidama_s", "funa", "umibozu", "tsurara", "hinotama"]
+# (yuki-warashi : il éclate de lui-même en se jetant sur le héros ; scellé, son cadenas partait avec lui sans
+# jamais pouvoir être brisé à la figure)
+const NO_SEAL := ["kitsunebi", "kitsunebi_s", "tanuki_d", "sumidama", "sumidama_s", "funa", "umibozu", "tsurara", "hinotama", "yuki_warashi"]
 var _shield_frac := 0.0  # bouclier de départ (fraction des PV max), posé à la première image
 var _bubble: MeshInstance3D
 var _bubble_base := Vector3.ONE

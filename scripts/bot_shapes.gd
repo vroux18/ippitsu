@@ -123,21 +123,28 @@ static func through(shape: String, o: Vector3, target: Vector3, r: float, clamp_
 				last = i
 				cands.append([i, ang_t - atan2(q.z, q.x), side])
 	cands.sort_custom(func(a: Array, b: Array) -> bool: return int(a[0]) < int(b[0]))
-	var tries := 0
-	for c: Array in cands:
-		tries += 1
-		if tries > 10:
-			break
-		var a := float(c[1])
-		var wps := waypoints(shape, o0, Vector3(cos(a), 0.0, sin(a)), float(c[2]))
-		var sim := simulate(o0, wps, clamp_fn)
-		var near := 1.0e9
-		for q: Vector3 in sim:
-			near = minf(near, Vector2(q.x - target.x, q.z - target.z).length())
-		if near > r:
-			continue
-		if String(StrokeShapes.detect(sim).get("shape", "")) == shape:
-			return wps
+	# d'abord l'orientation exacte de chaque candidat ; puis, cible tout près (le yōkai collé au héros), des
+	# orientations voisines qui passent encore sur elle : la figure droite pointée pile sur un scellé à 0,8 m d'un
+	# mur y était rognée (plus reconnue) alors qu'un trait le long de la salle le traverse aussi
+	var spread: Array = [0.0]
+	if d < 3.0 * r:
+		spread = [0.0, 0.3, -0.3, 0.6, -0.6, 0.9, -0.9, 1.2, -1.2, 1.5, -1.5, 1.8, -1.8, 2.2, -2.2, 2.6, -2.6, PI]
+	for off: float in spread:
+		var tries := 0
+		for c: Array in cands:
+			tries += 1
+			if tries > 10:
+				break
+			var a := float(c[1]) + off
+			var wps := waypoints(shape, o0, Vector3(cos(a), 0.0, sin(a)), float(c[2]))
+			var sim := simulate(o0, wps, clamp_fn)
+			var near := 1.0e9
+			for q: Vector3 in sim:
+				near = minf(near, Vector2(q.x - target.x, q.z - target.z).length())
+			if near > r:
+				continue
+			if String(StrokeShapes.detect(sim).get("shape", "")) == shape:
+				return wps
 	return PackedVector3Array()
 
 
