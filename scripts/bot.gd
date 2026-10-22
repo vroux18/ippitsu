@@ -623,12 +623,12 @@ func _print_stats() -> void:
 ## et le héros (ruée, toucher, garde, état du jeu).
 func _diag_room(tag: String) -> void:
 	var h = main.hero
-	print("%s : monde %d salle %d, héros %s ruée %s (point %s/%s) toucher %s, état %s, fin de salle %s, rencontre %s, vagues %d, ennemis %d, échelle du temps %.2f" % [tag, world, int(main.room), str(h.position.snapped(Vector3(0.1, 0.1, 0.1))), str(h.dashing), str(h.get("path_i")), str((h.get("path") as PackedVector3Array).size() if h.get("path") != null else -1), str(main.touching), String(main.state), str(main._room_done), str(main.get("_enc")), main._waves_left.size(), main.enemies.size(), Engine.time_scale])
+	print("%s : monde %d salle %d, héros %s ruée %s (point %s/%s) toucher %s, état %s, fin de salle %s, rencontre %s, vagues %d, ennemis %d, échelle du temps %.2f, encre %.2f" % [tag, world, int(main.room), str(h.position.snapped(Vector3(0.1, 0.1, 0.1))), str(h.dashing), str(h.get("path_i")), str((h.get("path") as PackedVector3Array).size() if h.get("path") != null else -1), str(main.touching), String(main.state), str(main._room_done), str(main.get("_enc")), main._waves_left.size(), main.enemies.size(), Engine.time_scale, float(main.elan)])
 	for e in main.enemies:
 		if not is_instance_valid(e):
 			print("%s   (ennemi libéré encore listé)" % tag)
 			continue
-		print("%s   %s : mort %s, hp %.1f, état %s, phase %s, inoffensif %s, scellé « %s », bouclier %.1f, praticable %s, cadre %s, pos %s, visible %s, y %.2f, traitement %s, dans l'arbre %s, mannequin %s" % [tag, e.kind, str(e.dead), float(e.hp), str(e.get("_state")), str(e.get("_phase")), str(e.is_harmless()), str(e.get("seal_fig")), float(e.get("shield") if e.get("shield") != null else 0.0), str(main.arena.walkable(e.position, 0.3)), str(main.arena.bounds), str(e.position.snapped(Vector3(0.1, 0.1, 0.1))), str(e.visible), float(e.body.position.y) if e.get("body") != null else 0.0, str(e.process_mode), str(e.is_inside_tree()), str(e.dummy)])
+		print("%s   %s : mort %s, hp %.1f, état %s, phase %s, inoffensif %s, scellé « %s », bouclier %.1f, praticable %s, cadre %s, pos %s, visible %s, y %.2f, traitement %s, dans l'arbre %s, mannequin %s, actif %s, figé %s, apparition %s, tempo %s, horloge %s" % [tag, e.kind, str(e.dead), float(e.hp), str(e.get("_state")), str(e.get("_phase")), str(e.is_harmless()), str(e.get("seal_fig")), float(e.get("shield") if e.get("shield") != null else 0.0), str(main.arena.walkable(e.position, 0.3)), str(main.arena.bounds), str(e.position.snapped(Vector3(0.1, 0.1, 0.1))), str(e.visible), float(e.body.position.y) if e.get("body") != null else 0.0, str(e.process_mode), str(e.is_inside_tree()), str(e.dummy), str(e.can_process()), str(e.get("_hit_freeze")), str(e.get("_spawn")), str(e.get("_tempo")), str(e.get("_t"))])
 
 
 func _play(dt: float) -> void:
@@ -863,7 +863,24 @@ func stroke_line(target: Vector3) -> bool:
 	var o: Vector3 = main.hero.position
 	var d := Vector3(target.x - o.x, 0, target.z - o.z)
 	var dir := d.normalized() if d.length() > 0.01 else Vector3.FORWARD
-	var s := make_stroke(PackedVector3Array([Vector3(target.x, 0, target.z) + dir * 0.8]))
+	var t0 := Vector3(target.x, 0, target.z)
+	var ends: Array = [t0 + dir * 0.8]
+	# cible collée au héros contre un bord : le trait (rogné par le cadre) restait sous 0,7 m, donc refusé, et le
+	# robot piétinait toute la salle sous les coups ; comme un joueur, il tire plus long, ou en biais (la cible
+	# toute proche reste sur le passage)
+	var reach := maxf(d.length() + 0.8, 2.2)
+	ends.append(t0 + dir * 2.0)
+	for k in [0.5, -0.5, 1.0, -1.0, 1.5, -1.5]:
+		if d.length() < 1.2:
+			ends.append(o + dir.rotated(Vector3.UP, float(k)) * reach)
+	var s: Node3D = null
+	for q in ends:
+		var cq: Vector3 = main._clamp_point(q)
+		if Vector2(cq.x - o.x, cq.z - o.z).length() < 1.0:
+			continue
+		s = make_stroke(PackedVector3Array([q]))
+		if s != null:
+			break
 	if s == null:
 		return false
 	main._launch(s)
