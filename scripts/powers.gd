@@ -1096,7 +1096,7 @@ func _flash_e(e, id: String) -> void:
 ## Dégâts d'un pouvoir sur un ennemi, avec l'éclat de son élément.
 func _dmg(e, dmg: float, id: String) -> void:
 	_flash_e(e, id)
-	main.damage_enemy(e, dmg)
+	main.damage_enemy(e, dmg, true, false, UiKit.power_school(id) if Data.POWERS.has(id) else id)
 
 
 # ------------------------------------------------------------------ hooks de combat
@@ -1687,9 +1687,7 @@ func _fig_cut(pts: PackedVector3Array, dmg: float, width: float) -> void:
 		if _alive(e) and _near_line(e.position, pts, width + float(e.radius)):
 			hits.append(e)
 	for e in hits:
-		var ep: Vector3 = e.position
-		_fig_hit(e, dmg, true, "fig_straight")
-		main._dmg_text(ep, dmg * _fig_mult(), false)
+		_fig_hit(e, dmg, true, "fig_straight")  # (son chiffre : main.damage_enemy)
 	main.damage_bosses_line(pts, width, dmg * _fig_mult(), true, true)
 
 
@@ -2115,7 +2113,7 @@ func _update_burns(dt: float) -> void:
 			_burn.erase(k)
 			_drop_burn_fx(k)
 			continue
-		main.damage_enemy(e, float(b[2]) * fm * dt, false)
+		main.damage_enemy(e, float(b[2]) * fm * dt, false, false, "fire")
 	for i in range(_boss_burn.size() - 1, -1, -1):
 		var bb: Array = _boss_burn[i]
 		bb[1] = float(bb[1]) - dt
@@ -2141,7 +2139,7 @@ func _update_trails(dt: float) -> void:
 			var d := float(t[3]) * fm * 0.25
 			for e in main.enemies:
 				if _alive(e) and _near_line(e.position, pts, 0.6 + float(e.radius)):
-					main.damage_enemy(e, d, false)
+					main.damage_enemy(e, d, false, false, "fire")
 			main.damage_bosses_line(pts, 0.6, d, false)
 
 
@@ -2215,7 +2213,7 @@ func _aura(dt: float, p: Vector3) -> void:
 	var dps := maxf(1.0 if lvl("fire_edge") > 0 else 0.6, val("fire_burn"))
 	for o in main.nearest_enemies(p, 2.0, 99, null):
 		_ignite(o, dps, 2.0)
-		main.damage_enemy(o, dmg, false)
+		main.damage_enemy(o, dmg, false, false, "fire")
 	main.damage_bosses(p, 1.9, dmg, false)
 
 
@@ -2337,7 +2335,7 @@ func _rod(dt: float, hp: Vector3) -> void:
 		if alive:
 			_stun(e)
 			e.elem_flash(Vfx.GOLD)
-			main.damage_enemy(e, 1.0 * _bolt_mult())
+			main.damage_enemy(e, 1.0 * _bolt_mult(), true, false, "bolt")
 			if String(e.kind) != "brute":
 				main.float_text(p, "INTERROMPU", Toon.GOLD)
 		if lvl("bolt_arc") > 0:
@@ -2402,7 +2400,7 @@ func _static_nova(pos: Vector3) -> void:
 		main.vfx.bolt(pos + Vector3(0, 0.9, 0), o.position + Vector3(0, 0.9, 0), 3, true, true)
 		_stun(o)
 		o.elem_flash(Vfx.GOLD)
-		main.damage_enemy(o, dmg)
+		main.damage_enemy(o, dmg, true, false, "bolt")
 	main.damage_bosses(pos, 2.5, dmg)
 
 
@@ -2536,7 +2534,7 @@ func _fujin_pull(points: PackedVector3Array) -> void:
 		if dist < 4.0 and dist > 0.25:
 			e.position += d / dist * minf(1.8, dist - 0.2)
 			if hurt:
-				main.damage_enemy(e, 0.5, false)
+				main.damage_enemy(e, 0.5, false, false, "wind")
 	var step := maxi(1, int(points.size() / 4.0))
 	for i in range(0, points.size(), step):
 		main.vfx.swirl(points[i], 0.7)
@@ -2746,7 +2744,7 @@ func _special_zone(z: Dictionary, dt: float) -> bool:
 						main.vfx.ash_puff(o.position)  # il traverse les cendres : bouffée de braises, il s'enflamme
 					_ignite(o, maxf(val("fire_burn"), 0.5), 3.0)
 					if dps > 0.0:
-						main.damage_enemy(o, dps * 0.25, false)
+						main.damage_enemy(o, dps * 0.25, false, false, "fire")
 				if dps > 0.0:
 					main.damage_bosses(pos, r, dps * 0.25, false)
 		"mist":
@@ -2886,7 +2884,7 @@ func _update_zones(dt: float) -> void:
 				elif kind == "ink" and lvl("fire_hearth") > 0:
 					_ignite(o2, 0.6, 2.0)
 				# roue de Kasha (toupie) et cercle d'encre (ensō, sceau) : nés des figures, ils percent l'encre dure
-				main.damage_enemy(o2, dmg, false, kind == "wheel" or kind == "ink")
+				main.damage_enemy(o2, dmg, false, kind == "wheel" or kind == "ink", "fire" if kind == "wheel" else ("wind" if kind == "whirl" else ""))
 			main.damage_bosses(pos, r, dmg, false, kind == "wheel" or kind == "ink")
 		if is_instance_valid(node):
 			node.position = Vector3(pos.x, node.position.y, pos.z)
