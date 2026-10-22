@@ -639,7 +639,15 @@ func _play(dt: float) -> void:
 	for frac in [0.5, 0.8]:
 		if _room_t >= tmo * float(frac) and _room_t - dt < tmo * float(frac):
 			_diag_room("BOT SALLE LONGUE %.0f s" % _room_t)
-	if _room_t > tmo:
+	var settling := false
+	if _room_t > tmo and _room_t < tmo + 6.0 and main._waves_left.is_empty() and main.bosses.is_empty():
+		# dernier yōkai tombé juste avant l'échéance : la salle se referme d'elle-même (chute, ralenti, 0,8 s) ;
+		# on ne crie au blocage que si elle reste ouverte sans personne debout
+		settling = true
+		for e in main.enemies:
+			if is_instance_valid(e) and not e.dead:
+				settling = false
+	if _room_t > tmo and not settling:
 		var who: Array = []
 		_diag_room("BOT BLOQUÉ")
 		for e in main.enemies:
@@ -799,6 +807,11 @@ func _seal_attack() -> bool:
 		return false
 	best.set_meta("bot_seal", int(best.get_meta("bot_seal", 0)) + 1)
 	_stroke_points(wps)
+	if String(main._shape.get("shape", "")) == String(best.seal_fig):
+		best.set_meta("bot_seal_ok", int(best.get_meta("bot_seal_ok", 0)) + 1)
+	if int(best.get_meta("bot_seal", 0)) >= 40:
+		# plus d'essai : de quoi comprendre pourquoi la figure n'a pas brisé le sceau (salle bloquée ensuite)
+		print("BOT SCEAU abandon %s « %s » : %d tracés dont %d lus par le jeu, héros %s, yōkai %s, rayon %.2f, cadre %s" % [best.kind, String(best.seal_fig), int(best.get_meta("bot_seal", 0)), int(best.get_meta("bot_seal_ok", 0)), str(hp.snapped(Vector3(0.1, 0.1, 0.1))), str(tgt.snapped(Vector3(0.1, 0.1, 0.1))), float(best.radius), str(main.arena.bounds)])
 	return true
 
 
