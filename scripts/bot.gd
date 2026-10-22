@@ -619,11 +619,29 @@ func _print_stats() -> void:
 		print("BOT STATS monde %d : %d salles, %.1f s de jeu par salle en moyenne, %d coups reçus, dernier cœur gardé %d fois (morts évitées)" % [w, rooms, avg, int(d["hits"]), int(d["guards"])])
 
 
+## Diagnostic d'une salle qui ne finit pas : chaque yōkai restant (état, touchable, position par rapport au cadre)
+## et le héros (ruée, toucher, garde, état du jeu).
+func _diag_room(tag: String) -> void:
+	var h = main.hero
+	print("%s : monde %d salle %d, héros %s ruée %s (point %s/%s) toucher %s, état %s, fin de salle %s, rencontre %s, vagues %d, ennemis %d, échelle du temps %.2f" % [tag, world, int(main.room), str(h.position.snapped(Vector3(0.1, 0.1, 0.1))), str(h.dashing), str(h.get("path_i")), str((h.get("path") as PackedVector3Array).size() if h.get("path") != null else -1), str(main.touching), String(main.state), str(main._room_done), str(main.get("_enc")), main._waves_left.size(), main.enemies.size(), Engine.time_scale])
+	for e in main.enemies:
+		if not is_instance_valid(e):
+			print("%s   (ennemi libéré encore listé)" % tag)
+			continue
+		print("%s   %s : mort %s, hp %.1f, état %s, phase %s, inoffensif %s, scellé « %s », bouclier %.1f, praticable %s, cadre %s, pos %s, visible %s, y %.2f, traitement %s, dans l'arbre %s, mannequin %s" % [tag, e.kind, str(e.dead), float(e.hp), str(e.get("_state")), str(e.get("_phase")), str(e.is_harmless()), str(e.get("seal_fig")), float(e.get("shield") if e.get("shield") != null else 0.0), str(main.arena.walkable(e.position, 0.3)), str(main.arena.bounds), str(e.position.snapped(Vector3(0.1, 0.1, 0.1))), str(e.visible), float(e.body.position.y) if e.get("body") != null else 0.0, str(e.process_mode), str(e.is_inside_tree()), str(e.dummy)])
+
+
 func _play(dt: float) -> void:
 	_room_t += dt
 	_check_stuck(dt)
-	if _room_t > float(ROOM_TIMEOUT.get(mode, 70.0)):
+	# salle qui traîne : de quoi comprendre ce qui la tient ouverte avant l'alerte (ennemis restants, héros)
+	var tmo := float(ROOM_TIMEOUT.get(mode, 70.0))
+	for frac in [0.5, 0.8]:
+		if _room_t >= tmo * float(frac) and _room_t - dt < tmo * float(frac):
+			_diag_room("BOT SALLE LONGUE %.0f s" % _room_t)
+	if _room_t > tmo:
 		var who: Array = []
+		_diag_room("BOT BLOQUÉ")
 		for e in main.enemies:
 			if is_instance_valid(e) and not e.dead:
 				who.append("%s@%s" % [e.kind, str(e.position.snapped(Vector3(0.1, 0.1, 0.1)))])
@@ -774,6 +792,10 @@ func _seal_attack() -> bool:
 			var dir := (tgt - hp).normalized()
 			_stroke_points(PackedVector3Array([tgt - dir * 2.4]))
 			return true
+		# collé au scellé et sans place pour sa figure : comme un joueur, il prend du champ (un trait simple à
+		# travers lui ricoche, et le yōkai qui le suit le garderait collé jusqu'à la fin de la salle)
+		if flee(hp - tgt):
+			return true
 		return false
 	best.set_meta("bot_seal", int(best.get_meta("bot_seal", 0)) + 1)
 	_stroke_points(wps)
@@ -802,13 +824,17 @@ func _check_stuck(dt_real: float) -> void:
 			continue
 		var st: Array = _still[id]
 		var lp: Vector3 = st[0]
-		if lp.distance_to(p) > 0.25 or p.distance_to(main.hero.position) < 3.0:
+		# immobile parce qu'il attaque (annonce, coup, récupération : la rafale du yamabushi, le tir du teppo) n'est
+		# pas coincé : seule la marche (« move ») qui n'avance pas compte
+		if lp.distance_to(p) > 0.25 or p.distance_to(main.hero.position) < 3.0 or String(e.get("_state")) != "move":
 			_still[id] = [p, 0.0]
 			continue
 		st[1] = float(st[1]) + dt
 		if float(st[1]) > 8.0 and not _stuck_seen.has(id):
 			_stuck_seen[id] = true
 			alert("monde %d salle %d (%s) : %s coincé en %s (héros en %s)" % [world, main.room, String(main.arena.layout), e.kind, str(p.snapped(Vector3(0.1, 0.1, 0.1))), str(main.hero.position.snapped(Vector3(0.1, 0.1, 0.1)))])
+			var hp3: Vector3 = main.hero.position
+			print("BOT COINCÉ %s : état %s, assommé %.2f, figé %.2f, coin %s, cap %s, vers le héros %s, praticable %s, cadre %s, plateformes %s" % [e.kind, str(e.get("_state")), float(e.get("_stagger")), float(e.get("_hit_freeze")), str(e.get("_corner_t")), str(e.get("_steer")), str(main.steer_dir(p, hp3, 0.3)), str(main.arena.walkable(p, 0.3)), str(main.arena.bounds), str(main.arena.get("_act"))])
 
 
 # ------------------------------------------------------------------ traits, figures, fuites (aussi pour bot_ui)
