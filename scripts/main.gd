@@ -925,6 +925,11 @@ func _ready() -> void:
 	# `vaincu` : l'élite meurt aussitôt parue (sanctuaire éteint)
 	if "onisha" in wsearch and state == "play":
 		_capture_oni(wsearch)
+	# `?fontaine` (captures) : une fontaine de soin à droite devant le héros (`rouge` : celle du sceau du cœur ;
+	# `cache` : pas encore parue, combat supposé en cours ; `eveil=T` : elle surgit à T s de jeu ; `fige=X` : image
+	# figée X s après son apparition ; `pastille` : la pastille de la première fois, maintenue)
+	if "fontaine" in wsearch and state == "play":
+		_capture_spring(wsearch)
 	# `?scelle=loop` (captures) : un yōkai scellé (figure loop ; `kind=kappa`) et deux autres, figés devant le héros ;
 	# `ricoche=1.5` : un trait droit le traverse à 1,5 s (le coup ricoche) ; `brise=2` : à 2 s, le héros trace sa
 	# figure à travers lui (le sceau se brise) ; `loin=1` : posés plus loin (distance de jeu ordinaire)
@@ -1836,7 +1841,7 @@ func _warmup() -> void:
 	l2.font_size = 110
 	w.add_child(l2)
 	# énigmes des recoins (encre au pinceau shaders/puzzle_ink.gdshader, pierres, papiers, esprit),
-	# coffre, source et stèle de défi, butin au sol : leurs matières ne servent nulle part ailleurs
+	# coffre, fontaine (eau, cœur) et stèle de défi, butin au sol : leurs matières ne servent nulle part ailleurs
 	var pz_at := [Vector3(-3.0, 0, 2.0), Vector3(0.0, 0, 2.0), Vector3(3.0, 0, 2.0)]
 	var pz_nodes: Array = []
 	for at in pz_at:
@@ -5297,6 +5302,9 @@ func _build_pockets(sliced := false) -> void:
 		if sealed and k == "spring":
 			_seal_spring(pn)  # sceau du cœur : la source elle-même est vermillon (plus de sceau flottant)
 		var pk := {"kind": k, "pos": p, "used": false, "node": pn, "seal": sealed}
+		if k == "spring":
+			pk["zone"] = i - 1  # le tronçon i porte la zone de combat i - 1 (aucune au départ) : la fontaine attend sa fin
+			_spring_init(pk)
 		if k == "elite":
 			elites_seen += 1
 			pk["oni"] = pn.get_meta("oni")
@@ -5308,21 +5316,270 @@ func _build_pockets(sliced := false) -> void:
 
 
 const SPRING_RED := Color("#C8322A")  # eau de la source du sceau du cœur
+const SPRING_WATER := Color("#5CCFDB")  # eau turquoise de la fontaine de soin
+const SPRING_JADE := Color("#9FE8C8")  # lueur de soin au sol, gouttes
+const SPRING_RISE_T := 0.6  # apparition de la fontaine : la vasque monte du sol et se remplit (s)
+const SPRING_HEART_T := 0.3  # puis le cœur paraît (s)
+const SPRING_HEART_Y := 1.25  # hauteur du cœur flottant (m)
 
 
-## Source du sceau du cœur : eau vermillon lumineuse et lueur d'or au sol (main._update_pockets la fait pulser).
+## Fontaine de soin (tsukubai) d'un recoin : vasque de pierre ronde sur un lit de galets et de mousse, eau
+## turquoise qui ondule (anneau d'écume), bambou verseur (kakei) et son filet, louche posée sur le rebord, et
+## un cœur flottant au-dessus pour dire « soin ». Tout le décor est sous « Body » (il monte du sol quand la
+## fontaine paraît : _update_spring) ; l'eau, le filet, l'anneau et le cœur sont retrouvés par leur nom.
+func _build_fountain(n: Node3D) -> void:
+	n.scale = Vector3.ONE * 1.15  # (lisible d'en haut, dans l'alcôve du recoin)
+	var body := Node3D.new()
+	body.name = "Body"
+	n.add_child(body)
+	var stone := Toon.mat_shared(Color("#8E8A84"))
+	var dark_st := Toon.mat_shared(Color("#5A5753"))
+	var moss := Toon.mat_shared(Color("#6E9A4A"))
+	# lit de mousse et galets tout autour (on lit une fontaine de jardin, pas une caisse)
+	_disc(body, 0.84, Toon.flat(Color("#6F9C4E", 0.36)), 0.012)
+	var peb := [[0.0, 0.70, 0.13], [52.0, 0.66, 0.1], [118.0, 0.72, 0.12], [170.0, 0.64, 0.09], [226.0, 0.70, 0.14], [292.0, 0.66, 0.1]]
+	for i in peb.size():
+		var pa: Array = peb[i]
+		var a := deg_to_rad(float(pa[0]))
+		var r := float(pa[2])
+		var pb := Toon.part(body, Toon.sphere(r), dark_st if i % 2 == 0 else stone, Vector3(cos(a) * float(pa[1]), r * 0.55, sin(a) * float(pa[1])), Vector3(1.0, 0.65, 1.0))
+		pb.rotation.y = a
+	for ma in [80.0, 200.0, 320.0]:
+		var am := deg_to_rad(float(ma))
+		Toon.part(body, Toon.sphere(0.11), moss, Vector3(cos(am) * 0.56, 0.03, sin(am) * 0.56), Vector3(1.0, 0.45, 1.0))
+	# vasque : fût évasé, rebord en anneau, fond sombre (visible tant qu'elle est vide)
+	Toon.part(body, Toon.cyl(0.46, 0.36, 0.42, 14), stone, Vector3(0, 0.21, 0))
+	var rim := TorusMesh.new()
+	rim.inner_radius = 0.36
+	rim.outer_radius = 0.50
+	rim.rings = 14
+	rim.ring_segments = 6
+	Toon.part(body, rim, dark_st, Vector3(0, 0.42, 0), Vector3(1.0, 0.7, 1.0))
+	var well := Toon.part(body, Toon.cyl(0.37, 0.34, 0.05, 14), Toon.flat(Color("#2E3238")), Vector3(0, 0.385, 0))
+	well.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# eau : disque turquoise émissif (il se remplit depuis le centre à l'apparition), anneau d'écume qui s'élargit
+	var wm := Toon.mat(SPRING_WATER, false)
+	wm.emission_enabled = true
+	wm.emission = SPRING_WATER
+	wm.emission_energy_multiplier = 0.45
+	var w := Toon.part(body, Toon.cyl(0.365, 0.365, 0.02, 14), wm, Vector3(0, 0.415, 0))
+	w.name = "Water"
+	w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var rp := TorusMesh.new()
+	rp.inner_radius = 0.12
+	rp.outer_radius = 0.145
+	rp.rings = 14
+	rp.ring_segments = 4
+	var ripple := Toon.part(body, rp, Toon.flat(Color(Toon.FOAM, 0.75)), Vector3(0, 0.43, 0), Vector3(1.0, 0.3, 1.0))
+	ripple.name = "Ripple"
+	ripple.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# kakei : montant de bambou derrière à gauche, verseur penché au-dessus de l'eau, filet qui tombe, écume au point de chute
+	var bam := Toon.mat_shared(Color("#8DB35E"))
+	var knot := Toon.mat_shared(Color("#5F7F3C"))
+	Toon.part(body, Toon.cyl(0.045, 0.05, 0.92, 8), bam, Vector3(-0.34, 0.46, -0.44))
+	for ky in [0.3, 0.62]:
+		Toon.part(body, Toon.cyl(0.052, 0.052, 0.03, 8), knot, Vector3(-0.34, float(ky), -0.44))
+	var a := Vector3(-0.34, 0.9, -0.44)
+	var b := Vector3(0.04, 0.74, -0.04)
+	var spout := Toon.part(body, Toon.cyl(0.04, 0.04, 0.54, 8), bam, (a + b) / 2.0)
+	spout.basis = _axis_basis(b - a)
+	Toon.part(body, Toon.cyl(0.046, 0.046, 0.03, 8), knot, a + (b - a) * 0.5).basis = spout.basis
+	var sm := Toon.flat(Color("#E4FBFC", 0.95))
+	var stream := Toon.part(body, Toon.cyl(0.018, 0.03, 0.31, 6), sm, Vector3(b.x, 0.425 + 0.155, b.z))
+	stream.name = "Stream"
+	stream.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var foam := Toon.part(body, Toon.cyl(0.07, 0.07, 0.006, 10), Toon.flat(Color(Toon.FOAM, 0.6)), Vector3(b.x, 0.432, b.z))
+	foam.name = "Foam"
+	foam.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# louche (hishaku) posée en travers du rebord, à droite
+	var ladle := Toon.mat_shared(Color("#B08A5A"))
+	var stick := Toon.part(body, Toon.cyl(0.014, 0.014, 0.52, 6), ladle, Vector3(0.36, 0.49, 0.1))
+	stick.rotation = Vector3(0, deg_to_rad(20), deg_to_rad(80))
+	Toon.part(body, Toon.cyl(0.055, 0.045, 0.07, 10), ladle, Vector3(0.1, 0.5, 0.2))
+	# lueur de soin au sol (jade), elle respire
+	var glint := _disc(body, 0.9, Toon.flat(Color(SPRING_JADE, 0.22)), 0.02)
+	glint.name = "Glint"
+	# cœur flottant : deux lobes et une pointe, vermillon cerné d'encre, face à la caméra (plan XY)
+	var heart := Node3D.new()
+	heart.name = "Heart"
+	n.add_child(heart)
+	heart.position = Vector3(0, SPRING_HEART_Y, 0)
+	var hm := Toon.mat(Toon.VERMILION)
+	hm.emission_enabled = true
+	hm.emission = Color("#7A1A14")
+	for sx in [-1.0, 1.0]:
+		Toon.part(heart, Toon.sphere(0.135), hm, Vector3(float(sx) * 0.11, 0.085, 0), Vector3(1.0, 1.0, 0.6))
+	var tip := Toon.part(heart, Toon.box(Vector3(0.235, 0.235, 0.14)), hm, Vector3(0, -0.03, 0))
+	tip.rotation.z = PI / 4.0
+	var halo := Toon.part(heart, Toon.sphere(0.3), Toon.flat(Color("#FFF2E8", 0.18)), Vector3(0, 0.03, -0.02))
+	halo.name = "Halo"
+	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## Base dont l'axe y suit `dir` (cylindres penchés).
+func _axis_basis(dir: Vector3) -> Basis:
+	var y := dir.normalized()
+	var x := Vector3.UP.cross(y)
+	if x.length() < 0.01:
+		x = Vector3.RIGHT
+	x = x.normalized()
+	return Basis(x, y, x.cross(y))
+
+
+## Source du sceau du cœur : eau vermillon lumineuse et lueur d'or au sol (main._update_spring la fait pulser).
 func _seal_spring(n: Node3D) -> void:
-	var w := n.get_node_or_null("Water") as MeshInstance3D
+	var w := n.get_node_or_null("Body/Water") as MeshInstance3D
 	if w != null:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = SPRING_RED
+		var m := Toon.mat(SPRING_RED, false)
 		m.emission_enabled = true
 		m.emission = SPRING_RED
 		m.emission_energy_multiplier = 0.5
 		w.material_override = m
-	var gl := n.get_node_or_null("Glint") as MeshInstance3D
+	var st := n.get_node_or_null("Body/Stream") as MeshInstance3D
+	if st != null:
+		st.material_override = Toon.flat(Color("#F2A6A0", 0.9))
+	var gl := n.get_node_or_null("Body/Glint") as MeshInstance3D
 	if gl != null:
 		gl.material_override = Toon.flat(Color(Toon.GOLD, 0.2))  # lueur d'or : bénéfique (le rouge au sol annonce les attaques)
+	var ha := n.get_node_or_null("Heart/Halo") as MeshInstance3D
+	if ha != null:
+		ha.material_override = Toon.flat(Color(Toon.GOLD, 0.22))
+
+
+## La fontaine d'un recoin peut paraître : la zone de combat de son tronçon (`zone`, -1 : tronçon du départ ou
+## sanctuaire, sans combat) est nettoyée et plus aucun ennemi dangereux n'y est debout. Captures : `hold` la
+## retient, `wake_at` fixe son heure (temps de jeu).
+func _spring_clear(pk: Dictionary) -> bool:
+	if bool(pk.get("hold", false)):
+		return false
+	if pk.has("wake_at"):
+		return run_time >= float(pk["wake_at"])
+	var z := int(pk.get("zone", -1))
+	if z >= 0 and ((z < arena.zone_state.size() and int(arena.zone_state[z]) != 2) or _enc == z):
+		return false
+	var zr: Rect2 = arena.zones[z] if z >= 0 and z < arena.zones.size() else Rect2()
+	for e in enemies:
+		if is_instance_valid(e) and not e.dead and not e.is_harmless():
+			if z < 0 or zr.has_point(Vector2(e.position.x, e.position.z)):
+				return false
+	return true
+
+
+## Fontaine construite (recoin ou capture) : parue d'emblée si sa zone est déjà nettoyée, sinon cachée.
+func _spring_init(pk: Dictionary) -> void:
+	var n: Node3D = pk["node"]
+	pk["rp_ph"] = randf()
+	if _spring_clear(pk):
+		pk["awake"] = true
+		pk["wake_t0"] = run_time - SPRING_RISE_T - SPRING_HEART_T - 1.0  # (sans animation)
+	else:
+		pk["awake"] = false
+		n.visible = false
+
+
+## La zone est nettoyée : la fontaine surgit (éclat d'eau, son) ; l'animation suit dans _update_spring.
+func _spring_wake(pk: Dictionary, n: Node3D) -> void:
+	pk["awake"] = true
+	pk["wake_t0"] = run_time
+	n.visible = true
+	var hn := n.get_node_or_null("Heart") as Node3D
+	if hn != null:
+		hn.visible = false
+	var sealed := bool(pk.get("seal", false))
+	var p: Vector3 = pk["pos"]
+	_splash(p + Vector3(0, 0.35, 0), SPRING_RED.lerp(Color.WHITE, 0.3) if sealed else Color("#BFF2F5"), 16)
+	vfx.ring(Vector3(p.x, 0.05, p.z), Toon.GOLD if sealed else SPRING_JADE, 1.4)
+	sfx.play("splash", 1.1, -6.0)
+
+
+## Fontaine d'un recoin : cachée tant que la zone de son tronçon se bat ; quand elle est nettoyée la vasque monte
+## du sol, l'eau se remplit (SPRING_RISE_T), le cœur paraît (SPRING_HEART_T, petit son) et, la toute première
+## fois de la sauvegarde, une pastille dit à quoi elle sert. Ensuite l'eau ondule et le cœur bat ; le héros qui
+## vient y boire regagne un cœur (deux pour celle du sceau du cœur), puis elle se tarit.
+func _update_spring(pk: Dictionary, n: Node3D, d: float) -> void:
+	if not bool(pk.get("awake", false)):
+		if not _spring_clear(pk):
+			return
+		_spring_wake(pk, n)
+	var sealed := bool(pk.get("seal", false))
+	if not pk.has("water"):
+		# nœuds retrouvés une fois (pas de recherche par nom à chaque image)
+		pk["water"] = n.get_node_or_null("Body/Water")
+		pk["body"] = n.get_node_or_null("Body")
+		pk["ripple"] = n.get_node_or_null("Body/Ripple")
+		pk["stream"] = n.get_node_or_null("Body/Stream")
+		pk["foam"] = n.get_node_or_null("Body/Foam")
+		pk["glint"] = n.get_node_or_null("Body/Glint")
+		pk["heart"] = n.get_node_or_null("Heart")
+	var t := run_time - float(pk.get("wake_t0", run_time))
+	if pk.has("fige") and t >= float(pk["fige"]):
+		_cap_frozen = true  # capture (`fige=`) : l'image se fige à cet instant de l'apparition
+	var body: Node3D = pk["body"]
+	var water: MeshInstance3D = pk["water"]
+	var heart: Node3D = pk["heart"]
+	# apparition : la vasque monte du sol (petit rebond), l'eau se remplit depuis le centre
+	var rk := clampf(t / SPRING_RISE_T, 0.0, 1.0)
+	var rise := 1.0 - pow(1.0 - rk, 3.0) + 0.1 * sin(PI * rk)
+	if body != null:
+		body.scale = Vector3(0.55 + 0.45 * rise, maxf(rise, 0.02), 0.55 + 0.45 * rise)
+	var fill := clampf((t - SPRING_RISE_T * 0.45) / (SPRING_RISE_T * 0.55), 0.0, 1.0)
+	var fk := 0.5 + 0.5 * sin(run_time * 2.6)
+	if water != null:
+		water.scale = Vector3(maxf(fill, 0.001), 1.0, maxf(fill, 0.001))
+		var wmat := water.material_override as StandardMaterial3D
+		if wmat != null:
+			wmat.emission_energy_multiplier = (0.35 + 0.5 * fk) if sealed else (0.3 + 0.3 * fk)
+	var rp: MeshInstance3D = pk["ripple"]
+	if rp != null:
+		var ck := fmod(run_time * 0.7 + float(pk.get("rp_ph", 0.0)), 1.0)
+		rp.visible = fill >= 1.0
+		rp.scale = Vector3(0.6 + 1.9 * ck, 0.3, 0.6 + 1.9 * ck)
+		(rp.material_override as StandardMaterial3D).albedo_color = Color(Toon.FOAM, 0.7 * (1.0 - ck) * (1.0 - ck))
+	var st: MeshInstance3D = pk["stream"]
+	if st != null:
+		var sk := clampf((t - SPRING_RISE_T * 0.7) / 0.25, 0.0, 1.0)
+		st.scale = Vector3(1.0 + 0.2 * sin(run_time * 17.0), maxf(sk, 0.001), 1.0)
+		st.position.y = 0.425 + 0.155 * sk
+	var fo: MeshInstance3D = pk["foam"]
+	if fo != null:
+		fo.visible = fill >= 1.0
+		fo.scale = Vector3.ONE * (0.85 + 0.25 * sin(run_time * 9.0))
+	var gl: MeshInstance3D = pk["glint"]
+	if gl != null:
+		gl.scale = Vector3(0.9, 1.0, 0.9) * (1.0 + 0.2 * fk) * maxf(fill, 0.001)
+		(gl.material_override as StandardMaterial3D).albedo_color = Color(Toon.GOLD if sealed else SPRING_JADE, 0.12 + 0.14 * fk)
+	# le cœur : paraît en gonflant après la vasque, puis flotte et bat
+	var hk := clampf((t - SPRING_RISE_T) / SPRING_HEART_T, 0.0, 1.0)
+	if heart != null:
+		if hk > 0.0 and not heart.visible:
+			heart.visible = true
+			sfx.play("ink", 1.35, -6.0)
+			if (not meta.coach_seen.has("fontaine") and bool(meta.hints_on)) or pk.has("toast_hold"):
+				meta.coach_see("fontaine")
+				meta.save_data()
+				hud.toast("FONTAINE : viens boire")
+		if pk.has("toast_hold") and hk >= 1.0:
+			hud._toast_t = minf(float(hud._toast_t), 0.5)  # capture (`pastille`) : la pastille reste affichée
+		var pop := hk * (1.0 + 0.35 * sin(PI * hk))
+		var beat := pow(maxf(0.0, sin(run_time * 4.2)), 6.0)
+		heart.scale = Vector3.ONE * maxf(pop * (1.0 + 0.14 * beat), 0.001)
+		heart.position.y = SPRING_HEART_Y + 0.08 * sin(run_time * 2.2) - 0.25 * (1.0 - hk)
+		heart.rotation.y = 0.3 * sin(run_time * 1.3)
+	if hk < 1.0:
+		return
+	if d < 1.2 and hero.hp < hero.max_hp:
+		pk["used"] = true
+		heal(SEAL_HEAL if sealed else 1, sealed)
+		if water != null:
+			water.material_override = Toon.flat(Color("#4E6E78", 0.6))
+		for nm in ["ripple", "stream", "foam", "glint", "heart"]:
+			var hn = pk[nm]
+			if hn != null:
+				(hn as Node3D).visible = false
+		var p: Vector3 = pk["pos"]
+		_splash(p + Vector3(0, 0.5, 0), SPRING_RED.lerp(Color.WHITE, 0.4) if sealed else Color("#BFF2F5"), 14)
+		sfx.play("shrine", 1.4, -4.0)
+		hud.toast("SOIN +%d" % (SEAL_HEAL if sealed else 1))
 
 
 func _clear_pockets() -> void:
@@ -5333,7 +5590,7 @@ func _clear_pockets() -> void:
 	_pockets.clear()
 
 
-## Coffre laqué, source entourée de pierres, ou stèle de défi (鬼) : petits décors posés dans le recoin.
+## Coffre laqué, fontaine de soin (_build_fountain), ou sanctuaire d'oni : petits décors posés dans le recoin.
 func _pocket_node(kind: String, p: Vector3) -> Node3D:
 	var n := Node3D.new()
 	add_child(n)
@@ -5378,26 +5635,7 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 			var gd := _disc(n, 1.35, glow, 0.02)
 			gd.name = "Glow"
 		"spring":
-			# chōzubachi : bassin de pierre taillée, filet d'eau d'un tuyau de bambou, louche de bois
-			var stone := Toon.mat_shared(Color("#8E8A84"))
-			var dark_st := Toon.mat_shared(Color("#6E6A64"))
-			Toon.part(n, Toon.box(Vector3(0.95, 0.12, 0.7)), dark_st, Vector3(0, 0.06, 0))
-			Toon.part(n, Toon.box(Vector3(0.85, 0.42, 0.6)), stone, Vector3(0, 0.33, 0))
-			var water := Toon.flat(Color("#6FD0DA", 0.95))
-			var w := Toon.part(n, Toon.box(Vector3(0.66, 0.02, 0.42)), water, Vector3(0, 0.55, 0))
-			w.name = "Water"
-			w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			var bam := Toon.mat_shared(Color("#7FA65A"))
-			var pipe := Toon.part(n, Toon.cyl(0.04, 0.04, 0.7, 8), bam, Vector3(0.18, 0.78, -0.22))
-			pipe.rotation = Vector3(deg_to_rad(65), 0, 0)
-			Toon.part(n, Toon.cyl(0.05, 0.05, 0.75, 8), bam, Vector3(0.18, 0.42, -0.52))
-			var ladle := Toon.mat_shared(Color("#B08A5A"))
-			var stick := Toon.part(n, Toon.cyl(0.015, 0.015, 0.6, 6), ladle, Vector3(-0.15, 0.6, 0.0))
-			stick.rotation = Vector3(0, 0, deg_to_rad(80))
-			Toon.part(n, Toon.cyl(0.07, 0.06, 0.08, 10), ladle, Vector3(0.14, 0.62, 0.0))
-			# lueur de soin au sol (jade) : on comprend que c'est bénéfique
-			var glint := _disc(n, 0.85, Toon.flat(Color("#9FE8C8", 0.22)), 0.02)
-			glint.name = "Glint"
+			_build_fountain(n)
 		"elite":
 			# sanctuaire d'oni (oni_shrine.gd), tourné un peu vers le milieu de l'étape (l'élite paraît devant)
 			var mid: float = arena.stage_rect.get_center().x if arena.stage else 0.0
@@ -5406,7 +5644,8 @@ func _pocket_node(kind: String, p: Vector3) -> Node3D:
 	return n
 
 
-## Le héros touche un recoin : coffre (or, expérience), source (1 cœur), défi (un ennemi d'élite apparaît).
+## Le héros touche un recoin : coffre (or, expérience), fontaine (1 cœur, une fois la zone nettoyée), défi (un ennemi
+## d'élite apparaît).
 func _update_pockets() -> void:
 	for pk in _pockets:
 		if String(pk["kind"]) == "elite":
@@ -5440,28 +5679,7 @@ func _update_pockets() -> void:
 					pk["used"] = true
 					_open_chest(pk, false)
 			"spring":
-				if bool(pk.get("seal", false)):
-					# source du sceau du cœur : l'eau vermillon pulse et sa lueur respire, jusqu'à ce qu'on y boive
-					var sk := 0.5 + 0.5 * sin(run_time * 2.6)
-					var gl3 := n.get_node_or_null("Glint") as MeshInstance3D
-					if gl3 != null:
-						gl3.scale = Vector3.ONE * (1.0 + 0.22 * sk)
-						(gl3.material_override as StandardMaterial3D).albedo_color = Color(Toon.GOLD, 0.12 + 0.14 * sk)
-					var wr := n.get_node_or_null("Water") as MeshInstance3D
-					if wr != null:
-						(wr.material_override as StandardMaterial3D).emission_energy_multiplier = 0.3 + 0.6 * sk
-				if d < 1.1 and hero.hp < hero.max_hp:
-					pk["used"] = true
-					heal(SEAL_HEAL if bool(pk.get("seal", false)) else 1, bool(pk.get("seal", false)))
-					var w := n.get_node_or_null("Water") as MeshInstance3D
-					if w != null:
-						w.material_override = Toon.flat(Color("#4E6E78", 0.6))
-					var gl2 := n.get_node_or_null("Glint") as Node3D
-					if gl2 != null:
-						gl2.visible = false
-					_splash(p + Vector3(0, 0.2, 0), Color("#BFF2F5"), 14)
-					sfx.play("shrine", 1.4, -4.0)
-					hud.toast("SOIN +%d" % (SEAL_HEAL if bool(pk.get("seal", false)) else 1))
+				_update_spring(pk, n, d)
 			"puzzle":
 				_update_puzzle(pk, n, d)
 			"merchant":
@@ -5490,6 +5708,35 @@ func _capture_oni(wsearch: String) -> void:
 	var iq := wsearch.find("invoque=")
 	if iq >= 0:
 		pk["cap_at"] = float(wsearch.substr(iq + 8).get_slice("&", 0))  # en temps de jeu (run_time)
+
+
+## Capture `?fontaine` : fontaine de soin à 1,3 m à droite et 3 m devant le héros (les autres recoins sont retirés).
+func _capture_spring(wsearch: String) -> void:
+	meta.tuto_done = true
+	for pk in _pockets:
+		if is_instance_valid(pk["node"]):
+			(pk["node"] as Node).queue_free()
+	_pockets.clear()
+	var p: Vector3 = arena.clamp_walk(hero.position + Vector3(1.3, 0, -3.0), 1.0)
+	p.y = 0.0
+	var sealed := "rouge" in wsearch
+	var pn := _pocket_node("spring", p)
+	if sealed:
+		_seal_spring(pn)
+	var pk := {"kind": "spring", "pos": p, "used": false, "node": pn, "seal": sealed}
+	if "cache" in wsearch:
+		pk["hold"] = true
+	var eq := wsearch.find("eveil=")
+	if eq >= 0:
+		pk["wake_at"] = float(wsearch.substr(eq + 6).get_slice("&", 0))
+	var fq := wsearch.find("fige=")
+	if fq >= 0:
+		pk["fige"] = float(wsearch.substr(fq + 5).get_slice("&", 0))  # image figée X s de jeu après l'apparition
+	if "pastille" in wsearch:
+		pk["toast_hold"] = true  # la pastille de la première fois, et elle reste
+	_spring_init(pk)
+	_pockets.append(pk)
+	hero.hp = maxi(1, hero.max_hp - 1)
 
 
 ## Sanctuaire d'oni d'un recoin : le héros approche (hors combat) -> invocation (OniShrine, ≈ 1,2 s), l'élite paraît
@@ -6255,8 +6502,8 @@ func bot_goal() -> Vector3:
 	for pk in _pockets:
 		if bool(pk["used"]):
 			continue
-		if String(pk["kind"]) == "spring" and hero.hp >= hero.max_hp:
-			continue
+		if String(pk["kind"]) == "spring" and (hero.hp >= hero.max_hp or not bool(pk.get("awake", false))):
+			continue  # fontaine : pas encore parue (la zone se bat), ou rien à soigner
 		if String(pk["kind"]) == "merchant" and (bool(pk.get("visited", false)) or not bool(pk.get("shown", false))):
 			continue  # échoppe déjà vue : le robot n'y retourne pas
 		if int(pk.get("bot_try", 0)) >= 4:

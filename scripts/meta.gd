@@ -282,7 +282,8 @@ var tuto_done := false  # tutoriel fini : bulles du coach toutes vues ou passée
 const COACH_MARKS := ["stroke", "cut", "ink", "figure", "ult", "run", "figures"]  # bulles du coach (coach.gd)
 const COACH_EXTRA := ["seal", "danger", "scroll", "gates", "pz_stele", "pz_lanterns", "pz_spirit", "chest", "merchant",
 	"pact", "oni", "guardian", "boss", "tree", "fig_zigzag", "fig_straight", "fig_loop", "fig_return", "fig_enso", "fig_hook",
-	"fig_wave", "fig_point", "fig_triangle", "brush_hake", "brush_menso", "brush_warefude", "brush_chi", "charm"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
+	"fig_wave", "fig_point", "fig_triangle", "brush_hake", "brush_menso", "brush_warefude", "brush_chi", "charm",
+	"fontaine"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
 const PROG_VERSION := 1  # sauvegarde : 0 = avant le déblocage progressif des figures et des mécaniques
 ## guides de l'accueil (tree_coach.gd), une fois chacun, hors « Passer » : le dojo (après la toute première partie),
 ## l'Arbre du pinceau (après le monde 1), le pinceau gagné (Atelier, onglet PINCEAUX)
