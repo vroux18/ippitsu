@@ -955,7 +955,7 @@ func elan_bonus() -> float:
 
 
 func regen_mult() -> float:
-	return 1.0 + val("wind_gust") / 100.0 + (0.5 if lvl("wind_fujin") > 0 else 0.0)
+	return 1.0 + val("ink_gust") / 100.0 + (0.5 if lvl("wind_fujin") > 0 else 0.0)
 
 
 func dash_mult() -> float:

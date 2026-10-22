@@ -859,6 +859,10 @@ func _ready() -> void:
 		var rq := wsearch.find("rar=")
 		if rq >= 0:
 			_pick_rarities(wsearch.substr(rq + 4).get_slice("&", 0).split(","))
+		# `&cartes=wind_feather,wind_long,wind_blades` (captures) : ces trois rouleaux proposés
+		var cq := wsearch.find("cartes=")
+		if cq >= 0:
+			_pick_ids(wsearch.substr(cq + 7).get_slice("&", 0).split(",", false))
 		# `&relance` (captures) : le tirage tourne comme après RELANCER (animation raccourcie)
 		if "relance" in wsearch:
 			picker.set("_rerolled", true)
@@ -1077,9 +1081,20 @@ func _ready() -> void:
 			_open_worlds(rid - 1, rid, ["fire_burn", "water_tide", "fire_spark", "fire_kasha"])  # rouleaux de démonstration
 		else:
 			_open_worlds()
+	# `&pouvoirs=wind_long:2,wind_feather` (captures) : ces rouleaux pris, au niveau donné (1 sans « :N »)
+	var pwq := wsearch.find("pouvoirs=")
+	if pwq >= 0:
+		for pw in wsearch.substr(pwq + 9).get_slice("&", 0).split(",", false):
+			var pid := String(pw).get_slice(":", 0)
+			if PowerData.POWERS.has(pid):
+				powers.levels[pid] = clampi(int(String(pw).get_slice(":", 1)), 1, 3) if ":" in String(pw) else 1
+		elan = elan_max()
 	if "pause" in wsearch:
 		_set_state("play")
 		_on_pause()
+		# `?room=3&pause&recap` (captures) : la planche des rouleaux et des harmonies par-dessus la pause
+		if "recap" in wsearch:
+			_open_recap()
 		# `?mesure&pause&panneaucam` (captures) : le panneau CAMÉRA ouvert par-dessus la partie figée
 		if "panneaucam" in wsearch:
 			_open_cam_panel()
@@ -4745,6 +4760,21 @@ func _pick_rarities(rars: PackedStringArray) -> void:
 			if String(d["rarity"]) == rar.strip_edges() and not String(k) in ids and int(powers.lvl(String(k))) < int(powers.max_level(String(k))):
 				ids.append(String(k))
 				break
+	if ids.is_empty():
+		return
+	var infos: Array = []
+	for id in ids:
+		infos.append(powers.describe(String(id)))
+	_last_offer = ids
+	picker.open(ids, infos)
+
+
+## Captures (`&cartes=…`) : rouvre le choix de rouleau sur ces pouvoirs (clés inconnues ignorées).
+func _pick_ids(keys: PackedStringArray) -> void:
+	var ids: Array = []
+	for k in keys:
+		if PowerData.POWERS.has(String(k)) and not String(k) in ids:
+			ids.append(String(k))
 	if ids.is_empty():
 		return
 	var infos: Array = []
