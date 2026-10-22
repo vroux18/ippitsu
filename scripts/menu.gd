@@ -870,7 +870,8 @@ func _results_layout(u: float) -> Dictionary:
 	if victory:
 		blocks.append(["build", _SEC_H * u + 40.0 * u])
 	blocks.append(["gains", _SEC_H * u + _gains_h(u, cw)])
-	blocks.append(["advice", _advice_h(u, cw)])
+	if not _advice().is_empty():
+		blocks.append(["advice", _advice_h(u, cw)])
 	var total := 0.0
 	for b in blocks:
 		total += float(b[1])
@@ -1329,7 +1330,7 @@ func _draw_gains(x0: float, x1: float, y: float, u: float, a: float) -> void:
 
 ## Conseil d'après la partie : [picto, phrase]. Défaite : tombé face à un gardien ou au boss -> son point faible
 ## (main.BOSS_HINTS, l'astuce montrée quand la lame ricoche) ; peu
-## de figures différentes -> varier les figures ; chaîne courte -> la garder ; sinon la zone rouge (la fuite au trait).
+## de figures différentes -> varier les figures ; chaîne courte -> la garder ; sinon aucun conseil (tableau vide).
 ## Victoire : les points qui manquent pour le rang suivant, ou le monde suivant.
 func _advice() -> Array:
 	var kinds := 0
@@ -1347,7 +1348,7 @@ func _advice() -> Array:
 		return ["elements/figure", "Varie les figures : une boucle ou un zigzag frappe plus fort qu'un trait droit et lance sa technique."]
 	if stat_combo < 10:
 		return ["hud/chaine", "Ne te fais pas toucher : chaque ruée réussie allonge la chaîne, et à 10 tes points sont multipliés (%s)." % x3]
-	return ["shield", "Une zone rouge annonce un coup : trace un trait pour en sortir, la ruée est intouchable au départ."]
+	return []  # rien de précis à conseiller : pas de cadre (le rappel de la zone rouge est retiré à la demande de Victor)
 
 
 ## Hauteur du conseil (cadre, picto, phrase sur 3 lignes au plus).
