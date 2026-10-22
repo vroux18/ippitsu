@@ -26,6 +26,8 @@ const UiKit = preload("res://scripts/ui_kit.gd")
 const UIColors = preload("res://scripts/ui_colors.gd")  # hex des pictos v2 (sceau de mise à mort)
 const FX_BRUSH = preload("res://shaders/fx_brush.gdshader")
 const InkStroke = preload("res://scripts/ink_stroke.gd")
+# paramètres d'instance sous budget (tampon global borné : 64 nœuds sur Mali) : voir inst_params.gd
+const InstParams = preload("res://scripts/inst_params.gd")
 
 const TRAIL_LIFE := 0.16
 const TRAIL_TIP := 0.96  # pointe de la traînée : largeur pleine à ~0,7 m de la tête (0,45 par point à 60 Hz, ruée 28 m/s)
@@ -60,7 +62,17 @@ const TELE_FLASH := 0.15
 var main: Node
 static var _rng := RandomNumberGenerator.new()  # hasards des effets (jamais ceux du jeu : les parties restent reproductibles)
 var _fx: Array = []  # {node, t, life, kind, ...}
+# Échéancier des effets qui n'ont rien à animer, seulement une échéance (gerbes « none », sillages de feu « emit ») :
+# [nœud, échéance, action] par échéance croissante ; action WAIT_END : ranger ou libérer, WAIT_STOP : cesser d'émettre.
+# Une liste en temps réel des effets, une en temps du jeu (« game ») ; chaque image ne regarde que les premières.
+const WAIT_END := 0
+const WAIT_STOP := 1
+var _waits: Array = []
+var _gwaits: Array = []
+var _wait_clock := 0.0  # temps réel des effets (avance avec eux : figé quand le jeu l'est)
+var _gwait_clock := 0.0  # temps du jeu des effets
 var _trail_pts: Array = []  # [position, âge]
+var _trail_hd := PackedFloat32Array()  # distances à la tête du sillage (tampon réutilisé)
 var _trail_mesh := ImmediateMesh.new()
 var _trail_live := false  # la traînée a des surfaces à effacer
 var _trail_mat: Material
@@ -128,9 +140,15 @@ func _update_trail(dt: float) -> void:
 			_trail_mesh.clear_surfaces()
 			_trail_live = false
 		return
-	for tp in _trail_pts:
+	# vieillit et retire les points finis sur place (pas de tableau neuf à chaque image de ruée)
+	var keep := 0
+	for i in _trail_pts.size():
+		var tp: Array = _trail_pts[i]
 		tp[1] = float(tp[1]) + dt
-	_trail_pts = _trail_pts.filter(func(tp): return float(tp[1]) < TRAIL_LIFE)
+		if float(tp[1]) < TRAIL_LIFE:
+			_trail_pts[keep] = tp
+			keep += 1
+	_trail_pts.resize(keep)
 	_trail_mesh.clear_surfaces()
 	_trail_live = false
 	var n := _trail_pts.size()
@@ -139,13 +157,12 @@ func _update_trail(dt: float) -> void:
 	_trail_live = true
 	# distance à la tête, en mètres : la pointe s'effile sur une longueur fixe, quelle que soit la cadence
 	# (compter les points la rendait 4 fois plus courte à 120 Hz qu'à 30 Hz)
-	var head_d := PackedFloat32Array()
-	head_d.resize(n)
-	head_d[n - 1] = 0.0
+	_trail_hd.resize(n)
+	_trail_hd[n - 1] = 0.0
 	for i in range(n - 2, -1, -1):
 		var pa: Vector3 = _trail_pts[i][0]
 		var pb: Vector3 = _trail_pts[i + 1][0]
-		head_d[i] = head_d[i + 1] + pa.distance_to(pb)
+		_trail_hd[i] = _trail_hd[i + 1] + pa.distance_to(pb)
 	_trail_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
 	for i in n:
 		var p: Vector3 = _trail_pts[i][0]
@@ -159,7 +176,7 @@ func _update_trail(dt: float) -> void:
 			t = Vector3.FORWARD
 		var side := Vector3(-t.z, 0, t.x).normalized()
 		# pointe effilée à la tête (le pinceau se pose), queue qui s'amincit avec l'âge
-		var tip := minf(1.0, head_d[i] * TRAIL_TIP + 0.35)
+		var tip := minf(1.0, _trail_hd[i] * TRAIL_TIP + 0.35)
 		var w := TRAIL_W * k * tip
 		# fil blanc net côté tranchant, lavis d'encre de l'autre ; une pointe de vermillon en fin de trace
 		var col := Color(1.0, 0.97, 0.92).lerp(Toon.VERMILION, (1.0 - k) * 0.35)
@@ -192,18 +209,14 @@ func impact(pos: Vector3, dir: Vector3, strong := false) -> void:
 ## Tranchant (main._slash_mark, à chaque touche) : un coup de pinceau effilé en travers de l'ennemi, cœur clair
 ## (teinte de la lame) cerné d'encre, qui file dans le sens du coup puis sèche en poils. Un nœud, un appel de dessin.
 func slash_mark(pos: Vector3, dir: Vector3, tint: Color) -> void:
-	var node := MeshInstance3D.new()
-	node.mesh = _slash_mesh()
-	node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(node)
+	var rr := _bramp(Color(tint, 1.0), 6)
+	var node := _mi_pooled("slash", _slash_mesh(), rr[0])  # (un à chaque touche : repris de la réserve)
 	node.position = pos + Vector3(0, 0.7, 0)
 	var d := Vector3(dir.x, 0, dir.z)
 	if d.length_squared() < 0.0001:
 		d = Vector3.FORWARD
 	d = d.normalized()
 	node.rotation = Vector3(_rng.randf_range(-0.25, 0.25), atan2(-d.x, -d.z) + _rng.randf_range(-0.5, 0.5), _rng.randf_range(-0.2, 0.2))
-	var rr := _bramp(Color(tint, 1.0), 6)
-	node.material_override = rr[0]
 	_anim(node, 0.2, Vector3(1.5, 1.0, 0.45), Vector3(0.9, 1.0, 1.35), {"g": 0.3, "f": 0.25, "lay": [[node, -1, rr]]})
 
 
@@ -380,7 +393,9 @@ func _drop_mesh(key: String, w: float, l: float) -> Mesh:
 # Étincelles, gouttes, pièces : un émetteur ponctuel (one_shot) par coup. Fini, il est caché et rangé par sorte
 # au lieu d'être libéré, puis relancé (restart) au coup suivant : pas de nœud créé à chaque impact.
 
-const PPOOL_MAX := 10  # émetteurs gardés par sorte
+const MPOOL_MAX := 24  # tranchants et éclats ronds gardés par sorte (_mi_pooled)
+var _mpool := {}  # sorte -> Array de MeshInstance3D cachés
+const PPOOL_MAX := 24  # émetteurs gardés par sorte (étincelles de foudre : plus de 10 à la fois en combat)
 var _ppool := {}  # sorte -> Array de CPUParticles3D éteints et cachés
 
 
@@ -407,8 +422,62 @@ func _emit(p: CPUParticles3D, fresh: bool) -> void:
 		p.restart()
 
 
+## Échéance d'un effet : `act` sur `node` dans `left` secondes (temps du jeu si `game`), rangée par échéance
+## (à échéance égale, après celles déjà posées).
+func _wait_add(node: Node3D, left: float, act: int, game: bool) -> void:
+	var list: Array = _gwaits if game else _waits
+	var due := (_gwait_clock if game else _wait_clock) + left
+	var at := list.size()
+	while at > 0 and float(list[at - 1][1]) > due:
+		at -= 1
+	list.insert(at, [node, due, act])
+
+
+## Échéances arrivées de `list` (horloge `clock`).
+func _wait_run(list: Array, clock: float) -> void:
+	while not list.is_empty() and float(list[0][1]) <= clock:
+		var w: Array = list.pop_front()
+		var wv = w[0]
+		if not is_instance_valid(wv):
+			continue
+		if int(w[2]) == WAIT_STOP:
+			var ep := wv as CPUParticles3D
+			if ep.emitting:
+				ep.emitting = false
+		elif not _recycle(wv):
+			(wv as Node).queue_free()
+
+
+## MeshInstance3D d'un effet bref et fréquent (tranchant de chaque touche, éclat rond des éclairs), repris de la
+## réserve `key` (_recycle l'y range à sa fin) : remis comme neuf (maillage, matière, transformation, visible).
+func _mi_pooled(key: String, mesh: Mesh, mat: Material) -> MeshInstance3D:
+	var pool: Array = _mpool.get(key, [])
+	while not _warming and not pool.is_empty():
+		var pv = pool.pop_back()
+		if is_instance_valid(pv):
+			var q: MeshInstance3D = pv
+			q.mesh = mesh
+			q.material_override = mat
+			q.transform = Transform3D.IDENTITY
+			q.visible = true
+			return q
+	var mi := _mi(self, mesh, mat, 0.0)
+	mi.set_meta(&"mpool", key)
+	return mi
+
+
 ## Émetteur fini : rangé (caché, éteint) s'il vient de la réserve et qu'il y a la place. Faux sinon.
 func _recycle(node: Node3D) -> bool:
+	if node.has_meta(&"mpool"):
+		var mk := String(node.get_meta(&"mpool"))
+		if not _mpool.has(mk):
+			_mpool[mk] = []
+		var mp: Array = _mpool[mk]
+		if mp.size() >= MPOOL_MAX or node.get_parent() != self:
+			return false
+		node.visible = false
+		mp.append(node)
+		return true
 	if not node.has_meta("pool") or not (node is CPUParticles3D):
 		return false
 	var key := String(node.get_meta("pool"))
@@ -610,7 +679,7 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 		_ink_quad.size = Vector2(2.0, 2.0)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _ink_quad
-	mi.material_override = ink_material()
+	InstParams.bind(mi, ink_material())
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
 	_ink_seed += 1
@@ -621,9 +690,9 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 	mi.scale = Vector3(sz, 1.0, sz)
 	var sd := fmod(float(_ink_seed) * 7.31 + _rng.randf() * 50.0, 97.0)
 	var st := Vector4(0.0, life, sd, digit)
-	mi.set_instance_shader_parameter(&"ink_color", c)
-	mi.set_instance_shader_parameter(&"ink_state", st)
-	mi.set_instance_shader_parameter(&"ink_shape", shape)
+	InstParams.set_param(mi, &"ink_color", c)
+	InstParams.set_param(mi, &"ink_state", st)
+	InstParams.set_param(mi, &"ink_shape", shape)
 	mi.set_meta(&"ink_st", st)
 	return mi
 
@@ -632,7 +701,7 @@ static func ink_quad(parent: Node, g: Vector3, r: float, c: Color, life: float, 
 static func ink_age(mi: GeometryInstance3D, age: float) -> void:
 	var st: Vector4 = mi.get_meta(&"ink_st")
 	st.x = age
-	mi.set_instance_shader_parameter(&"ink_state", st)
+	InstParams.set_param(mi, &"ink_state", st)
 
 
 ## ink_age pour tween_method (la valeur vient d'abord).
@@ -902,7 +971,7 @@ func _lay_set(ly: Array, idx: int) -> void:
 		return
 	var s: int = ly[1]
 	if s == -2:
-		(mi as GeometryInstance3D).set_instance_shader_parameter(&"bf_fade", float(idx) / float(FADE_N))
+		InstParams.set_param((mi as GeometryInstance3D), &"bf_fade", float(idx) / float(FADE_N))
 		return
 	var r: Array = ly[2]
 	if s < 0:
@@ -935,11 +1004,11 @@ func _b3_mat(prio: int) -> ShaderMaterial:
 func _b3_node(parent: Node3D, m3: Mesh, c0: Color, c1: Color, c2: Color, prio: int) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.mesh = m3
-	mi.material_override = _b3_mat(prio)
+	InstParams.bind(mi, _b3_mat(prio))
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mi.set_instance_shader_parameter(&"bf_c0", c0)
-	mi.set_instance_shader_parameter(&"bf_c1", c1)
-	mi.set_instance_shader_parameter(&"bf_c2", c2)
+	InstParams.set_param(mi, &"bf_c0", c0)
+	InstParams.set_param(mi, &"bf_c1", c1)
+	InstParams.set_param(mi, &"bf_c2", c2)
 	parent.add_child(mi)
 	return mi
 
@@ -1552,7 +1621,7 @@ func _qnode(mesh: Mesh, mat: Material) -> MeshInstance3D:
 			return q
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
-	mi.material_override = mat
+	InstParams.bind(mi, mat as ShaderMaterial)
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.set_meta(&"qpool", key)
 	add_child(mi)
@@ -1591,10 +1660,10 @@ func _gquad(g: Vector3, r: float, mode: int, body: Color, edge: Color, core: Col
 	var sz := maxf(r, 0.01) * FX_EXT
 	mi.scale = Vector3(sz, 1.0, sz)
 	var st := Vector4(0.0, life, _next_seed(), float(mode))
-	mi.set_instance_shader_parameter(&"fx_body", body)
-	mi.set_instance_shader_parameter(&"fx_edge", edge)
-	mi.set_instance_shader_parameter(&"fx_core", core)
-	mi.set_instance_shader_parameter(&"fx_state", st)
+	InstParams.set_param(mi, &"fx_body", body)
+	InstParams.set_param(mi, &"fx_edge", edge)
+	InstParams.set_param(mi, &"fx_core", core)
+	InstParams.set_param(mi, &"fx_state", st)
 	mi.visible = delay <= 0.0
 	_fx.append({"node": mi, "t": -delay, "life": life, "kind": "fxq", "st": st})
 	return mi
@@ -1612,10 +1681,10 @@ func _bquad(p: Vector3, r: float, mode: int, col: Color, col2: Color, life: floa
 	mi.position = p
 	mi.scale = Vector3.ONE * maxf(r, 0.01)
 	var st := Vector4(0.0, life, _next_seed() * 17.0, float(mode))
-	mi.set_instance_shader_parameter(&"fx_col", col)
-	mi.set_instance_shader_parameter(&"fx_col2", col2)
-	mi.set_instance_shader_parameter(&"fx_state", st)
-	mi.set_instance_shader_parameter(&"fx_dir", Vector4(ang, force, 0.0, 0.0))
+	InstParams.set_param(mi, &"fx_col", col)
+	InstParams.set_param(mi, &"fx_col2", col2)
+	InstParams.set_param(mi, &"fx_state", st)
+	InstParams.set_param(mi, &"fx_dir", Vector4(ang, force, 0.0, 0.0))
 	mi.visible = delay <= 0.0
 	_fx.append({"node": mi, "t": -delay, "life": life, "kind": "fxq", "st": st})
 	return mi
@@ -1693,12 +1762,12 @@ func _tele_quad(parent: Node3D, shape: Vector4, half: Vector2, cen: Vector2) -> 
 		_ink_quad.size = Vector2(2.0, 2.0)
 	var mi := MeshInstance3D.new()
 	mi.mesh = _ink_quad
-	mi.material_override = _tele_mat()
+	InstParams.bind(mi, _tele_mat())
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.position = Vector3(cen.x, TELE_Y, cen.y)
 	mi.scale = Vector3(maxf(half.x, 0.01), 1.0, maxf(half.y, 0.01))
-	mi.set_instance_shader_parameter(&"tl_shape", shape)
-	mi.set_instance_shader_parameter(&"tl_box", Vector4(half.x, half.y, cen.x, cen.y))
+	InstParams.set_param(mi, &"tl_shape", shape)
+	InstParams.set_param(mi, &"tl_box", Vector4(half.x, half.y, cen.x, cen.y))
 	parent.add_child(mi)
 	return mi
 
@@ -1707,7 +1776,7 @@ func _tele_make(parent: Node3D, shape: Vector4, half: Vector2, cen: Vector2, gro
 	var root := Node3D.new()
 	parent.add_child(root)
 	var q := _tele_quad(root, shape, half, cen)
-	q.set_instance_shader_parameter(&"tl_grow", Vector4(grow.x, grow.y, 0.0, 0.0))
+	InstParams.set_param(q, &"tl_grow", Vector4(grow.x, grow.y, 0.0, 0.0))
 	root.set_meta("tq", q)
 	tele_update(root, 0.0, 99.0)
 	return root
@@ -1745,7 +1814,7 @@ func tele_update(zone_v: Variant, k: float, t_left: float) -> void:
 		return
 	# pulsation du liseré, plus marquée à l'approche du coup ; flash les 0.15 dernières secondes
 	var w := 0.5 + 0.5 * sin(float(Time.get_ticks_msec()) * 0.014)
-	q.set_instance_shader_parameter(&"tl_state", Vector4(clampf(k, 0.01, 1.0), 1.0 if t_left < TELE_FLASH else 0.0, w, 0.0))
+	InstParams.set_param(q, &"tl_state", Vector4(clampf(k, 0.01, 1.0), 1.0 if t_left < TELE_FLASH else 0.0, w, 0.0))
 
 
 ## Petite marque de chemin (même langage) : pastille vermillon cernée d'encre, rayon r ; flash : tele_dot_flash.
@@ -1760,7 +1829,7 @@ func tele_dot_flash(dot: MeshInstance3D, on: bool) -> void:
 	var on_f := 1.0 if on else 0.0
 	if float(dot.get_meta(&"tl_on", 0.0)) != on_f:
 		dot.set_meta(&"tl_on", on_f)
-		dot.set_instance_shader_parameter(&"tl_state", Vector4(1.0, on_f, 0.0, 0.0))
+		InstParams.set_param(dot, &"tl_state", Vector4(1.0, on_f, 0.0, 0.0))
 
 
 # ------------------------------------------------------------------ foudre (雷) : éclair en zigzag
@@ -1920,7 +1989,7 @@ func _uquad(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, d: Vector3, u0:
 
 ## Petit flash (boule qui gonfle puis disparaît).
 func _pop(p: Vector3, c: Color, s: float) -> void:
-	var mi := _mi(self, _ball(), _mat("pop" + c.to_html(), Color(c, 0.9), 8), 0.0)
+	var mi := _mi_pooled("pop", _ball(), _mat("pop" + c.to_html(), Color(c, 0.9), 8))
 	mi.position = p
 	_fx.append({"node": mi, "t": 0.0, "life": 0.12, "kind": "pop", "s": s})
 
@@ -2789,8 +2858,8 @@ func static_charge(target: Node3D, level: int, life := 2.2) -> void:
 
 ## Teinte un éclair en or / écume (couches de fx_brush3 : corps or, cœur washi).
 func _bolt_gold(mi: MeshInstance3D) -> void:
-	mi.set_instance_shader_parameter(&"bf_c1", GOLD)
-	mi.set_instance_shader_parameter(&"bf_c2", Toon.WASHI)
+	InstParams.set_param(mi, &"bf_c1", GOLD)
+	InstParams.set_param(mi, &"bf_c2", Toon.WASHI)
 
 
 ## Repose les arcs de l'aura au hasard autour du corps (tangents à un cylindre de rayon 0,38).
@@ -4041,6 +4110,20 @@ func warm(p: Vector3) -> void:
 	dusk_crit(p)
 	seal_stamp(p, null)
 	shadow_step(p)
+	# variantes sans paramètres d'instance (matière propre, au-delà du budget d'inst_params.gd) : compilées ici
+	# plutôt qu'au premier combat chargé
+	InstParams.force_own = true
+	scorch(p, 0.4, 0.5)
+	_bquad(p, 0.5, FXB_FLARE, Color(GOLD, 0.9), Color(Toon.WASHI, 0.9), 0.3)
+	ink_stain(p, 0.4, Color(Toon.SUMI, 0.6), 0.5)
+	_bolt_node(p, q, 0.2, 1.0, false)
+	var tz2 := tele_disc(self, 0.5)
+	tz2.position = p
+	_fx.append({"node": tz2, "t": 0.0, "life": 0.5, "kind": "none"})
+	var stk := InkStroke.new(p, 0)
+	add_child(stk)
+	_fx.append({"node": stk, "t": 0.0, "life": 0.5, "kind": "none"})
+	InstParams.force_own = false
 	# les effets posés au ras du sol (ondes, taches, sillage) descendent eux aussi dans la cachette
 	for i in range(first, get_child_count()):
 		var ch := get_child(i) as Node3D
@@ -4080,6 +4163,10 @@ func fx_draws() -> Vector3i:
 		for e in main.effects:
 			if e is Dictionary and is_instance_valid(e.get("node")):
 				roots.append(e["node"])
+	if main != null and main.get("_splash_waits") is Array:
+		for w in main._splash_waits:
+			if is_instance_valid(w[0]):
+				roots.append(w[0])
 	while not st.is_empty() or not roots.is_empty():
 		var nd: Node
 		if st.is_empty():
@@ -4172,6 +4259,8 @@ func _process(delta: float) -> void:
 	_budget = minf(_budget + dt * (12.0 if Toon.lite else 26.0), 9.0 if Toon.lite else 18.0)
 	var gdt := minf(delta, 0.05)  # temps du jeu (sillage de feu)
 	var nq := 0  # quads peints encore vivants (plafond _fxq_room), recomptés à chaque image
+	_wait_clock += dt
+	_gwait_clock += gdt
 	for i in range(_fx.size() - 1, -1, -1):
 		var fx: Dictionary = _fx[i]
 		# non typé d'abord : le nœud peut avoir été libéré (parent libéré par un appelant)
@@ -4183,7 +4272,34 @@ func _process(delta: float) -> void:
 		var sdt := gdt if fx.has("game") else dt
 		fx.t = float(fx.t) + sdt
 		var k: float = float(fx.t) / float(fx.life)
+		if k < 1.0 and (fx.kind == "none" or fx.kind == "emit") and not fx.has("keep"):
+			# rien à animer, seulement des échéances : l'effet quitte la liste pour l'échéancier (même instant de fin,
+			# au lieu d'être repris à chaque image)
+			var game := fx.has("game")
+			if fx.kind == "emit":
+				if float(fx.t) >= float(fx.stop):
+					(node as CPUParticles3D).emitting = false
+				else:
+					_wait_add(node, float(fx.stop) - float(fx.t), WAIT_STOP, game)
+			_wait_add(node, float(fx.life) - float(fx.t), WAIT_END, game)
+			_fx.remove_at(i)
+			continue
+		# les branches sont essayées dans l'ordre : les sortes les plus nombreuses d'abord (gerbes « none » qui attendent
+		# leur fin, quads peints, sillages de feu), sinon chacune comparait sa sorte à toutes les autres à chaque image
 		match fx.kind:  # déjà une String : pas de copie par effet et par image
+			"none":
+				pass
+			"emit":
+				if float(fx.t) >= float(fx.stop):
+					var ep := node as CPUParticles3D
+					if ep.emitting:
+						ep.emitting = false
+			"fade_mat":
+				# (opaque jusqu'aux deux tiers de sa vie : la matière n'est reposée que si l'alpha change)
+				var fm: StandardMaterial3D = fx.mat
+				var fa := float(fx.a) * clampf((1.0 - k) * 3.0, 0.0, 1.0)
+				if absf(fm.albedo_color.a - fa) > 0.000001:
+					fm.albedo_color.a = fa
 			"fxq":
 				# quad à shader (ink_fx / ink_burst) : l'âge, après un éventuel départ différé
 				nq += 1
@@ -4193,7 +4309,7 @@ func _process(delta: float) -> void:
 						node.visible = true
 					var qst: Vector4 = fx.st
 					qst.x = qa
-					(node as GeometryInstance3D).set_instance_shader_parameter(&"fx_state", qst)
+					InstParams.set_param((node as GeometryInstance3D), &"fx_state", qst)
 			"anim":
 				_anim_step(fx, node, k, sdt)
 			"crackle":
@@ -4263,12 +4379,6 @@ func _process(delta: float) -> void:
 				var s3: Vector3 = fx.s3
 				var sk := clampf((1.0 - k) / 0.3, 0.0, 1.0)
 				node.scale = Vector3(s3.x * maxf(sk, 0.01), 1, s3.z * maxf(sk, 0.01))
-			"emit":
-				if float(fx.t) >= float(fx.stop):
-					(node as CPUParticles3D).emitting = false
-			"fade_mat":
-				var fm: StandardMaterial3D = fx.mat
-				fm.albedo_color.a = float(fx.a) * clampf((1.0 - k) * 3.0, 0.0, 1.0)
 			"star":
 				var s: float = fx.s
 				node.scale = Vector3.ONE * s * (0.3 + 0.9 * k)
@@ -4300,6 +4410,8 @@ func _process(delta: float) -> void:
 				node.queue_free()
 			_fx.remove_at(i)
 	_fxq_live = nq
+	_wait_run(_waits, _wait_clock)
+	_wait_run(_gwaits, _gwait_clock)
 	if _dbg_fx != "":
 		_dbg_step(dt)
 	if _pt != 0:

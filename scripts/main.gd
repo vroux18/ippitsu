@@ -243,7 +243,12 @@ const IN_PLAY_STATES := ["play", "transit", "dying", "pick", "tuto"]
 const ELAN_MAX := 18.0  # longueur de trait maximale (de quoi tracer large dès le départ)
 const ELAN_REGEN := 7.0  # par seconde réelle, hors tracé (jauge pleine en ~2 s)
 const ELAN_PER_HIT := 3.5
-const ENEMY_HP_MULT := 2.05  # 2.0 avant les portes à sceaux : +2,5 % pour leurs rouleaux en plus (robots campagne)
+## PV des yōkai : base de la sorte × hp_mult du monde × ENEMY_HP_MULT × (1 + ENEMY_HP_ROOM par combat du monde), arrondis au
+## dixième (enemy_hp_round) : avec les chiffres affichés ×10, un oni du premier combat a 20 PV, deux coups de sabre.
+## (2,05 avant la passe d'équilibrage d'ensemble : l'oni du monde 1 demandait 3 coups pour 0,05 PV.)
+const ENEMY_HP_MULT := 2.0
+## +3 % de PV par combat dans le monde (4 % avant la passe d'ensemble : les salles 10-14 des mondes 6-8 dépassaient 35 s).
+const ENEMY_HP_ROOM := 0.03
 ## Encre dure (mondes 2+) : part des dégâts du trait simple et des pouvoirs que les yōkai encaissent (index : monde).
 ## Les figures la percent : ruée en figure, techniques (et les pouvoirs qui les prolongent), sceaux brisés.
 ## Le trait simple seul ne suffit plus dès le monde 2 ; les pouvoirs renforcent les figures sans les remplacer.
@@ -303,8 +308,15 @@ const BOSS_TOUGH := 0.55
 ## secondes : chaque phase se joue à sa mécanique. Mesures (robot campagne, graines 101 à 505) : boss
 ## 53-79 s, gardiens 35-42 s en moyenne ; arbre plein + calame + ascète : boss 36-54 s, gardiens 24-37 s
 ## (avant : boss 7-22 s, gardiens 7-11 s ; 4-20 s avec l'arbre plein).
-const BOSS_FLOOR_T := 54.0
-const MINI_FLOOR_T := 32.0
+## Passe d'équilibrage d'ensemble : le plancher monte avec le monde (boss_floor_t), pour que les combats s'allongent
+## du monde 1 au monde 8 (avant : 54 s et 32 s partout, Izanami tombait aussi vite que Kyūbi) :
+## boss 50 s + 2,5 s par monde (52,5 au monde 2, 67,5 au monde 8), gardiens 28 s + 1,2 s par monde (28 à 36,4).
+## Mesures (robot campagne, graines 101 et 202, mixte et figures) : boss 44-56 s au monde 2 (Kyūbi), 61-78 s aux
+## mondes 6-8 (avant : 44-62 s partout) ; gardiens 30-35 s au monde 1, 38-43 s aux mondes 6-8 (avant : 34-41 s).
+const BOSS_FLOOR_T := 50.0
+const BOSS_FLOOR_STEP := 2.5
+const MINI_FLOOR_T := 28.0
+const MINI_FLOOR_STEP := 1.2
 const BOSS_BURST := 0.18
 const MINI_BURST := 0.18
 const BOSS_OVER_K := 0.065
@@ -389,7 +401,9 @@ const MOOD_INK := Color("#14111A")
 var _light_mode := false  # rendu allégé (téléphone)
 var _veil_mat: ShaderMaterial  # voile d'estampe (vignette, grain, brume du lointain : _haze)
 var _fx_cache := {}  # maillages et matières d'effets réutilisés
-const SPLASH_POOL_MAX := 10  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup)
+const SPLASH_POOL_MAX := 40  # gerbes de gouttes gardées par couleur (au lieu d'un émetteur neuf par coup) ; 10 ne suffisait pas : les brûlures et les zones des pouvoirs en lancent des dizaines par seconde
+var _splash_waits: Array = []  # gerbes lancées : [émetteur, échéance sur _splash_clock], par échéance croissante
+var _splash_clock := 0.0  # temps de jeu des gerbes (avance dans _update_effects)
 var _splash_pool := {}  # "drop" + couleur -> Array de CPUParticles3D éteints et cachés
 var _sun: DirectionalLight3D
 var arena: Node3D
@@ -496,7 +510,7 @@ var _chain_t := 0.0
 var _stroke_hit := false
 ## Dégâts réellement ôtés aux yōkai (hors boss) depuis le lancement, par source (mesures d'équilibrage du robot) :
 ## trait (ruée sans figure), trait_fig (ruée en figure), tech (techniques de figure), pow (pouvoirs), sceau (sceaux brisés).
-var dmg_src := {"trait": 0.0, "trait_fig": 0.0, "tech": 0.0, "pow": 0.0, "sceau": 0.0}
+var dmg_src := {"trait": 0.0, "trait_fig": 0.0, "tech": 0.0, "pow": 0.0, "sceau": 0.0, "soin": 0.0}  # soin : PV rendus aux yōkai par leurs soigneurs
 ## `-- --attrib` (robot) : dégâts des pouvoirs par fonction de powers.gd qui les inflige (lent : pile d'appels)
 var dmg_attrib := {}
 var _attrib_on := "--attrib" in OS.get_cmdline_user_args()
@@ -4035,7 +4049,7 @@ func boss_gate(bo: Node3D, d: float) -> float:
 	var st: Array = bo.get_meta("gate", [0.0, now, -1.0, 0])
 	if now < float(st[2]):
 		return 0.0  # garde de palier : le coup glisse
-	var rate := mh / (MINI_FLOOR_T if mini else BOSS_FLOOR_T)
+	var rate := mh / boss_floor_t(mini)
 	var acc := maxf(0.0, float(st[0]) - rate * maxf(0.0, now - float(st[1])))
 	var room := maxf(0.0, mh * (MINI_BURST if mini else BOSS_BURST) - acc)
 	var out := minf(d, room) + maxf(0.0, d - room) * BOSS_OVER_K
@@ -4056,6 +4070,12 @@ func boss_gate(bo: Node3D, d: float) -> float:
 				step += 1  # (palier déjà passé par la mécanique du boss)
 	bo.set_meta("gate", [acc, now, guard, step])
 	return out
+
+
+## Plancher de durée de la garde anti-rafale (BOSS_FLOOR_T, MINI_FLOOR_T) au monde en cours.
+func boss_floor_t(mini: bool) -> float:
+	var w := float(clampi(current_world, 1, Worlds.WORLDS.size()) - 1)
+	return (MINI_FLOOR_T + MINI_FLOOR_STEP * w) if mini else (BOSS_FLOOR_T + BOSS_FLOOR_STEP * w)
 
 
 ## Palier franchi : la fenêtre de vulnérabilité se referme (le bouclier se reforme au tic suivant), le boss
@@ -4359,13 +4379,14 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 		_apply_curses(e)
 		if _gentle_room():
 			e._tempo *= 0.75  # premier tutoriel : plus lents (marche, annonces)
-		# plus robustes : ×2, et +4 % par combat dans le monde
-		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + 0.04 * float(maxi(room - 1, 0)))
+		# plus robustes : ×2, et +3 % par combat dans le monde
+		e.hp *= float(Worlds.world(current_world).hp_mult) * ENEMY_HP_MULT * (1.0 + ENEMY_HP_ROOM * float(maxi(room - 1, 0)))
 		if elite_n > 0 and idx >= elite_at:
 			if e.can_be_elite():
 				e.promote(Enemy.roll_affixes(current_world))
 				elite_n -= 1
 				_elite_due = maxi(0, _elite_due - 1)
+		e.hp = enemy_hp_round(float(e.hp))
 		# scellé : jamais le premier ennemi du combat (donc jamais seul au début), au plus _seal_quota
 		if _seal_quota > 0 and _room_spawned > 0 and e.can_be_sealed() and randf() < SEALED_PICK:
 			var figs := seal_figs()
@@ -4376,6 +4397,11 @@ func _spawn_list(list: Array, min_d := 4.5) -> void:
 		_room_spawned += 1
 		e.set_meta("max_hp", e.hp)
 		enemies.append(e)
+
+
+## PV d'un yōkai arrondis au dixième (affichés ×10 : un nombre entier), jamais sous 0,1.
+static func enemy_hp_round(h: float) -> float:
+	return maxf(0.1, snappedf(h, 0.1))
 
 
 ## Capture : un yōkai scellé (figure `fig`, sorte `k` ou la première du monde) devant le héros, deux autres à
@@ -5069,6 +5095,10 @@ func _rebuild_room(sliced := false) -> void:
 		if is_instance_valid(e.node):
 			e.node.queue_free()
 	effects.clear()
+	for sw in _splash_waits:
+		if is_instance_valid(sw[0]):
+			(sw[0] as Node).queue_free()
+	_splash_waits.clear()
 	var gen := _load_gen
 	_loading = sliced
 	await _build_segment(sliced)
@@ -6537,10 +6567,10 @@ func nearest_enemies(pos: Vector3, r: float, n: int, exclude: Node3D) -> Array:
 	return out
 
 
-## Dégâts de zone sur les boss (techniques, pouvoirs). Renvoie les points touchés.
-func damage_bosses(center: Vector3, r: float, dmg_in: float, fx := true) -> Array:
+## Dégâts de zone sur les boss (techniques, pouvoirs ; `pierce` : technique, perce l'encre dure). Renvoie les points touchés.
+func damage_bosses(center: Vector3, r: float, dmg_in: float, fx := true, pierce := false) -> Array:
 	var hits: Array = []
-	var dmg := dmg_in * curse_dmg_mult()
+	var dmg := _boss_hard_ink(dmg_in * curse_dmg_mult(), pierce)
 	for bo in bosses:
 		if not is_instance_valid(bo) or bo.dead:
 			continue
@@ -6555,8 +6585,8 @@ func damage_bosses(center: Vector3, r: float, dmg_in: float, fx := true) -> Arra
 
 
 ## Dégâts le long d'un trait sur les boss : chacun n'est touché qu'une fois.
-func damage_bosses_line(pts: PackedVector3Array, r: float, dmg_in: float, fx := true) -> void:
-	var dmg := dmg_in * curse_dmg_mult()
+func damage_bosses_line(pts: PackedVector3Array, r: float, dmg_in: float, fx := true, pierce := false) -> void:
+	var dmg := _boss_hard_ink(dmg_in * curse_dmg_mult(), pierce)
 	for bo in bosses:
 		if not is_instance_valid(bo) or bo.dead:
 			continue
@@ -6567,6 +6597,14 @@ func damage_bosses_line(pts: PackedVector3Array, r: float, dmg_in: float, fx := 
 					_dmg_text(p, dmg, false)
 					_splash(p, Toon.SUMI, 4)
 				break
+
+
+## Encre dure (HARD_INK) sur les gardiens et les boss : les pouvoirs hors technique y perdent la même part que sur
+## les yōkai (avant, un build tout passif tombait les boss aussi vite qu'un joueur à figures, tenu par la seule garde
+## anti-rafale) ; techniques de figure (`pierce`, powers.src_tech) et ruée du héros portent à plein (les mécaniques
+## des boss se jouent au trait).
+func _boss_hard_ink(dmg: float, pierce: bool) -> float:
+	return dmg if pierce or bool(powers.src_tech) else dmg * (1.0 - hard_ink())
 
 
 ## `sealed` : soin du sceau du cœur des portes (sa source garantie), permis même à l'ascète.
@@ -8004,7 +8042,12 @@ func _splash(pos: Vector3, color: Color, amount: int) -> void:
 	else:
 		p.visible = true
 		p.restart()
-	effects.append({"node": p, "t": 0.0, "life": 1.0, "kind": "none"})
+	# gerbe : rien à animer, seulement à ranger au bout d'une seconde de jeu (échéancier, pas dans effects)
+	var due := _splash_clock + 1.0
+	var at := _splash_waits.size()
+	while at > 0 and float(_splash_waits[at - 1][1]) > due:
+		at -= 1
+	_splash_waits.insert(at, [p, due])
 
 
 ## Goutte (deux plans croisés le long de +y : tête ronde, queue effilée) ; une par couleur (cache de _splash).
@@ -8093,6 +8136,11 @@ func _combo_label(pos: Vector3, n: int) -> void:
 
 
 func _update_effects(dt: float, real: float) -> void:
+	_splash_clock += dt
+	while not _splash_waits.is_empty() and float(_splash_waits[0][1]) <= _splash_clock:
+		var sv = _splash_waits.pop_front()[0]
+		if is_instance_valid(sv) and not _recycle_splash(sv):
+			(sv as Node).queue_free()
 	for i in range(effects.size() - 1, -1, -1):
 		var fx = effects[i]
 		var node: Node3D = fx.node

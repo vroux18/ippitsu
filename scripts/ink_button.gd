@@ -82,9 +82,12 @@ func _ready() -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_VISIBILITY_CHANGED:
+	if what == NOTIFICATION_ENTER_TREE:
+		set_process(true)  # (le premier _process l'arrête s'il est caché)
+	elif what == NOTIFICATION_VISIBILITY_CHANGED:
 		if is_visible_in_tree():
 			_appear = 0.0  # le pinceau se repose à chaque apparition
+			set_process(true)
 			queue_redraw()
 		else:
 			# caché pendant un appui : on oublie l'appui
@@ -118,6 +121,9 @@ func _gui_input(event: InputEvent) -> void:
 
 func _process(_delta: float) -> void:
 	if not is_visible_in_tree():
+		# caché (écrans fermés pendant le combat : une cinquantaine de boutons) : plus de _process jusqu'à ce qu'il
+		# réapparaisse (NOTIFICATION_VISIBILITY_CHANGED le relance)
+		set_process(false)
 		return
 	if _rev != Toon.ui_rev:
 		_rev = Toon.ui_rev

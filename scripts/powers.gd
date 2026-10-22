@@ -1437,7 +1437,7 @@ func _fig_hit(e, dmg: float, fx := true, fid := "") -> void:
 
 
 func _fig_boss(c: Vector3, r: float, dmg: float) -> Array:
-	return main.damage_bosses(c, r, dmg * _fig_mult())
+	return main.damage_bosses(c, r, dmg * _fig_mult(), true, true)
 
 
 ## Lancement d'une ruée en figure. main : `_fig_mods = powers.figure_launch(shape, info, s.points)`,
@@ -1690,7 +1690,7 @@ func _fig_cut(pts: PackedVector3Array, dmg: float, width: float) -> void:
 		var ep: Vector3 = e.position
 		_fig_hit(e, dmg, true, "fig_straight")
 		main._dmg_text(ep, dmg * _fig_mult(), false)
-	main.damage_bosses_line(pts, width, dmg * _fig_mult())
+	main.damage_bosses_line(pts, width, dmg * _fig_mult(), true, true)
 
 
 ## Kaeshi : garde ; Ōji (contre pendant la garde).
@@ -1845,7 +1845,7 @@ func _fig_wave(hp: Vector3) -> void:
 			e.push(out * push)
 			if stun:
 				_stun(e)
-	main.damage_bosses_line(path, reach, dmg * _fig_mult())
+	main.damage_bosses_line(path, reach, dmg * _fig_mult(), true, true)
 	if stun:
 		_tag("fig_wave_stun", path[path.size() / 2])
 	main.shake = maxf(float(main.shake), 0.31)
@@ -1877,7 +1877,7 @@ func _fig_point(info: Dictionary, hp: Vector3) -> void:
 				var ep: Vector3 = e.position
 				_fig_hit(e, dmg, true, "fig_point")
 				main._slash_mark(ep, d)
-		main.damage_bosses_line(line, width, dmg * _fig_mult())
+		main.damage_bosses_line(line, width, dmg * _fig_mult(), true, true)
 	if n > 3:
 		_tag("fig_point_more", tip)
 	main.sfx.play("stab", 1.25, -2.0)
@@ -2887,7 +2887,7 @@ func _update_zones(dt: float) -> void:
 					_ignite(o2, 0.6, 2.0)
 				# roue de Kasha (toupie) et cercle d'encre (ensō, sceau) : nés des figures, ils percent l'encre dure
 				main.damage_enemy(o2, dmg, false, kind == "wheel" or kind == "ink")
-			main.damage_bosses(pos, r, dmg, false)
+			main.damage_bosses(pos, r, dmg, false, kind == "wheel" or kind == "ink")
 		if is_instance_valid(node):
 			node.position = Vector3(pos.x, node.position.y, pos.z)
 	for z: Dictionary in done:

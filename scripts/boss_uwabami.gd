@@ -17,7 +17,8 @@ extends "res://scripts/boss.gd"
 ## Toute attaque est annoncée au sol (zones vermillon de vfx) et laisse une sortie : on s'en échappe d'un trait.
 ## Mesures (robot campagne, graines 101, 202, 303, sauvegarde neuve) : 83-89 s (86 s en moyenne), 0 à 3 cœurs
 ## perdus (1,7 en moyenne) ; arbre plein : 70-86 s. Avant (boss.gd) : 61 s, 3,7 cœurs (surtout les renforts
-## génériques), arbre plein 55 s.
+## génériques), arbre plein 55 s. Passe d'équilibrage d'ensemble (HP 44 -> 36) : 71-86 s (76 s en moyenne,
+## contre 86-99 s), 0 à 4 cœurs ; il reste le plus long des boss des trois premiers mondes.
 
 const WATER := Color("#BFE3F0")  # jets d'eau
 const COIL_R := 2.2  # rayon de l'enroulement (le corps couvre ~80 % du cercle)
@@ -49,7 +50,7 @@ const DIVE := [1.3, 1.0, 0.8]
 const PEEKS := [2, 2, 3]  # crachats de la tête seule avant chaque remontée
 
 const VULN_LEN := 3.5  # sonné après le bouclier brisé (boss.gd : 6 s)
-const HP := 44.0  # (boss.gd : 40)
+const HP := 36.0  # 360 affichés, paliers à 240 et 120 (44 avant la passe d'ensemble : 87-99 s au robot ; boss.gd : 40)
 const SHIELD_FULL := 12.5  # un trait sur tout le corps (boss.gd : tout le bouclier d'un coup)
 const SHIELD_P3 := 20.0  # phase 3 : bouclier plus épais, deux longs traits dans la même remontée
 
