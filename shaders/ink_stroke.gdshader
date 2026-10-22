@@ -11,14 +11,26 @@ render_mode unshaded, cull_disabled, depth_draw_never, shadows_disabled;
 
 // x : horloge du trait (s), y : temps de séchage (s, 0 tant que le pinceau est posé), z : graine
 instance uniform vec4 stroke_state = vec4(0.0, 0.0, 0.0, 0.0);
+// x, y : origine du trait au sol (m, arrondie) : les bruits du papier se calculent en coordonnées RELATIVES au
+// trait (quelques mètres), jamais en coordonnées du monde (dizaines de mètres × 30 : hors de portée d'un GPU de
+// téléphone qui arrondirait en 16 bits -> damier de blocs)
+instance uniform vec4 stroke_org = vec4(0.0, 0.0, 0.0, 0.0);
 
-varying vec2 wxz;
+varying highp vec2 wxz;  // position au sol relative à l'origine du trait (m)
 varying float lit;  // côté de la bande tourné vers la lumière (-1..1)
 
+// Hachage sur les BITS des flottants (arithmétique entière 32 bits, exacte) : le même résultat sur bureau et sur
+// GPU de téléphone, quelle que soit la précision flottante (l'ancien hachage par fract de grands produits se
+// dégrade en blocs ou en zéros dès que le pilote calcule en 16 bits).
 float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
+	uvec2 b = floatBitsToUint(p + vec2(0.5));
+	uint h = (b.x * 1597334677u) ^ (b.y * 3812015801u + 2654435769u);
+	h ^= h >> 16u;
+	h *= 2146121005u;
+	h ^= h >> 15u;
+	h *= 2221713035u;
+	h ^= h >> 16u;
+	return float(h >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 p) {
@@ -34,7 +46,7 @@ float vnoise(vec2 p) {
 
 void vertex() {
 	vec4 w = MODEL_MATRIX * vec4(VERTEX, 1.0);
-	wxz = w.xz;
+	wxz = w.xz - stroke_org.xy;
 	vec3 sw = (MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz;
 	vec2 L = normalize(vec2(-0.5, -0.85));
 	lit = dot(normalize(sw.xz + vec2(0.0001)), L);
@@ -57,7 +69,8 @@ void fragment() {
 	float fib = vnoise(wxz * 30.0 + seed);
 	float thr = 0.84 + 0.13 * nb + 0.03 * dens;
 	float edge = ae + (fib - 0.5) * (0.1 + 0.1 * dry);
-	float soft = fwidth(e) * 1.2 + 0.03 + 0.07 * dry;
+	// (fwidth borné : une dérivée aberrante ne doit jamais étaler le bord sur toute la bande)
+	float soft = min(fwidth(e), 0.5) * 1.2 + 0.03 + 0.07 * dry;
 	float cov = 1.0 - smoothstep(thr - soft, thr + soft * 0.4, edge);
 
 	// trait vif : quelques poils secs (kasure) vers la queue

@@ -22,12 +22,20 @@ instance uniform vec4 fx_state = vec4(0.0, 0.3, 0.0, 0.0);
 // x : angle du coup à l'écran (rad), y : force (0..1)
 instance uniform vec4 fx_dir = vec4(0.0, 0.5, 0.0, 0.0);
 
-varying vec2 q;
+varying highp vec2 q;
 
+// Hachage sur les BITS des flottants (arithmétique entière 32 bits, exacte) : le même résultat sur bureau et sur
+// GPU de téléphone, quelle que soit la précision flottante (l'ancien hachage par fract de grands produits se
+// dégrade en blocs ou en zéros dès que le pilote calcule en 16 bits).
 float hash12(vec2 p) {
-	vec3 p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-	p3 += dot(p3, p3.yzx + 33.33);
-	return fract((p3.x + p3.y) * p3.z);
+	uvec2 b = floatBitsToUint(p + vec2(0.5));
+	uint h = (b.x * 1597334677u) ^ (b.y * 3812015801u + 2654435769u);
+	h ^= h >> 16u;
+	h *= 2146121005u;
+	h ^= h >> 15u;
+	h *= 2221713035u;
+	h ^= h >> 16u;
+	return float(h >> 8u) * (1.0 / 16777216.0);
 }
 
 float vnoise(vec2 p) {
@@ -117,7 +125,7 @@ vec4 splat(float age, float life, float seed) {
 		}
 	}
 	d = smin(d, dd, 0.035);
-	float aa = max(fwidth(d), 0.003);
+	float aa = clamp(fwidth(d), 0.003, 0.06);
 	float cov = 1.0 - smoothstep(-aa, aa, d);
 	float cov2 = (1.0 - smoothstep(-aa, aa, d2)) * (1.0 - cov);
 	// déchirure : l'encre se casse en poils en fin de vie (le centre d'abord)
@@ -162,7 +170,7 @@ vec4 cut(float age, float life, float seed) {
 		float r0 = 0.35 + 0.5 * g * (0.6 + 0.4 * h2);
 		fl = min(fl, taper(p, ad * r0, ad * (r0 + 0.18 * (1.0 - t)), 0.03 * thin, 0.004));
 	}
-	float aa = max(fwidth(d), 0.003);
+	float aa = clamp(fwidth(d), 0.003, 0.06);
 	float rimw = 0.035;
 	float body = 1.0 - smoothstep(-aa, aa, d + rimw);
 	float ink = 1.0 - smoothstep(-aa, aa, d);

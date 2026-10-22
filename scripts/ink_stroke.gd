@@ -67,6 +67,9 @@ func _init(start: Vector3, layer: int) -> void:
 	_seed_n += 1
 	_seed = fmod(float(_seed_n) * 13.7 + randf() * 40.0, 89.0)
 	InstParams.set_param(self, &"stroke_state", Vector4(0.0, 0.0, _seed, 0.0))
+	# origine du trait (m, arrondie) : le shader calcule les bruits du papier par rapport à elle, en petites
+	# coordonnées (un GPU de téléphone perd la précision sur les coordonnées du monde × 30 : blocs dans l'encre)
+	InstParams.set_param(self, &"stroke_org", Vector4(floorf(start.x), floorf(start.z), 0.0, 0.0))
 	_add(Vector3(start.x, 0, start.z))
 
 
