@@ -839,7 +839,9 @@ func _check_stuck(dt_real: float) -> void:
 		var lp: Vector3 = st[0]
 		# immobile parce qu'il attaque (annonce, coup, récupération : la rafale du yamabushi, le tir du teppo) n'est
 		# pas coincé : seule la marche (« move ») qui n'avance pas compte
-		if lp.distance_to(p) > 0.25 or p.distance_to(main.hero.position) < 3.0 or String(e.get("_state")) != "move":
+		# assommé (bouclier brisé, sceau ouvert, garde ouverte) : immobile par règle, pas coincé non plus
+		if lp.distance_to(p) > 0.25 or p.distance_to(main.hero.position) < 3.0 or String(e.get("_state")) != "move" \
+				or float(e.get("_stagger") if e.get("_stagger") != null else 0.0) > 0.0:
 			_still[id] = [p, 0.0]
 			continue
 		st[1] = float(st[1]) + dt
