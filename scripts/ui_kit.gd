@@ -485,8 +485,66 @@ static func _shape(name: String) -> PackedVector2Array:
 			for i in n * 2:
 				var t := -PI / 2.0 + PI * float(i) / float(n)
 				p.append(Vector2(cos(t), sin(t)) * (1.0 if i % 2 == 0 else inner))
+		"wind_a", "wind_b", "wind_c":
+			# trois souffles au pinceau (icône de l'école du vent, style 風 des estampes) : courbes en S décalées,
+			# pointes effilées ; le souffle du haut se recourbe en volute (même tracé que kamon « seal_vent » et
+			# icons « elements/vent », générés par la maquette scratchpad vent/wind_design.py, variante v7)
+			var cs: Array = []
+			var ws: Array = []
+			if name == "wind_a":
+				var cen := Vector2(0.52, -0.30)
+				var r0 := 0.34
+				var a0 := deg_to_rad(-74.0)
+				var j := cen + Vector2.from_angle(a0) * r0
+				var p2 := j - Vector2.from_angle(a0 + PI / 2.0) * 0.34
+				_brush_pts(cs, ws, Vector2(-0.97, -0.26), Vector2(-0.58, -0.78), p2, j, 0.26, 0.05, 0.0, 0.5, 16, true)
+				var wj: float = ws[ws.size() - 1]
+				for i in range(1, 15):
+					var t := float(i) / 14.0
+					cs.append(cen + Vector2.from_angle(a0 + deg_to_rad(265.0) * t) * lerpf(r0, 0.13, t))
+					ws.append(wj * pow(1.0 - t, 0.9) + 0.015 * t)
+			elif name == "wind_b":
+				_brush_pts(cs, ws, Vector2(-0.9, 0.3), Vector2(-0.3, -0.12), Vector2(0.3, 0.5), Vector2(0.98, 0.12), 0.299, 0.05, 0.0425, 0.5, 16, false)
+			else:
+				_brush_pts(cs, ws, Vector2(-0.66, 0.78), Vector2(-0.25, 0.52), Vector2(0.2, 0.98), Vector2(0.7, 0.72), 0.247, 0.05, 0.0425, 0.5, 16, false)
+			p = _band(cs, ws)
 	_shapes[name] = p
 	return p
+
+
+## Trait de pinceau le long d'une courbe de Bézier cubique : centres (cs) et largeurs (ws) en chaque point.
+## Largeur : pointe d'entrée w0, ventre wmax vers `peak`, sortie w1 effilée ; `tail` (volute à suivre) : la sortie ne
+## s'amincit que d'un quart, la spirale finit le trait.
+static func _brush_pts(cs: Array, ws: Array, p0: Vector2, p1: Vector2, p2: Vector2, p3: Vector2, wmax: float, w0: float, w1: float,
+		peak: float, n: int, tail: bool) -> void:
+	for i in n + 1:
+		var t := float(i) / float(n)
+		var u := 1.0 - t
+		cs.append(p0 * (u * u * u) + p1 * (3.0 * u * u * t) + p2 * (3.0 * u * t * t) + p3 * (t * t * t))
+		if t < peak:
+			ws.append(w0 + (wmax - w0) * pow(t / peak, 0.8))
+		elif tail:
+			ws.append(w0 + (wmax - w0) * pow(1.0 - (t - peak) / (1.0 - peak) * 0.25, 0.8))
+		else:
+			ws.append(w1 + (wmax - w1) * pow((1.0 - t) / (1.0 - peak), 0.8))
+
+
+## Polygone d'un trait à largeur variable : bord gauche, puis bord droit à rebours.
+static func _band(cs: Array, ws: Array) -> PackedVector2Array:
+	var left := PackedVector2Array()
+	var right := PackedVector2Array()
+	var n := cs.size()
+	for i in n:
+		var a: Vector2 = cs[maxi(0, i - 1)]
+		var b: Vector2 = cs[mini(n - 1, i + 1)]
+		var d := (b - a).normalized()
+		var nn := Vector2(-d.y, d.x) * (float(ws[i]) / 2.0)
+		var p: Vector2 = cs[i]
+		left.append(p + nn)
+		right.append(p - nn)
+	right.reverse()
+	left.append_array(right)
+	return left
 
 
 ## Polygone plein, bord adouci d'un fin contour.
@@ -663,11 +721,10 @@ static func glyph(ci: CanvasItem, name: String, c: Vector2, r: float, col: Color
 		"bolt":
 			_shp(ci, "bolt", c, s, k, Vector2.ZERO, 0.95)
 		"wind":
-			_ln(ci, c, s, Vector2(-0.95, -0.35), Vector2(0.35, -0.35), k, w)
-			_arc(ci, c, s, Vector2(0.35, -0.6), 0.25, PI * 0.5, -PI * 0.9, k, w)
-			_ln(ci, c, s, Vector2(-0.75, 0.05), Vector2(0.8, 0.05), k, w)
-			_ln(ci, c, s, Vector2(-0.95, 0.45), Vector2(0.15, 0.45), k, w)
-			_arc(ci, c, s, Vector2(0.15, 0.7), 0.25, -PI * 0.5, PI * 0.9, k, w)
+			# trois souffles au pinceau, le premier en volute (_shape « wind_a »…)
+			_shp(ci, "wind_a", c, s, k, Vector2.ZERO, 0.95)
+			_shp(ci, "wind_b", c, s, k, Vector2.ZERO, 0.95)
+			_shp(ci, "wind_c", c, s, k, Vector2.ZERO, 0.95)
 		"shadow":
 			_shp(ci, "crescent", c, s, k, Vector2(-0.12, 0.05), 0.85)
 			_shp(ci, "star4", c, s, k, Vector2(0.55, -0.45), 0.3)
@@ -2113,7 +2170,7 @@ const POWER_GLYPH := {
 	"bolt_static": ["M25 30 A5 5 0 1 0 35 30 A5 5 0 1 0 25 30 Z", true, "M39 30 L50 30 M36.4 36.4 L40.6 40.6 M30 39 L30 50 M23.6 36.4 L19.4 40.6 M21 30 L10 30 M23.6 23.6 L19.4 19.4 M30 21 L30 10 M36.4 23.6 L40.6 19.4"],
 	# ---- VENT
 	"wind_long": ["M24 32 A6 6 0 0 1 36 32 V44 A6 6 0 0 1 24 44 Z M30 10 L40 20 H34 V23 H26 V20 H20 Z", true],
-	"wind_gust": ["M30 21.5 C33.8 27.2 37.6 30 37.6 33.8 A7.6 7.6 0 0 1 22.4 33.8 C22.4 30 26.2 27.2 30 21.5 Z M33.1 12.3 L35.1 12.8 L37 13.5 L38.9 14.4 L40.6 15.5 L42.1 16.8 L43.5 18.2 L44.8 19.8 L45.9 21.6 L46.7 23.4 L47.4 25.4 L47.8 27.4 L47.9 29.3 L47.8 31.4 L47.7 33.4 L47.1 35.4 L46.4 37.3 L45.5 39.1 L44.4 40.8 L43 42.4 L41.5 43.8 L39.9 44.9 L38.1 46 L36.3 46.8 L34.3 47.4 L32.4 47.8 L30.3 47.9 L28.3 47.8 L26.2 47.6 L24.3 47 L22.4 46.2 L20.7 45.3 L19 44.2 L17.4 42.8 L16 41.3 L14.9 39.6 L13.9 37.8 L13.1 35.9 L12.5 34.1 L12.2 32.1 L12.1 30 L9.7 30 L14.4 23.4 L19.1 30 L16.8 30 L16.9 31.5 L17.2 32.9 L17.5 34.4 L18.1 35.8 L18.9 37.1 L19.7 38.3 L20.7 39.4 L21.9 40.4 L23.1 41.2 L24.4 42 L25.8 42.6 L27.3 42.9 L28.8 43.1 L30.2 43.2 L31.7 43.1 L33.2 42.8 L34.6 42.4 L36 41.8 L37.3 41 L38.5 40.1 L39.6 39.1 L40.6 37.9 L41.4 36.7 L42.1 35.4 L42.7 34 L42.9 32.5 L43.2 31 L43.2 29.5 L43 28 L42.7 26.6 L42.3 25.2 L41.7 23.8 L40.9 22.5 L40 21.3 L39 20.3 L37.7 19.3 L36.5 18.5 L35.2 17.8 L33.8 17.3 L32.3 17 Z", true],
+	"ink_gust": ["M30 21.5 C33.8 27.2 37.6 30 37.6 33.8 A7.6 7.6 0 0 1 22.4 33.8 C22.4 30 26.2 27.2 30 21.5 Z M33.1 12.3 L35.1 12.8 L37 13.5 L38.9 14.4 L40.6 15.5 L42.1 16.8 L43.5 18.2 L44.8 19.8 L45.9 21.6 L46.7 23.4 L47.4 25.4 L47.8 27.4 L47.9 29.3 L47.8 31.4 L47.7 33.4 L47.1 35.4 L46.4 37.3 L45.5 39.1 L44.4 40.8 L43 42.4 L41.5 43.8 L39.9 44.9 L38.1 46 L36.3 46.8 L34.3 47.4 L32.4 47.8 L30.3 47.9 L28.3 47.8 L26.2 47.6 L24.3 47 L22.4 46.2 L20.7 45.3 L19 44.2 L17.4 42.8 L16 41.3 L14.9 39.6 L13.9 37.8 L13.1 35.9 L12.5 34.1 L12.2 32.1 L12.1 30 L9.7 30 L14.4 23.4 L19.1 30 L16.8 30 L16.9 31.5 L17.2 32.9 L17.5 34.4 L18.1 35.8 L18.9 37.1 L19.7 38.3 L20.7 39.4 L21.9 40.4 L23.1 41.2 L24.4 42 L25.8 42.6 L27.3 42.9 L28.8 43.1 L30.2 43.2 L31.7 43.1 L33.2 42.8 L34.6 42.4 L36 41.8 L37.3 41 L38.5 40.1 L39.6 39.1 L40.6 37.9 L41.4 36.7 L42.1 35.4 L42.7 34 L42.9 32.5 L43.2 31 L43.2 29.5 L43 28 L42.7 26.6 L42.3 25.2 L41.7 23.8 L40.9 22.5 L40 21.3 L39 20.3 L37.7 19.3 L36.5 18.5 L35.2 17.8 L33.8 17.3 L32.3 17 Z", true],
 	"wind_feather": ["M15.6 44.4 C16.4 30 26.8 18.8 44.4 15.6 C42.8 30 31.6 41.2 15.6 44.4 Z", true, "M16.4 43.6 L41.2 18.8 M25.2 34.8 L23.6 26.8 M30.8 29.2 L31.6 20.4"],
 	"wind_blades": ["M22.3 12.6 C6.8 20.3 6.8 39.7 22.3 47.4 C12.6 39.7 12.6 20.3 22.3 12.6 Z M37.7 12.6 C53.2 20.3 53.2 39.7 37.7 47.4 C47.4 39.7 47.4 20.3 37.7 12.6 Z", true, "M30 9.7 V50.3"],
 	"wind_tsumuji": ["M14.2 17.7 A15.8 4.4 0 1 0 45.8 17.7 A15.8 4.4 0 1 0 14.2 17.7 Z M19.5 28.2 A10.5 3.7 0 1 0 40.5 28.2 A10.5 3.7 0 1 0 19.5 28.2 Z M24.3 37 A5.7 2.8 0 1 0 35.7 37 A5.7 2.8 0 1 0 24.3 37 Z", true, "M30 39.6 C30 44 26.5 44 24.7 47.5"],
