@@ -26,7 +26,7 @@ signal world_done(id: int)
 var main: Node
 var done := {}  # monde -> true (décor dessiné)
 var busy := false  # un monde est en cours
-var current := 0  # monde en cours de préchauffage (0 : aucun)
+var current := -1  # monde en cours de préchauffage (-1 : aucun ; 0 : le Sentier)
 var budget := SLICE_US
 var _queue: Array = []
 var _sv: SubViewport
@@ -54,7 +54,7 @@ func _ready() -> void:
 
 ## Monde `id` à préchauffer (en tête de file si `first`).
 func want(id: int, first := false) -> void:
-	if done.has(id) or id == current or id <= 0:
+	if done.has(id) or id == current or id < 0:
 		return
 	_queue.erase(id)
 	if first:
@@ -84,7 +84,7 @@ func _run() -> void:
 			continue
 		current = id
 		await _warm_world(id)
-		current = 0
+		current = -1
 		done[id] = true
 		world_done.emit(id)
 	busy = false

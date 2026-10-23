@@ -69,7 +69,9 @@ const PATHS := {
 }
 
 ## Kamon de chaque monde, par sa clé « kanji » (worlds.gd, jamais affichée) : remplace les pictos UIColors.WORLD_ICON.
-const WORLD := {"波": "w_1", "竹": "w_2", "雪": "w_3", "火": "w_4", "墨": "w_5", "天": "w_6", "龍": "w_7", "冥": "w_8"}
+## Le Sentier (monde 0, 道) : « 一 », le premier trait, un point d'encre au-dessus (tracé à la main, W0_PATH).
+const WORLD := {"道": "w_0", "波": "w_1", "竹": "w_2", "雪": "w_3", "火": "w_4", "墨": "w_5", "天": "w_6", "龍": "w_7", "冥": "w_8"}
+const W0_PATH := "M-12.00 -1.20 L-11.40 -2.90 L-9.00 -3.40 L-2.00 -3.10 L5.00 -3.40 L11.20 -3.90 L12.60 -2.40 L12.20 0.20 L10.40 2.60 L5.00 3.10 L-2.00 2.80 L-9.00 3.20 L-11.80 2.20 Z M-0.40 -10.60 L1.60 -11.20 L3.40 -10.00 L3.80 -7.80 L2.40 -6.00 L0.00 -5.70 L-2.00 -7.00 L-2.30 -9.20 Z"
 
 static var _meshes := {}  # id -> ArrayMesh (null : tracé inconnu)
 static var _loops := {}  # id -> contours fermés (bords lissés)
@@ -105,12 +107,13 @@ static func mesh(id: String) -> ArrayMesh:
 		return _meshes[id]
 	var m: ArrayMesh = null
 	var loops: Array = []
-	if PATHS.has(id):
-		for sp in parse(String(PATHS[id])):
+	var src := W0_PATH if id == "w_0" else String(PATHS.get(id, ""))
+	if src != "":
+		for sp in parse(src):
 			var lp: PackedVector2Array = sp.duplicate()
 			lp.append(lp[0])
 			loops.append(lp)
-		var tris := triangles(String(PATHS[id]))
+		var tris := triangles(src)
 		if tris.size() >= 3:
 			var arr := []
 			arr.resize(Mesh.ARRAY_MAX)

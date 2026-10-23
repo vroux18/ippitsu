@@ -182,6 +182,13 @@ const REINF_DIST := 5.0  # renforts du boss : apparition à cette distance du h�
 const SANCTUARIES := [5, 10]  # malédictions proposées après ces combats (fins des étapes 2 et 5)
 # étapes du monde : combats (numéros de `room`) réunis sur une même longue carte ; [8] et [15] : arènes
 const STAGE_PLAN := [[1, 2], [3, 4, 5], [6, 7], [8], [9, 10], [11, 12], [13, 14], [15]]
+## Monde 0, le Sentier (Worlds.WORLD0) : 4 étapes courtes, un ou deux combats faciles chacune, sans gardien
+## (MINI_ROOM n'y est jamais atteint) ; le dernier combat (W0_ROOMS) est l'épreuve : Ō-Kappa, le gardien de la
+## Grande Vague, très affaibli (W0_TRIAL_HP), à la place d'un boss. La boucle se gagne à l'étape 3 (meta.FIG_GATES).
+const W0_ROOMS := 5  # = meta.W0_ROOMS
+const W0_STAGE_PLAN := [[1], [2], [3, 4], [5]]
+const W0_TRIAL := "okappa"  # l'épreuve du Sentier
+const W0_TRIAL_HP := 0.4  # ses PV, en part de ceux du gardien du monde 1
 const CAM_FOCUS_Y := 0.9  # hauteur visée au centre de l'écran (mi-corps du héros)
 ## Plongée de la caméra (degrés au-dessus de l'horizon). Caméra « relief » (retenue) : un peu moins zénithale,
 ## focale un peu plus courte (CAM_FOV), les volumes (piliers, monstres, tranches des plateformes) se lisent mieux.
@@ -377,7 +384,7 @@ var _boat_light: OmniLight3D = null
 var _boat_rings: Array = []  # [MeshInstance3D, matériau, âge]
 var _boat_ring_t := 0.0
 var _boat_fx: Node3D = null  # particules de l'accueil (selon le monde)
-var _boat_fx_world := 0
+var _boat_fx_world := -1  # (-1 : aucun ; 0 : le Sentier)
 var _boat_birds: Node3D
 var _boat_bird_t := 5.0
 var _drift_t := 0.0  # dérive lente de la caméra d'accueil
@@ -441,7 +448,7 @@ var _load_gen := 0  # change à chaque nouvelle partie : une construction étal�
 var _intro_gentle := false  # tout premier départ (tutoriel) : deux premiers combats adoucis, posé après _start
 var _dash_prev := Vector3.ZERO  # garde-fou des ruées bloquées
 var _dash_stall := 0.0
-var _intro_world := 0  # monde choisi sur la carte, construit sous le rideau de l'intro
+var _intro_world := -1  # (-1 : aucun ; 0 : le Sentier) monde choisi sur la carte, construit sous le rideau de l'intro
 var _intro_swapped := false
 var worldmap: Control
 var _ending_victory := false
@@ -589,7 +596,7 @@ var brush := "fude"  # pinceau de la partie
 var aspect := 0  # son aspect (0..2)
 var charm := ""  # omamori porté ("" : aucun)
 var departure: Control  # écran AVANT LE DÉPART
-var _dep_world := 0  # monde à ouvrir après PARTIR
+var _dep_world := -1  # (-1 : aucun ; 0 : le Sentier) monde à ouvrir après PARTIR
 var _dep_from_map := false  # écran ouvert depuis la carte (retour : la carte)
 var _rain: Array = []  # Fude · Pluie : gouttes au sol [MeshInstance3D (vfx.ink_stain), position, vie]
 var _wall_pts := PackedVector3Array()  # Hake · Mur : trait posé qui bloque les projectiles
@@ -809,7 +816,7 @@ func _ready() -> void:
 	# `&indices` : ils viennent d'eux-mêmes, comme en jeu ; `coach=` : la leçon demandée)
 	if wsearch != "" and not ("indice" in wsearch or "coach=" in wsearch):
 		coach.muted = true
-	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 1, Worlds.WORLDS.size()) if wpos >= 0 else 1)
+	apply_world(clampi(int(wsearch.substr(wpos + 6).get_slice("&", 0)), 0, Worlds.WORLDS.size()) if wpos >= 0 else 1)
 	# `&pinceau=hake&aspect=1&charme=garde` (captures) : équipement imposé, même verrouillé ; `&won=N` : progression
 	# de démonstration (mondes 1..N vaincus, leurs omamori gagnés ; `&aspects=N` : N aspects par pinceau) pour l'écran
 	# de départ et l'Atelier ; rien n'est sauvegardé
@@ -839,7 +846,7 @@ func _ready() -> void:
 	# `?room=N` (web) : commence directement à l'étape du combat N (tests des boss : 8 et 15)
 	var rm := wsearch.find("room=")
 	if rm >= 0:
-		room = clampi(int(wsearch.substr(rm + 5).get_slice("&", 0)), 1, ROOMS) - 1
+		room = clampi(int(wsearch.substr(rm + 5).get_slice("&", 0)), 1, rooms_total()) - 1
 		_build_segment()
 		_set_state("play")
 		music.play_world(current_world)
@@ -1212,6 +1219,18 @@ func _ready() -> void:
 		else:
 			shape_counts = {"zigzag": 20, "straight": 13, "loop": 12, "return": 8, "enso": 3, "hook": 1}
 		powers.levels = {"fire_burn": 2, "fire_spark": 1, "water_tide": 1, "fig_loop": 1}  # build de démo (médaillons, étiquettes)
+		if current_world == 0:
+			# `?world=0&victoire` : la fin du Sentier (4 étapes, l'épreuve, la boucle gagnée en route)
+			room = W0_ROOMS
+			stage_i = 3
+			kills = 19
+			max_chain = 9
+			run_time = 214.0
+			score.points = 9800
+			mini_kills = 1
+			shape_counts = {"straight": 21, "loop": 4}
+			powers.levels = {"fire_burn": 1}
+			_figs_run = ["loop"]
 		_ending_victory = "victoire" in wsearch
 		# `&figure=return` : la cérémonie NOUVELLE FIGURE avant la feuille ; `&ft=1.2` : le geste figé à cet instant
 		var fgq := wsearch.find("figure=")
@@ -2090,7 +2109,8 @@ func _set_state(s: String) -> void:
 	_show_stage(not s in ["menu", "worlds", "sail"])
 	match s:
 		"menu":
-			_home_select(current_world)  # le sélecteur repart du monde du joueur
+			# le sélecteur repart du monde du joueur (le Sentier fini : la Grande Vague, il reste sur la carte)
+			_home_select(current_world if current_world >= 1 or not meta.w0_done else 1)
 			menu.show_mode("home")
 			music.play_menu()
 			_board_boat()
@@ -2119,12 +2139,13 @@ func _on_play() -> void:
 		_start()
 		_set_state("play")
 	elif not meta.intro_done:
-		# tout premier lancement : droit au monde 1 (plus de planches d'explication ; elles restent sur le « ? »)
+		# tout premier lancement : droit au monde 0, le Sentier (plus de planches d'explication ; elles restent
+		# sur le « ? »)
 		meta.intro_done = true
 		meta.save_data()
 		_start_first_run()
-	elif meta.coach_first_run():
-		# toute première partie (ou tutoriel à revoir) : droit au monde 1, le coach explique en jouant
+	elif not meta.w0_done or meta.coach_first_run():
+		# le Sentier pas encore fini (ou tutoriel à revoir) : droit au monde 0, le coach explique en jouant
 		_start_first_run()
 	else:
 		_home_play()  # droit dans le monde choisi sur l'accueil (scellé : la carte)
@@ -2132,18 +2153,23 @@ func _on_play() -> void:
 
 ## Choix du monde sur le rouleau, centré sur `center` (par défaut le monde en cours). `reveal` : monde que
 ## la victoire vient d'ouvrir (le rouleau se déroule jusqu'à lui et brise son sceau), `reveal_powers` :
-## rouleaux débloqués avec lui (aperçu sur sa carte).
+## rouleaux débloqués avec lui (aperçu sur sa carte). Le Sentier (monde 0) ouvre la liste, toujours rejouable.
 func _open_worlds(center := -1, reveal := 0, reveal_powers := []) -> void:
 	_set_state("worlds")
 	var unlocked := _unlocked_count()
-	# records : meilleur combat atteint -> meilleure étape
+	# records : meilleur combat atteint -> meilleure étape (du plan de chaque monde)
 	var best := {}
 	for k in meta.world_best.keys():
-		best[k] = stage_of(int(meta.world_best[k]))
-	var c: int = center if center >= 1 else current_world
+		best[k] = stage_of(int(meta.world_best[k]), int(k))
+	var c: int = center if center >= 0 else current_world
 	worldmap.scores = meta.world_score.duplicate()
 	worldmap.won_top = int(meta.won_top)
-	worldmap.open(Worlds.WORLDS, unlocked, best, c, STAGE_PLAN.size(), meta.owned_prints, reveal, reveal_powers)
+	# le Sentier fini : son tampon ACCOMPLI (drapeau « w0_win », comme la Vue de victoire des autres mondes)
+	var wins: Dictionary = meta.owned_prints.duplicate()
+	if meta.w0_done:
+		wins["w0_win"] = true
+	worldmap.w0_rooms = W0_STAGE_PLAN.size()
+	worldmap.open([Worlds.WORLD0] + Worlds.WORLDS, unlocked, best, c, STAGE_PLAN.size(), wins, reveal, reveal_powers)
 
 
 ## Résultats d'une victoire : « DÉCOUVRIR LE MONDE SUIVANT » (le rouleau part du monde vaincu et révèle le
@@ -2180,9 +2206,9 @@ func _on_world_chosen(id: int) -> void:
 func _intro_swap() -> void:
 	_intro_swapped = true
 	arena.hide_shore(false)
-	if _intro_world > 0:
+	if _intro_world >= 0:
 		var wid := _intro_world
-		_intro_world = 0
+		_intro_world = -1
 		if wid != current_world:
 			apply_world(wid)
 		# le sanctuaire se construit sous le rideau, étalé sur quelques images (le rideau attend : _loading)
@@ -2266,10 +2292,12 @@ func _notification(what: int) -> void:
 ## les deux premiers combats sont adoucis (gentle).
 func _start_first_run() -> void:
 	sfx.play("slash", 0.9, -4.0)
-	if current_world != 1:
-		apply_world(1)
+	# le Sentier (monde 0) tant qu'il n'est pas fini, sinon la Grande Vague (tutoriel revu depuis le « ? »)
+	var wid := 0 if not meta.w0_done else 1
+	if current_world != wid:
+		apply_world(wid)
 	# le sanctuaire se construit sous le rideau de l'intro (_intro_swap), comme un départ de la carte
-	_intro_world = 1
+	_intro_world = wid
 	_intro_gentle = true
 	gentle = true  # (dès maintenant : _start le remet à zéro, _intro_swap le repose)
 	_set_state("intro")
@@ -3009,7 +3037,7 @@ func _unlocked_count() -> int:
 ## Sélecteur de l'accueil : monde `id` choisi (aperçu permis même scellé), affiché par le menu.
 func _home_select(id: int) -> void:
 	var n := Worlds.WORLDS.size()
-	_home_sel = wrapi(id, 1, n + 1)
+	_home_sel = wrapi(id, 0, n + 1)  # (0 : le Sentier)
 	var w: Dictionary = Worlds.world(_home_sel)
 	menu.sel_world = _home_sel
 	menu.sel_name = UiKit.plain(String(w.name))
@@ -3057,9 +3085,9 @@ func _ask_departure(id: int, from_map: bool) -> void:
 
 func _on_departure_go() -> void:
 	var id := _dep_world
-	if id <= 0:
+	if id < 0:
 		return
-	_dep_world = 0
+	_dep_world = -1
 	sfx.play("slash", 0.9, -4.0)
 	if not _dep_from_map:
 		if arena.world_id != id:
@@ -3073,8 +3101,8 @@ func _on_departure_go() -> void:
 ## Retour depuis l'écran de départ : l'accueil, ou la carte des mondes d'où l'on venait.
 func _on_departure_back() -> void:
 	var id := _dep_world
-	_dep_world = 0
-	if _dep_from_map and id > 0:
+	_dep_world = -1
+	if _dep_from_map and id >= 0:
 		_open_worlds(id)
 
 
@@ -3661,7 +3689,7 @@ func _start(hub := true, tutorial := false, sliced := false) -> void:
 	elif tutorial:
 		await arena.build_room(1, ROOMS, randi(), MINI_ROOM, sliced)
 	else:
-		await arena.build_stage(STAGE_PLAN[0].size(), randi(), true, sliced)
+		await arena.build_stage(stage_plan()[0].size(), randi(), true, sliced)
 	if gen != _load_gen:
 		return  # (autre partie commencée pendant la construction)
 	_loading = false
@@ -3926,7 +3954,7 @@ func _begin_room() -> void:
 	if arena.stage:
 		hazards.begin_room(room, hero.position, false, arena.bounds, true)
 	else:
-		hazards.begin_room(room, hero.position, room == MINI_ROOM or room == ROOMS)
+		hazards.begin_room(room, hero.position, room == MINI_ROOM or room == rooms_total())
 	# difficulté du monde (worlds.gd : b0, per) et courbe dans le monde (ROOM_CURVE : respiration, épreuve)
 	var b0 := world_diff("b0", 4.0)
 	var per := world_diff("per", 1.0)
@@ -3937,7 +3965,7 @@ func _begin_room() -> void:
 	if hero.hp <= 1:
 		budget = maxi(2, int(budget * 0.85))  # combat commencé au dernier cœur : un peu moins d'ennemis
 	var list: Array = []
-	if room >= (4 if current_world == 1 else 3):
+	if current_world >= 1 and room >= (4 if current_world == 1 else 3):  # (jamais de brute au Sentier)
 		list.append("brute")
 		budget -= int(KIND_COST.get("brute", 3))
 	if room >= 10:
@@ -3957,9 +3985,13 @@ func _begin_room() -> void:
 		list = _draw_kinds(_room_pool(), 4 + 2 * current_world)
 		list.shuffle()
 		_spawn_boss(String(MINI_BOSS.get(current_world, "okappa")))
-	elif room == ROOMS:
+	elif room == rooms_total():
 		list = []
-		_spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
+		if current_world == 0:
+			# l'épreuve du Sentier : le gardien de la Grande Vague, très affaibli, seul
+			_spawn_boss(W0_TRIAL, float(Worlds.world(1).hp_mult) * W0_TRIAL_HP)
+		else:
+			_spawn_boss(String(WORLD_BOSS.get(current_world, "uwabami")))
 	# découpe en vagues : 40 % / 35 % / 25 %, puis 4 vagues dès la salle 10 (30 / 25 / 25 / 20 %)
 	_waves_left = []
 	_wave_cont = false
@@ -3979,7 +4011,7 @@ func _begin_room() -> void:
 	wave_index = 1
 	_wave_size = first.size()
 	first = _cap_wave(first, 0)
-	var boss_room := (room == MINI_ROOM or room == ROOMS) and is_instance_valid(_intro_boss)
+	var boss_room := (room == MINI_ROOM or room == rooms_total()) and is_instance_valid(_intro_boss)
 	if boss_room:
 		# salle de boss : carton titre et première vague à la fin de son entrée (_start_boss_intro)
 		_intro_wave = first
@@ -3992,7 +4024,7 @@ func _begin_room() -> void:
 
 ## Deux premiers combats du monde 1 pendant la première partie du tutoriel.
 func _gentle_room() -> bool:
-	return gentle and current_world == 1 and room >= 1 and room <= 2 and not in_hub
+	return (gentle and current_world == 1 and room >= 1 and room <= 2 and not in_hub) or (current_world == 0 and room >= 1 and room <= 2 and not in_hub)  # (le Sentier : ses deux premiers combats, toujours)
 
 
 func _weighted_kind(weights: Dictionary) -> String:
@@ -4175,14 +4207,14 @@ func _boss_phase_fx(bo: Node3D, phase: int) -> void:
 	shake = maxf(shake, 0.5)
 
 
-func _spawn_boss(k: String) -> Node3D:
+func _spawn_boss(k: String, hp_mult := -1.0) -> Node3D:
 	var t0 := Time.get_ticks_usec()
 	var b: Node3D = _boss_script(k).new()
 	b.setup(k, self)
 	_discover(k, true)
 	if is_mini_boss(k):
 		b.position = Vector3(0, 0, -HALF.y + 3.0)
-	b.max_hp_mult = float(Worlds.world(current_world).hp_mult)
+	b.max_hp_mult = float(Worlds.world(current_world).hp_mult) if hp_mult < 0.0 else hp_mult  # (l'épreuve du Sentier : W0_TRIAL_HP)
 	# figé jusqu'à son entrée en scène, une fois le torii passé (_start_boss_intro)
 	b.process_mode = Node.PROCESS_MODE_DISABLED
 	_intro_boss = b
@@ -4236,6 +4268,8 @@ func _start_boss_intro() -> void:
 	_intro_mini = is_mini_boss(String(b.kind))
 	_mood_to = 0.5 if _intro_mini else 1.0  # ambiance de boss (moitié pour un gardien)
 	var sub := ("GARDIEN DE L'ÉTAPE %d" % stage_of(MINI_ROOM)) if _intro_mini else "GARDIEN DU MONDE"
+	if current_world == 0:
+		sub = "L'ÉPREUVE DU SENTIER"  # (Ō-Kappa affaibli : la fin du monde 0)
 	if _bot != null and not bool(_bot.get("cinematics")):
 		hud.banner(String(b.title).to_upper(), sub, Toon.VERMILION, 2.2)
 		_end_boss_intro()
@@ -4335,13 +4369,16 @@ func boss_killed(b: Node3D) -> void:
 		# s'achève aussitôt, une annonce ici serait coupée par la feuille de résultats)
 		var mini_b := is_mini_boss(String(b.kind))
 		_fig_gained(meta.fig_win(current_world, "mini" if mini_b else "boss"), not mini_b)
+		if mini_b and room < rooms_total() and bool(meta.mini_win(current_world)) and _bot != null:
+			print("BOT GARDIEN vaincu une première fois (monde %d) : portes à sceaux ouvertes" % current_world)
 	if is_mini_boss(String(b.kind)):
 		mini_kills += 1
 		if meta.learned("p4"):
 			heal(1)  # Kintsugi (Arbre du pinceau) : chaque gardien vaincu rend un cœur
-		_pending_levels += 1  # le gardien vaincu offre un rouleau
-		music.end_boss(true)
-		if clean and room < ROOMS:
+		if room < rooms_total():
+			_pending_levels += 1  # le gardien vaincu offre un rouleau (pas l'épreuve du Sentier : la partie s'achève)
+		music.end_boss(room < rooms_total())  # (l'épreuve du Sentier : le jingle de victoire suit)
+		if clean and room < rooms_total():
 			# aucun coup reçu : un rouleau d'exception (épique ou légendaire) à la fin du combat
 			_flawless_pending = true
 			hud.toast("SANS UNE ÉGRATIGNURE")
@@ -4359,7 +4396,7 @@ func boss_killed(b: Node3D) -> void:
 	_splash(b.position, Toon.VERMILION, 30)
 	_splash(b.position, Toon.GOLD, 20)
 	# gardien vaincu (le boss du monde a sa propre fin au ralenti) : même ralenti que le dernier ennemi
-	if is_mini_boss(String(b.kind)) and room < ROOMS:
+	if is_mini_boss(String(b.kind)) and room < rooms_total():
 		var others := false
 		for bo in bosses:
 			if is_instance_valid(bo) and bo != b and not bo.dead:
@@ -4397,7 +4434,7 @@ func _open_fig_ceremony() -> void:
 		var g: Array = Meta.FIG_GATES[k]
 		match String(g[1]):
 			"stage3":
-				how = "Étape 3 atteinte"
+				how = "Gagnée : monde 0" if int(g[0]) == 0 else "Étape 3 atteinte"
 			"mini":
 				how = coach.foe_name(int(g[0]), true) + " vaincu"
 			_:
@@ -4636,11 +4673,11 @@ func _capture_rain() -> void:
 ## Scellés possibles dans le combat qui commence : aucun avant l'étape 2, ni au tutoriel, ni aux combats de
 ## gardien et de boss ; sinon un (SEALED_ROOM), parfois deux (SEALED_TWO).
 func _seal_roll() -> int:
-	if stage_i < 1 or in_hub or state == "tuto" or room == MINI_ROOM or room >= ROOMS or _gentle_room():
+	if stage_i < 1 or in_hub or state == "tuto" or room == MINI_ROOM or room >= rooms_total() or _gentle_room():
 		return 0
 	# (un scellé est invulnérable tant que sa figure n'est pas tracée : jamais une figure inconnue — seal_figs —, et
 	# aucun tant que le joueur ne connaît que le trait droit)
-	if not meta.feature_open("sealed") or seal_figs().size() < 2 or randf() >= SEALED_ROOM:
+	if not feat("sealed") or seal_figs().size() < 2 or randf() >= SEALED_ROOM:
 		return 0
 	return 2 if randf() < SEALED_TWO else 1
 
@@ -4760,7 +4797,7 @@ func _room_cleared() -> void:
 	bullets.clear()
 	hazards.calm()  # plus de vague une fois la salle nettoyée
 	pickups.gather()
-	if room >= ROOMS:
+	if room >= rooms_total():
 		_victory()
 		return
 	if arena.stage and _enc >= 0:
@@ -4775,11 +4812,11 @@ func _room_cleared() -> void:
 			_seal_gold()
 		if arena.zones_left() > 0:
 			_open_passage(j + 1)
-			if room in SANCTUARIES and meta.feature_open("pact"):
+			if room in SANCTUARIES and feat("pact"):
 				_spawn_shrine()
 			return
 	_open_gate()
-	if room in SANCTUARIES and meta.feature_open("pact"):
+	if room in SANCTUARIES and feat("pact"):
 		_spawn_shrine()
 
 
@@ -4948,7 +4985,7 @@ func _open_seal_pick(d: Dictionary) -> void:
 ## Vrai si l'étape `si` (index) finit sur deux portes : pas avant le gardien ni avant le boss, jamais au
 ## sanctuaire ni au dojo.
 func gate_choice(si: int) -> bool:
-	if in_hub or state == "tuto" or si + 1 >= STAGE_PLAN.size() - 1 or not meta.feature_open("gates"):
+	if in_hub or state == "tuto" or si + 1 >= stage_plan().size() - 1 or not feat("gates"):
 		return false
 	return si + 1 != stage_of(MINI_ROOM) - 1
 
@@ -4970,7 +5007,7 @@ func _draw_seals(count := 2) -> Array:
 		cands.append([e[0], 1.3 * float(e[1]) / maxf(etot, 0.01)])  # les écoles pèsent 1,3 en tout
 	cands.append(["gold", 0.45])
 	cands.append(["heart", 0.3 + (0.5 if hero.hp * 2 <= hero.max_hp else 0.0)])
-	if meta.feature_open("oni"):
+	if feat("oni"):
 		cands.append(["oni", 0.45])
 	var out: Array = []
 	for _n in count:
@@ -5305,13 +5342,13 @@ func _rebuild_room(sliced := false) -> void:
 func _build_segment(sliced := false) -> void:
 	var t0 := Time.get_ticks_usec()
 	var next := room + 1
-	stage_i = clampi(stage_of(next) - 1, 0, STAGE_PLAN.size() - 1)
-	var plan: Array = STAGE_PLAN[stage_i]
+	stage_i = clampi(stage_of(next) - 1, 0, stage_plan().size() - 1)
+	var plan: Array = stage_plan()[stage_i]
 	_enc = -1
 	_slowmo_t = -1.0
 	_clear_pockets()
 	hazards.clear()
-	var boss_seg := next == MINI_ROOM or next >= ROOMS
+	var boss_seg := next == MINI_ROOM or next >= rooms_total()
 	if stage_i == 2 and not in_hub and state != "tuto":
 		_fig_gained(meta.fig_win(current_world, "stage3"))  # étape 3 atteinte : le zigzag (monde 1)
 	# deux portes à sceaux au bout de l'étape, sauf avant le gardien et avant le boss ; omamori des portes : une
@@ -5325,7 +5362,7 @@ func _build_segment(sliced := false) -> void:
 	if sliced:
 		arena.begin_slices()
 	if boss_seg:
-		await arena.build_room(next, ROOMS, randi(), MINI_ROOM, sliced)
+		await arena.build_room(next, rooms_total(), randi(), MINI_ROOM, sliced)
 	else:
 		# (tests : `?room=N` au milieu d'une étape -> on reprend à son premier combat)
 		room = int(plan[0]) - 1
@@ -5356,18 +5393,38 @@ func _build_segment(sliced := false) -> void:
 		_begin_room()
 	elif room > 0:
 		var wd: Dictionary = Worlds.world(current_world)
-		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, STAGE_PLAN.size()], "%d COMBATS" % plan.size(), wd.color, 2.2)
+		hud.banner("ÉTAPE %d / %d" % [stage_i + 1, stage_plan().size()], "%d COMBATS" % plan.size(), wd.color, 2.2)
 
 
-## Numéro d'étape (1..8) du combat `r` (0 : pas encore parti).
-static func stage_of(r: int) -> int:
+## Plan des étapes du monde `wid` (le monde en cours par défaut) : W0_STAGE_PLAN au Sentier, STAGE_PLAN ailleurs.
+func stage_plan(wid := -1) -> Array:
+	var w := current_world if wid < 0 else wid
+	return W0_STAGE_PLAN if w == 0 else STAGE_PLAN
+
+
+## Combats du monde `wid` (le monde en cours par défaut) : le dernier est son boss (ou l'épreuve du Sentier).
+func rooms_total(wid := -1) -> int:
+	var w := current_world if wid < 0 else wid
+	return W0_ROOMS if w == 0 else ROOMS
+
+
+## Mécanique ouverte (meta.feature_open) dans la partie en cours : au monde 0 (le Sentier), tout reste fermé
+## (portes, scellés, marchand, pactes, oni), même pour un joueur avancé qui le rejoue.
+func feat(f: String) -> bool:
+	return current_world != 0 and bool(meta.feature_open(f))
+
+
+## Numéro d'étape (1..8 ; 1..4 au Sentier) du combat `r` (0 : pas encore parti), dans le monde `wid` (le monde en
+## cours par défaut).
+func stage_of(r: int, wid := -1) -> int:
 	if r <= 0:
 		return 0
-	for i in STAGE_PLAN.size():
-		var p: Array = STAGE_PLAN[i]
+	var plan := stage_plan(wid)
+	for i in plan.size():
+		var p: Array = plan[i]
 		if r <= int(p[p.size() - 1]):
 			return i + 1
-	return STAGE_PLAN.size()
+	return plan.size()
 
 
 ## Le héros entre dans la zone `i` de l'étape : les haies se dressent, le combat commence.
@@ -5429,6 +5486,8 @@ func _cam_target() -> float:
 ## d'élite (dès l'étape 2).
 func _build_pockets(sliced := false) -> void:
 	_clear_pockets()
+	if current_world == 0:
+		return  # le Sentier : aucun recoin (ni coffre, ni source, ni énigme), rien que les leçons du coach
 	# étalée : chaque recoin repart d'une graine tirée ici (les images d'attente font tirer d'autres hasards)
 	var rs := randi() if sliced else 0
 	var spots: Array = arena.pocket_spots
@@ -5443,7 +5502,7 @@ func _build_pockets(sliced := false) -> void:
 			slots.append(i)
 	slots.shuffle()
 	# le marchand : dans le recoin du dernier tronçon (juste avant le torii), sinon un autre, sinon celui du coffre
-	if stage_i == MERCHANT_STAGE and not in_hub and state != "tuto" and meta.feature_open("merchant"):
+	if stage_i == MERCHANT_STAGE and not in_hub and state != "tuto" and feat("merchant"):
 		var mi := -1
 		for i in range(spots.size() - 1, 0, -1):
 			if i in slots:
@@ -5457,12 +5516,12 @@ func _build_pockets(sliced := false) -> void:
 			kinds[mi] = "merchant"
 	# une petite énigme de trait par étape, presque toujours (à l'écart du chemin)
 	# (énigmes et coffres scellés : après le boss du monde 1 ; défis d'élite : dès le monde 3 — meta.feature_open)
-	var sealed_ok: bool = meta.feature_open("sealed")
+	var sealed_ok: bool = feat("sealed")
 	if not slots.is_empty() and sealed_ok and randf() < 0.9:
 		kinds[int(slots.pop_back())] = "puzzle"
 	if not slots.is_empty() and randf() < 0.4:
 		kinds[int(slots.pop_back())] = "spring"
-	if not slots.is_empty() and stage_i >= 1 and meta.feature_open("oni") and randf() < 0.65:
+	if not slots.is_empty() and stage_i >= 1 and feat("oni") and randf() < 0.65:
 		kinds[int(slots.pop_back())] = "elite"
 	if not slots.is_empty() and randf() < 0.35:
 		kinds[int(slots.pop_back())] = "chest"
@@ -6757,7 +6816,7 @@ func _award(victory: bool) -> void:
 	if _bot != null and not menu.new_looks.is_empty():
 		print("BOT GARDE-ROBE gagné : %d élément(s)" % menu.new_looks.size())
 	# pinceaux : le boss vaincu avec ce pinceau donne son aspect suivant ; le monde ouvre peut-être un pinceau
-	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory else []
+	menu.unlock_gear = meta.on_world_won(brush, open_before) if victory and current_world >= 1 else []  # (pas au Sentier : ni aspect ni pinceau)
 	if _bot != null and not menu.unlock_gear.is_empty():
 		print("BOT ÉQUIPEMENT gagné : %s" % str(menu.unlock_gear))
 	for ug: Dictionary in menu.unlock_gear:
@@ -9283,8 +9342,8 @@ func _process(_delta: float) -> void:
 	var wd: Dictionary = Worlds.world(current_world)
 	hud.world_kanji = String(wd.kanji)
 	hud.world_color = wd.color
-	hud.rooms_total = STAGE_PLAN.size()
-	menu.rooms_total = STAGE_PLAN.size()
+	hud.rooms_total = stage_plan().size()
+	menu.rooms_total = stage_plan().size()
 	hud.elan_m = elan_max() * (EXPLORE_REACH if _explore else 1.0)
 	hud.combo = combo if hero.dashing else 0
 	hud.chain = chain if state != "tuto" else 0

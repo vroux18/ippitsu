@@ -26,6 +26,8 @@ const MINI_ROOM := 8  # = main.MINI_ROOM (salle du gardien)
 const PETALS_MINI := 2  # par gardien vaincu
 const PETALS_BOSS := 3  # par boss du monde vaincu
 const PETALS_WIN := 3  # victoire
+const W0_SUMI_K := 2.2  # monde 0 (le Sentier) : facteur sur l'encre de base, sans sceaux ni prime (~ la moitié d'un monde 1)
+const W0_PETALS_WIN := 2  # monde 0 fini : pétales (avec ceux de l'épreuve, ~ la moitié d'un monde 1)
 const WORLD_NAMES := ["Grande Vague", "Tanabata", "Cent Contes", "Fuji Rouge", "Trente-six Vues"]
 
 ## --- Arbre du pinceau (méta-progression de l'Atelier) ---
@@ -84,19 +86,25 @@ const TREE := {
 	"vc": {"b": "voie", "t": 7, "name": "Maître des figures", "text": "L'ultime se charge en 4 figures au lieu de 5, et chaque figure rapporte +25 % de points.", "cost": 800, "glyph": "voie"},
 }
 ## Figures de base. Elles se gagnent petit à petit (FIG_GATES) : au départ, le trait droit seul ; puis une figure
-## à chaque palier de la progression (étape 3 du monde 1, gardiens et boss). Les trois de l'arbre s'apprennent
-## dans la branche VOIE (nœuds « fig »), comme avant.
+## à chaque palier de la progression (étape 3 du monde 0, étape 3 du monde 1, boss). Les trois de l'arbre
+## s'apprennent dans la branche VOIE (nœuds « fig »), comme avant.
 const BASE_FIGURES := ["loop", "zigzag", "return", "hook", "straight", "enso"]
 ## Figure -> [monde, palier] qui la donne la première fois : « stage3 » (étape 3 atteinte), « mini » (gardien de
-## mi-parcours vaincu), « boss » (boss du monde vaincu). Dans l'ordre où on les gagne (FIG_GATE_ORDER).
-const FIG_GATES := {"zigzag": [1, "stage3"], "loop": [1, "mini"], "return": [1, "boss"], "enso": [2, "boss"],
+## mi-parcours vaincu ; plus aucune figure n'y est, le gardien du monde 1 ouvre les portes à sceaux : minis_won),
+## « boss » (boss du monde vaincu). Dans l'ordre où on les gagne (FIG_GATE_ORDER) : la boucle dans le monde 0
+## (le Sentier, étape 3), le zigzag à l'étape 3 du monde 1, l'aller-retour sur Uwabami, l'ensō sur Kyūbi, le
+## crochet sur Gashadokuro.
+const FIG_GATES := {"loop": [0, "stage3"], "zigzag": [1, "stage3"], "return": [1, "boss"], "enso": [2, "boss"],
 	"hook": [3, "boss"]}
-const FIG_GATE_ORDER := ["zigzag", "loop", "return", "enso", "hook"]
+const FIG_GATE_ORDER := ["loop", "zigzag", "return", "enso", "hook"]
 const START_FIGURES := ["straight"]  # la figure du départ : le trait droit (iaï), connu dès la première partie
 const FIG_STAGE3_ROOM := 6  # = main.STAGE_PLAN[2][0] : premier combat de l'étape 3
-## Mécaniques introduites une à une (feature_open) : portes à sceaux après le gardien du monde 1 (comme la
-## boucle) ; yōkai scellés, coffres scellés et énigmes après le boss du monde 1 (comme l'aller-retour) ; marchand et
+const W0_STAGE3_ROOM := 3  # = main.W0_STAGE_PLAN[2][0] : premier combat de l'étape 3 du monde 0
+const W0_ROOMS := 5  # = main.W0_ROOMS : combats du monde 0 (le dernier est l'épreuve)
+## Mécaniques introduites une à une (feature_open) : portes à sceaux après le gardien du monde 1 (minis_won) ;
+## yōkai scellés, coffres scellés et énigmes après le boss du monde 1 (comme l'aller-retour) ; marchand et
 ## sanctuaire de pacte en entrant dans le monde 2 ; sanctuaire d'oni (défi d'élite, sceau de l'oni) dans le monde 3.
+## Au monde 0, tout reste fermé (main.feat).
 const FEATURES := ["gates", "sealed", "merchant", "pact", "oni"]
 ## Réglages des effets de l'arbre (lus par main et score).
 const TREE_DMG_STEP := 0.08  # Tranchant I et II
@@ -218,9 +226,11 @@ const THEMES := {
 ## Obtention (comme les tenues) : « free », « petals », ou un exploit (voir feat_ok) :
 ## « boss » = boss du monde N vaincu ; « master » = un monde au rang Maître ; « elite » = N défis d'élite relevés
 ## (cumul) ; « clean_boss » = N boss du monde vaincus sans une égratignure ; « clean_win » = N mondes remportés sans
-## perdre un cœur ; « prints » = N Vues ; « kills » = N yōkai tranchés (bestiaire) ; « runs » = N parties.
-const HAT_ORDER := ["kasa", "amigasa", "shu", "jingasa", "hachimaki", "kitsune", "oni", "zukin"]
+## perdre un cœur ; « prints » = N Vues ; « kills » = N yōkai tranchés (bestiaire) ; « runs » = N parties ;
+## « w0_all » = le monde 0 (le Sentier) fini en connaissant déjà toutes les figures de l'histoire (w0_all).
+const HAT_ORDER := ["kasa", "amigasa", "shu", "jingasa", "hachimaki", "kitsune", "oni", "zukin", "daruma"]
 const HATS := {
+	"daruma": {"name": "Daruma zinzin", "col": Color("#D7372B"), "col2": Color("#E2B04A"), "w0_all": true},
 	"kasa": {"name": "Kasa de paille", "col": Color("#D8BE88"), "col2": Color("#8F7646"), "free": true},
 	"amigasa": {"name": "Amigasa tressé", "col": Color("#E6CF98"), "col2": Color("#6E4A2C"), "petals": 12},
 	"shu": {"name": "Kasa vermillon", "col": Color("#C8392B"), "col2": Color("#1E1B22"), "petals": 20},
@@ -283,8 +293,13 @@ const COACH_MARKS := ["stroke", "cut", "ink", "figure", "ult", "run", "figures"]
 const COACH_EXTRA := ["seal", "danger", "scroll", "gates", "pz_stele", "pz_lanterns", "pz_spirit", "chest", "merchant",
 	"pact", "oni", "guardian", "boss", "tree", "fig_zigzag", "fig_straight", "fig_loop", "fig_return", "fig_enso", "fig_hook",
 	"fig_wave", "fig_point", "fig_triangle", "brush_hake", "brush_menso", "brush_warefude", "brush_chi", "charm",
-	"fontaine"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
+	"fontaine", "w0_cut", "w0_chain", "w0_loop", "w0_trial"]  # indices hors tutoriel (coach.HINTS) : vus une fois, sans compter pour sa fin
 const PROG_VERSION := 1  # sauvegarde : 0 = avant le déblocage progressif des figures et des mécaniques
+## Monde 0 (le Sentier, worlds.WORLD0) : fini une fois (w0_done, sauvegardé) ; sinon JOUER y mène (main). Les
+## sauvegardes d'avant lui (un monde vaincu, ou la boucle déjà gagnée au gardien) le comptent fini (load_data).
+var w0_done := false
+var w0_all := false  # le Sentier fini en connaissant déjà toutes les figures de l'histoire : le Daruma zinzin (HATS)
+var minis_won := {}  # gardien de mi-parcours du monde N vaincu -> true (portes à sceaux : feature_open « gates »)
 ## guides de l'accueil (tree_coach.gd), une fois chacun, hors « Passer » : le dojo (après la toute première partie),
 ## l'Arbre du pinceau (après le monde 1), le pinceau gagné (Atelier, onglet PINCEAUX)
 const COACH_HOME := ["arbre", "dojo", "pinceau"]
@@ -345,6 +360,11 @@ func load_data() -> void:
 	for k in FIG_GATE_ORDER:
 		if bool(cf.get_value("figures", String(k), false)):
 			figs_won[String(k)] = true
+	for wid in range(1, WORLD_COUNT + 1):
+		if bool(cf.get_value("minis", str(wid), false)):
+			minis_won[wid] = true
+	w0_done = bool(cf.get_value("meta", "w0_done", false))  # (migration plus bas, les Vues relues : _migrate_w0)
+	w0_all = bool(cf.get_value("meta", "w0_all", false))
 	entered_top = clampi(int(cf.get_value("meta", "entered_top", 1)), 1, WORLD_COUNT)
 	var prog_v := int(cf.get_value("meta", "prog_version", 0))
 	for id in COACH_MARKS + COACH_EXTRA + COACH_HOME:
@@ -355,7 +375,7 @@ func load_data() -> void:
 	opening_done = bool(cf.get_value("meta", "opening_done", false))
 	measure_mode = bool(cf.get_value("meta", "measure_mode", false))
 	start_power_id = String(cf.get_value("meta", "start_power", ""))
-	for wid in range(1, WORLD_COUNT + 1):
+	for wid in range(0, WORLD_COUNT + 1):  # (0 : le Sentier, ses records à part)
 		world_best[wid] = int(cf.get_value("worlds", str(wid), 0))
 		world_score[wid] = maxi(0, int(cf.get_value("scores", str(wid), 0)))
 		world_chain[wid] = maxi(0, int(cf.get_value("chains", str(wid), 0)))
@@ -436,6 +456,7 @@ func load_data() -> void:
 	if not cosmetic_owned("theme", theme):
 		theme = "washi"
 	_migrate_progress()
+	_migrate_w0()
 	_retro_figs(prog_v < PROG_VERSION)
 	for kind in LOOK_KINDS:
 		if not _look_ok(String(look[kind]), kind):
@@ -511,6 +532,18 @@ func _migrate_progress() -> void:
 	won_top = clampi(maxi(won_top, maxi(top_won, unlocked - 1)), 0, WORLD_COUNT)
 
 
+## Monde 0 (le Sentier) et gardiens vaincus, d'après ce que la sauvegarde prouve : une sauvegarde d'avant le Sentier
+## (un monde vaincu, ou la boucle déjà notée, qui se gagnait au gardien du monde 1) le compte fini : il n'est jamais
+## imposé à qui joue déjà, il reste sur la carte des mondes comme un monde 0 rejouable. Les gardiens vaincus
+## (minis_won : portes à sceaux) se relisent aussi des records (combat d'après atteint, Vue « w<id>_mini »).
+func _migrate_w0() -> void:
+	if won_top >= 1 or world_won(1) or figs_won.has("loop"):
+		w0_done = true
+	for wid in range(1, WORLD_COUNT + 1):
+		if wid <= won_top or world_won(wid) or int(world_best.get(wid, 0)) > MINI_ROOM or has_print("w%d_mini" % wid):
+			minis_won[wid] = true
+
+
 ## Sauvegarde d'avant les pinceaux : Fude · Maître acquis d'office (aspects_won vaut 1 par défaut), aucun
 ## charme porté ; les omamori déjà mérités (rang Maître d'un monde) sont rendus par _retro_charms.
 func _migrate_gear() -> void:
@@ -548,6 +581,11 @@ func unlock_all() -> void:
 		tree[String(id)] = true
 	for k in FIG_GATE_ORDER:
 		figs_won[String(k)] = true
+	for wid in range(1, WORLD_COUNT + 1):
+		minis_won[wid] = true
+	w0_done = true
+	w0_all = true
+	world_best[0] = maxi(int(world_best.get(0, 0)), W0_ROOMS)
 	entered_top = WORLD_COUNT
 	purse_rank = PURSE_COSTS.size()
 	coach_seen["arbre"] = true
@@ -610,6 +648,10 @@ func save_data() -> void:
 	cf.set_value("meta", "unlocked", unlocked)
 	cf.set_value("meta", "power_tier", power_tier)
 	cf.set_value("meta", "won_top", won_top)
+	cf.set_value("meta", "w0_done", w0_done)
+	cf.set_value("meta", "w0_all", w0_all)
+	for wid in range(1, WORLD_COUNT + 1):
+		cf.set_value("minis", str(wid), minis_won.has(wid))
 	cf.set_value("meta", "tuto_done", tuto_done)
 	cf.set_value("meta", "hints", hints_on)
 	cf.set_value("meta", "entered_top", entered_top)
@@ -869,20 +911,30 @@ func fig_win(wid: int, what: String) -> Array:
 	return out
 
 
-## Figures que la progression prouve déjà (à chaque chargement) : étape 3 du monde 1 atteinte, gardien vaincu (Vue
-## « w<id>_mini », ou combat d'après atteint), monde vaincu. (Le nombre de figures tracées n'est pas gardé d'une
-## partie à l'autre : seules les victoires comptent.) legacy : sauvegarde d'avant le déblocage progressif, les
-## mondes déjà joués comptent comme entrés (marchand, pacte, oni acquis).
+## Gardien de mi-parcours du monde wid vaincu (main.boss_killed) : noté une fois (portes à sceaux dès le monde 1),
+## sauvegardé. Renvoie vrai la première fois.
+func mini_win(wid: int) -> bool:
+	if wid < 1 or minis_won.has(wid):
+		return false
+	minis_won[wid] = true
+	save_data()
+	return true
+
+
+## Figures que la progression prouve déjà (à chaque chargement) : étape 3 du monde 0 ou 1 atteinte (ou monde 0
+## fini), gardien vaincu (Vue « w<id>_mini », ou combat d'après atteint), monde vaincu. (Le nombre de figures
+## tracées n'est pas gardé d'une partie à l'autre : seules les victoires comptent.) legacy : sauvegarde d'avant le
+## déblocage progressif, les mondes déjà joués comptent comme entrés (marchand, pacte, oni acquis).
 func _retro_figs(legacy: bool) -> void:
 	for k in FIG_GATE_ORDER:
 		var g: Array = FIG_GATES[k]
 		var wid := int(g[0])
 		var best := int(world_best.get(wid, 0))
-		var won := wid <= won_top or world_won(wid)
+		var won := w0_done if wid == 0 else (wid <= won_top or world_won(wid))
 		var ok := won
 		match String(g[1]):
 			"stage3":
-				ok = won or best >= FIG_STAGE3_ROOM or has_print("w%d_mini" % wid)
+				ok = won or best >= (W0_STAGE3_ROOM if wid == 0 else FIG_STAGE3_ROOM) or has_print("w%d_mini" % wid)
 			"mini":
 				ok = won or best > MINI_ROOM or has_print("w%d_mini" % wid)
 		if ok:
@@ -899,7 +951,8 @@ func _retro_figs(legacy: bool) -> void:
 		entered_top = clampi(maxi(entered_top, won_top + 1 if won_top >= 1 else 1), 1, WORLD_COUNT)
 
 
-## Condition d'une figure pas encore connue, pour les planches (« Gardien du monde 1 »…) ; "" si elle est connue.
+## Condition d'une figure pas encore connue, pour les planches (« Étape 3 du monde 0 », « Boss du monde 1 »…) ;
+## "" si elle est connue.
 func fig_condition(kind: String) -> String:
 	if fig_learned(kind):
 		return ""
@@ -914,13 +967,13 @@ func fig_condition(kind: String) -> String:
 	return "Arbre · branche Voie"
 
 
-## Mécanique ouverte (FEATURES) pour la progression du joueur.
+## Mécanique ouverte (FEATURES) pour la progression du joueur. (Au monde 0, main.feat ferme tout.)
 func feature_open(f: String) -> bool:
 	if test_open:
 		return true
 	match f:
 		"gates":
-			return figs_won.has("loop") or won_top >= 1  # gardien du monde 1 vaincu (comme la boucle)
+			return minis_won.has(1) or won_top >= 1  # gardien du monde 1 vaincu
 		"sealed":
 			return figs_won.has("return") or won_top >= 1  # boss du monde 1 vaincu (comme l'aller-retour)
 		"merchant", "pact":
@@ -931,19 +984,27 @@ func feature_open(f: String) -> bool:
 
 
 ## Captures (`&calendrier&prog=N`) : la progression d'un joueur qui a franchi les N premiers paliers du calendrier
-## (0 : neuf ; 1 : étape 3 du monde 1, zigzag ; 2 : gardien, boucle et portes ; 3 : boss du monde 1, aller-retour
-## et scellés ; 4 : entré dans le monde 2, marchand et pacte ; 5 : boss du monde 2, ensō, et monde 3 : oni ;
-## 6 : boss du monde 3, crochet). Rien n'est sauvegardé.
+## (0 : neuf ; 1 : monde 0 fini, boucle ; 2 : étape 3 du monde 1, zigzag ; 3 : gardien du monde 1, portes ;
+## 4 : boss du monde 1, aller-retour et scellés ; 5 : entré dans le monde 2, marchand et pacte ; 6 : boss du monde 2,
+## ensō, et monde 3 : oni ; 7 : boss du monde 3, crochet). Rien n'est sauvegardé.
 func test_prog(n: int) -> void:
 	test_open = false
 	figs_won = {}
-	for i in mini(n, 3):
-		figs_won[String(FIG_GATE_ORDER[i])] = true
-	if n >= 5:
-		figs_won["enso"] = true
+	minis_won = {}
+	w0_done = n >= 1
+	if n >= 1:
+		figs_won["loop"] = true
+	if n >= 2:
+		figs_won["zigzag"] = true
+	if n >= 3:
+		minis_won[1] = true
+	if n >= 4:
+		figs_won["return"] = true
 	if n >= 6:
+		figs_won["enso"] = true
+	if n >= 7:
 		figs_won["hook"] = true
-	entered_top = 3 if n >= 5 else (2 if n >= 4 else 1)
+	entered_top = 3 if n >= 6 else (2 if n >= 5 else 1)
 
 
 ## Une partie commence dans le monde wid : marchand et pacte s'ouvrent au monde 2, l'oni au monde 3 (sauvegardé).
@@ -1294,6 +1355,8 @@ func feat_ok(d: Dictionary) -> bool:
 		return kills_total() >= int(d["kills"])
 	if d.has("runs"):
 		return runs >= int(d["runs"])
+	if d.has("w0_all"):
+		return w0_all
 	return false
 
 
@@ -1319,6 +1382,8 @@ func feat_how(d: Dictionary) -> String:
 		return "Tranche %d yōkai (%d / %d)." % [int(d["kills"]), mini(kills_total(), int(d["kills"])), int(d["kills"])]
 	if d.has("runs"):
 		return "Joue %d parties (tu en as joué %d)." % [int(d["runs"]), runs]
+	if d.has("w0_all"):
+		return "Finis le monde 0 en connaissant toutes les figures."
 	return ""
 
 
@@ -1678,12 +1743,16 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 	var base := float(floori(maxi(0, kills) / 5.0) + SUMI_MINI * mini_boss_kills + SUMI_BOSS * boss_kills + SUMI_PER_ROOM * rooms_cleared)
 	base *= 1.0 + 0.15 * maxi(0, curses)
 	var new_seals := maxi(0, mini_boss_kills) + 2 * maxi(0, boss_kills)
-	if victory:
+	if victory and world_id >= 1:
 		new_seals += mini(maxi(0, curses), 3)
 		if wins == 0:
 			new_seals += 2
 		wins += 1
 	var gained := maxi(0, int(round((base + float(new_seals * SEAL_SUMI)) * sumi_mult())))
+	if world_id == 0:
+		# le Sentier (monde 0) : parcours court, récompenses faibles (~ la moitié d'un monde 1 : W0_SUMI_K), pas de
+		# victoire comptée (wins, prime de première victoire) ni d'ancien sceau
+		gained = maxi(0, int(round(base * W0_SUMI_K * sumi_mult())))
 	sumi += gained
 	runs += 1
 	best_room = maxi(best_room, rooms_cleared)
@@ -1712,7 +1781,7 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 		new_prints.append("all")
 	var new_petals := PETALS_MINI * maxi(0, mini_boss_kills) + PETALS_BOSS * maxi(0, boss_kills) + maxi(0, challenges) + new_prints.size()
 	if victory:
-		new_petals += PETALS_WIN
+		new_petals += PETALS_WIN if world_id >= 1 else W0_PETALS_WIN
 	petals += new_petals
 	save_data()
 	return {"sumi": gained, "petals": new_petals, "seals": 0, "print": not new_prints.is_empty(), "prints": new_prints}
@@ -1724,6 +1793,19 @@ func award_run(rooms_cleared: int, kills: int, boss_kills: int, curses: int, vic
 func record_world(world_id: int, room_reached: int, victory: bool) -> Dictionary:
 	var res := {"world": 0, "tier": -1, "powers": [], "family": ""}
 	world_best[world_id] = maxi(int(world_best.get(world_id, 0)), room_reached)
+	if world_id == 0:
+		# le Sentier : fini (JOUER mène ensuite au monde 1) ; refait en connaissant déjà toutes les figures de
+		# l'histoire (hors robot et captures : test_open) : le Daruma zinzin (HATS « w0_all »)
+		if victory:
+			w0_done = true
+			var all_figs := true
+			for k in FIG_GATE_ORDER:
+				if not figs_won.has(String(k)):
+					all_figs = false
+			if all_figs and not test_open:
+				w0_all = true
+		save_data()
+		return res
 	if victory:
 		var before := unlocked
 		unlocked = clampi(maxi(unlocked, world_id + 1), 1, WORLD_COUNT)

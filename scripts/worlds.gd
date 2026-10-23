@@ -277,8 +277,42 @@ static var _mats: Dictionary = {}
 static var _meshes: Dictionary = {}
 
 
-## Données du monde `id` (1..WORLDS.size()).
+## Monde 0, « Le Sentier » (道) : le monde d'apprentissage, joué avant la Grande Vague sur une sauvegarde qui ne
+## l'a pas fini (meta.w0_done). Hors de WORLDS (qui compte les 8 mondes du jeu) : main.W0_STAGE_PLAN lui donne
+## 4 étapes courtes (5 combats), sans gardien, et une épreuve (Ō-Kappa affaibli) à la place du boss. Décor : celui
+## du port de la Grande Vague (tous les bâtisseurs ramènent 0 à 1), sous une palette plus douce et claire ; oni
+## et kappa seuls, jamais de tireur ni d'élite, télégraphes lents.
+const WORLD0: Dictionary = {
+	"id": 0,
+	"name": "Le Sentier",
+	"kanji": "道",
+	"subtitle": "Les premiers pas du rōnin de papier",
+	"color": Color("#6E8A9A"),
+	"sky": Color("#F3EDE0"),
+	"fog": Color("#F3EDE0"),
+	"fog_density": 0.0022,
+	"sun_color": Color(1.0, 0.96, 0.9),
+	"sun_energy": 0.62,
+	"ambient_color": Color(0.9, 0.92, 0.98),
+	"ambient_energy": 0.34,
+	"shade": Color(0.72, 0.8, 0.98),
+	"ground": [Color("#A89A7A"), Color("#A09272"), Color("#B0A283"), Color("#988A6A"), Color("#A49676")],
+	"ground_style": "planks",
+	"edge": Color("#1B1A1E"),
+	"under": Color("#4A3E33"),
+	"void": Color("#3A5A78"),
+	"void_metal": true,
+	"bridge_wood": [Color("#8E6B3E"), Color("#A88452"), Color("#7A5A34")],
+	"enemies": {"oni": 5, "kappa": 1},
+	"hp_mult": 0.8,
+	"tokens": 1, "tele": 1.35, "b0": 3, "per": 0.6, "elite": 0.0, "bullet": 3.0,
+}
+
+
+## Données du monde `id` (0 : WORLD0, le Sentier ; 1..WORLDS.size()).
 static func world(id: int) -> Dictionary:
+	if id == 0:
+		return WORLD0
 	var d: Dictionary = WORLDS[clampi(id, 1, WORLDS.size()) - 1]
 	return d
 

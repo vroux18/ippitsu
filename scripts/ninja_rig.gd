@@ -169,7 +169,7 @@ const OUTFIT_PAL := {
 }
 
 ## Couvre-chefs du ronin (garde-robe, meta.HATS) : la forme est modelée dans la tête (_hat_ronin).
-const HAT_STYLES := ["kasa", "jingasa", "amigasa", "shu", "hachimaki", "kitsune", "oni", "zukin"]
+const HAT_STYLES := ["kasa", "jingasa", "amigasa", "shu", "hachimaki", "kitsune", "oni", "zukin", "daruma"]
 ## Sabres du ronin (garde-robe, meta.BLADES) : saya (fourreau), tsuka (tressage de la poignée), fit (tsuba,
 ## embouchure, kashira), sageo (cordon), steel (lame), glow (lueur de la lame tirée, hero.gd ; absente : acier nu),
 ## tsuba (faux : shirasaya, sans garde).
@@ -1577,6 +1577,8 @@ static func _hat_ronin(a: Builder, d: Builder, cfg: Dictionary, lite: bool, hs: 
 			d.ell(Vector3(0, 0.383, -0.247), Vector3(0.034, 0.03, 0.012), Toon.VERMILION, Vector3(-0.5, 0, 0), 12, 4)
 		"kitsune", "oni":
 			_side_mask(a, d, style, hs, lite)
+		"daruma":
+			_daruma(a, d, hs, lite)
 		"zukin":
 			# capuche de shinobi indigo : couvre le crâne et la nuque, cadre le visage, masque sur le nez
 			var cl := Color("#272A40")
@@ -1616,6 +1618,41 @@ static func _hat_ronin(a: Builder, d: Builder, cfg: Dictionary, lite: bool, hs: 
 				a.lathe(_pv([0.38, -0.004, 0.395, 0.01, 0.384, 0.024]), Color("#1E1B22"), hs, hxf, 1.0, 1.0)
 				a.ell(hxf * Vector3(0, 0.352, 0), Vector3(0.03, 0.026, 0.03), _c(cfg, "gold"), hxf.basis.get_euler(), 8, 4)
 			_chin_cord(a, hem, lite)
+
+
+## Le Daruma zinzin (garde-robe, exploit « w0_all ») : une tête de daruma énorme, vermillon, posée sur le crâne
+## comme un casque trop grand ; visage ivoire, sourcils d'or en coups de pinceau, un seul œil peint (l'autre
+## attend que le vœu se réalise), petite bouche d'encre, mon d'or sur le ventre. Lisible à 48° : la grosse tache
+## vermillon devient la tête du héros.
+static func _daruma(a: Builder, d: Builder, hs: int, lite: bool) -> void:
+	var red := Color("#D7372B")
+	var ivory := Color("#F6EEDC")
+	var gold := Color("#E2B04A")
+	var ink := Color("#1E1B22")
+	var sd := 10 if lite else 14
+	var c := Vector3(0, 0.84, 0.05)
+	a.style(0.8, 1.0)
+	a.ell(c, Vector3(0.42, 0.44, 0.42), red, Vector3(0.08, 0, 0), hs, 8 if lite else 10)
+	# visage ivoire (une fenêtre dans le vermillon), tourné vers l'avant
+	a.style(0.88, 1.0)
+	a.ell(c + Vector3(0, -0.03, -0.33), Vector3(0.2, 0.24, 0.1), ivory, Vector3(0.1, 0, 0), sd, 6)
+	# sourcils d'or (coups de pinceau), yeux blancs cernés, pupille d'encre à gauche seulement
+	d.style(1.0, 1.0)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		d.ell(c + Vector3(x * 0.085, 0.1, -0.415), Vector3(0.07, 0.024, 0.02), gold, Vector3(0, 0, -x * 0.55), 8, 3)
+		a.style(0.95, 1.0)
+		a.ell(c + Vector3(x * 0.08, 0.03, -0.42), Vector3(0.052, 0.052, 0.02), Toon.WASHI, Vector3.ZERO, 10, 4)
+	d.ell(c + Vector3(-0.08, 0.03, -0.44), Vector3(0.028, 0.028, 0.012), ink, Vector3.ZERO, 8, 3)
+	# petite bouche d'encre, moustache en virgules ; mon d'or sur la nuque et le ventre (lisible de dos et d'en haut)
+	d.ell(c + Vector3(0, -0.11, -0.425), Vector3(0.045, 0.012, 0.015), ink, Vector3.ZERO, 8, 3)
+	for sx in [-1.0, 1.0]:
+		var x := float(sx)
+		d.ell(c + Vector3(x * 0.055, -0.07, -0.42), Vector3(0.032, 0.009, 0.012), ink, Vector3(0, 0, x * 0.5), 6, 3)
+	d.ell(c + Vector3(0, -0.28, -0.32), Vector3(0.06, 0.06, 0.02), gold, Vector3(0.6, 0, 0), 10, 3)
+	d.ell(c + Vector3(0, 0.12, 0.41), Vector3(0.09, 0.09, 0.02), gold, Vector3(-0.3, 0, 0), 12, 3)
+	d.ell(c + Vector3(0, 0.12, 0.425), Vector3(0.05, 0.05, 0.012), red.darkened(0.25), Vector3(-0.3, 0, 0), 10, 3)
+	_chin_cord(a, red.darkened(0.4), lite)
 
 
 ## Cordon du chapeau noué sous le menton.

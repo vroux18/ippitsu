@@ -124,10 +124,26 @@ const HINTS := {
 	"boss": {"t": "Le boss du monde", "s": "Brise son bouclier ; gare à ses phases.", "icon": "effets/degats", "life": 5.5},
 	"seal": {"t": "Brise le sceau", "s": "Trace sa figure à travers lui.", "stop": true, "life": 7.0},
 	"tree": {"t": "Ton encre", "s": "Elle fait pousser l'Arbre de l'Atelier.", "icon": "hud/pinceau", "life": 5.0},
+	# le Sentier (monde 0, W0_HINTS) : apprentissage juste à temps, dans l'ordre des étapes ; « stroke », « ink »
+	# et « danger » y prennent leurs mots du Sentier (W0_TEXTS), « fig_loop » son « Gagnée : monde 0 »
+	"w0_cut": {"t": "Rien ne te touche", "s": "Pendant le trait, tu es intouchable.", "icon": "hud/slash", "life": 6.0},
+	"w0_chain": {"t": "La chaîne", "s": "Trois traits qui touchent d'affilée : dégâts ×1,5.", "icon": "hud/etoile", "life": 6.0},
+	"w0_loop": {"t": "La boucle", "s": "Boucle autour d'un ennemi : +40 % de dégâts.", "icon": "fig:loop", "life": 6.0},
+	"w0_trial": {"t": "L'épreuve", "s": "Enchaîne les traits : rien ne te touche pendant.", "icon": "effets/degats", "life": 6.5},
 }
 # priorité (les figures gagnées passent avant tout : _pick_hint)
-const HINT_ORDER := ["seal", "danger", "stroke", "fig_straight", "guardian", "boss", "figures", "scroll", "ink", "ult",
-	"gates", "chest", "pz_stele", "pz_lanterns", "pz_spirit", "merchant", "pact", "oni", "run", "tree"]
+const HINT_ORDER := ["seal", "danger", "stroke", "w0_cut", "w0_trial", "fig_straight", "guardian", "boss", "figures", "scroll",
+	"ink", "w0_chain", "w0_loop", "ult", "gates", "chest", "pz_stele", "pz_lanterns", "pz_spirit", "merchant", "pact", "oni",
+	"run", "tree"]
+# indices réservés au Sentier (monde 0) ; ceux qui n'y viennent jamais (le monde 1 les garde)
+const W0_HINTS := ["w0_cut", "w0_chain", "w0_loop", "w0_trial"]
+const W0_SKIP := ["fig_straight", "figures", "guardian", "boss", "seal", "gates", "chest", "pz_stele", "pz_lanterns",
+	"pz_spirit", "merchant", "pact", "oni"]
+const W0_TEXTS := {
+	"stroke": {"t": "Trace un trait", "s": "Tu fonces et tu tranches sur ton trait.", "icon": "hud/slash", "stop": true, "life": 9.0},
+	"ink": {"t": "La jauge d'encre", "s": "Elle baisse à chaque trait, revient au repos.", "icon": "water", "life": 6.0},
+	"danger": {"t": "Zone rouge", "s": "Sors-en d'un trait avant le coup.", "icon": "effets/vitesse", "stop": true},
+}
 # indice déjà donné par l'ancien tutoriel (sauvegarde existante : on ne le revoit pas)
 const HINT_OLD := {"stroke": "stroke", "ink": "ink", "ult": "ult", "run": "run", "figures": "figures", "fig_straight": "figures"}
 # la figure avec son article, pour les annonces (« tu sais tracer la boucle »)
@@ -250,6 +266,11 @@ func _in_play() -> bool:
 	return String(main.state) == "play" and not bool(main.game_over) and is_instance_valid(main.hero)
 
 
+## Partie dans le Sentier (monde 0) : ses indices d'apprentissage (W0_HINTS, W0_TEXTS).
+func _w0() -> bool:
+	return int(main.current_world) == 0
+
+
 ## Pad tactile de main (mode pad), vide en mode « sur l'écran ».
 func _pad() -> Rect2:
 	if String(main.ctrl_mode) != "pad":
@@ -351,7 +372,7 @@ func fig_goal(kind: String) -> String:
 		var w := "" if wid == 1 else " (monde %d)" % wid
 		match String(g[1]):
 			"stage3":
-				return "atteindre l'étape 3" + w
+				return "atteindre l'étape 3" + ("" if wid == 1 else " du monde %d" % wid)
 			"mini":
 				return "battre " + foe_name(wid, true) + w
 		return "battre " + foe_name(wid, false) + w
@@ -525,25 +546,38 @@ func _wanted(id: String) -> bool:
 
 ## Fiche d'un indice (HINTS, ou une figure gagnée « fig_<figure> » : NOUVELLE FIGURE).
 func _hint(id: String) -> Dictionary:
+	if _w0() and W0_TEXTS.has(id):
+		return W0_TEXTS[id]
+	if id == "w0_loop":
+		# la boucle tracée : sa technique si la partie a son rouleau (Toupie), sinon ce que toute figure donne
+		var tid := String(PowerData.FIG_UNLOCK.get("loop", ""))
+		if tid != "" and int(main.powers.levels.get(tid, 0)) > 0:
+			return {"t": "Technique · " + String(UiKit.power_label(tid)), "s": String(UiKit.fx_line(tid)), "icon": "fig:loop", "life": 6.5}
+		return HINTS[id]
 	if HINTS.has(id):
 		return HINTS[id]
 	if id.begins_with("fig_"):
 		var k := id.substr(4)
-		# comment on l'a gagnée (étape 3, gardien, boss) ; la carte dessous dit ce qui vient ensuite
+		# comment on l'a gagnée (monde 0, étape 3, gardien, boss) ; la carte dessous dit ce qui vient ensuite
 		var how := "Nouvelle figure"
+		var line := ""
 		if Meta.FIG_GATES.has(k):
 			var g: Array = Meta.FIG_GATES[k]
 			match String(g[1]):
 				"stage3":
 					how = "Étape 3 atteinte"
+					if int(g[0]) == 0:
+						how = "Gagnée : monde 0"
+						line = "Gagnée : monde 0. Entoure un ennemi."
 				"mini":
 					how = "Gardien vaincu"
 				_:
 					how = foe_name(int(g[0]), false) + " vaincu"
 		elif k in PowerData.FIG_TREE:
 			how = "Apprise dans l'Arbre"
-		return {"t": "Nouvelle figure · " + String(UiKit.FIG_WORD.get(k, k)).to_lower(),
-			"s": "%s : tu sais %s tracer." % [how, "la" if String(FIG_THE.get(k, "la")).begins_with("la") else "le"],
+		if line == "":
+			line = "%s : tu sais %s tracer." % [how, "la" if String(FIG_THE.get(k, "la")).begins_with("la") else "le"]
+		return {"t": "Nouvelle figure · " + String(UiKit.FIG_WORD.get(k, k)).to_lower(), "s": line,
 			"icon": "fig:" + k, "stop": true, "life": 7.5}
 	if id.begins_with("brush_"):
 		var b: Dictionary = Gear.brush(id.substr(6))
@@ -618,6 +652,27 @@ func _hint_wanted(id: String) -> bool:
 		return _sheet()
 	var dash := bool(main.hero.dashing)
 	var hub := bool(main.in_hub)
+	if id in W0_HINTS and not _w0():
+		return false
+	if _w0():
+		# le Sentier : apprentissage dans l'ordre des étapes ; ce qui tient aux mécaniques fermées attend le monde 1
+		if id in W0_SKIP:
+			return false
+		var st := int(main.stage_i)
+		match id:
+			"stroke":
+				return not hub and not dash  # étape 1, avant le premier ennemi : le trait
+			"w0_cut":
+				return not hub and not dash and int(main.kills) >= 1 and seen("stroke")  # après le premier yōkai tranché
+			"danger":
+				return st >= 1 and not hub and _danger() != Vector3.INF  # étape 2 : la première zone rouge
+			"w0_chain":
+				return st >= 1 and not hub and int(main.chain) >= 3  # étape 2 : le 3e trait réussi d'affilée
+			"w0_loop":
+				# étape 3, la boucle gagnée puis tracée une fois : ce qu'elle fait (sa technique si la partie l'a)
+				return not hub and seen("fig_loop") and int((main.shape_counts as Dictionary).get("loop", 0)) >= 1
+			"w0_trial":
+				return _boss_t > 1.2 and _boss_of(true) != null
 	match id:
 		"stroke":
 			return not dash
@@ -1045,7 +1100,7 @@ func _draw() -> void:
 				_ghost_pad_path(pr, u, a)
 			else:
 				_ghost_path(hp, u, a)
-		"cut":
+		"cut", "w0_cut":
 			var e := _first_enemy()
 			if e != null:
 				_ghost_line(_screen(hp), _screen(e.position), u, a)  # chemin du rōnin sur le terrain (aussi en mode pad)

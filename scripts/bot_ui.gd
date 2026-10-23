@@ -49,6 +49,8 @@ func run() -> void:
 		await _recover()
 	if not await _step_guides():
 		await _recover()
+	if not await _step_world0():
+		await _recover()
 	for w in range(1, Worlds.WORLDS.size() + 1):
 		if not await _step_world(w):
 			await _recover()
@@ -449,13 +451,17 @@ func _step_measure_pause() -> bool:
 
 
 func _step_first_intro() -> bool:
-	# premier lancement : plus de planches ni de tutoriel, JOUER mène droit au sanctuaire du monde 1
+	# premier lancement : plus de planches ni de tutoriel, JOUER mène droit au sanctuaire du monde 0 (le Sentier)
+	var w0 := bool(main.meta.w0_done)
+	main.meta.w0_done = false  # (sauvegarde neuve : le Sentier pas encore fini)
 	await _press(main.menu._play, "JOUER")
-	if not await _until(func(): return String(main.state) in ["intro", "play"] and bool(main.meta.intro_done) and bool(main.in_hub), "JOUER (premier lancement) -> monde 1 (sanctuaire)"):
+	if not await _until(func(): return String(main.state) in ["intro", "play"] and bool(main.meta.intro_done) and bool(main.in_hub), "JOUER (premier lancement) -> monde 0 (sanctuaire du Sentier)"):
+		main.meta.w0_done = w0
 		return false
 	await _frames(30)
-	_check(int(main.current_world) == 1 and not bool(main.intro.visible) and String(main.coach.mark) == "",
-		"premier lancement : monde 1 direct, sans planches ni bulle du tutoriel", "monde %d, intro %s, bulle « %s »" % [int(main.current_world), str(main.intro.visible), String(main.coach.mark)])
+	_check(int(main.current_world) == 0 and not bool(main.intro.visible) and String(main.coach.mark) == "",
+		"premier lancement : monde 0 (le Sentier) direct, sans planches ni bulle du tutoriel", "monde %d, intro %s, bulle « %s »" % [int(main.current_world), str(main.intro.visible), String(main.coach.mark)])
+	main.meta.w0_done = w0
 	main._on_home()
 	return await _until(func(): return String(main.state) == "menu" and String(main.menu.mode) == "home", "premier lancement : retour à l'accueil")
 
@@ -719,9 +725,14 @@ func _ref_scroll() -> void:
 ## sauvegarde (mondes vaincus) retrouve tout ce qu'elle a atteint.
 func _step_calendar() -> bool:
 	var mt = main.meta
-	var keep := [mt.figs_won.duplicate(), int(mt.entered_top), bool(mt.test_open), int(mt.won_top), int(mt.test_won)]
+	var keep := [mt.figs_won.duplicate(), int(mt.entered_top), bool(mt.test_open), int(mt.won_top), int(mt.test_won),
+		mt.minis_won.duplicate(), bool(mt.w0_done), bool(mt.w0_all), int(mt.world_best.get(0, 0))]
 	mt.test_open = false
 	mt.figs_won = {}
+	mt.minis_won = {}
+	mt.w0_done = false
+	mt.w0_all = false
+	mt.world_best[0] = 0
 	mt.entered_top = 1
 	mt.won_top = 0
 	mt.test_won = 0
@@ -750,14 +761,31 @@ func _step_calendar() -> bool:
 		and not bool(main.powers._eligible("fig_zigzag", 0, 0)) and bool(main.refuge.brushes_locked()),
 		"calendrier : monde 1 neuf, torii simple, sceaux sur le trait droit seul, pas de rouleau de zigzag, onglet PINCEAUX verrouillé",
 		"portes %s, sceaux %s, rouleau zigzag %s, pinceaux verrouillés %s" % [str(gates), str(sf), str(main.powers._eligible("fig_zigzag", 0, 0)), str(main.refuge.brushes_locked())])
+	# le Sentier (monde 0) : la boucle à son étape 3 ; au monde 0 tout reste fermé (main.feat), même les portes
+	var w0prev := int(main.current_world)
+	var l0: Array = mt.fig_win(0, "stage3")
+	var l0b: Array = mt.fig_win(0, "stage3")
+	main.current_world = 0
+	var feat0 := Meta.FEATURES.filter(func(f): return bool(main.feat(String(f))))
+	var k0: Array = known.call()
+	main.current_world = w0prev
+	_check(l0 == ["loop"] and l0b.is_empty() and k0.size() == 2 and "loop" in k0 and "straight" in k0 and feat0.is_empty() and String(main.coach.fig_next()) == "atteindre l'étape 3"
+		and String(main.coach.fig_goal("loop")) == "atteindre l'étape 3 du monde 0" and int(main.rooms_total(0)) == Meta.W0_ROOMS and (main.stage_plan(0) as Array).size() == 4,
+		"calendrier : monde 0 étape 3 -> boucle (une fois), rien d'ouvert au Sentier, prochaine : atteindre l'étape 3 (monde 1)",
+		"boucle %s puis %s, figures %s, ouvert au monde 0 %s, prochaine « %s », but boucle « %s »" % [str(l0), str(l0b), str(k0), str(feat0),
+		String(main.coach.fig_next()), String(main.coach.fig_goal("loop"))])
 	var s3: Array = mt.fig_win(1, "stage3")
 	var g1: Array = mt.fig_win(1, "mini")
-	var g2: Array = mt.fig_win(1, "mini")
-	_check(s3 == ["zigzag"] and g1 == ["loop"] and g2.is_empty() and bool(mt.feature_open("gates")) and not bool(mt.feature_open("sealed"))
-		and bool(main.gate_choice(0)) and String(main.coach.fig_next()) == "battre Uwabami",
-		"calendrier : étape 3 -> zigzag, gardien -> boucle et portes à sceaux (une fois), prochaine : battre Uwabami",
-		"étape 3 %s, gardien %s puis %s, portes %s, scellés %s, prochaine « %s »" % [str(s3), str(g1), str(g2), str(mt.feature_open("gates")),
-		str(mt.feature_open("sealed")), String(main.coach.fig_next())])
+	var m1 := bool(mt.mini_win(1))
+	var m1b := bool(mt.mini_win(1))
+	main.current_world = 1  # (les portes se lisent dans le monde 1 : au Sentier elles restent fermées)
+	var gc1 := bool(main.gate_choice(0))
+	main.current_world = w0prev
+	_check(s3 == ["zigzag"] and g1.is_empty() and m1 and not m1b and bool(mt.feature_open("gates")) and not bool(mt.feature_open("sealed"))
+		and gc1 and String(main.coach.fig_next()) == "battre Uwabami",
+		"calendrier : étape 3 -> zigzag, gardien -> aucune figure mais les portes à sceaux (une fois), prochaine : battre Uwabami",
+		"étape 3 %s, gardien %s (noté %s puis %s), portes %s (monde 1 : %s), scellés %s, prochaine « %s »" % [str(s3), str(g1), str(m1), str(m1b), str(mt.feature_open("gates")),
+		str(gc1), str(mt.feature_open("sealed")), String(main.coach.fig_next())])
 	var b1: Array = mt.fig_win(1, "boss")
 	_check(b1 == ["return"] and bool(mt.feature_open("sealed")) and not bool(mt.feature_open("merchant")),
 		"calendrier : boss du monde 1 -> aller-retour, scellés, coffres et énigmes (pas encore le marchand)", "boss %s, fermé %s" % [str(b1), str(closed.call())])
@@ -766,20 +794,62 @@ func _step_calendar() -> bool:
 	var c2: Array = closed.call()
 	mt.enter_world(3)
 	_check(c2 == ["oni"] and (closed.call() as Array).is_empty(), "calendrier : monde 2 -> marchand et pacte, monde 3 -> oni", "fermé %s puis %s" % [str(c2), str(closed.call())])
-	# ancienne sauvegarde : deux mondes vaincus, aucune figure notée -> tout ce qui a été atteint revient
+	# ancienne sauvegarde : deux mondes vaincus, aucune figure notée -> tout ce qui a été atteint revient, le Sentier
+	# compte fini (jamais imposé), les gardiens vaincus ouvrent les portes
 	mt.figs_won = {}
+	mt.minis_won = {}
+	mt.w0_done = false
 	mt.entered_top = 1
 	mt.won_top = 2
+	mt._migrate_w0()
 	mt._retro_figs(true)
 	# (les Vues des mondes vaincus, offertes plus tôt par le robot, comptent aussi : le crochet peut revenir)
 	var kn: Array = known.call()
-	_check(["zigzag", "loop", "return", "enso"].all(func(k): return k in kn) and (closed.call() as Array).is_empty(), "calendrier : ancienne sauvegarde (2 mondes vaincus), figures et mécaniques acquises",
-		"figures %s, fermé %s" % [str(known.call()), str(closed.call())])
+	_check(["zigzag", "loop", "return", "enso"].all(func(k): return k in kn) and (closed.call() as Array).is_empty() and bool(mt.w0_done) and mt.minis_won.has(1) and mt.minis_won.has(2),
+		"calendrier : ancienne sauvegarde (2 mondes vaincus), figures et mécaniques acquises, monde 0 compté fini",
+		"figures %s, fermé %s, monde 0 fini %s, gardiens %s" % [str(known.call()), str(closed.call()), str(mt.w0_done), str(mt.minis_won.keys())])
+	# sauvegarde neuve : rien ne prouve le Sentier, il reste à faire (JOUER y mène) ; (les Vues et records offerts
+	# plus tôt au robot sont mis de côté le temps du contrôle)
+	var prints0: Dictionary = mt.owned_prints.duplicate()
+	var best0: Dictionary = mt.world_best.duplicate()
+	mt.owned_prints = {}
+	mt.figs_won = {}
+	mt.minis_won = {}
+	mt.w0_done = false
+	mt.won_top = 0
+	for wid in range(0, Meta.WORLD_COUNT + 1):
+		mt.world_best[wid] = 0
+	mt._migrate_w0()
+	_check(not bool(mt.w0_done) and mt.minis_won.is_empty(), "calendrier : sauvegarde neuve, le Sentier reste à faire", "monde 0 fini %s, gardiens %s" % [str(mt.w0_done), str(mt.minis_won.keys())])
+	mt.owned_prints = prints0
+	mt.world_best = best0
+	# le Sentier refait en connaissant toutes les figures de l'histoire : le Daruma zinzin (chapeau, garde-robe)
+	var bought0 := bool(mt.bought.has("hat:daruma"))
+	mt.bought.erase("hat:daruma")
+	mt.feats_known.erase("hat:daruma")
+	_check(not bool(mt.cosmetic_owned("hat", "daruma")) and String(mt.cosmetic_how("hat", "daruma")) == "Finis le monde 0 en connaissant toutes les figures.",
+		"garde-robe : Daruma zinzin verrouillé, condition « %s »" % String(mt.cosmetic_how("hat", "daruma")), "possédé %s" % str(mt.cosmetic_owned("hat", "daruma")))
+	mt.record_world(0, Meta.W0_ROOMS, true)
+	var half := bool(mt.w0_done) and not bool(mt.w0_all)
+	for k in Meta.FIG_GATE_ORDER:
+		mt.figs_won[String(k)] = true
+	mt.record_world(0, Meta.W0_ROOMS, true)
+	_check(half and bool(mt.w0_all) and bool(mt.cosmetic_owned("hat", "daruma")) and (mt.refresh_new() as Array).has("hat:daruma"),
+		"garde-robe : victoire au monde 0 avec toutes les figures -> Daruma zinzin acquis (une victoire sans elles ne le donne pas)",
+		"fini %s, toutes figures %s, possédé %s" % [str(mt.w0_done), str(mt.w0_all), str(mt.cosmetic_owned("hat", "daruma"))])
 	mt.figs_won = keep[0]
 	mt.entered_top = int(keep[1])
 	mt.test_open = bool(keep[2])
 	mt.won_top = int(keep[3])
 	mt.test_won = int(keep[4])
+	mt.minis_won = keep[5]
+	mt.w0_done = bool(keep[6])
+	mt.w0_all = bool(keep[7])
+	mt.world_best[0] = int(keep[8])
+	if bought0:
+		mt.bought["hat:daruma"] = true
+	mt.feats_known.erase("hat:daruma")
+	mt.wardrobe_new.erase("hat:daruma")
 	StrokeShapes.locked = was
 	main._sync_fig_lock()
 	mt.save_data()
@@ -806,7 +876,7 @@ func _step_hints() -> bool:
 	var ok := await _until(func(): return String(co.mark) == "fig_loop", "indices : annonce NOUVELLE FIGURE · BOUCLE", 6.0)
 	if ok:
 		var hd: Dictionary = co._hint("fig_loop")
-		_check(String(hd.get("t", "")).to_lower().contains("boucle") and String(hd.get("s", "")).begins_with("Gardien vaincu"),
+		_check(String(hd.get("t", "")).to_lower().contains("boucle") and String(hd.get("s", "")).begins_with("Gagnée : monde 0"),
 			"indices : annonce « %s » / « %s »" % [String(hd.get("t", "")), String(hd.get("s", ""))], "texte inattendu")
 		_check(await _until(func(): return bool(co.frozen()), "indices : arrêt sur image de l'annonce", 4.0), "indices : arrêt sur image court pour essayer la figure", "jeu jamais figé")
 		ok = await _until(func(): return String(co.mark) == "" and not bool(co.frozen()), "indices : l'annonce s'efface seule", 16.0)
@@ -1241,6 +1311,133 @@ func _step_dojo() -> bool:
 
 # ------------------------------------------------------------------ mondes
 
+## Le Sentier (monde 0, worlds.WORLD0) : sur une sauvegarde qui ne l'a pas fini, JOUER y mène ; pas de portes à
+## sceaux ; à l'étape 1 le premier indice (« Trace un trait », arrêt sur image, geste) vient une fois ; l'étape 3
+## donne la boucle (annonce NOUVELLE FIGURE « Gagnée : monde 0 ») ; l'épreuve (Ō-Kappa très affaibli, carton
+## « L'ÉPREUVE DU SENTIER », indice « L'épreuve ») finit le monde : feuille de victoire (GAINS « Nouvelle figure »,
+## récompenses faibles), MONDE SUIVANT -> carte centrée sur le monde 1 ; le Sentier compté fini, JOUER ne l'impose plus.
+func _step_world0() -> bool:
+	var mt = main.meta
+	var mn = main.menu
+	var co = main.coach
+	var keep := [mt.figs_won.duplicate(), bool(mt.test_open), mt.coach_seen.duplicate(), bool(mt.hints_on), bool(mt.tuto_done)]
+	mt.w0_done = false
+	mt.test_open = false
+	mt.figs_won.erase("loop")
+	mt.tuto_done = false
+	mt.hints_on = true
+	for id in Meta.COACH_MARKS + Meta.COACH_EXTRA:
+		mt.coach_seen[String(id)] = true  # (seuls les indices du Sentier contrôlés ici restent à voir)
+	for id in ["stroke", "w0_cut", "fig_loop", "w0_trial"]:
+		mt.coach_seen.erase(id)
+	var ok := true
+	if not await _until(func(): return String(main.state) == "menu" and String(mn.mode) == "home", "accueil (avant le Sentier)"):
+		ok = false
+	if ok:
+		await _press(mn._play, "JOUER")
+		ok = await _until(func(): return String(main.state) == "play" and bool(main.in_hub) and int(main.current_world) == 0, "JOUER -> monde 0 (sanctuaire du Sentier)")
+	if ok:
+		_ok("Sentier : JOUER mène au monde 0 tant qu'il n'est pas fini")
+		co.muted = false
+		co.clear()
+		var t0 := Time.get_ticks_msec()
+		while bool(main.in_hub) and ok:
+			if Time.get_ticks_msec() - t0 > int(TIMEOUT * 1000.0):
+				_fail("Sentier : torii du sanctuaire jamais atteint")
+				ok = false
+			elif String(main.state) == "play" and _hero_still():
+				bot.stroke_line(main.arena.gate_goal(main.bot_gate()))
+			await _frames(4)
+	if ok:
+		ok = await _until(func(): return String(main.state) == "play" and not bool(main.in_hub) and bool(main.arena.stage), "Sentier : transit -> étape 1")
+	if ok:
+		_check((main.arena.gate_seals() as Array).is_empty() and int(main.hud.rooms_total) == 4 and (main._pockets as Array).is_empty(),
+			"Sentier : étape 1 sur 4, torii simple sans porte à sceaux, aucun recoin (mécaniques fermées)",
+			"sceaux %s, étapes %d, recoins %d" % [str(main.arena.gate_seals()), int(main.hud.rooms_total), (main._pockets as Array).size()])
+		# premier indice : « Trace un trait », en arrêt sur image avec le geste ; le toucher le lève, le trait le finit
+		ok = await _until(func(): return String(co.mark) == "stroke", "Sentier : indice « Trace un trait »", 8.0)
+	if ok:
+		var hd: Dictionary = co._hint("stroke")
+		_check(String(hd.get("t", "")) == "Trace un trait" and bool(hd.get("stop", false)), "Sentier : indice « %s » / « %s »" % [String(hd.get("t", "")), String(hd.get("s", ""))], "texte inattendu")
+		_check(await _until(func(): return bool(co.frozen()) and float(co._fz) >= float(co.FREEZE_HINT), "Sentier : arrêt sur image du premier indice", 4.0),
+			"Sentier : arrêt sur image court, geste fantôme", "jeu jamais figé")
+		co.freeze_tap(Vector2.ZERO)
+		await _frames(3)
+		var g: Vector3 = main.arena.next_goal()
+		bot.stroke_line(g if g != Vector3.INF else main.hero.position + Vector3(0, 0, -4.0))
+		ok = await _until(func(): return String(co.mark) != "stroke" and bool(mt.coach_seen.has("stroke")), "Sentier : le trait lève l'indice, vu une fois", 8.0)
+	if ok:
+		co._free_at = 0.0
+		# étape 3 : la boucle gagnée, annoncée (NOUVELLE FIGURE · BOUCLE, « Gagnée : monde 0 »)
+		await _settle_play("avant l'étape 3 du Sentier")
+		_jump(3)
+		ok = await _until(func(): return bool(mt.figs_won.has("loop")) and String(co.mark) == "fig_loop", "Sentier : étape 3 -> boucle gagnée et annoncée", 12.0)
+	if ok:
+		var hd2: Dictionary = co._hint("fig_loop")
+		_check(String(hd2.get("s", "")).begins_with("Gagnée : monde 0") and (main._figs_run as Array).has("loop") and int(main.stage_i) == 2,
+			"Sentier : annonce « %s » / « %s » à l'étape 3" % [String(hd2.get("t", "")), String(hd2.get("s", ""))], "texte « %s », étape %d" % [String(hd2.get("s", "")), int(main.stage_i)])
+		ok = await _until(func(): return String(co.mark) == "" and not bool(co.frozen()), "Sentier : l'annonce s'efface seule", 16.0)
+	if ok:
+		# l'épreuve : Ō-Kappa affaibli, entrée jouée, indice « L'épreuve » ; sa chute finit le monde
+		co._free_at = 0.0
+		ok = await _boss_intro(0, int(main.rooms_total()))
+	if ok:
+		var bo = main.bosses[0]
+		_check(String(bo.kind) == "okappa" and float(bo.max_hp) < 12.0 and int(main.rooms_total()) == 5,
+			"Sentier : l'épreuve, Ō-Kappa affaibli (%.0f PV)" % float(bo.max_hp), "boss %s, PV %.0f" % [String(bo.kind), float(bo.max_hp)])
+		_check(await _until(func(): return String(co.mark) == "w0_trial", "Sentier : indice « L'épreuve »", 8.0), "Sentier : rappel « enchaîne les traits » devant l'épreuve", "bulle %s" % String(co.mark))
+		var t1 := Time.get_ticks_msec()
+		while String(main.state) == "play" or String(main.state) == "pick":
+			if Time.get_ticks_msec() - t1 > int(TIMEOUT * 1000.0):
+				_fail("Sentier : épreuve vaincue -> victoire (délai dépassé)")
+				ok = false
+				break
+			if String(main.state) == "pick":
+				await _settle_play("rouleau avant la fin du Sentier")
+			for b2 in main.bosses:
+				if is_instance_valid(b2):
+					if not bool(b2.dead):
+						main.boss_killed(b2)
+					b2.queue_free()
+			main.bosses.clear()
+			for e in main.enemies:
+				if is_instance_valid(e):
+					e.queue_free()
+			main.enemies.clear()
+			main._waves_left.clear()
+			await _frame()
+	if ok:
+		ok = await _until(func(): return String(main.state) == "over" and String(mn.mode) == "over", "Sentier : épreuve vaincue -> victoire -> feuille de résultats")
+	if ok:
+		await _until(func(): return float(mn._t) >= 0.7, "résultats prêts")
+		_check(bool(mn.victory) and bool(mt.w0_done) and String(mn.next_label) == "MONDE SUIVANT" and _unlock_labels(mn).has("Nouvelle figure")
+			and (mn.new_figs as Array).has("loop") and int(mn.unlock_world) == 0 and int(mn.gain_sumi) >= 40 and int(mn.gain_sumi) <= 220 and int(mn.gain_petals) <= 6
+			and int(mt.world_best.get(0, 0)) == 5,
+			"Sentier : feuille de victoire (boucle aux GAINS, encre %d, pétales %d, MONDE SUIVANT), monde 0 fini" % [int(mn.gain_sumi), int(mn.gain_petals)],
+			"victoire %s, fini %s, bouton « %s », gains %s, encre %d, pétales %d" % [str(mn.victory), str(mt.w0_done), String(mn.next_label), str(_unlock_labels(mn)), int(mn.gain_sumi), int(mn.gain_petals)])
+		var wm = main.worldmap
+		await _press(mn._next, "MONDE SUIVANT")
+		ok = await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "Sentier : MONDE SUIVANT -> carte des mondes")
+		if ok:
+			await _until(func(): return float(wm._t) >= 0.4, "carte prête")
+			_check(int(wm._sel()) == 1 and int(wm._reveal_id) == 0 and int(wm._id(0)) == 0 and bool(wm._won(0)) and not bool(wm._locked(1)),
+				"Sentier : carte centrée sur le monde 1, monde 0 en tête et accompli", "centré %d, révélé %d, monde 0 accompli %s" % [int(wm._sel()), int(wm._reveal_id), str(wm._won(0))])
+			await _press(wm._back, "maison de la carte")
+			ok = await _until(func(): return String(main.state) == "menu" and not bool(wm.visible), "carte : retour à l'accueil")
+	if ok:
+		_check(int(main._home_sel) == 1 and bool(mt.w0_done), "Sentier fini : l'accueil repart sur le monde 1, JOUER ne mène plus au monde 0", "choisi %d, fini %s" % [int(main._home_sel), str(mt.w0_done)])
+	co.muted = true
+	co.clear()
+	mt.figs_won = keep[0]
+	mt.test_open = bool(keep[1])
+	mt.coach_seen = keep[2]
+	mt.hints_on = bool(keep[3])
+	mt.tuto_done = bool(keep[4])
+	mt.w0_done = true  # (la suite joue les mondes 1 à 8 : JOUER ne doit plus imposer le Sentier)
+	mt.save_data()
+	return ok
+
+
 func _step_world(w: int) -> bool:
 	if w >= 4:
 		# mondes 4 et plus : choisis sur l'accueil (glissé, chevrons), JOUER y entre directement
@@ -1327,7 +1524,7 @@ func _home_pick(w: int) -> bool:
 			if not ok:
 				return false
 			await _until(func(): return float(wm._t) >= 0.4, "carte prête")
-			_check(int(wm._sel()) == w - 1, "carte : centrée sur le monde scellé %d" % w, "centrée %d" % int(wm._sel()))
+			_check(int(wm._sel()) == w, "carte : centrée sur le monde scellé %d" % w, "centrée %d" % int(wm._sel()))
 			await _press(wm._back, "maison de la carte")
 			if not await _until(func(): return String(main.state) == "menu" and not bool(wm.visible), "carte : retour à l'accueil"):
 				return false
@@ -1373,11 +1570,11 @@ func _map_pick(w: int) -> bool:
 		_check(absf(float(wm._scroll) - s0) > 0.01 or float(wm._target) != s0, "carte : glissé du rouleau", "le rouleau n'a pas bougé")
 	# molette : une étape par cran, jusqu'au monde voulu
 	var guard := 0
-	while int(round(float(wm._target))) != w - 1 and guard < 12:
+	while int(round(float(wm._target))) != w and guard < 12:
 		guard += 1
-		_wheel(wm, int(round(float(wm._target))) < w - 1)
+		_wheel(wm, int(round(float(wm._target))) < w)
 		await _frame()
-	if not await _until(func(): return int(wm._sel()) == w - 1, "carte centrée sur le monde %d" % w):
+	if not await _until(func(): return int(wm._sel()) == w, "carte centrée sur le monde %d" % w):
 		return false
 	await _press(wm._go, "PARTIR")
 	if not await _depart("carte : PARTIR (monde %d)" % w):
@@ -1457,6 +1654,7 @@ func _step_departure() -> bool:
 func _departure_body(dp) -> bool:
 	if not await _until(func(): return String(main.state) == "menu" and String(main.menu.mode) == "home", "accueil avant l'écran de départ"):
 		return false
+	main.meta.w0_done = true  # (le Sentier fini : JOUER ouvre l'écran de départ, pas le monde 0)
 	main._home_select(1)
 	await _frames(2)
 	await _press(main.menu._play, "JOUER")
@@ -2071,11 +2269,11 @@ func _step_victory() -> bool:
 	await _press(menu._next, "MONDE SUIVANT")
 	if not await _until(func(): return String(main.state) == "worlds" and bool(wm.visible), "DÉCOUVRIR LE MONDE SUIVANT -> carte des mondes"):
 		return false
-	_check(int(wm._reveal_id) == 2 and int(wm._sel()) == 0 and bool(wm._locked(1)) and not wm._go.is_visible_in_tree(),
+	_check(int(wm._reveal_id) == 2 and int(wm._sel()) == 1 and bool(wm._locked(2)) and not wm._go.is_visible_in_tree(),
 		"carte : centrée sur le monde 1, monde 2 encore scellé, PARTIR caché", "révélé %d, centré %d" % [int(wm._reveal_id), int(wm._sel())])
 	if not await _until(func(): return bool(wm._rv_broken), "carte : le sceau du monde 2 se brise"):
 		return false
-	_check(int(wm._sel()) == 1 and not bool(wm._locked(1)), "carte : rouleau déroulé jusqu'au monde 2, sceau brisé", "centré %d" % int(wm._sel()))
+	_check(int(wm._sel()) == 2 and not bool(wm._locked(2)), "carte : rouleau déroulé jusqu'au monde 2, sceau brisé", "centré %d" % int(wm._sel()))
 	if not await _until(func(): return float(wm._rv) >= float(wm.RV_CARD) + 0.5, "carte du monde 2 levée"):
 		return false
 	_ok("carte : carte du monde 2 (nom, ambiance, nouveaux rouleaux)")

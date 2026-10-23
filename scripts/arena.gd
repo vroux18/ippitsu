@@ -160,7 +160,7 @@ const JOIN_MIN := 2.2  # passage minimal entre deux tronçons
 const JOIN_PIECE := 1.6  # tout morceau de passage plus étroit est refusé
 const ENTER_IN := 1.4  # on entre dans une zone de combat à cette distance de son bord sud
 
-var world_id := 0
+var world_id := -1  # (-1 : aucun ; 0 : le Sentier, worlds.WORLD0)
 var stage := false  # vrai : étape longue (tronçons + zones de combat) ; faux : salle unique
 var chunks := 1
 var zones: Array = []  # zones de combat (Rect2), du sud vers le nord ; la zone i occupe le tronçon i + 1
@@ -447,7 +447,7 @@ func build_stage(n_enc: int, rng_seed: int, first: bool, sliced := false) -> voi
 		var extra: Dictionary = {}
 		if i == 0 and first:
 			key = String(FIRST_LAYOUTS[rng.randi() % FIRST_LAYOUTS.size()])
-			if world_id == 1:
+			if world_id <= 1:  # (le Sentier aussi)
 				key = "full"  # premier monde : un ponton large et droit, sans redans
 			mir = rng.randf() < 0.5
 			local = _layout_rects(key, mir)
@@ -1508,7 +1508,7 @@ func _pick_layout(room: int, rooms: int, mini_room: int, rng: RandomNumberGenera
 		_used.clear()
 		_last = ""
 		var first := String(FIRST_LAYOUTS[rng.randi() % FIRST_LAYOUTS.size()])
-		if world_id == 1:
+		if world_id <= 1:
 			first = "full"
 		_used[first] = 1
 		_last = first
@@ -1586,7 +1586,7 @@ func _pick_chunk(rng: RandomNumberGenerator, i: int, fams: Dictionary, last_fam:
 	for pass_i in 2:
 		for k in keys:
 			var key := String(k)
-			if world_id == 1:
+			if world_id <= 1:  # (le Sentier aussi : les places simples du monde 1)
 				if not (key in W1_SHAPES) or (key == _last and pass_i == 0):
 					continue
 				# quatre premières étapes : rien que de grandes places rectangulaires ou en cour

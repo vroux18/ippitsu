@@ -38,7 +38,7 @@ const WORLD_STONE := {
 	7: {"stone": Color("#AE9E84"), "moss": Color("#4E6E7E"), "pebble": Color("#A89C86")},
 	8: {"stone": Color("#6E6A70"), "moss": Color("#5A5660"), "pebble": Color("#7A7680")},
 }
-static var _wid := 0
+static var _wid := -1  # (-1 : aucun ; 0 : le Sentier)
 const ENGRAVE := Color("#F3E2AE")
 const INK_COL := Color(0.106, 0.102, 0.118, 0.88)
 const PAPER_DIM := Color("#B9AD93")

@@ -1,6 +1,7 @@
 extends Node
 ## Robot testeur (CI) : `-- --bot [--mode=campaign|powers|ui|stress] [--seed=N]`.
-##  campaign (défaut) : les 8 mondes d'affilée, sanctuaire compris, puis une partie où il doit mourir.
+##  campaign (défaut) : le Sentier (monde 0, sur une sauvegarde neuve ; `--monde=N` part d'ailleurs) puis les
+##    8 mondes d'affilée, sanctuaire compris, puis une partie où il doit mourir.
 ##    Les boss (gardiens compris) disent eux-mêmes quel trait les blesse (bot_stroke) : boucles,
 ##    perles et bulles dans l'ordre, chaînes et fils tranchés en travers, tornade traversée.
 ##    Le héros prend de vrais coups (soigné à chaque salle, protégé seulement au dernier coup encaissable :
@@ -45,7 +46,7 @@ var mort_stage := 0
 var _bf := {}  # combat en cours : {kind, mini, t, hits, strokes0, hp, room, win, vul}
 var _boss_log: Array = []  # [monde, kind, gardien ?, durée, cœurs perdus, traits, PV max]
 var seed_arg := ""
-var world := 1
+var world := 1  # (campagne sans --monde= : 0, le Sentier, puis 1..8)
 var alerts: Array = []
 var cinematics := false  # lu par main : en mode ui, les entrées des boss se jouent en entier
 var guard_all := false  # mode ui : héros intouchable (sauf pour l'écran de défaite)
@@ -57,6 +58,7 @@ var _total := 0.0
 var _wall0 := 0
 var _picks := 0
 var _death_test := false
+var _world_arg := false  # `--monde=N` donné : la campagne part de là (sinon du Sentier, monde 0, sur la sauvegarde neuve)
 var _hits_taken := 0
 var _last_hp := -1
 var _still := {}  # id ennemi -> [dernière position, temps immobile]
@@ -146,7 +148,8 @@ func begin(m: Node) -> void:
 		elif s.begins_with("--choix="):
 			pick_pref = s.substr(8)
 		elif s.begins_with("--monde="):
-			world = clampi(int(s.substr(8)), 1, Worlds.WORLDS.size())  # campagne : départ à ce monde (mesures)
+			world = clampi(int(s.substr(8)), 0, Worlds.WORLDS.size())  # campagne : départ à ce monde (mesures ; 0 : le Sentier)
+			_world_arg = true
 	if not mode in MODES:
 		alert("mode inconnu « %s » : campagne" % mode)
 		mode = "campaign"
@@ -201,6 +204,9 @@ func begin(m: Node) -> void:
 			world = 1 + randi() % Worlds.WORLDS.size()
 			_new_run()
 		_:
+			# campagne : la sauvegarde neuve commence au Sentier (monde 0, comme JOUER), puis les 8 mondes
+			if not _world_arg and not bool(main.meta.w0_done):
+				world = 0
 			_new_run()
 
 
@@ -538,7 +544,7 @@ func _choose(offer: Array) -> String:
 func _over() -> void:
 	# économie de la partie (equilibrage) : gains d'encre et de pétales, or restant, réserves de la sauvegarde
 	var mt = main.meta
-	print("BOT ÉCONOMIE monde %d : salle %d/%d, %d ennemis, gardien %d, boss %d, malédictions %d, défis %d, niveau %d, or restant %d, achats %d, encre +%d (total %d), pétales +%d (total %d), parties %d" % [world, main.room, main.ROOMS, int(main.kills), int(main.mini_kills), int(main.boss_kills), main.curses.size(), int(main.defi_kills), int(main.level), int(main.run_gold), int(main.shop_bought), int(main.menu.gain_sumi), int(mt.sumi), int(main.menu.gain_petals), int(mt.petals), int(mt.runs)])
+	print("BOT ÉCONOMIE monde %d : salle %d/%d, %d ennemis, gardien %d, boss %d, malédictions %d, défis %d, niveau %d, or restant %d, achats %d, encre +%d (total %d), pétales +%d (total %d), parties %d" % [world, main.room, main.rooms_total(), int(main.kills), int(main.mini_kills), int(main.boss_kills), main.curses.size(), int(main.defi_kills), int(main.level), int(main.run_gold), int(main.shop_bought), int(main.menu.gain_sumi), int(mt.sumi), int(main.menu.gain_petals), int(mt.petals), int(mt.runs)])
 	if not (main.dmg_attrib as Dictionary).is_empty():
 		var at: Dictionary = main.dmg_attrib
 		var ks: Array = at.keys()
@@ -553,9 +559,9 @@ func _over() -> void:
 		_dmg0 = {}
 	print("BOT MARCHAND monde %d : %d marchand(s), %d achat(s), or restant %d" % [world, int(main.merchants_seen), int(main.shop_bought), int(main.run_gold)])
 	# (le marchand n'arrive qu'au monde 2 : meta.feature_open)
-	if mode == "campaign" and not _death_test and main.room >= main.ROOMS and int(main.merchants_seen) == 0 and bool(main.meta.feature_open("merchant")):
+	if mode == "campaign" and not _death_test and main.room >= main.rooms_total() and int(main.merchants_seen) == 0 and bool(main.meta.feature_open("merchant")):
 		alert("marchand : aucun posé dans le monde %d" % world)
-	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.ROOMS, main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
+	print("BOT monde %d fini : salle %d/%d, %d ennemis, %d boss, niveau %d, pouvoirs %s" % [world, main.room, main.rooms_total(), main.kills, main.boss_kills, main.level, str(main.powers.levels.keys())])
 	# calendrier : une mécanique fermée au départ et toujours fermée à la fin n'a rien posé (gardien vaincu en cours
 	# de partie : les portes s'ouvrent pour les étapes suivantes)
 	_cal_tick()
@@ -589,18 +595,18 @@ func _over() -> void:
 		_stat("time", _room_t)
 		_room_t = 0.0
 	if mode == "powers":
-		if main.room < main.ROOMS:
-			alert("partie pouvoirs %d (monde %d) terminée avant la salle %d" % [_runs, world, main.ROOMS])
+		if main.room < main.rooms_total():
+			alert("partie pouvoirs %d (monde %d) terminée avant la salle %d" % [_runs, world, main.rooms_total()])
 		_powers_run_end()
 		return
 	if mode == "stress":
-		if main.room < main.ROOMS:
-			alert("stress : monde %d terminé avant la salle %d" % [world, main.ROOMS])
+		if main.room < main.rooms_total():
+			alert("stress : monde %d terminé avant la salle %d" % [world, main.rooms_total()])
 		_stress_end()
 		finish()
 		return
-	if main.room < main.ROOMS and not _death_test:
-		print("SCRIPT ERROR: bot : monde %d terminé avant la salle %d" % [world, main.ROOMS])
+	if main.room < main.rooms_total() and not _death_test:
+		print("SCRIPT ERROR: bot : monde %d terminé avant la salle %d" % [world, main.rooms_total()])
 	if _death_test:
 		print("BOT mort testée : écran de fin atteint (salle %d)" % main.room)
 		_print_stats()
@@ -1124,7 +1130,7 @@ func _powers_room_start() -> void:
 ## Fin de salle : chaque pouvoir resté au même niveau toute la salle (avec des ennemis tués) est couvert.
 func _powers_room_end() -> void:
 	var r := int(main.room)
-	var boss_room := r == int(main.MINI_ROOM) or r == int(main.ROOMS)
+	var boss_room := r == int(main.MINI_ROOM) or r == int(main.rooms_total())
 	if _kill_count() - _kills0 > 0:
 		var lv: Dictionary = main.powers.levels
 		for k in lv.keys():
@@ -1141,7 +1147,7 @@ func _powers_room_end() -> void:
 			if not _cov_done.has(id) and _covered(id):
 				_cov_done[id] = true
 				print("BOT POUVOIR %s ok (niveaux 1 à %d en combat, gardien ou boss compris)" % [id, int(main.powers.max_level(id))])
-	if r < int(main.ROOMS):
+	if r < int(main.rooms_total()):
 		_force_pending = true
 
 

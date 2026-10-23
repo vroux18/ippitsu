@@ -710,6 +710,24 @@ func _hat_icon(ci: CanvasItem, id: String, p: Vector2, r: float, a: float) -> vo
 					var ey := mc + Vector2(float(sx) * mr.x * 0.4, -mr.y * 0.1)
 					ci.draw_line(ey - Vector2(hr * 0.16, -float(sx) * hr * 0.05), ey + Vector2(hr * 0.16, -float(sx) * hr * 0.05),
 						Color(col2 if id == "kitsune" else Toon.SUMI, a), maxf(1.0, hr * 0.14), true)
+		"daruma":
+			# le Daruma zinzin : une grosse tête de daruma vermillon posée sur la tête, visage ivoire, sourcils d'or,
+			# un seul œil peint (l'autre attend le vœu)
+			var dc := hc + Vector2(0, -hr * 1.05)
+			var dr := hr * 1.3
+			ci.draw_circle(dc, dr, Color(col, a))
+			ci.draw_circle(dc + Vector2(0, dr * 0.1), dr * 0.68, Color(Color("#F6EEDC"), a))
+			for sx in [-1.0, 1.0]:
+				var ex := dc + Vector2(float(sx) * dr * 0.3, -dr * 0.05)
+				ci.draw_line(ex - Vector2(dr * 0.2, dr * 0.12 * float(sx)), ex + Vector2(dr * 0.2, -dr * 0.12 * float(sx)),
+					Color(col2, a), maxf(1.0, dr * 0.13), true)
+				ci.draw_circle(ex + Vector2(0, dr * 0.22), dr * 0.16, Color(Toon.WASHI, a))
+				ci.draw_arc(ex + Vector2(0, dr * 0.22), dr * 0.16, 0.0, TAU, 16, ink, lw, true)
+			ci.draw_circle(dc + Vector2(-dr * 0.3, dr * 0.17), dr * 0.09, ink)
+			ci.draw_arc(dc + Vector2(0, dr * 0.5), dr * 0.22, 0.35, PI - 0.35, 12, ink, lw, true)
+			ci.draw_arc(dc, dr, 0.0, TAU, 32, ink, lw, true)
+			ci.draw_circle(hc, hr, Color(sk, a))
+			ci.draw_arc(hc, hr, 0.0, TAU, 24, ink, lw, true)
 		"zukin":
 			ci.draw_circle(hc, hr * 1.12, Color(col, a))
 			ci.draw_rect(Rect2(hc + Vector2(-hr * 0.72, -hr * 0.28), Vector2(hr * 1.44, hr * 0.36)), Color(sk, a))

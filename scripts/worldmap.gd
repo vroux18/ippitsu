@@ -20,13 +20,15 @@ const UIColors = preload("res://scripts/ui_colors.gd")
 const RANK_ICON := ["hud/prunier", "hud/bambou", "hud/pin", "hud/couronne"]  # pictos des rangs (score.gd)
 const Meta = preload("res://scripts/meta.gd")
 
-# teintes du paysage par monde (indice = id - 1) : ciel, plan lointain, premier plan
+# teintes du paysage par monde (indice = id - 1 ; la dernière, W0_PAL : le Sentier, monde 0) : ciel, plan lointain,
+# premier plan
+const W0_PAL := 8
 const SKY := [Color("#D3DEE6"), Color("#DCE2C8"), Color("#C3CCD6"), Color("#AFC2D0"), Color("#DCCBC4"),
-	Color("#CFD8C8"), Color("#A9D6CF"), Color("#9A90A4")]
+	Color("#CFD8C8"), Color("#A9D6CF"), Color("#9A90A4"), Color("#EEE6D6")]
 const FAR := [Color("#7F9BB3"), Color("#93A86C"), Color("#A9BED0"), Color("#9C3B2A"), Color("#6E6A80"),
-	Color("#4E6656"), Color("#2E7A7A"), Color("#4A4452")]
+	Color("#4E6656"), Color("#2E7A7A"), Color("#4A4452"), Color("#A9B6B8")]
 const NEAR := [Color("#1F3A5F"), Color("#5E7F4A"), Color("#E3EAEF"), Color("#5A5550"), Color("#0E1A2E"),
-	Color("#2F4A34"), Color("#1E5A5E"), Color("#2A2430")]
+	Color("#2F4A34"), Color("#1E5A5E"), Color("#2A2430"), Color("#8E9A7E")]
 const TANZAKU := [Color("#E9C46A"), Color("#9EC1CF"), Color("#E7B3C3"), Color("#F1EDE4"), Color("#B5C99A")]
 # la Grande Vague (contour, ligne d'écume intérieure, griffes), en unités locales
 const WAVE := [Vector2(-70, 0), Vector2(-55, -28), Vector2(-38, -58), Vector2(-18, -80), Vector2(4, -90),
@@ -68,6 +70,7 @@ var _worlds: Array = []
 var _unlocked := 1
 var _best: Dictionary = {}
 var _rooms := 8  # étapes d'une partie (record affiché sur « _rooms » points)
+var w0_rooms := 4  # étapes du Sentier (monde 0, main.W0_STAGE_PLAN), posé par main avant open()
 var _wins: Dictionary = {}  # Vues gagnées ("w4_win", "w4_mini"...) ou id -> true
 var _stamp_at: Dictionary = {}  # id -> instant (_t) où le sceau ACCOMPLI frappe
 var scores: Dictionary = {}  # id -> meilleur score du monde (meta.world_score), posé par main avant open()
@@ -278,7 +281,7 @@ func _id(i: int) -> int:
 
 
 func _locked(i: int) -> bool:
-	if _id(i) == _reveal_id and _rv < RV_BREAK:
+	if _reveal_id > 0 and _id(i) == _reveal_id and _rv < RV_BREAK:
 		return true  # monde révélé : scellé jusqu'au bris de son cadenas
 	return _id(i) > _unlocked
 
@@ -300,15 +303,22 @@ func _reveal_skip() -> void:
 		_rv_out = _rv
 
 
-## Indice de palette du paysage (0..SKY.size() - 1) pour le monde i.
+## Indice de palette du paysage (0..SKY.size() - 1) pour le monde i (le Sentier, monde 0 : la dernière, W0_PAL).
 func _pal(i: int) -> int:
-	return clampi(_id(i) - 1, 0, SKY.size() - 1)
+	if _id(i) == 0:
+		return W0_PAL
+	return clampi(_id(i) - 1, 0, W0_PAL - 1)
+
+
+## Étapes du monde i (le Sentier en a moins : w0_rooms, posé par main).
+func _rooms_of(i: int) -> int:
+	return w0_rooms if _id(i) == 0 else _rooms
 
 
 func _best_of(i: int) -> int:
 	var id := _id(i)
 	var v: Variant = _best.get(id, _best.get(str(id), 0))
-	return clampi(int(v), 0, _rooms)
+	return clampi(int(v), 0, _rooms_of(i))
 
 
 func _flag(id: int, kind: String) -> bool:
@@ -325,6 +335,8 @@ func _won(i: int) -> bool:
 		return false
 	if _flag(_id(i), "win"):
 		return true
+	if _id(i) == 0:
+		return false  # le Sentier : son seul témoin est le drapeau « w0_win » (meta.w0_done, posé par main)
 	if _id(i) > 5 and _id(i) < _unlocked:
 		return true  # mondes 6 et plus (sans Vue « w<id>_win ») : le suivant ne s'ouvre qu'en le gagnant
 	if _id(i) <= won_top:
@@ -339,6 +351,8 @@ func _score_of(i: int) -> int:
 
 
 func _mini_done(i: int) -> bool:
+	if _id(i) == 0:
+		return false  # (le Sentier n'a pas de gardien)
 	return _won(i) or _flag(_id(i), "mini") or _best_of(i) > MINI_ROOM
 
 
@@ -820,7 +834,8 @@ func _draw_card(i: int) -> void:
 	var focus := _smooth(1.0 - absf(dd))
 	var locked := _locked(i)
 	var won := _won(i)
-	var b := _rooms if won else _best_of(i)
+	var nr := _rooms_of(i)
+	var b := nr if won else _best_of(i)
 	var col: Color = d.get("color", Color(0.5, 0.5, 0.5))
 	var key := str(d.get("kanji", ""))  # clé du monde (jamais affichée) : son picto
 	var wname := UiKit.plain(str(d.get("name", "")))
@@ -872,7 +887,7 @@ func _draw_card(i: int) -> void:
 	_centered(ci, _name, wname, Vector2(0.0, ty + 32.0 * u), nfs, Color(ink, 0.55 if locked else 1.0))
 	var sw := Rect2(Vector2(-60.0 * u, ty + 41.0 * u), Vector2(120.0 * u, 7.0 * u))
 	ci.draw_colored_polygon(UiKit.swash_points(sw, 1.0, 2.0), Color(ink, 0.2) if locked else Color(Toon.VERMILION, 0.95))
-	_track(ci, x0, x1, ty + 82.0 * u, 0 if locked else b, won, _mini_done(i) and not locked)
+	_track(ci, x0, x1, ty + 82.0 * u, 0 if locked else b, won, _mini_done(i) and not locked, nr, _id(i) != 0)
 	var tiles := Rect2(Vector2(x0, ty + 130.0 * u), Vector2(x1 - x0, 64.0 * u))
 	if locked:
 		_draw_locked_info(ci, i, tiles)
@@ -917,8 +932,8 @@ func _draw_tiles(ci: CanvasItem, i: int, xf: Transform2D, r: Rect2) -> void:
 	ci.draw_style_box(UiKit.box(_box, tile_bg, rad), sr)
 	# score, rang et palier suivant (seuils de score.gd, relevés selon le monde)
 	var pts := _score_of(i)
-	# boss du monde vaincu (meta.won_top, posé par main) ; à défaut, le monde suivant est ouvert
-	var cleared := id <= won_top or id < _unlocked
+	# boss du monde vaincu (meta.won_top, posé par main) ; à défaut, le monde suivant est ouvert (le Sentier : fini)
+	var cleared := _won(i) if id == 0 else (id <= won_top or id < _unlocked)
 	var rank := Score.rank_of(pts, id, cleared)
 	var nxt := Score.next_rank_pts(pts, id, cleared)
 	var nf := UiKit.num_font()
@@ -1029,18 +1044,18 @@ func _sub_lines(i: int, txt: String, width: float) -> Array:
 ## carré) de 30, répartis comme la planche. Étapes atteintes en or sur le trait d'or, les autres en papier
 ## cerné d'un filet éteint ; anneau d'or autour du record. Gardien vaincu : or ; boss vaincu : vermillon ;
 ## atteint mais pas vaincu : liseré et picto vermillon.
-func _track(ci: CanvasItem, xa: float, xb: float, y: float, b: int, won: bool, mini_done: bool) -> void:
+func _track(ci: CanvasItem, xa: float, xb: float, y: float, b: int, won: bool, mini_done: bool, n_in := -1, has_mini := true) -> void:
+	var n := _rooms if n_in < 0 else n_in
 	var u := _u
 	var ink: Color = Toon.ui_ink
 	var paper: Color = Toon.ui_paper
-	var n := _rooms
 	var muted := Color(ink, 0.25) if Toon.ui_dark else UIColors.LINE_MUTED
 	var grey := Color("#8C8273")
 	var sizes := PackedFloat32Array()
 	var sum := 0.0
 	for k in n:
 		var room := k + 1
-		var big := room == n or (room == MINI_ROOM and room < n)
+		var big := room == n or (has_mini and room == MINI_ROOM and room < n)
 		sizes.append(30.0 * u if big else 18.0 * u)
 		sum += sizes[k]
 	var gap := ((xb - xa) - sum) / float(maxi(1, n - 1))
@@ -1056,7 +1071,7 @@ func _track(ci: CanvasItem, xa: float, xb: float, y: float, b: int, won: bool, m
 	for k in n:
 		var room := k + 1
 		var is_boss := room == n
-		var is_mini := room == MINI_ROOM and room < n
+		var is_mini := has_mini and room == MINI_ROOM and room < n
 		var reached := k < b
 		var q: Vector2 = cs[k]
 		var s: float = sizes[k]
@@ -1209,6 +1224,10 @@ func _prof(far: bool, i: int, f: float) -> float:
 			if far:
 				return 0.43 + 0.05 * absf(sin(f * 6.0))
 			return 0.72 + 0.015 * sin(f * 8.0)
+		W0_PAL:  # le Sentier : collines basses et douces, un chemin plat au premier plan
+			if far:
+				return 0.45 + 0.035 * sin(f * 5.0 + 0.8)
+			return 0.74 + 0.012 * sin(f * 7.0)
 	return 0.5
 
 
@@ -1310,6 +1329,14 @@ func _motif_back(ci: Control, i: int, sx: float) -> void:
 			for k in 2:
 				var tx := sx + (-0.36 + 0.2 * float(k)) * s
 				_torii_sil(ci, Vector2(tx, _far_y(tx) + 4.0 * u), u * (1.0 - 0.25 * float(k)), Color(Toon.SUMI, 0.85))
+		W0_PAL:
+			# le Sentier : soleil pâle, pins sur les collines, un torii vermillon qui ouvre le chemin
+			ci.draw_circle(Vector2(sx - 0.26 * s, top + 0.17 * _ph), 12.0 * u, Color(Toon.GOLD, 0.28))
+			for k in 3:
+				var px := sx + (-0.4 + 0.33 * float(k)) * s
+				_pine(ci, Vector2(px, _far_y(px) + 3.0 * u), u * (0.7 + 0.1 * float(k % 2)))
+			var tx0 := sx + 0.12 * s
+			_torii_sil(ci, Vector2(tx0, _far_y(tx0) + 5.0 * u), u * 1.1, Color(Toon.VERMILION, 0.9))
 
 
 ## Motifs de premier plan (devant le sol).
@@ -1432,6 +1459,21 @@ func _motif_front(ci: Control, i: int, sx: float) -> void:
 				var wp := Vector2(sx + (hx2 - 0.5) * s, bot - _ph * 0.25 - rise2)
 				ci.draw_circle(wp, 4.0 * u, Color(Color("#C9B8FF"), 0.2 * (1.0 - rise2 / span2)))
 				ci.draw_circle(wp, 1.8 * u, Color(Color("#E6DCFF"), 0.85 * (1.0 - rise2 / span2)))
+		W0_PAL:
+			# le Sentier : dalles du chemin, deux lanternes de pierre et un pin au bord
+			for k in range(-3, 4):
+				var dx := sx + float(k) * 26.0 * u
+				var dy := _ground_y(dx) + 10.0 * u + 3.0 * u * float(absf(float(k)))
+				ci.draw_rect(Rect2(dx - 9.0 * u, dy - 3.0 * u, 18.0 * u, 6.0 * u), Color(Color("#B9B3A6"), 0.9))
+				ci.draw_rect(Rect2(dx - 9.0 * u, dy - 3.0 * u, 18.0 * u, 6.0 * u), Color(Toon.SUMI, 0.35), false, maxf(1.0, u))
+			for k in 2:
+				var lx := sx + (-0.34 if k == 0 else 0.3) * s
+				var ly := _ground_y(lx) + 4.0 * u
+				ci.draw_rect(Rect2(lx - 3.0 * u, ly - 18.0 * u, 6.0 * u, 18.0 * u), Color(Color("#8F897D"), 0.95))
+				ci.draw_rect(Rect2(lx - 7.0 * u, ly - 24.0 * u, 14.0 * u, 7.0 * u), Color(Color("#B9B3A6"), 0.95))
+				ci.draw_circle(Vector2(lx, ly - 20.0 * u), 2.5 * u, Color(Toon.GOLD, 0.8))
+			var px := sx + 0.44 * s
+			_pine(ci, Vector2(px, _ground_y(px) + 4.0 * u), u * 1.05)
 
 
 func _great_wave(ci: Control, base: Vector2, s: float, body: Color) -> void:
