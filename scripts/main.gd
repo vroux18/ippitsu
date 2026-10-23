@@ -591,8 +591,7 @@ var charm := ""  # omamori porté ("" : aucun)
 var departure: Control  # écran AVANT LE DÉPART
 var _dep_world := 0  # monde à ouvrir après PARTIR
 var _dep_from_map := false  # écran ouvert depuis la carte (retour : la carte)
-var _rain: Array = []  # Fude · Pluie : gouttes au sol [MeshInstance3D, position, vie]
-var _rain_mat: StandardMaterial3D
+var _rain: Array = []  # Fude · Pluie : gouttes au sol [MeshInstance3D (vfx.ink_stain), position, vie]
 var _wall_pts := PackedVector3Array()  # Hake · Mur : trait posé qui bloque les projectiles
 var _wall_t := 0.0
 var _dash_s := 0.0  # mètres parcourus depuis le début de la ruée (écart du pinceau fendu)
@@ -1154,6 +1153,15 @@ func _ready() -> void:
 			_cam_dz = _cam_target()
 			arena.follow_camera(_cam_dz)
 		hero.invuln = 999.0
+	# `&pluie` (captures, avec `combat&pinceau=fude&aspect=1`) : le héros trace un trait en zigzag vers le
+	# fond, qui sèche en gouttes de Pluie ; `pluie=N` : lancé au bout de N s (1,2), `figer=M` pour arrêter
+	# l'image à l'âge voulu
+	var rnq := wsearch.find("pluie")
+	if rnq >= 0 and state == "play":
+		var pld := 1.2
+		if wsearch.substr(rnq + 5, 1) == "=":
+			pld = float(wsearch.substr(rnq + 6).get_slice("&", 0))
+		get_tree().create_timer(pld, true, false, true).timeout.connect(_capture_rain)
 	# `&degats` (captures, avec `combat`) : planche de chiffres de dégâts autour du héros (normal, gros, fatal,
 	# atténué par l'encre dure, pouvoirs, critique, figure), puis l'image se fige au bout de `dmgt=` s (0,22)
 	if "degats" in wsearch and state == "play":
@@ -4609,6 +4617,19 @@ func _capture_seal_stroke(right: bool) -> void:
 	add_child(s)
 	for p in wps:
 		s.extend_to(_clamp_point(p), 40.0)
+	_launch(s)
+
+
+## Capture `&pluie` : trait en zigzag (vers le fond) lancé comme un trait du joueur.
+func _capture_rain() -> void:
+	if hero == null or state != "play":
+		return
+	var o := hero.position
+	var s := InkStroke.new(o, stroke_layer)
+	stroke_layer += 1
+	add_child(s)
+	for p in [Vector3(-1.4, 0, -1.6), Vector3(0.9, 0, -3.1), Vector3(-1.1, 0, -4.6), Vector3(1.2, 0, -6.0)]:
+		s.extend_to(_clamp_point(o + p), 40.0)
 	_launch(s)
 
 
@@ -8178,19 +8199,27 @@ func _on_wall(p: Vector3) -> bool:
 
 
 ## Fude · Pluie : le trait de combat sèche en gouttes qui ralentissent les ennemis qui marchent dessus.
+## Gouttes d'encre liquide (vfx.ink_stain, shaders/ink_liquid.gdshader) : petites (0,17-0,24 m), bord
+## irrégulier, étirées dans le sens du trait avec quelques gouttelettes qui filent devant, reflet humide puis
+## auréole de séchage, posées l'une après l'autre le long du trait (l'encre s'égoutte). Le rayon de JEU
+## (Gear.PLUIE_R) ne change pas. Avant : de gros disques plats gris (_disc 0,36 m), illisibles au sol.
 func _rain_drop(pts: PackedVector3Array) -> void:
-	if _rain_mat == null:
-		_rain_mat = Toon.flat(Color(Toon.SUMI, 0.5))
 	var acc := Gear.PLUIE_STEP * 0.5
+	var k := 0
 	for i in range(1, pts.size()):
 		acc += pts[i].distance_to(pts[i - 1])
 		if acc < Gear.PLUIE_STEP:
 			continue
 		acc = 0.0
 		var p := Vector3(pts[i].x, 0, pts[i].z)
-		var d := _disc(self, 0.36, _rain_mat, 0.016)
-		d.position = Vector3(p.x, 0.016, p.z)
-		_rain.append([d, p, Gear.PLUIE_LIFE])
+		var dir := pts[i] - pts[i - 1]
+		var delay := 0.05 * float(k)
+		# rayon tiré de la place de la goutte (pas de tirage : les robots à graine fixe restent déterministes)
+		var r := 0.17 + 0.07 * fmod(absf(p.x * 3.7 + p.z * 5.1), 1.0)
+		var mi: MeshInstance3D = vfx.ink_stain(p, r, Color(Toon.SUMI, 0.85), Gear.PLUIE_LIFE, dir, 0.35,
+			Vector4(1.0, 0.8, 1.35, 0.75), delay, true)
+		_rain.append([mi, p, Gear.PLUIE_LIFE + delay])
+		k += 1
 	while _rain.size() > 40:
 		var old: Array = _rain.pop_front()
 		if is_instance_valid(old[0]):
@@ -8214,8 +8243,6 @@ func _update_rain(dt: float) -> void:
 				mi.queue_free()
 			_rain.remove_at(i)
 			continue
-		var k := clampf(float(r[2]) / 0.5, 0.0, 1.0)
-		(mi as Node3D).scale = Vector3(0.36 * k, 1, 0.36 * k)
 		var p: Vector3 = r[1]
 		for e in enemies:
 			if is_instance_valid(e) and not e.dead and Vector2(e.position.x - p.x, e.position.z - p.z).length() < Gear.PLUIE_R + float(e.radius) * 0.5:
