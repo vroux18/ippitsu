@@ -769,7 +769,7 @@ func _step_calendar() -> bool:
 	var feat0 := Meta.FEATURES.filter(func(f): return bool(main.feat(String(f))))
 	var k0: Array = known.call()
 	main.current_world = w0prev
-	_check(l0 == ["loop"] and l0b.is_empty() and k0.size() == 2 and "loop" in k0 and "straight" in k0 and feat0.is_empty() and String(main.coach.fig_next()) == "atteindre l'étape 3"
+	_check(l0 == ["loop"] and l0b.is_empty() and k0.size() == 2 and "loop" in k0 and "straight" in k0 and feat0.is_empty() and String(main.coach.fig_next()) == "atteindre l'étape 3 du monde 1"
 		and String(main.coach.fig_goal("loop")) == "atteindre l'étape 3 du monde 0" and int(main.rooms_total(0)) == Meta.W0_ROOMS and (main.stage_plan(0) as Array).size() == 4,
 		"calendrier : monde 0 étape 3 -> boucle (une fois), rien d'ouvert au Sentier, prochaine : atteindre l'étape 3 (monde 1)",
 		"boucle %s puis %s, figures %s, ouvert au monde 0 %s, prochaine « %s », but boucle « %s »" % [str(l0), str(l0b), str(k0), str(feat0),

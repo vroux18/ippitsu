@@ -372,7 +372,7 @@ func fig_goal(kind: String) -> String:
 		var w := "" if wid == 1 else " (monde %d)" % wid
 		match String(g[1]):
 			"stage3":
-				return "atteindre l'étape 3" + ("" if wid == 1 else " du monde %d" % wid)
+				return "atteindre l'étape 3 du monde %d" % wid
 			"mini":
 				return "battre " + foe_name(wid, true) + w
 		return "battre " + foe_name(wid, false) + w
