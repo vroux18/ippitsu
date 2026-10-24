@@ -19,6 +19,7 @@ const Toon = preload("res://scripts/toon.gd")
 const Lueurs = preload("res://scripts/lueurs.gd")
 const Decor = preload("res://scripts/decor.gd")
 const Worlds = preload("res://scripts/worlds.gd")
+const Gfx = preload("res://scripts/graphismes.gd")  # OPTIONS > GRAPHISMES (ombre de la lumière du sanctuaire)
 
 const HALF := Vector2(4.6, 8.6)  # cadre jouable (arena.HALF)
 const TERR_IN := 5.0  # bord intérieur des terrasses : 0,4 m de vide entre le parvis et elles
@@ -1344,7 +1345,7 @@ static func _haiden(ctx: Dictionary, pos: Vector3, s: float) -> void:
 
 ## Une seule lumière ponctuelle (aucune en Toon.lite), devant le sanctuaire.
 static func _light(ctx: Dictionary, pos: Vector3, energy: float, reach: float) -> void:
-	if Toon.lite or int(ctx["lights"]) > 0:
+	if (Toon.lite and Gfx.is_eco()) or int(ctx["lights"]) > 0:
 		return
 	ctx["lights"] = 1
 	var p: Dictionary = ctx["p"]
@@ -1354,7 +1355,7 @@ static func _light(ctx: Dictionary, pos: Vector3, energy: float, reach: float) -
 	l.light_color = p["light"]
 	l.light_energy = energy
 	l.omni_range = reach
-	l.shadow_enabled = false
+	Gfx.register_light(l)  # ombre portée en GRAPHISMES ZINZIN
 	var root: Node3D = ctx["root"]
 	root.add_child(l)
 

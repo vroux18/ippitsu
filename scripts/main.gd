@@ -9,6 +9,7 @@ const CamPanel = preload("res://scripts/cam_panel.gd")  # mode mesure : réglage
 const DecorWarm = preload("res://scripts/decor_warm.gd")  # préchauffage des shaders du décor de chaque monde
 
 const Toon = preload("res://scripts/toon.gd")
+const Gfx = preload("res://scripts/graphismes.gd")  # OPTIONS > GRAPHISMES : ZINZIN / ÉQUILIBRÉ / ÉCO
 const Lueurs = preload("res://scripts/lueurs.gd")  # lueurs des lanternes (flaques et halos additifs)
 const Hero = preload("res://scripts/hero.gd")
 const Enemy = preload("res://scripts/enemy.gd")
@@ -276,6 +277,7 @@ const FIG_SLOW_SCALE := 0.7  # vitesse du jeu au creux du ralenti
 var _fig_slow := 0.0
 var _fps_free := false  # robot, captures, relevés : aucun plafond (le rythme vient de --fixed-fps)
 var eco_mode := false  # OPTIONS > ÉCONOMIE BATTERIE : 30 images/s en jeu (120 sinon)
+var gfx_level := Gfx.DEFAULT  # OPTIONS > GRAPHISMES (lumières, ombres, post-traitement : graphismes.gd ; sauvegardé)
 var show_dmg := true  # chiffres de dégâts au-dessus des ennemis (réglage OPTIONS > DÉGÂTS, activé par défaut)
 const HIT_REACH := 0.55
 
@@ -640,6 +642,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if String(a).begins_with("--seed="):
 			seed(int(String(a).substr(7)))
+	Gfx.load_level(SAVE_PATH)  # GRAPHISMES : lu avant de bâtir le monde (lumières et ombres de la première salle)
+	gfx_level = Gfx.level
 	_build_world()
 	_load_frames()
 	sfx = Sfx.new()
@@ -2007,7 +2011,7 @@ func _warmup() -> void:
 		var lamp := OmniLight3D.new()
 		lamp.omni_range = float(lp[2])
 		lamp.light_energy = 0.3
-		lamp.shadow_enabled = false
+		lamp.shadow_enabled = Gfx.is_zinzin()  # (variante « ombre ponctuelle » compilée d'avance)
 		(lp[0] as Node).add_child(lamp)
 		if lp[0] == cam:
 			lamp.position = lp[1]
@@ -2045,6 +2049,7 @@ func _load() -> void:
 		pad_show = String(cfg.get_value("settings", "pad_show", "start"))
 		show_dmg = String(cfg.get_value("settings", "dmg", "on")) == "on"
 		eco_mode = String(cfg.get_value("settings", "eco", "off")) == "on"
+		gfx_level = Gfx.level  # (lu avant _build_world : Gfx.load_level)
 		god = bool(cfg.get_value("settings", "god", false))
 		# réglage de la caméra du propriétaire (appliqué seulement en mode mesure : _apply_cam_pref)
 		for k in _cam_pref.keys():
@@ -2082,11 +2087,25 @@ func _save() -> void:
 	cfg.set_value("settings", "pad_size", pad_size)
 	cfg.set_value("settings", "dmg", "on" if show_dmg else "off")
 	cfg.set_value("settings", "eco", "on" if eco_mode else "off")
+	cfg.set_value("settings", "gfx", gfx_level)
 	cfg.set_value("settings", "pad_show", pad_show)
 	cfg.set_value("settings", "god", god)
 	for k in _cam_pref.keys():
 		cfg.set_value("camera", k, float(_cam_pref[k]))
 	cfg.save(SAVE_PATH)
+
+
+## OPTIONS > GRAPHISMES : applique le niveau (graphismes.gd) à la scène, en direct ; l'ambiance de boss repart des
+## nouvelles valeurs d'étalonnage.
+func _apply_gfx() -> void:
+	Gfx.set_level(gfx_level)
+	gfx_level = Gfx.level
+	Gfx.apply(get_tree(), _env, _sun, get_viewport(), _veil_mat)
+	Worlds.set_rays_gain()
+	if not _mood_base.is_empty():
+		_mood_base["contrast"] = _env.adjustment_contrast
+		_mood_base["bright"] = _env.adjustment_brightness
+		_mood_base["sat"] = _env.adjustment_saturation
 
 
 ## Images par seconde : 120 en jeu (bornées par l’écran ; 30 avec ÉCONOMIE BATTERIE), 30 sur les écrans calmes (accueil, carte, atelier,
@@ -2454,7 +2473,7 @@ func _on_home() -> void:
 func _open_options() -> void:
 	_options_from = "pause" if state == "paused" else "menu"
 	options.values = {"sound": "off" if menu.muted else "on", "vibration": "on" if sfx.haptics else "off",
-		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "dev": "on" if measure.active else "off",
+		"control": ctrl_pref, "pad_size": pad_size, "pad_show": pad_show, "dmg": "on" if show_dmg else "off", "eco": "on" if eco_mode else "off", "gfx": gfx_level, "dev": "on" if measure.active else "off",
 		"hints": "on" if meta.hints_on else "off"}
 	options.active_control = ctrl_mode
 	if not meta.tuto_done:
@@ -2481,6 +2500,9 @@ func _on_option(key: String, value: String) -> void:
 		"eco":
 			eco_mode = value == "on"
 			_apply_fps()
+		"gfx":
+			gfx_level = value
+			_apply_gfx()
 		"pad_show":
 			pad_show = value
 		"dev":
@@ -3413,6 +3435,7 @@ func _build_world() -> void:
 
 	_env = e
 	_sun = sun
+	_apply_gfx()
 	# la salle (sol, décor, torii de sortie) et le monde (vide, lointain, particules)
 	arena = Arena.new()
 	world.add_child(arena)
@@ -4207,6 +4230,23 @@ func _boss_phase_fx(bo: Node3D, phase: int) -> void:
 	shake = maxf(shake, 0.5)
 
 
+## Lueur colorée du boss (GRAPHISMES ZINZIN / ÉQUILIBRÉ) : une lumière ponctuelle à la teinte du monde qui le suit,
+## sans ombre (elle éclaire le sol et les sceaux autour de lui ; en ÉCO, aucune lumière de plus).
+func _boss_glow(b: Node3D) -> void:
+	var tint: Color = Worlds.world(current_world).get("color", MOOD_INK)
+	var l := OmniLight3D.new()
+	l.name = "BossGlow"
+	l.position = Vector3(0, 2.4, 0)
+	l.light_color = tint.lerp(Color(1.0, 0.85, 0.7), 0.45).lightened(0.25)
+	l.light_energy = 1.1
+	l.omni_range = 6.5
+	l.omni_attenuation = 1.4
+	l.shadow_enabled = false
+	l.add_to_group(Gfx.GROUP_RICH)
+	l.visible = not Gfx.is_eco()
+	b.add_child(l)
+
+
 func _spawn_boss(k: String, hp_mult := -1.0) -> Node3D:
 	var t0 := Time.get_ticks_usec()
 	var b: Node3D = _boss_script(k).new()
@@ -4221,6 +4261,7 @@ func _spawn_boss(k: String, hp_mult := -1.0) -> Node3D:
 	_scratched = false  # combat sans dégât : suivi jusqu'à sa chute (boss_killed)
 	add_child(b)
 	bosses.append(b)
+	_boss_glow(b)
 	music.play_boss(current_world, is_mini_boss(k))
 	sfx.play("strike", 0.5)
 	shake = 0.55

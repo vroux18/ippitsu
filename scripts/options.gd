@@ -1,5 +1,5 @@
 extends Control
-## Options : son, vibrations, contrôles (tracer sur l'écran, ou pad en bas), taille et affichage du pad,
+## Options : son, vibrations, économie de batterie, graphismes (ZINZIN / ÉQUILIBRÉ / ÉCO), contrôles (tracer sur l'écran, ou pad en bas), taille et affichage du pad,
 ## indices du coach (oui / non), mode développeur (mode mesure : section DEV de la pause). Carte de papier sur voile d'encre ; oui/non en interrupteurs, le reste en segments
 ## d'un mot (UI v2 : pas de phrase d'aide). main lit/écrit `values`.
 ## Le mode de contrôle ne change qu'au prochain lancement (cadrage de l'arène) : main pose `active_control`,
@@ -17,6 +17,8 @@ const ROWS := [
 	{"key": "vibration", "label": "VIBRATIONS", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 	{"key": "dmg", "label": "CHIFFRES DE DÉGÂTS", "toggle": true, "opts": [["on", ""], ["off", ""]]},
 	{"key": "eco", "label": "ÉCONOMIE BATTERIE", "toggle": true, "opts": [["on", ""], ["off", ""]]},
+	# lumières, ombres, post-traitement (graphismes.gd) : à part de l'économie de batterie (cadence)
+	{"key": "gfx", "label": "GRAPHISMES", "opts": [["zinzin", "ZINZIN"], ["balanced", "ÉQUILIBRÉ"], ["eco", "ÉCO"]]},
 	{"key": "control", "label": "CONTRÔLES", "opts": [["screen", "ÉCRAN"], ["pad", "PAD"]]},
 	# réglages du pad : grisés (et sans effet) quand on trace sur l'écran
 	{"key": "pad_size", "label": "TAILLE DU PAD", "opts": [["s", "S"], ["m", "M"], ["l", "L"]]},
@@ -35,7 +37,7 @@ const ROW_TOP := 112.0  # première ligne (× u depuis le haut de la carte), sou
 const ROW_STEP := 84.0  # pas entre deux lignes (× u)
 const RESTART_NOTE := "Redémarre le jeu pour appliquer"
 
-var values := {"sound": "on", "vibration": "on", "dmg": "on", "eco": "off", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off", "hints": "on"}
+var values := {"sound": "on", "vibration": "on", "dmg": "on", "eco": "off", "gfx": "zinzin", "control": "pad", "pad_size": "m", "pad_show": "start", "dev": "off", "hints": "on"}
 var active_control := "screen"  # mode de contrôle de la session en cours (lu par main au lancement)
 
 var _t := 0.0

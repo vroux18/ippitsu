@@ -11,6 +11,7 @@ extends RefCounted
 
 const Toon = preload("res://scripts/toon.gd")
 const Lueurs = preload("res://scripts/lueurs.gd")
+const OmbresContact = preload("res://scripts/ombres_contact.gd")  # occlusion feinte au pied des pièces
 
 const SAKURA := [Color("#F2B8C6"), Color("#E79AB0"), Color("#F7D6DE")]
 const BARK_SAKURA := Color("#4A3530")
@@ -367,6 +368,7 @@ static func _cpu_key(mesh: Mesh, surf: int) -> String:
 ## Transforme chaque lot en un MeshInstance3D.
 static func _flush(b: Dictionary, parent: Node3D, shadow := true) -> void:
 	Lueurs.flush(b, parent)  # lueurs des lanternes du lot (flaques et halos, un MultiMesh additif)
+	var meshes: Array = []
 	for k in b:
 		if k is String:
 			continue  # drapeau ou lueurs, pas un lot
@@ -378,9 +380,12 @@ static func _flush(b: Dictionary, parent: Node3D, shadow := true) -> void:
 		mi.material_override = m
 		if shadow:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			meshes.append(mi.mesh)
 		else:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(mi)
+	if shadow:
+		OmbresContact.build(parent, meshes)  # occlusion feinte au pied des pièces (un MultiMesh, caché en ÉCO)
 
 
 ## Segment conique de a vers c (branche, tige, griffe) : r0 au départ, r1 au bout ; `xf` place le tout.

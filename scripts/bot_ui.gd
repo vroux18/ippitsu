@@ -9,6 +9,7 @@ const Meta = preload("res://scripts/meta.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 const PowerData = preload("res://scripts/power_data.gd")
 const Options = preload("res://scripts/options.gd")
+const Gfx = preload("res://scripts/graphismes.gd")
 const Gear = preload("res://scripts/gear_data.gd")
 const UiKit = preload("res://scripts/ui_kit.gd")
 const StrokeShapes = preload("res://scripts/stroke_shapes.gd")
@@ -580,6 +581,11 @@ func _option_applied(key: String, val: String) -> bool:
 			return bool(main.meta.hints_on) == (val == "on") and cf.load(Meta.SAVE_PATH) == OK and bool(cf.get_value("meta", "hints", true)) == (val == "on")
 		"eco":
 			return bool(main.eco_mode) == (val == "on")
+		"gfx":
+			# GRAPHISMES : niveau appliqué (graphismes.gd) et sauvegardé ; ZINZIN seul réserve l'atlas d'ombres ponctuelles
+			var cf := ConfigFile.new()
+			return String(main.gfx_level) == val and String(Gfx.level) == val and cf.load(String(main.SAVE_PATH)) == OK \
+				and String(cf.get_value("settings", "gfx", "")) == val and (int(main.get_viewport().positional_shadow_atlas_size) > 0) == (val == "zinzin")
 		"pad_size":
 			return String(main.pad_size) == val
 		"pad_show":
@@ -625,7 +631,7 @@ func _step_options(from: String) -> bool:
 	var keys: Array = []
 	for row in Options.ROWS:
 		keys.append(String(row["key"]))
-	_check(keys == ["sound", "vibration", "dmg", "eco", "control", "pad_size", "pad_show", "hints", "dev"] and String(opt.values.get("control", "")) == "screen"
+	_check(keys == ["sound", "vibration", "dmg", "eco", "gfx", "control", "pad_size", "pad_show", "hints", "dev"] and String(opt.values.get("control", "")) == "screen"
 		and String(main.ctrl_mode) == "screen" and not bool(opt.restart_pending()),
 		"options (%s) : contrôles sur l'écran par défaut, réglages du pad" % from, "lignes %s, contrôle « %s »" % [str(keys), String(opt.values.get("control", ""))])
 	# en mode « sur l'écran », les réglages du pad sont grisés : aucune case touchable

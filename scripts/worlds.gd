@@ -11,6 +11,8 @@ extends RefCounted
 const Toon = preload("res://scripts/toon.gd")
 const Decor = preload("res://scripts/decor.gd")
 const Lueurs = preload("res://scripts/lueurs.gd")
+const Gfx = preload("res://scripts/graphismes.gd")  # OPTIONS > GRAPHISMES : lumières, ombres, particules
+const OmbresContact = preload("res://scripts/ombres_contact.gd")  # occlusion feinte au pied des props
 const WATER_SHADER = preload("res://shaders/water.gdshader")
 
 ## Surface du vide (eau, lave, encre) : le plan de arena.gd est à y = -0.6, épaisseur 0.1.
@@ -559,8 +561,10 @@ static func _without_ink(m: Material) -> Material:
 	return twin
 
 
-static func _flush(b: Dictionary, parent: Node3D, shadow := false) -> void:
+## Rend les maillages posés avec ombre (occlusion feinte à leur pied : OmbresContact, dans build_props / build_hub).
+static func _flush(b: Dictionary, parent: Node3D, shadow := false) -> Array:
 	Lueurs.flush(b, parent)  # lueurs des lanternes et des feux du lot (flaques et halos, un MultiMesh additif)
+	var meshes: Array = []
 	for k in b:
 		if k is String:
 			continue  # drapeau NO_INK, pas un lot
@@ -572,9 +576,11 @@ static func _flush(b: Dictionary, parent: Node3D, shadow := false) -> void:
 		mi.material_override = m
 		if shadow:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			meshes.append(mi.mesh)
 		else:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		parent.add_child(mi)
+	return meshes
 
 
 ## Segment conique de a (rayon r0) vers c (rayon r1), placé par `xf`.
@@ -2024,7 +2030,9 @@ static func _lava_flow(lava: Dictionary, veins: Dictionary, lm: Material, vm: Ma
 ## `pieces` (étapes) : pièces de décor posées sur la terre ferme (_set_pieces), dans les mêmes lots.
 ## `shrine` : arène de gardien ou de boss (boss_shrine.gd bâtit les terrasses et le sanctuaire du nord) :
 ## le paysage ne garde que la bande proche du bas de l'écran et le bord sud.
-static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false, cut := Callable()) -> void:
+## `floor` : rectangles de sol (x, z) de la salle : l'occlusion feinte au pied des props (OmbresContact) ne se pose que
+## sur le sol, jamais au-dessus du vide.
+static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false, cut := Callable(), floor: Array = []) -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 31 + wid)
 	var root := Node3D.new()
@@ -2041,10 +2049,12 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	var bn: Dictionary = ctx["bn"]
 	var mm: Dictionary = ctx["mm"]
 	await _cut(ctx)
-	_flush(bs, root, true)
+	var shadowed: Array = _flush(bs, root, true)
 	await _cut(ctx)
 	_flush(bn, root, false)
 	_flush_mm(mm, root)
+	await _cut(ctx)
+	OmbresContact.build(root, shadowed, floor)  # occlusion feinte au pied des pièces (un MultiMesh, caché en ÉCO)
 
 
 ## Construction étalée (arena : sous le rideau d'encre, ou décor différé) : rend la main entre deux morceaux
@@ -2160,7 +2170,7 @@ static func _light(ctx: Dictionary, pos: Vector3, col: Color, energy: float, rea
 	l.light_color = col
 	l.light_energy = energy
 	l.omni_range = reach
-	l.shadow_enabled = false
+	Gfx.register_light(l)  # ombre portée en GRAPHISMES ZINZIN seulement
 	var root: Node3D = ctx["root"]
 	root.add_child(l)
 
@@ -4890,7 +4900,7 @@ static func build_rays(world_id: int, parent: Node3D) -> void:
 		m = ShaderMaterial.new()
 		m.shader = RAYS_SHADER
 		m.set_shader_parameter("tint", cfg[0])
-		m.set_shader_parameter("strength", float(cfg[1]))
+		m.set_shader_parameter("strength", float(cfg[1]) * Gfx.rays_k())
 		_rays_mats[world_id] = m
 	if _rays_quad == null:
 		_rays_quad = QuadMesh.new()
@@ -4899,7 +4909,7 @@ static func build_rays(world_id: int, parent: Node3D) -> void:
 	var wv := up.cross(Vector3.UP).normalized()
 	var nv := wv.cross(up).normalized()
 	var rng := _rng(world_id * 17 + 3)
-	var n: int = int(cfg[2]) - (1 if Toon.lite else 0)
+	var n: int = int(cfg[2]) - (1 if Toon.lite else 0) + (2 if Gfx.is_zinzin() else 0)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_custom_data = true
@@ -4917,7 +4927,17 @@ static func build_rays(world_id: int, parent: Node3D) -> void:
 	mmi.multimesh = mm
 	mmi.material_override = m
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.add_to_group(Gfx.GROUP_RICH)  # (cachés en GRAPHISMES ÉCO)
+	mmi.visible = not Gfx.is_eco()
 	parent.add_child(mmi)
+
+
+## Force des rayons selon GRAPHISMES (changement d'option en direct : matières de tous les mondes déjà vus).
+static func set_rays_gain() -> void:
+	for wid in _rays_mats:
+		var m: ShaderMaterial = _rays_mats[wid]
+		var cfg: Array = RAYS[wid]
+		m.set_shader_parameter("strength", float(cfg[1]) * Gfx.rays_k())
 
 
 ## Particules en boucle sur PART_AREA, propres à chaque monde.
@@ -5002,6 +5022,44 @@ static func build_particles(world_id: int, parent: Node3D) -> void:
 			p.emitting = true
 	if not Toon.lite:
 		_motes(clampi(world_id, 1, WORLDS.size()), parent, area, ctr)
+	_fireflies(clampi(world_id, 1, WORLDS.size()), parent, area, ctr)
+	# GRAPHISMES : la densité de tous les émetteurs d'ambiance suit le niveau (ZINZIN ×1,6, ÉCO ×0,6)
+	for c in parent.get_children():
+		if c is CPUParticles3D:
+			Gfx.register_parts(c as CPUParticles3D)
+
+
+## Lucioles des mondes sombres (GRAPHISMES ZINZIN seulement) : étincelles chaudes ou froides qui dérivent à
+## hauteur d'homme et palpitent (fondu court), additives : elles passent le seuil du glow et luisent.
+static func _fireflies(wid: int, parent: Node3D, area: AABB, ctr: Vector3) -> void:
+	var cols: Array = []
+	match wid:
+		4:
+			cols = [Color(1.0, 0.72, 0.35, 0.9), Color(1.0, 0.55, 0.25, 0.8)]  # étincelles de forge
+		6:
+			cols = [Color(0.95, 1.0, 0.55, 0.9), Color(0.7, 1.0, 0.6, 0.8)]  # lucioles de la forêt
+		7:
+			cols = [Color(0.6, 0.9, 1.0, 0.9), Color(0.75, 0.8, 1.0, 0.8)]  # plancton
+		8:
+			cols = [Color(0.75, 0.62, 1.0, 0.9), Color(0.55, 0.7, 1.0, 0.8)]  # âmes de Yomi
+		_:
+			return
+	var p := _emitter(parent, "Lucioles", Vector3(ctr.x, 1.1, ctr.z), Vector3(area.size.x * 0.5, 0.8, area.size.z * 0.5), 26, 5.0, _sphere_mesh("firefly", 0.045, true))
+	p.direction = Vector3(1.0, 0.3, 0.0)
+	p.spread = 180.0
+	p.gravity = Vector3(0.02, 0.03, 0)
+	p.initial_velocity_min = 0.08
+	p.initial_velocity_max = 0.3
+	p.scale_amount_min = 0.6
+	p.scale_amount_max = 1.5
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.2, 0.35, 0.6, 0.8, 1.0])
+	g.colors = PackedColorArray([Color(1, 1, 1, 0), Color(1, 1, 1, 1), Color(1, 1, 1, 0.25), Color(1, 1, 1, 1), Color(1, 1, 1, 0.3), Color(1, 1, 1, 0)])
+	p.color_ramp = g
+	p.color_initial_ramp = _ramp(cols, false)
+	p.add_to_group(Gfx.GROUP_ZINZIN)
+	p.visible = Gfx.is_zinzin()
+	p.emitting = Gfx.is_zinzin()  # (arrêtées hors ZINZIN : graphismes.gd les rallume)
 
 
 ## Poussière en suspension qui dérive lentement à hauteur d'homme (pas en mode léger) : la lumière
@@ -6803,7 +6861,7 @@ static func _pit_new(wid: int, ctx: Dictionary) -> void:
 # rien de haut devant le chemin. Mêmes lots que le décor des salles (bs / bn par matériau, MultiMesh).
 
 ## Décor d'arrivée du monde autour du chemin `rects` (sol du sanctuaire). `lit` : une lumière ponctuelle.
-static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int, lit: bool, cut := Callable()) -> void:
+static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int, lit: bool, cut := Callable(), floor: Array = []) -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 17 + wid * 3)
 	var root := Node3D.new()
@@ -6836,10 +6894,12 @@ static func build_hub(world_id: int, parent: Node3D, rects: Array, rng_seed: int
 	var bn: Dictionary = ctx["bn"]
 	var mm: Dictionary = ctx["mm"]
 	await _cut(ctx)
-	_flush(bs, root, true)
+	var shadowed: Array = _flush(bs, root, true)
 	await _cut(ctx)
 	_flush(bn, root, false)
 	_flush_mm(mm, root)
+	await _cut(ctx)
+	OmbresContact.build(root, shadowed, floor)  # occlusion feinte au pied des pièces (sur le sol seulement)
 
 
 ## Pièce de décor du monde (SET_PIECES) centrée en `c`, longueur `ln` (le long de x, de z si `turned`),

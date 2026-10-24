@@ -225,6 +225,7 @@ var _world_root: Node3D
 var _world_holder: Node3D = null  # vide + lointain du monde affiché
 var _worlds_kept := {}  # monde quitté -> [racine cachée, matériau du vide, lointain]
 const GROUND_SHADER = preload("res://shaders/ground.gdshader")
+const Gfx = preload("res://scripts/graphismes.gd")  # OPTIONS > GRAPHISMES
 static var _mat_cache := {}  # matériaux des sols, bords et dessous, partagés d'une salle à l'autre (jamais modifiés)
 static var _unit_tile: BoxMesh = null
 static var _unit_lump: SphereMesh = null
@@ -306,6 +307,7 @@ func set_world(id: int) -> void:
 	Worlds.build_backdrop(id, _far_root)
 	Worlds.build_particles(id, _far_root)
 	Worlds.build_rays(id, _far_root)  # rayons de soleil (quads additifs, 1 draw call)
+	Gfx.build_mist(_far_root, Worlds.world(id))  # brume de sol (GRAPHISMES ZINZIN, 1 draw call)
 
 
 ## Décalage de la caméra le long de l'étape (main) : le lointain garde son cadrage.
@@ -1457,11 +1459,11 @@ func build_hub(rng_seed: int, sliced := false) -> void:
 	var frame := Rect2(-HALF.x, -HALF.y + 0.01, HALF.x * 2.0, HALF.y * 2.0 - 0.01)
 	# décor du monde hors du cadre (comme une salle), puis le décor d'arrivée dans l'eau du sanctuaire :
 	# rendu allégé, une seule lumière ponctuelle en tout
-	var lights: int = 1 if Toon.lite else Worlds.MAX_LIGHTS - 1
+	var lights: int = Gfx.max_lights(1 if Toon.lite else Worlds.MAX_LIGHTS - 1)
 	Worlds.gate_spread = _gate_spread
-	await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights, [], false, _cutter)
+	await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights, [], false, _cutter, floor_rects)
 	await slice()
-	await Worlds.build_hub(world_id, _room_root, floor_rects, rng_seed, not Toon.lite, _cutter)
+	await Worlds.build_hub(world_id, _room_root, floor_rects, rng_seed, not Toon.lite, _cutter, floor_rects)
 	_pits = {}
 	await slice()
 	_build_gate(w)
@@ -1491,7 +1493,7 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int, shri
 		await slice()
 		await BossShrine.build(world_id, shrine == 2, _room_root, rng_seed, _cutter)
 	else:
-		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 1 if Toon.lite else Worlds.MAX_LIGHTS, [], false, _cutter)
+		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), Gfx.max_lights(1 if Toon.lite else Worlds.MAX_LIGHTS), [], false, _cutter, floor_rects)
 	await slice()
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
 	_pits = await Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed, _cutter)

@@ -14,6 +14,7 @@ extends Node
 const Arena = preload("res://scripts/arena.gd")
 const Worlds = preload("res://scripts/worlds.gd")
 const Perf = preload("res://scripts/perf_probe.gd")
+const Gfx = preload("res://scripts/graphismes.gd")
 
 const SLICE_US := 3000  # calcul par image, accueil et jeu (µs)
 const WAIT_SLICE_US := 6000  # … quand l'intro attend ce monde sous le rideau
@@ -162,7 +163,7 @@ func _warm_world(id: int) -> void:
 	var lamp := OmniLight3D.new()
 	lamp.omni_range = 200.0
 	lamp.light_energy = 0.4
-	lamp.shadow_enabled = false
+	lamp.shadow_enabled = Gfx.is_zinzin()  # ZINZIN : la variante « ombre ponctuelle » des shaders aussi
 	_sv.add_child(lamp)
 	lamp.global_position = FAR + Vector3(0, 1.0, 0)
 	var lights: Array = holder.find_children("*", "OmniLight3D", true, false)
