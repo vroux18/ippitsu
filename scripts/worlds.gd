@@ -5031,7 +5031,11 @@ static func build_particles(world_id: int, parent: Node3D) -> void:
 
 ## Lucioles des mondes sombres (GRAPHISMES ZINZIN seulement) : étincelles chaudes ou froides qui dérivent à
 ## hauteur d'homme et palpitent (fondu court), additives : elles passent le seuil du glow et luisent.
+## Bâties seulement en ZINZIN (un émetteur créé tire sa graine au hasard commun : en ÉQUILIBRÉ / ÉCO, la partie
+## reste tirée comme avant) ; passer en ZINZIN en cours de route les fait paraître au monde suivant.
 static func _fireflies(wid: int, parent: Node3D, area: AABB, ctr: Vector3) -> void:
+	if not Gfx.is_zinzin():
+		return
 	var cols: Array = []
 	match wid:
 		4:
@@ -5059,7 +5063,7 @@ static func _fireflies(wid: int, parent: Node3D, area: AABB, ctr: Vector3) -> vo
 	p.color_initial_ramp = _ramp(cols, false)
 	p.add_to_group(Gfx.GROUP_ZINZIN)
 	p.visible = Gfx.is_zinzin()
-	p.emitting = Gfx.is_zinzin()  # (arrêtées hors ZINZIN : graphismes.gd les rallume)
+	p.emitting = true  # (arrêtées et cachées si l'on quitte ZINZIN : graphismes.gd)
 
 
 ## Poussière en suspension qui dérive lentement à hauteur d'homme (pas en mode léger) : la lumière
