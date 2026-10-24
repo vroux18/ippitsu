@@ -344,6 +344,11 @@ static func floor_look(id: int) -> Dictionary:
 			return {"alt": Color("#9C9384"), "alt_k": 0.5, "moss": Color("#7E786A"), "moss_k": 0.0, "wear": 0.25, "accent": Color(0, 0, 0, 0)}
 
 
+## Case du kanji du monde dans l'atlas des marques au sol (decor_warm.DecalPainter.KANJI : 波 竹 雪 火 墨 天 龍 冥 道 水 山).
+static func kanji_tile(id: int) -> int:
+	return [8, 0, 1, 2, 3, 4, 5, 6, 7][clampi(id, 0, 8)]
+
+
 ## Eau (ou lave, encre) du vide : fond profond / clair, écume, intensité des rubans, vitesse, rubans par mètre,
 ## écume du bord, force du motif seigaiha au large (0 : aucun ; jamais au pied des plateformes).
 static func water_style(id: int) -> Dictionary:
@@ -383,6 +388,7 @@ static func water_material(id: int) -> ShaderMaterial:
 	m.set_shader_parameter("shore_k", float(s["shore"]))
 	m.set_shader_parameter("sei_k", float(s.get("sei", 0.0)))
 	m.set_shader_parameter("fine", not Toon.lite)
+	m.set_shader_parameter("noise", Toon.noise_tex())
 	return m
 
 

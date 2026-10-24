@@ -39,12 +39,8 @@ func setup(scene: PackedScene, height: float, looks: Array, hidden: Array = [], 
 	model.scale = Vector3.ONE * scale_factor
 	model.position.y = -box.position.y * scale_factor
 
-	var outline := StandardMaterial3D.new()
-	outline.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	outline.albedo_color = Toon.SUMI
-	outline.cull_mode = BaseMaterial3D.CULL_FRONT
-	outline.grow = true
-	outline.grow_amount = 0.028 / scale_factor
+	# passe d'encre partagée (toon.gd) : contour irrégulier, hachures légères sur le côté ombre
+	var outline := Toon.outline_mat(snappedf(0.028 / scale_factor, 0.001), 0.6)
 
 	for n in meshes:
 		var mi := n as MeshInstance3D
