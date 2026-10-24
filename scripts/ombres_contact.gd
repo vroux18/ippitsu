@@ -81,8 +81,9 @@ static func build(parent: Node3D, meshes: Array, floor_rects: Array = []) -> voi
 		if not floor_rects.is_empty() and not _on_floor(ctr, floor_rects):
 			continue
 		var ext: Vector2 = (c[3] as Vector2) - (c[2] as Vector2)
-		var r := clampf(maxf(ext.x, ext.y) * 0.5 + 0.32, 0.4, R_MAX)
-		var dens := clampf(0.45 + 0.08 * float(n), 0.5, 1.0)
+		# petites pièces (seaux, cailloux) : petit disque discret ; grandes : plus large et plus dense
+		var r := clampf(maxf(ext.x, ext.y) * 0.5 + 0.2, 0.24, R_MAX)
+		var dens := clampf(0.35 + 0.06 * float(n), 0.4, 1.0)
 		list.append([ctr, r, dens])
 	if list.is_empty():
 		return
