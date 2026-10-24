@@ -2036,16 +2036,21 @@ static func _lava_flow(lava: Dictionary, veins: Dictionary, lm: Material, vm: Ma
 ## `pieces` (étapes) : pièces de décor posées sur la terre ferme (_set_pieces), dans les mêmes lots.
 ## `shrine` : arène de gardien ou de boss (boss_shrine.gd bâtit les terrasses et le sanctuaire du nord) :
 ## le paysage ne garde que la bande proche du bas de l'écran et le bord sud.
-## `floor` : rectangles de sol (x, z) de la salle : l'occlusion feinte au pied des props (OmbresContact) ne se pose que
-## sur le sol, jamais au-dessus du vide.
-static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false, cut := Callable(), floor: Array = []) -> void:
+## `plats` + `dress` ("stage", "room", "hub", "shrine") : habillage de la salle (decor_dress.gd : saynètes du
+## rebord le long des plateformes `plats`, décalques au sol, lanternes vivantes), dans les mêmes lots.
+## `plats` borne aussi l'occlusion feinte au pied des props (OmbresContact) : sur le sol, jamais au-dessus du vide.
+static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: int, zone := Rect2(), max_lights := MAX_LIGHTS, pieces: Array = [], shrine := false, cut := Callable(), plats: Array = [], dress := "") -> void:
 	var wid := clampi(world_id, 1, WORLDS.size())
 	var rng := _rng(rng_seed * 31 + wid)
 	var root := Node3D.new()
 	root.name = "Props"
 	parent.add_child(root)
-	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights, "shrine": shrine, "cut": cut}
+	var ctx := {"lights": 0, "root": root, "rects": rects, "taken": {}, "avoid": [], "bs": {}, "bn": {}, "mm": {}, "zone": zone, "max_lights": max_lights, "shrine": shrine, "cut": cut, "pieces": pieces}
 	_reserve_gate(ctx)
+	# habillage (rebord et sol) d'abord : ses grandes saynètes réservent leur place devant la bande proche
+	var dressed := dress != "" and not plats.is_empty()
+	if dressed:
+		await _dress_script().apply(ctx, world_id, plats, dress, rng_seed)
 	# abords : paysage composé par monde (voir « paysage des abords »)
 	await _landscape(wid, ctx, rng)
 	# pièces de décor sur la terre ferme (tirages à part : le décor autour ne change pas)
@@ -2059,8 +2064,16 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 	await _cut(ctx)
 	_flush(bn, root, false)
 	_flush_mm(mm, root)
+	if dressed:
+		_dress_script().finish(ctx, root)
 	await _cut(ctx)
-	OmbresContact.build(root, shadowed, floor)  # occlusion feinte au pied des pièces (un MultiMesh, caché en ÉCO)
+	OmbresContact.build(root, shadowed, plats)  # occlusion feinte au pied des pièces (un MultiMesh, caché en ÉCO)
+
+
+## decor_dress.gd, chargé à la demande (il précharge ce script en retour : ni preload ni variable statique
+## ici, sinon les deux scripts se tiendraient l'un l'autre et resteraient en mémoire à la sortie).
+static func _dress_script() -> GDScript:
+	return load("res://scripts/decor_dress.gd")
 
 
 ## Construction étalée (arena : sous le rideau d'encre, ou décor différé) : rend la main entre deux morceaux
@@ -2347,9 +2360,9 @@ static func _ls_shore(wid: int, ctx: Dictionary, sh: Dictionary, rng: RandomNumb
 		if free:
 			await _ls_mid(wid, ctx, kind, Vector2(x + s * d, z), Vector2(x + s * d, zb), s, rng)
 			await _cut(ctx)
-		z = zb + rng.randf_range(0.5, 1.2)
-	# bande proche : un élément bas tous les 0,55 à 0,9 m, du début à la fin du tronçon
-	var step := 0.62 / dens
+		z = zb + rng.randf_range(0.3, 0.9)
+	# bande proche : un élément bas tous les 0,45 à 0,7 m, du début à la fin du tronçon
+	var step := 0.5 / dens
 	z = z0 + rng.randf_range(0.1, step)
 	var k := 0
 	while z < z1 - 0.2:

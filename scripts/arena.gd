@@ -593,7 +593,13 @@ func _chunk_props(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> vo
 	# les pièces de décor du tronçon partagent les lots (matériaux) du décor
 	var pcs: Array = job.get("pieces", [])
 	Worlds.gate_spread = _gate_spread  # (un autre décor a pu se construire entre-temps : préchauffage)
-	await Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1, pcs, false, _cutter)
+	# plateformes du tronçon (coordonnées du tronçon, ponts exclus) : habillage du rebord et du sol
+	var plats: Array = []
+	for r in job["rs"]:
+		var rr: Rect2 = r
+		if not _is_bridge_rect(rr):
+			plats.append(Rect2(rr.position.x, rr.position.y - dz, rr.size.x, rr.size.y))
+	await Worlds.build_props(world_id, holder, prs, seed_i, Rect2(-HALF.x, -HALF.y, HALF.x * 2.0, HALF.y * 2.0), 1, pcs, false, _cutter, plats, "stage")
 
 
 func _chunk_pits(job: Dictionary, holder: Node3D, dz: float, seed_i: int) -> void:
@@ -1461,12 +1467,22 @@ func build_hub(rng_seed: int, sliced := false) -> void:
 	# rendu allégé, une seule lumière ponctuelle en tout
 	var lights: int = Gfx.max_lights(1 if Toon.lite else Worlds.MAX_LIGHTS - 1)
 	Worlds.gate_spread = _gate_spread
-	await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights, [], false, _cutter, floor_rects)
+	await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), lights, [], false, _cutter, _solid_rects(), "hub")
 	await slice()
 	await Worlds.build_hub(world_id, _room_root, floor_rects, rng_seed, not Toon.lite, _cutter, floor_rects)
 	_pits = {}
 	await slice()
 	_build_gate(w)
+
+
+## Plateformes de terre ferme de la salle (ponts exclus) : où l'habillage pose rebord et décalques.
+func _solid_rects() -> Array:
+	var out: Array = []
+	for r in floor_rects:
+		var rr: Rect2 = r
+		if not _is_bridge_rect(rr):
+			out.append(rr)
+	return out
 
 
 ## Sol, décor, départ et torii pour les `rects` courants. `shrine` : 0 = salle, 1 = arène de gardien,
@@ -1489,11 +1505,11 @@ func _finish_room(w: Dictionary, rng: RandomNumberGenerator, rng_seed: int, shri
 	Worlds.gate_spread = _gate_spread
 	if shrine > 0:
 		# sanctuaire : sa seule lumière ponctuelle remplace celles des abords (le paysage n'en garde aucune)
-		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 0, [], true, _cutter)
+		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), 0, [], true, _cutter, _solid_rects(), "shrine")
 		await slice()
 		await BossShrine.build(world_id, shrine == 2, _room_root, rng_seed, _cutter)
 	else:
-		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), Gfx.max_lights(1 if Toon.lite else Worlds.MAX_LIGHTS), [], false, _cutter, floor_rects)
+		await Worlds.build_props(world_id, _room_root, [high, frame], rng_seed, Rect2(), Gfx.max_lights(1 if Toon.lite else Worlds.MAX_LIGHTS), [], false, _cutter, _solid_rects(), "room")
 	await slice()
 	# les vides intérieurs deviennent des fosses (paroi, gouffre, bord cassé selon le monde)
 	_pits = await Worlds.build_pits(world_id, _room_root, floor_rects, void_rects(floor_rects), rng_seed, _cutter)
