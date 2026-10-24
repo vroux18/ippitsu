@@ -74,6 +74,7 @@ static func apply(ctx: Dictionary, wid_in: int, plats: Array, kind: String, seed
 ## Pose les nœuds vivants (lanternes qui se balancent) et les marqueurs de lampes : à appeler une fois les
 ## lots vidés (build_props), sous `root`.
 static func finish(ctx: Dictionary, root: Node3D) -> void:
+	_flush_decals(ctx, root)
 	if ctx.has("dress_life"):
 		var life: Life = ctx["dress_life"]
 		root.add_child(life)
@@ -122,26 +123,56 @@ static func _disc_mesh() -> ArrayMesh:
 
 ## Décalque plat : quad unité (ou disque si `round`) mis à l'échelle (sx, sz), tourné de `yaw`, aplat alpha
 ## sans lumière, dessiné avant les télégraphes (priorité -2) et sous eux.
-static func _decal(ctx: Dictionary, key: String, col: Color, p: Vector2, sx: float, sz: float, yaw: float, round := false, y := DECAL_Y) -> void:
-	var m := _decal_mat(col)
-	var mesh: Mesh = _disc_mesh() if round else _plane_mesh()
-	W._inst(ctx, "dress_" + key + ("_o" if round else ""), mesh, m, W._at(Vector3(p.x, y, p.y), Vector3(0, yaw, 0), Vector3(sx, 1.0, sz)))
+static func _decal(ctx: Dictionary, _key: String, col: Color, p: Vector2, sx: float, sz: float, yaw: float, round := false, y := DECAL_Y) -> void:
+	# tous les décalques d'une salle : deux MultiMesh (quads, disques) à couleur par instance, une seule
+	# matière alpha (la couleur de l'instance donne teinte et opacité) : 2 draw calls en tout
+	var k := "dress_decal_o" if round else "dress_decal_q"
+	if not ctx.has(k):
+		ctx[k] = [[], []]
+	var lst: Array = ctx[k]
+	(lst[0] as Array).append(W._at(Vector3(p.x, y, p.y), Vector3(0, yaw, 0), Vector3(sx, 1.0, sz)))
+	(lst[1] as Array).append(col)
 
 
-static func _decal_mat(col: Color) -> StandardMaterial3D:
-	var key := "dress_decal_" + col.to_html(true)
-	if W._mats.has(key):
-		var cached: StandardMaterial3D = W._mats[key]
+## Matière unique des décalques : aplat alpha sans lumière, couleur des sommets (instance), dessiné avant
+## les télégraphes (priorité -2) et sous eux.
+static func _decal_mat() -> StandardMaterial3D:
+	if W._mats.has("dress_decal"):
+		var cached: StandardMaterial3D = W._mats["dress_decal"]
 		return cached
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = col
+	m.albedo_color = Color.WHITE
+	m.vertex_color_use_as_albedo = true
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.render_priority = -2
-	m.no_depth_test = false
-	W._mats[key] = m
+	W._mats["dress_decal"] = m
 	return m
+
+
+## Pose les MultiMesh des décalques sous `root`.
+static func _flush_decals(ctx: Dictionary, root: Node3D) -> void:
+	for k in ["dress_decal_q", "dress_decal_o"]:
+		if not ctx.has(k):
+			continue
+		var lst: Array = ctx[k]
+		var xfs: Array = lst[0]
+		var cols: Array = lst[1]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = _disc_mesh() if k == "dress_decal_o" else _plane_mesh()
+		mm.instance_count = xfs.size()
+		for i in xfs.size():
+			mm.set_instance_transform(i, xfs[i])
+			mm.set_instance_color(i, cols[i])
+		var mi := MultiMeshInstance3D.new()
+		mi.name = "Decals"
+		mi.multimesh = mm
+		mi.material_override = _decal_mat()
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mi)
 
 
 ## Petit relief instancié (même maillage, même matière : un draw call par sorte).
@@ -294,7 +325,7 @@ static func _sack(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, col
 ## Bougie allumée (cire, flamme lumineuse, lueur au sol).
 static func _candle(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D, h: float, col := CANDLE, flame := WAX_GLOW) -> void:
 	W._add(bs, _tn(col), W._cyl(0.035, 0.04, h, 7), xf * _at(Vector3(0, h * 0.5, 0)))
-	W._add(bn, W._glow(flame, 1.8), W._cyl(0.0, 0.02, 0.07, 5), xf * _at(Vector3(0, h + 0.035, 0)))
+	W._add(bn, W._glow(flame, 2.0), W._cyl(0.0, 0.02, 0.07, 5), xf * _at(Vector3(0, h + 0.035, 0)))
 	Lueurs.add(bn, xf * Vector3(0, h + 0.03, 0), xf * Vector3.ZERO, Lueurs.tint(flame), 0.55, true)
 	_lamp(ctx, xf * Vector3(0, h + 0.05, 0), flame)
 
@@ -308,7 +339,7 @@ static func _incense(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 		var p := Vector3(cos(a) * 0.03, 0.09, sin(a) * 0.03)
 		var tip := p + Vector3(cos(a) * 0.05, 0.22, sin(a) * 0.05)
 		W._limb(bn, _tn(Color("#5A3A2A"), false), p, tip, 0.006, 0.005, 4, xf)
-		W._add(bn, W._glow(W.EMBER, 1.6), W._ball(0.012, 0.024, 5, 3), xf * _at(tip))
+		W._add(bn, W._glow(W.EMBER, 2.0), W._ball(0.012, 0.024, 5, 3), xf * _at(tip))
 
 
 ## Panneau de bois sur poteau (kanban) : planche et colonnes de marques d'encre, face à -X.
@@ -462,7 +493,7 @@ static func _stall(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 		3:
 			_woodpile(bs, bn, xf * _at(Vector3(0.15, 0.0, 0.3)), true)
 			_tub(bs, bn, xf * _at(Vector3(0.1, 0.715, -0.3)), 0.14, 0.16, Color("#5A4434"))
-			W._add(bn, W._glow(W.EMBER, 1.4), W._cyl(0.09, 0.09, 0.02, 8), xf * _at(Vector3(0.1, 0.87, -0.3)))
+			W._add(bn, W._glow(W.EMBER, 1.3), W._cyl(0.09, 0.09, 0.02, 8), xf * _at(Vector3(0.1, 0.87, -0.3)))
 			_jar(bs, bn, xf * _at(Vector3(0.1, 0.715, 0.25)), 0.11, 0.26, Color("#6E5A50"))
 		5:
 			_jar(bs, bn, xf * _at(Vector3(0.1, 0.715, -0.3)), 0.1, 0.24, Color("#2A2A33"))
@@ -581,7 +612,7 @@ static func _cauldron(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Trans
 		W._limb(bs, iron, Vector3(cos(a) * 0.3, 0, sin(a) * 0.3), Vector3(cos(a) * 0.12, 0.42, sin(a) * 0.12), 0.025, 0.02, 5, xf)
 	W._add(bs, iron, W._ball(0.3, 0.44, 10, 5), xf * _at(Vector3(0, 0.5, 0)))
 	W._add(bn, iron, Decor.torus(0.24, 0.3, 12, 4), xf * _at(Vector3(0, 0.7, 0)))
-	W._add(bn, W._glow(W.EMBER, 1.8), W._cyl(0.22, 0.22, 0.03, 10), xf * _at(Vector3(0, 0.7, 0)))
+	W._add(bn, W._glow(W.EMBER, 2.0), W._cyl(0.22, 0.22, 0.03, 10), xf * _at(Vector3(0, 0.7, 0)))
 	Lueurs.add(bn, xf * Vector3(0, 0.75, 0), xf * Vector3.ZERO, Color(1.0, 0.6, 0.26), 1.4, true)
 	_lamp(ctx, xf * Vector3(0, 0.8, 0), W.EMBER)
 
@@ -633,7 +664,7 @@ static func _scrolls(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 static func _pearl(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 	W._add(bs, _tn(Color("#6E2A4A")), W._box(Vector3(0.4, 0.1, 0.4)), xf * _at(Vector3(0.1, 0.05, 0)))
 	W._add(bn, _tn(Toon.GOLD, false), W._box(Vector3(0.42, 0.02, 0.42)), xf * _at(Vector3(0.1, 0.1, 0)))
-	W._add(bn, W._glow(W.CAUSTIC, 1.8), W._ball(0.1, 0.2, 9, 5), xf * _at(Vector3(0.1, 0.2, 0)))
+	W._add(bn, W._glow(W.CAUSTIC, 1.4), W._ball(0.1, 0.2, 9, 5), xf * _at(Vector3(0.1, 0.2, 0)))
 	Lueurs.add(bn, xf * Vector3(0.1, 0.2, 0), xf * Vector3(0.1, 0, 0), W.CAUSTIC, 0.9)
 	_lamp(ctx, xf * Vector3(0.1, 0.22, 0), W.CAUSTIC)
 
@@ -916,7 +947,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 			# brasero de bois carré, cendre et braises
 			W._add(bs, _tn(Color("#5A4434")), W._box(Vector3(0.44, 0.3, 0.44)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.15, 0)))
 			W._add(bn, _tn(Color("#9A9080"), false), W._box(Vector3(0.36, 0.02, 0.36)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.3, 0)))
-			W._add(bn, W._glow(W.EMBER, 1.6), W._cyl(0.1, 0.1, 0.03, 8), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.31, 0)))
+			W._add(bn, W._glow(W.EMBER, 2.0), W._cyl(0.1, 0.1, 0.03, 8), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.31, 0)))
 			Lueurs.add(bn, xf * Vector3(0.3, 0.35, 0), xf * Vector3(0.3, 0, 0), Color(1.0, 0.6, 0.26), 0.9, true)
 			_lamp(ctx, xf * Vector3(0.3, 0.4, 0), W.EMBER)
 			_tub(bs, bn, _j(xf, 0.16, 0.38, ry), 0.09, 0.14, Color("#5A4434"))
@@ -954,7 +985,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 				var hh := rng.randf_range(0.2, 0.5)
 				var rr := rng.randf_range(0.1, 0.16)
 				W._add(bs, m, W._cyl(rr, rr * 1.05, hh, 6), _j(xf, 0.3 + rng.randf_range(-0.08, 0.08), (k - 1) * 0.28, rng.randf()) * _at(Vector3(0, hh * 0.5, 0)))
-			W._add(bn, W._glow(W.LAVA_GOLD, 1.0), W._box(Vector3(0.3, 0.012, 0.03)), _j(xf, 0.3, 0.1, 0.6) * _at(Vector3(0, 0.01, 0)))
+			W._add(bn, W._glow(W.LAVA_GOLD, 1.2), W._box(Vector3(0.3, 0.012, 0.03)), _j(xf, 0.3, 0.1, 0.6) * _at(Vector3(0, 0.01, 0)))
 		"tubs":
 			_tub(bs, bn, _j(xf, 0.3, -0.25, ry), 0.16, 0.3, Color("#3A2E28"), false, Color("#141418"))
 			_tub(bs, bn, _j(xf, 0.3, 0.2, ry), 0.13, 0.22, Color("#3A2E28"))
@@ -1253,7 +1284,7 @@ static func _floor_item(wid: int, ctx: Dictionary, p: Vector2, k: int, rng: Rand
 			for i in 3:
 				var nq := q + d.rotated(rng.randf_range(-0.6, 0.6)) * 0.22
 				var c := (q + nq) * 0.5
-				_bit(ctx, "ember_crack", W._box(Vector3(1.0, 0.006, 0.03)), W._glow(W.LAVA_GOLD, 1.3), _at(Vector3(c.x, 0.009, c.y), Vector3(0, -(nq - q).angle(), 0), Vector3(q.distance_to(nq), 1, 1)))
+				_bit(ctx, "ember_crack", W._box(Vector3(1.0, 0.006, 0.03)), W._glow(W.LAVA_GOLD, 1.2), _at(Vector3(c.x, 0.009, c.y), Vector3(0, -(nq - q).angle(), 0), Vector3(q.distance_to(nq), 1, 1)))
 				q = nq
 		"cinders":
 			for i in 5:
