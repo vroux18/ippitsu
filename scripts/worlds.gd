@@ -2055,14 +2055,10 @@ static func build_props(world_id: int, parent: Node3D, rects: Array, rng_seed: i
 		_dress_script().finish(ctx, root)
 
 
-static var _dress: GDScript = null
-
-
-## decor_dress.gd, chargé à la demande (il préchargerait ce script en retour : pas de cycle de preload).
+## decor_dress.gd, chargé à la demande (il précharge ce script en retour : ni preload ni variable statique
+## ici, sinon les deux scripts se tiendraient l'un l'autre et resteraient en mémoire à la sortie).
 static func _dress_script() -> GDScript:
-	if _dress == null:
-		_dress = load("res://scripts/decor_dress.gd")
-	return _dress
+	return load("res://scripts/decor_dress.gd")
 
 
 ## Construction étalée (arena : sous le rideau d'encre, ou décor différé) : rend la main entre deux morceaux

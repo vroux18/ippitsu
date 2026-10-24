@@ -75,9 +75,14 @@ static func apply(ctx: Dictionary, wid_in: int, plats: Array, kind: String, seed
 ## lots vidés (build_props), sous `root`.
 static func finish(ctx: Dictionary, root: Node3D) -> void:
 	_flush_decals(ctx, root)
-	if ctx.has("dress_life"):
-		var life: Life = ctx["dress_life"]
+	var items: Array = ctx.get("dress_life", [])
+	if not items.is_empty():
+		var life: Life = Life.new()
+		life.name = "DecorLife"
 		root.add_child(life)
+		for it in items:
+			var a: Array = it
+			life.add(a[0], a[1], a[2], a[3], a[4], a[5])
 		life.commit()
 	var lamps: Array = ctx.get("dress_lamps", [])
 	for l in lamps:
@@ -175,9 +180,10 @@ static func _flush_decals(ctx: Dictionary, root: Node3D) -> void:
 		root.add_child(mi)
 
 
-## Petit relief instancié (même maillage, même matière : un draw call par sorte).
-static func _bit(ctx: Dictionary, key: String, mesh: Mesh, mat: Material, xf: Transform3D) -> void:
-	W._inst(ctx, "dress_" + key, mesh, mat, xf)
+## Petit relief au sol (quelques pièces par salle).
+static func _bit(ctx: Dictionary, _key: String, mesh: Mesh, mat: Material, xf: Transform3D) -> void:
+	# fusionné dans le lot sans ombre de sa matière (partagé avec le reste du décor) : pas d'objet de plus
+	W._add(ctx["bn"], mat, mesh, xf)
 
 
 ## Source de feu : marqueur pour la lumière (groupe « lamp »), position dans le repère du décor.
@@ -186,12 +192,12 @@ static func _lamp(ctx: Dictionary, pos: Vector3, col: Color) -> void:
 	lamps.append([pos, col])
 
 
-static func _life(ctx: Dictionary) -> Life:
+## Pièce vivante déclarée (le nœud n'est créé qu'au finish : une construction abandonnée ne laisse rien).
+static func _live(ctx: Dictionary, key: String, mesh: Mesh, base: Transform3D, amp: float, speed: float, axis: Vector3) -> void:
 	if not ctx.has("dress_life"):
-		var l: Life = Life.new()
-		l.name = "DecorLife"
-		ctx["dress_life"] = l
-	return ctx["dress_life"]
+		ctx["dress_life"] = []
+	var lst: Array = ctx["dress_life"]
+	lst.append([key, mesh, base, amp, speed, axis])
 
 
 ## Toon partagé : une seule épaisseur de contour (0,02) pour tout l'habillage, afin que deux pièces d'une
@@ -446,8 +452,7 @@ static func _hook_lantern(ctx: Dictionary, bs: Dictionary, xf: Transform3D, colo
 	W._add(bs, pole_m, W._box(Vector3(0.5, 0.05, 0.05)), xf * _at(Vector3(-0.2, h - 0.04, 0)))
 	W._limb(bs, pole_m, Vector3(0, h - 0.3, 0), Vector3(-0.22, h - 0.06, 0), 0.018, 0.018, 4, xf)
 	var hook := xf * _at(Vector3(-0.4, h - 0.06, 0))
-	var life: Life = _life(ctx)
-	life.add("lantern_" + color.to_html(false), _lantern_mesh(color), hook, 0.1, 1.3, Vector3(0, 0, 1))
+	_live(ctx, "lantern_" + color.to_html(false), _lantern_mesh(color), hook, 0.1, 1.3, Vector3(0, 0, 1))
 	Lueurs.add(bs, hook.origin + Vector3(0, -0.37, 0), Vector3(hook.origin.x, 0.0, hook.origin.z), Lueurs.tint(color), 1.2)
 	_lamp(ctx, hook.origin + Vector3(0, -0.37, 0), color)
 
@@ -457,8 +462,7 @@ static func _flag(ctx: Dictionary, bs: Dictionary, xf: Transform3D, cloth: Color
 	var pole_m := _tn(Decor.POLE)
 	W._add(bs, pole_m, W._cyl(0.025, 0.035, h, 6), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bs, pole_m, W._ball(0.04, 0.08, 6, 3), xf * _at(Vector3(0, h + 0.03, 0)))
-	var life: Life = _life(ctx)
-	life.add("flag_" + cloth.to_html(false), _flag_mesh(cloth, ink), xf * _at(Vector3(0.0, h - 0.04, 0), Vector3(0, PI * 0.5, 0)), 0.14, 2.1, Vector3(0, 1, 0))
+	_live(ctx, "flag_" + cloth.to_html(false), _flag_mesh(cloth, ink), xf * _at(Vector3(0.0, h - 0.04, 0), Vector3(0, PI * 0.5, 0)), 0.14, 2.1, Vector3(0, 1, 0))
 
 
 ## Étal couvert : quatre poteaux, comptoir, toile tendue en pente, lanterne au coin ; marchandises par monde.
@@ -476,7 +480,7 @@ static func _stall(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 	W._add(bn, _tn(cloth.darkened(0.35), false), W._box(Vector3(0.06, 0.04, 1.52)), xf * _at(Vector3(-0.52, 1.64, 0), Vector3(0, 0, -0.28)))
 	# lanterne qui pend au coin sud de l'auvent
 	var hook := xf * _at(Vector3(-0.5, 1.6, 0.7))
-	_life(ctx).add("lantern_" + WASHI.to_html(false), _lantern_mesh(WASHI), hook, 0.08, 1.5, Vector3(1, 0, 0))
+	_live(ctx, "lantern_" + WASHI.to_html(false), _lantern_mesh(WASHI), hook, 0.08, 1.5, Vector3(1, 0, 0))
 	_lamp(ctx, hook.origin + Vector3(0, -0.37, 0), WASHI)
 	Lueurs.add(bn, hook.origin + Vector3(0, -0.37, 0), Vector3(hook.origin.x, 0.0, hook.origin.z), Lueurs.tint(WASHI), 1.0)
 	# marchandises sur le comptoir et dessous
@@ -692,7 +696,7 @@ static func _dead_branch(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: R
 static func _ferns(ctx: Dictionary, bs: Dictionary, xf: Transform3D, rng: RandomNumberGenerator, col: Color) -> void:
 	for k in 3:
 		var q := xf * _at(Vector3(0.15 + rng.randf_range(-0.1, 0.1), 0, (k - 1) * 0.22), Vector3(0, rng.randf() * TAU, 0), Vector3(1.1, 0.9, 1.1))
-		W._inst(ctx, "dress_fern_" + col.to_html(false), W._tuft_mesh(), W._toon_ds(col), q)
+		W._inst(ctx, "reed" if col == W.FERN_RUST else "dress_fern_" + col.to_html(false), W._tuft_mesh(), W._toon_ds(col), q)
 	Decor.rock_into(bs, xf * _at(Vector3(0.32, 0, 0.1), Vector3.ZERO, Vector3.ONE * 0.3), rng.randi() % 10000, W.KURAMA_ROCK)
 
 
