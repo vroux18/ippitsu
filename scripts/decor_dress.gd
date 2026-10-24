@@ -163,8 +163,10 @@ static func _life(ctx: Dictionary) -> Life:
 	return ctx["dress_life"]
 
 
-static func _tn(col: Color, outline := true, osz := 0.02) -> StandardMaterial3D:
-	return W._toon(col, outline, osz)
+## Toon partagé : une seule épaisseur de contour (0,02) pour tout l'habillage, afin que deux pièces d'une
+## même teinte partagent toujours leur matière (donc leur draw call), ou aucun contour (`outline` faux).
+static func _tn(col: Color, outline := true) -> StandardMaterial3D:
+	return W._toon(col, outline, 0.02)
 
 
 static func _at(p: Vector3, rot := Vector3.ZERO, scl := Vector3.ONE) -> Transform3D:
@@ -203,7 +205,7 @@ static func _flag_mesh(cloth: Color, ink: Color) -> ArrayMesh:
 		var cached: ArrayMesh = W._meshes[key]
 		return cached
 	var b := {}
-	var cm := _tn(cloth, true, 0.015)
+	var cm := _tn(cloth)
 	var im := _tn(ink, false)
 	W._add(b, cm, W._box(Vector3(0.42, 1.1, 0.025)), _at(Vector3(0.24, -0.55, 0)))
 	W._add(b, im, W._box(Vector3(0.42, 0.08, 0.03)), _at(Vector3(0.24, -0.06, 0)))
@@ -233,21 +235,21 @@ static func _commit_multi(b: Dictionary) -> ArrayMesh:
 
 ## Caisse tamponnée (planches, tasseaux, tampon d'encre sur la face -X : vers l'arène).
 static func _crate(bs: Dictionary, bn: Dictionary, xf: Transform3D, w: float, h: float, d: float, col := CRATE, stamp := STAMP_INK) -> void:
-	var m := _tn(col, true, 0.02)
-	var dark := _tn(col.darkened(0.35), false)
+	var m := _tn(col)
+	var dark := _tn(Decor.ROPE_DARK, false)
 	var ink := _tn(stamp, false)
 	W._add(bs, m, W._box(Vector3(w, h, d)), xf * _at(Vector3(0, h * 0.5, 0)))
 	for sz: float in [-1.0, 1.0]:
 		W._add(bn, dark, W._box(Vector3(w + 0.02, 0.04, 0.05)), xf * _at(Vector3(0, h - 0.03, sz * (d * 0.5 - 0.06))))
 		W._add(bn, dark, W._box(Vector3(0.05, h + 0.01, 0.04)), xf * _at(Vector3(sz * (w * 0.5 - 0.06), h * 0.5, -d * 0.5 - 0.005)))
 	W._add(bn, ink, W._box(Vector3(0.012, h * 0.38, d * 0.36)), xf * _at(Vector3(-w * 0.5 - 0.004, h * 0.55, 0)))
-	W._add(bn, _tn(col.lightened(0.25), false), W._box(Vector3(0.016, h * 0.14, d * 0.2)), xf * _at(Vector3(-w * 0.5 - 0.006, h * 0.55, 0)))
+	W._add(bn, _tn(WASHI, false), W._box(Vector3(0.016, h * 0.14, d * 0.2)), xf * _at(Vector3(-w * 0.5 - 0.006, h * 0.55, 0)))
 
 
 ## Tonnelet de bois cerclé (seau si `handle`).
 static func _tub(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, h: float, col: Color, handle := false, fill := Color(0, 0, 0, 0)) -> void:
-	var wood := _tn(col, true, 0.018)
-	var hoop := _tn(Color("#3A3A3E"), false)
+	var wood := _tn(col)
+	var hoop := _tn(Decor.ROPE_DARK, false)
 	W._add(bs, wood, W._cyl(r, r * 0.86, h, 9), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bn, hoop, W._cyl(r * 1.01, r * 1.01, 0.03, 9), xf * _at(Vector3(0, h * 0.82, 0)))
 	W._add(bn, hoop, W._cyl(r * 0.92, r * 0.92, 0.03, 9), xf * _at(Vector3(0, h * 0.2, 0)))
@@ -259,8 +261,8 @@ static func _tub(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, h: f
 
 ## Panier tressé (cône tronqué, bord renforcé) garni de boules (poissons, fruits, fleurs).
 static func _basket(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, h: float, fill: Color, n: int, rng: RandomNumberGenerator, fish := false) -> void:
-	var wk := _tn(BASKET, true, 0.018)
-	var rim := _tn(BASKET.darkened(0.3), false)
+	var wk := _tn(BASKET)
+	var rim := _tn(Decor.ROPE_DARK, false)
 	W._add(bs, wk, W._cyl(r, r * 0.72, h, 8), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bn, rim, Decor.torus(r - 0.02, r + 0.02, 10, 4), xf * _at(Vector3(0, h, 0)))
 	var fm := _tn(fill, false)
@@ -277,21 +279,21 @@ static func _basket(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, h
 
 ## Rouleau de cordage (deux tores aplatis).
 static func _coil(bn: Dictionary, xf: Transform3D, r: float, col := Decor.KOMO) -> void:
-	var m := _tn(col, true, 0.012)
+	var m := _tn(col)
 	W._add(bn, m, Decor.torus(r * 0.45, r, 12, 5), xf * _at(Vector3(0, r * 0.22, 0), Vector3.ZERO, Vector3(1, 0.5, 1)))
 	W._add(bn, m, Decor.torus(r * 0.4, r * 0.92, 12, 5), xf * _at(Vector3(0, r * 0.5, 0), Vector3(0, 0.6, 0), Vector3(1, 0.5, 1)))
 
 
 ## Sac de riz ou de sel noué.
 static func _sack(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, col := SACK) -> void:
-	var m := _tn(col, true, 0.018)
+	var m := _tn(col)
 	W._add(bs, m, W._ball(r, r * 1.3, 8, 4), xf * _at(Vector3(0, r * 0.6, 0), Vector3.ZERO, Vector3(1, 1, 0.85)))
 	W._add(bn, _tn(Decor.ROPE_DARK, false), W._cyl(0.03, 0.05, 0.08, 6), xf * _at(Vector3(0, r * 1.25, 0)))
 
 
 ## Bougie allumée (cire, flamme lumineuse, lueur au sol).
 static func _candle(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D, h: float, col := CANDLE, flame := WAX_GLOW) -> void:
-	W._add(bs, _tn(col, true, 0.012), W._cyl(0.035, 0.04, h, 7), xf * _at(Vector3(0, h * 0.5, 0)))
+	W._add(bs, _tn(col), W._cyl(0.035, 0.04, h, 7), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bn, W._glow(flame, 1.8), W._cyl(0.0, 0.02, 0.07, 5), xf * _at(Vector3(0, h + 0.035, 0)))
 	Lueurs.add(bn, xf * Vector3(0, h + 0.03, 0), xf * Vector3.ZERO, Lueurs.tint(flame), 0.55, true)
 	_lamp(ctx, xf * Vector3(0, h + 0.05, 0), flame)
@@ -299,7 +301,7 @@ static func _candle(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfo
 
 ## Brûle-encens : bol de bronze, sable, trois bâtonnets aux pointes rouges-or.
 static func _incense(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	W._add(bs, _tn(Decor.BRONZE, true, 0.015), W._cyl(0.1, 0.07, 0.09, 8), xf * _at(Vector3(0, 0.045, 0)))
+	W._add(bs, _tn(Decor.BRONZE), W._cyl(0.1, 0.07, 0.09, 8), xf * _at(Vector3(0, 0.045, 0)))
 	W._add(bn, _tn(Color("#9A9080"), false), W._cyl(0.085, 0.085, 0.02, 8), xf * _at(Vector3(0, 0.085, 0)))
 	for k in 3:
 		var a := TAU * k / 3.0
@@ -311,9 +313,9 @@ static func _incense(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 
 ## Panneau de bois sur poteau (kanban) : planche et colonnes de marques d'encre, face à -X.
 static func _sign(bs: Dictionary, bn: Dictionary, xf: Transform3D, h: float, board := Color("#CDB78E"), ink := INK) -> void:
-	var pole := _tn(Decor.POLE, true, 0.018)
+	var pole := _tn(Decor.POLE)
 	W._add(bs, pole, W._cyl(0.03, 0.04, h, 6), xf * _at(Vector3(0, h * 0.5, 0)))
-	W._add(bs, _tn(board, true, 0.018), W._box(Vector3(0.04, 0.5, 0.36)), xf * _at(Vector3(0, h - 0.3, 0)))
+	W._add(bs, _tn(board), W._box(Vector3(0.04, 0.5, 0.36)), xf * _at(Vector3(0, h - 0.3, 0)))
 	var im := _tn(ink, false)
 	for k in 4:
 		W._add(bn, im, W._box(Vector3(0.012, 0.07, 0.08 if k % 2 == 0 else 0.05)), xf * _at(Vector3(-0.026, h - 0.12 - k * 0.1, 0.0)))
@@ -322,7 +324,7 @@ static func _sign(bs: Dictionary, bn: Dictionary, xf: Transform3D, h: float, boa
 
 ## Tas de bûches (deux rangs croisés).
 static func _woodpile(bs: Dictionary, bn: Dictionary, xf: Transform3D, snow := false) -> void:
-	var bark := _tn(Decor.BARK_PINE, true, 0.018)
+	var bark := _tn(Decor.BARK_PINE)
 	var cut := _tn(Color("#D8C09A"), false)
 	for row in 2:
 		for k in 3 - row:
@@ -337,7 +339,7 @@ static func _woodpile(bs: Dictionary, bn: Dictionary, xf: Transform3D, snow := f
 
 ## Yuki-daruma : deux boules de neige, yeux de charbon, seau renversé en chapeau, brindilles.
 static func _yukidaruma(bs: Dictionary, bn: Dictionary, xf: Transform3D, s: float) -> void:
-	var snow := _tn(W.SNOW, true, 0.02)
+	var snow := _tn(W.SNOW)
 	var coal := _tn(Toon.SUMI, false)
 	W._add(bs, snow, W._ball(0.26 * s, 0.46 * s, 9, 5), xf * _at(Vector3(0, 0.22 * s, 0)))
 	W._add(bs, snow, W._ball(0.18 * s, 0.34 * s, 9, 5), xf * _at(Vector3(0, 0.55 * s, 0)))
@@ -352,7 +354,7 @@ static func _yukidaruma(bs: Dictionary, bn: Dictionary, xf: Transform3D, s: floa
 ## Champignons en bouquet (pieds clairs, chapeaux roux).
 static func _mushrooms(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator, cap := MUSH_CAP) -> void:
 	var stem := _tn(MUSH_STEM, false)
-	var cm := _tn(cap, true, 0.012)
+	var cm := _tn(cap)
 	for k in rng.randi_range(3, 5):
 		var a := rng.randf() * TAU
 		var d := rng.randf_range(0.0, 0.14)
@@ -365,8 +367,8 @@ static func _mushrooms(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: Ran
 
 ## Coquillages et étoile de mer au sol.
 static func _shells(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
-	var sh := _tn(SHELL, true, 0.01)
-	var st := _tn(STARFISH, true, 0.01)
+	var sh := _tn(SHELL)
+	var st := _tn(STARFISH)
 	for k in rng.randi_range(2, 4):
 		var a := rng.randf() * TAU
 		var d := rng.randf_range(0.05, 0.22)
@@ -382,15 +384,15 @@ static func _shells(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: Random
 
 ## Jarre (col étroit, panse, couvercle).
 static func _jar(bs: Dictionary, bn: Dictionary, xf: Transform3D, r: float, h: float, col: Color) -> void:
-	var m := _tn(col, true, 0.018)
+	var m := _tn(col)
 	W._add(bs, m, W._ball(r, h * 0.9, 9, 5), xf * _at(Vector3(0, h * 0.42, 0)))
 	W._add(bs, m, W._cyl(r * 0.45, r * 0.38, h * 0.3, 8), xf * _at(Vector3(0, h * 0.8, 0)))
-	W._add(bn, _tn(col.darkened(0.4), false), W._cyl(r * 0.5, r * 0.5, 0.03, 8), xf * _at(Vector3(0, h * 0.95, 0)))
+	W._add(bn, _tn(Decor.ROPE_DARK, false), W._cyl(r * 0.5, r * 0.5, 0.03, 8), xf * _at(Vector3(0, h * 0.95, 0)))
 
 
 ## Bassin de pierre (chōzubachi) : vasque, eau, louche de bambou posée en travers.
 static func _basin(bs: Dictionary, bn: Dictionary, xf: Transform3D, stone: Color) -> void:
-	W._add(bs, _tn(stone, true, 0.02), W._cyl(0.26, 0.22, 0.36, 9), xf * _at(Vector3(0, 0.18, 0)))
+	W._add(bs, _tn(stone), W._cyl(0.26, 0.22, 0.36, 9), xf * _at(Vector3(0, 0.18, 0)))
 	W._add(bn, _tn(Color("#5E8DB6"), false), W._cyl(0.2, 0.2, 0.02, 9), xf * _at(Vector3(0, 0.34, 0)))
 	var bam := _tn(Decor.BAMBOO, false)
 	W._add(bn, bam, W._cyl(0.012, 0.012, 0.5, 5), xf * _at(Vector3(0, 0.4, 0), Vector3(0, 0, PI * 0.5)))
@@ -407,7 +409,7 @@ static func _stone_lantern(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: 
 
 ## Lanterne de papier au crochet d'une potence : potence fixe dans les lots, lanterne vivante (balancement).
 static func _hook_lantern(ctx: Dictionary, bs: Dictionary, xf: Transform3D, color: Color, h := 1.75) -> void:
-	var pole_m := _tn(Decor.POLE, true, 0.02)
+	var pole_m := _tn(Decor.POLE)
 	W._add(bs, pole_m, W._box(Vector3(0.16, 0.08, 0.16)), xf * _at(Vector3(0, 0.04, 0)))
 	W._add(bs, pole_m, W._cyl(0.035, 0.045, h, 6), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bs, pole_m, W._box(Vector3(0.5, 0.05, 0.05)), xf * _at(Vector3(-0.2, h - 0.04, 0)))
@@ -421,7 +423,7 @@ static func _hook_lantern(ctx: Dictionary, bs: Dictionary, xf: Transform3D, colo
 
 ## Bannière sur mât (fixe) dont le tissu flotte (vivant).
 static func _flag(ctx: Dictionary, bs: Dictionary, xf: Transform3D, cloth: Color, ink: Color, h := 2.0) -> void:
-	var pole_m := _tn(Decor.POLE, true, 0.02)
+	var pole_m := _tn(Decor.POLE)
 	W._add(bs, pole_m, W._cyl(0.025, 0.035, h, 6), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bs, pole_m, W._ball(0.04, 0.08, 6, 3), xf * _at(Vector3(0, h + 0.03, 0)))
 	var life: Life = _life(ctx)
@@ -430,8 +432,8 @@ static func _flag(ctx: Dictionary, bs: Dictionary, xf: Transform3D, cloth: Color
 
 ## Étal couvert : quatre poteaux, comptoir, toile tendue en pente, lanterne au coin ; marchandises par monde.
 static func _stall(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D, cloth: Color, rng: RandomNumberGenerator, wid: int) -> void:
-	var pole_m := _tn(Decor.POLE, true, 0.02)
-	var plank := _tn(Decor.PLANK, true, 0.02)
+	var pole_m := _tn(Decor.POLE)
+	var plank := _tn(Decor.PLANK)
 	for sx: float in [-1.0, 1.0]:
 		for sz: float in [-1.0, 1.0]:
 			var hh := 1.55 if sx < 0.0 else 1.3
@@ -439,7 +441,7 @@ static func _stall(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 	W._add(bs, plank, W._box(Vector3(0.7, 0.07, 1.3)), xf * _at(Vector3(0.1, 0.68, 0)))
 	for sz: float in [-1.0, 1.0]:
 		W._add(bn, pole_m, W._box(Vector3(0.6, 0.05, 0.05)), xf * _at(Vector3(0.1, 0.4, sz * 0.5)))
-	W._add(bs, _tn(cloth, true, 0.02), W._box(Vector3(1.1, 0.03, 1.5)), xf * _at(Vector3(0.0, 1.5, 0), Vector3(0, 0, -0.28)))
+	W._add(bs, _tn(cloth), W._box(Vector3(1.1, 0.03, 1.5)), xf * _at(Vector3(0.0, 1.5, 0), Vector3(0, 0, -0.28)))
 	W._add(bn, _tn(cloth.darkened(0.35), false), W._box(Vector3(0.06, 0.04, 1.52)), xf * _at(Vector3(-0.52, 1.64, 0), Vector3(0, 0, -0.28)))
 	# lanterne qui pend au coin sud de l'auvent
 	var hook := xf * _at(Vector3(-0.5, 1.6, 0.7))
@@ -465,7 +467,7 @@ static func _stall(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 		5:
 			_jar(bs, bn, xf * _at(Vector3(0.1, 0.715, -0.3)), 0.1, 0.24, Color("#2A2A33"))
 			for k in 3:
-				W._add(bn, _tn(WASHI, true, 0.01), W._box(Vector3(0.28, 0.012, 0.2)), xf * _at(Vector3(0.1, 0.72 + k * 0.014, 0.25), Vector3(0, k * 0.2, 0)))
+				W._add(bn, _tn(WASHI), W._box(Vector3(0.28, 0.012, 0.2)), xf * _at(Vector3(0.1, 0.72 + k * 0.014, 0.25), Vector3(0, k * 0.2, 0)))
 			W._brush_into(bs, xf * _at(Vector3(0.2, 0.0, 0.0), Vector3(0, 0, 0.4), Vector3.ONE * 0.5))
 		7:
 			_shells(bs, bn, xf * _at(Vector3(0.1, 0.715, -0.3)), rng)
@@ -479,7 +481,7 @@ static func _stall(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 
 ## Petit autel : table de pierre ou de bois, offrande, bougies, encens, shimenawa sur deux piquets.
 static func _altar(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D, table: Color, wid: int) -> void:
-	var tm := _tn(table, true, 0.02)
+	var tm := _tn(table)
 	W._add(bs, tm, W._box(Vector3(0.6, 0.08, 0.9)), xf * _at(Vector3(0.1, 0.04, 0)))
 	W._add(bs, tm, W._box(Vector3(0.44, 0.26, 0.7)), xf * _at(Vector3(0.1, 0.21, 0)))
 	W._add(bs, tm, W._box(Vector3(0.62, 0.06, 0.92)), xf * _at(Vector3(0.1, 0.37, 0)))
@@ -487,7 +489,7 @@ static func _altar(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 	for sz: float in [-1.0, 1.0]:
 		_candle(ctx, bs, bn, xf * _at(Vector3(0.0, 0.4, sz * 0.32)), 0.12 if sz < 0.0 else 0.18, CANDLE, W.YOMI_GLOW if wid == 8 else WAX_GLOW)
 	_incense(bs, bn, xf * _at(Vector3(0.26, 0.4, -0.1)))
-	var pole := _tn(Decor.POLE, true, 0.015)
+	var pole := _tn(Decor.POLE)
 	for sz: float in [-1.0, 1.0]:
 		W._add(bs, pole, W._cyl(0.02, 0.025, 0.9, 5), xf * _at(Vector3(0.45, 0.45, sz * 0.5)))
 	Decor.shimenawa_into(bs, bn, xf * Vector3(0.45, 0.88, -0.5), xf * Vector3(0.45, 0.88, 0.5))
@@ -495,7 +497,7 @@ static func _altar(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 
 ## Vieille ancre de fer appuyée (jas, verge, bras, anneau).
 static func _anchor(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	var iron := _tn(W.IRON, true, 0.02)
+	var iron := _tn(W.IRON)
 	var x2 := xf * _at(Vector3(0.1, 0, 0), Vector3(0, 0, 0.3))
 	W._add(bs, iron, W._cyl(0.03, 0.035, 0.9, 6), x2 * _at(Vector3(0, 0.45, 0)))
 	W._limb(bs, iron, Vector3(0, 0.08, 0), Vector3(0.22, 0.26, 0), 0.03, 0.015, 5, x2)
@@ -506,8 +508,8 @@ static func _anchor(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 
 ## Cloche de bronze suspendue à un portique de deux poteaux.
 static func _bell(bs: Dictionary, bn: Dictionary, xf: Transform3D, s: float) -> void:
-	var wood := _tn(Decor.POLE, true, 0.02)
-	var bronze := _tn(Decor.BRONZE, true, 0.02)
+	var wood := _tn(Decor.POLE)
+	var bronze := _tn(Decor.BRONZE)
 	for sz: float in [-1.0, 1.0]:
 		W._add(bs, wood, W._cyl(0.035, 0.045, 1.3 * s, 6), xf * _at(Vector3(0, 0.65 * s, sz * 0.42 * s)))
 	W._add(bs, wood, W._box(Vector3(0.08 * s, 0.08 * s, 1.0 * s)), xf * _at(Vector3(0, 1.3 * s, 0)))
@@ -519,7 +521,7 @@ static func _bell(bs: Dictionary, bn: Dictionary, xf: Transform3D, s: float) -> 
 
 ## Paire de geta (socques de bois) posées côte à côte.
 static func _geta(bn: Dictionary, xf: Transform3D, s := 1.0) -> void:
-	var wood := _tn(Color("#C9A86E"), true, 0.01)
+	var wood := _tn(Color("#C9A86E"))
 	var strap := _tn(Toon.SUMI, false)
 	for sz: float in [-1.0, 1.0]:
 		var x2 := xf * _at(Vector3(0, 0, sz * 0.09 * s), Vector3(0, sz * 0.1, 0))
@@ -532,11 +534,11 @@ static func _geta(bn: Dictionary, xf: Transform3D, s := 1.0) -> void:
 
 ## Perche à poissons séchés : deux piquets, traverse, poissons pendus.
 static func _fish_rack(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
-	var pole := _tn(Decor.POLE, true, 0.018)
+	var pole := _tn(Decor.POLE)
 	for sz: float in [-1.0, 1.0]:
 		W._add(bs, pole, W._cyl(0.025, 0.03, 1.2, 5), xf * _at(Vector3(0, 0.6, sz * 0.5)))
 	W._add(bs, pole, W._cyl(0.02, 0.02, 1.1, 5), xf * _at(Vector3(0, 1.18, 0), Vector3(PI * 0.5, 0, 0)))
-	var fm := _tn(FISH, true, 0.012)
+	var fm := _tn(FISH)
 	for k in 4:
 		var z := -0.36 + k * 0.24 + rng.randf_range(-0.03, 0.03)
 		W._add(bs, fm, W._ball(0.05, 0.3, 6, 3), xf * _at(Vector3(0, 0.98, z), Vector3(0, 0, rng.randf_range(-0.1, 0.1))))
@@ -545,7 +547,7 @@ static func _fish_rack(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: Ran
 
 ## Tas de filets (boule aplatie) et flotteurs de verre.
 static func _net_pile(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
-	var nm := _tn(NET, true, 0.015)
+	var nm := _tn(NET)
 	W._add(bs, nm, W._ball(0.32, 0.26, 9, 4), xf * _at(Vector3(0.05, 0.0, 0), Vector3(0, rng.randf() * TAU, 0), Vector3(1, 1, 0.8)))
 	W._add(bs, nm, W._ball(0.18, 0.18, 7, 3), xf * _at(Vector3(0.2, 0.14, 0.12)))
 	for k in 2:
@@ -554,7 +556,7 @@ static func _net_pile(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: Rand
 
 ## Rames et gaffe appuyées, seau à côté.
 static func _oars(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	var wood := _tn(Decor.PLANK, true, 0.015)
+	var wood := _tn(Decor.PLANK)
 	for k in 2:
 		var x2 := xf * _at(Vector3(0.3, 0, -0.1 + k * 0.2), Vector3(0, 0, -0.9 + k * 0.08))
 		W._add(bs, wood, W._cyl(0.02, 0.022, 1.5, 5), x2 * _at(Vector3(0, 0.75, 0)))
@@ -564,7 +566,7 @@ static func _oars(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 
 ## Souche de cèdre (anneaux de coupe) coiffée de champignons et de mousse.
 static func _stump(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
-	W._add(bs, _tn(W.CEDAR_BARK, true, 0.02), W._cyl(0.22, 0.28, 0.34, 9), xf * _at(Vector3(0, 0.17, 0)))
+	W._add(bs, _tn(W.CEDAR_BARK), W._cyl(0.22, 0.28, 0.34, 9), xf * _at(Vector3(0, 0.17, 0)))
 	W._add(bn, _tn(Color("#C9A878"), false), W._cyl(0.2, 0.2, 0.02, 9), xf * _at(Vector3(0, 0.345, 0)))
 	W._add(bn, _tn(Color("#A88A5C"), false), Decor.torus(0.09, 0.12, 10, 4), xf * _at(Vector3(0, 0.355, 0), Vector3.ZERO, Vector3(1, 0.2, 1)))
 	W._add(bn, _tn(MOSS, false), W._ball(0.12, 0.08, 7, 3), xf * _at(Vector3(0.14, 0.34, 0.1)))
@@ -573,7 +575,7 @@ static func _stump(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomN
 
 ## Chaudron de fer sur trépied, braises dedans.
 static func _cauldron(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	var iron := _tn(W.IRON, true, 0.02)
+	var iron := _tn(W.IRON)
 	for k in 3:
 		var a := TAU * k / 3.0
 		W._limb(bs, iron, Vector3(cos(a) * 0.3, 0, sin(a) * 0.3), Vector3(cos(a) * 0.12, 0.42, sin(a) * 0.12), 0.025, 0.02, 5, xf)
@@ -586,8 +588,8 @@ static func _cauldron(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Trans
 
 ## Torche fichée dans un socle de basalte (flamme ambre).
 static func _torch(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D, h: float) -> void:
-	W._add(bs, _tn(W.BASALT, true, 0.02), W._cyl(0.14, 0.18, 0.18, 7), xf * _at(Vector3(0, 0.09, 0)))
-	W._add(bs, _tn(Decor.POLE, true, 0.018), W._cyl(0.03, 0.04, h, 6), xf * _at(Vector3(0, h * 0.5, 0)))
+	W._add(bs, _tn(W.BASALT), W._cyl(0.14, 0.18, 0.18, 7), xf * _at(Vector3(0, 0.09, 0)))
+	W._add(bs, _tn(Decor.POLE), W._cyl(0.03, 0.04, h, 6), xf * _at(Vector3(0, h * 0.5, 0)))
 	W._add(bn, _tn(W.IRON, false), W._cyl(0.08, 0.06, 0.12, 7), xf * _at(Vector3(0, h, 0)))
 	W._add(bn, W._glow(W.EMBER, 2.0), W._cyl(0.0, 0.1, 0.34, 6), xf * _at(Vector3(0, h + 0.22, 0)))
 	W._add(bn, W._glow(W.FLAME_CORE, 2.4), W._cyl(0.0, 0.05, 0.2, 5), xf * _at(Vector3(0, h + 0.16, 0)))
@@ -597,27 +599,27 @@ static func _torch(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transfor
 
 ## Nécessaire d'écriture : pierre à encre, bâton d'encre, pot, pinceau couché, feuilles.
 static func _inkset(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	var dark := _tn(Color("#2A2A33"), true, 0.015)
+	var dark := _tn(Color("#2A2A33"))
 	W._add(bs, dark, W._box(Vector3(0.3, 0.05, 0.2)), xf * _at(Vector3(0.1, 0.025, -0.15)))
 	W._add(bn, _tn(Color("#141418"), false), W._box(Vector3(0.22, 0.012, 0.12)), xf * _at(Vector3(0.08, 0.052, -0.15)))
 	W._add(bs, dark, W._box(Vector3(0.04, 0.12, 0.1)), xf * _at(Vector3(0.28, 0.06, -0.2), Vector3(0, 0.3, 0)))
 	_jar(bs, bn, xf * _at(Vector3(0.3, 0.0, 0.2)), 0.08, 0.2, Color("#3A4A5E"))
 	_small_brush(bn, xf * _at(Vector3(0.12, 0.0, 0.22), Vector3(0, 0.4, 0)), 0.36)
 	for k in 3:
-		W._add(bn, _tn(WASHI, true, 0.01), W._box(Vector3(0.3, 0.012, 0.22)), xf * _at(Vector3(0.15 + k * 0.02, 0.006 + k * 0.014, 0.0), Vector3(0, k * 0.25 - 0.2, 0)))
+		W._add(bn, _tn(WASHI), W._box(Vector3(0.3, 0.012, 0.22)), xf * _at(Vector3(0.15 + k * 0.02, 0.006 + k * 0.014, 0.0), Vector3(0, k * 0.25 - 0.2, 0)))
 
 
 ## Petit pinceau couché (manche de bambou, virole de laque, touffe d'encre) le long de +X local.
 static func _small_brush(bn: Dictionary, xf: Transform3D, l: float) -> void:
-	var cane := _tn(Color("#B89B5E"), true, 0.01)
+	var cane := _tn(Color("#B89B5E"))
 	W._add(bn, cane, W._cyl(0.016, 0.018, l * 0.72, 6), xf * _at(Vector3(l * 0.14, 0.018, 0), Vector3(0, 0, PI * 0.5)))
 	W._add(bn, _tn(Color("#2A1F1A"), false), W._cyl(0.022, 0.024, l * 0.1, 6), xf * _at(Vector3(-l * 0.27, 0.022, 0), Vector3(0, 0, PI * 0.5)))
-	W._add(bn, _tn(INK, true, 0.01), W._cyl(0.0, 0.022, l * 0.18, 6), xf * _at(Vector3(-l * 0.41, 0.022, 0), Vector3(0, 0, PI * 0.5)))
+	W._add(bn, _tn(INK), W._cyl(0.0, 0.022, l * 0.18, 6), xf * _at(Vector3(-l * 0.41, 0.022, 0), Vector3(0, 0, PI * 0.5)))
 
 
 ## Rouleaux de papier empilés (bouts sombres).
 static func _scrolls(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	var paper := _tn(WASHI, true, 0.012)
+	var paper := _tn(WASHI)
 	var cap := _tn(Color("#3A2E25"), false)
 	var pos := [Vector3(0.12, 0.06, -0.1), Vector3(0.12, 0.06, 0.04), Vector3(0.12, 0.17, -0.03), Vector3(0.3, 0.06, 0.1)]
 	for q in pos:
@@ -629,7 +631,7 @@ static func _scrolls(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 
 ## Coussin de soie et perle lumineuse.
 static func _pearl(ctx: Dictionary, bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
-	W._add(bs, _tn(Color("#6E2A4A"), true, 0.015), W._box(Vector3(0.4, 0.1, 0.4)), xf * _at(Vector3(0.1, 0.05, 0)))
+	W._add(bs, _tn(Color("#6E2A4A")), W._box(Vector3(0.4, 0.1, 0.4)), xf * _at(Vector3(0.1, 0.05, 0)))
 	W._add(bn, _tn(Toon.GOLD, false), W._box(Vector3(0.42, 0.02, 0.42)), xf * _at(Vector3(0.1, 0.1, 0)))
 	W._add(bn, W._glow(W.CAUSTIC, 1.8), W._ball(0.1, 0.2, 9, 5), xf * _at(Vector3(0.1, 0.2, 0)))
 	Lueurs.add(bn, xf * Vector3(0.1, 0.2, 0), xf * Vector3(0.1, 0, 0), W.CAUSTIC, 0.9)
@@ -645,7 +647,7 @@ static func _urns(bs: Dictionary, bn: Dictionary, xf: Transform3D) -> void:
 
 ## Branche morte posée, quelques feuilles sombres.
 static func _dead_branch(bs: Dictionary, bn: Dictionary, xf: Transform3D, rng: RandomNumberGenerator) -> void:
-	var bark := _tn(Color("#4A4448"), true, 0.015)
+	var bark := _tn(Color("#4A4448"))
 	var a := Vector3(0.05, 0.05, -0.4)
 	var c := Vector3(0.3, 0.08, 0.35)
 	W._limb(bs, bark, a, c, 0.04, 0.015, 5, xf)
@@ -668,15 +670,15 @@ static func _ferns(ctx: Dictionary, bs: Dictionary, xf: Transform3D, rng: Random
 ## Tablette sous une saynète : planche ou dalle qui prolonge le quai de `ln` (le long de z) sur `depth`.
 static func _ledge(bs: Dictionary, bn: Dictionary, wid: int, xf: Transform3D, ln: float, depth: float) -> void:
 	var col := _ledge_color(wid)
-	var m := _tn(col, true, 0.02)
+	var m := _tn(col)
 	W._add(bs, m, W._box(Vector3(depth + RIM_IN, 0.1, ln)), xf * _at(Vector3((depth - RIM_IN) * 0.5, -0.06, 0)))
 	# ce qui la porte : pieux dans l'eau au port, bloc de pierre ou de roche ailleurs (jusque sous la surface)
 	if wid == 1:
-		var pile := _tn(Decor.PILE, true, 0.02)
+		var pile := _tn(Decor.PILE)
 		for sz: float in [-1.0, 1.0]:
 			W._add(bs, pile, W._cyl(0.06, 0.075, 0.75, 6), xf * _at(Vector3(depth - 0.12, -0.46, sz * (ln * 0.5 - 0.12))))
 	else:
-		W._add(bs, _tn(col.darkened(0.3), true, 0.02), W._box(Vector3(depth - 0.08, 0.5, ln - 0.14)), xf * _at(Vector3((depth - RIM_IN) * 0.5 - 0.02, -0.36, 0)))
+		W._add(bs, _tn(col.darkened(0.3)), W._box(Vector3(depth - 0.08, 0.5, ln - 0.14)), xf * _at(Vector3((depth - RIM_IN) * 0.5 - 0.02, -0.36, 0)))
 	match wid:
 		3:
 			W._add(bn, _tn(W.SNOW, false), W._box(Vector3(depth + RIM_IN - 0.04, 0.03, ln - 0.06)), xf * _at(Vector3((depth - RIM_IN) * 0.5, 0.004, 0)))
@@ -902,8 +904,8 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 			_woodpile(bs, bn, _j(xf, 0.3, 0.0, PI * 0.5), wid == 3)
 		"komo":
 			# tronc emmailloté de paille (komomaki) contre l'hiver, neige au sommet
-			W._add(bs, _tn(Decor.BARK_PINE, true, 0.02), W._cyl(0.1, 0.12, 1.4, 7), _j(xf, 0.3, 0.0) * _at(Vector3(0, 0.7, 0)))
-			W._add(bs, _tn(Decor.KOMO, true, 0.02), W._cyl(0.16, 0.14, 0.5, 8), _j(xf, 0.3, 0.0) * _at(Vector3(0, 0.6, 0)))
+			W._add(bs, _tn(Decor.BARK_PINE), W._cyl(0.1, 0.12, 1.4, 7), _j(xf, 0.3, 0.0) * _at(Vector3(0, 0.7, 0)))
+			W._add(bs, _tn(Decor.KOMO), W._cyl(0.16, 0.14, 0.5, 8), _j(xf, 0.3, 0.0) * _at(Vector3(0, 0.6, 0)))
 			for y: float in [0.42, 0.78]:
 				W._add(bn, _tn(Decor.ROPE_DARK, false), W._cyl(0.165, 0.165, 0.03, 8), _j(xf, 0.3, 0.0) * _at(Vector3(0, y, 0)))
 			W._add(bn, _tn(W.SNOW, false), W._ball(0.14, 0.08, 7, 3), _j(xf, 0.3, 0.0) * _at(Vector3(0, 1.4, 0)))
@@ -912,7 +914,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 			W._wagasa_into(bs, _j(xf, 0.2, 0.3, ry), false, Color("#2E4A6B"))
 		"hibachi":
 			# brasero de bois carré, cendre et braises
-			W._add(bs, _tn(Color("#5A4434"), true, 0.02), W._box(Vector3(0.44, 0.3, 0.44)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.15, 0)))
+			W._add(bs, _tn(Color("#5A4434")), W._box(Vector3(0.44, 0.3, 0.44)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.15, 0)))
 			W._add(bn, _tn(Color("#9A9080"), false), W._box(Vector3(0.36, 0.02, 0.36)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.3, 0)))
 			W._add(bn, W._glow(W.EMBER, 1.6), W._cyl(0.1, 0.1, 0.03, 8), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.31, 0)))
 			Lueurs.add(bn, xf * Vector3(0.3, 0.35, 0), xf * Vector3(0.3, 0, 0), Color(1.0, 0.6, 0.26), 0.9, true)
@@ -922,7 +924,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 			W._jizo_into(bs, _j(xf, 0.3, -0.15, PI if _s > 0.0 else 0.0, 0.7))
 			W._offering_into(bs, bn, _j(xf, 0.26, 0.22, 0.0, 0.6))
 		"sled":
-			var wood := _tn(Decor.PLANK, true, 0.018)
+			var wood := _tn(Decor.PLANK)
 			for sz: float in [-1.0, 1.0]:
 				W._add(bs, wood, W._box(Vector3(0.06, 0.06, 1.0)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(sz * 0.2, 0.05, 0)))
 			W._add(bs, wood, W._box(Vector3(0.5, 0.04, 0.8)), _j(xf, 0.3, 0.0, ry) * _at(Vector3(0, 0.12, 0)))
@@ -933,7 +935,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 		"ingots":
 			W._ingots_into(bs, bn, _j(xf, 0.3, 0.0, ry))
 		"chains":
-			var iron := _tn(W.IRON, true, 0.015)
+			var iron := _tn(W.IRON)
 			W._add(bs, iron, W._cyl(0.08, 0.1, 0.6, 6), _j(xf, 0.3, -0.3) * _at(Vector3(0, 0.3, 0)))
 			W._rope(bn, iron, xf * Vector3(0.3, 0.6, -0.3), xf * Vector3(0.32, 0.05, 0.35), 0.15, 0.025)
 			for k in 3:
@@ -941,13 +943,13 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 		"anvil":
 			W._anvil_into(bs, bn, _j(xf, 0.35, 0.0, PI * 0.5 + ry, 0.75))
 		"mask":
-			var pole := _tn(Decor.POLE, true, 0.018)
+			var pole := _tn(Decor.POLE)
 			W._add(bs, pole, W._cyl(0.03, 0.04, 1.4, 6), _j(xf, 0.3, 0.0) * _at(Vector3(0, 0.7, 0)))
 			W._oni_mask_into(bs, bn, _j(xf, 0.26, 0.0, -PI * 0.5 if _s > 0.0 else PI * 0.5, 0.6) * _at(Vector3(0, 1.2, 0)))
 		"torch":
 			_torch(ctx, bs, bn, _j(xf, 0.3, 0.0, 0.0), 1.1 + rng.randf() * 0.3)
 		"basalt":
-			var m := _tn(W.BASALT, true, 0.02)
+			var m := _tn(W.BASALT)
 			for k in 3:
 				var hh := rng.randf_range(0.2, 0.5)
 				var rr := rng.randf_range(0.1, 0.16)
@@ -958,7 +960,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 			_tub(bs, bn, _j(xf, 0.3, 0.2, ry), 0.13, 0.22, Color("#3A2E28"))
 			W._add(bn, W._glow(W.EMBER, 1.2), W._cyl(0.11, 0.11, 0.02, 8), _j(xf, 0.3, 0.2, ry) * _at(Vector3(0, 0.21, 0)))
 		"spikes":
-			var m := _tn(W.BASALT, true, 0.02)
+			var m := _tn(W.BASALT)
 			for k in 3:
 				var base := Vector3(0.3 + rng.randf_range(-0.1, 0.1), 0, (k - 1) * 0.3)
 				var h := rng.randf_range(0.6, 1.3)
@@ -968,7 +970,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 			_inkset(bs, bn, _j(xf, 0.1, 0.0, ry))
 		"papers":
 			W._papers_into(bn, Vector2(xf.origin.x, xf.origin.z) + Vector2(xf.basis.x.x, xf.basis.x.z) * 0.3, rng, 5, 0.0, 0.3)
-			W._add(bs, _tn(WASHI, true, 0.012), W._box(Vector3(0.3, 0.16, 0.24)), _j(xf, 0.32, 0.25, ry) * _at(Vector3(0, 0.08, 0)))
+			W._add(bs, _tn(WASHI), W._box(Vector3(0.3, 0.16, 0.24)), _j(xf, 0.32, 0.25, ry) * _at(Vector3(0, 0.08, 0)))
 			W._add(bn, _tn(Decor.ROPE_DARK, false), W._box(Vector3(0.32, 0.02, 0.03)), _j(xf, 0.32, 0.25, ry) * _at(Vector3(0, 0.165, 0)))
 		"scrolls":
 			_scrolls(bs, bn, _j(xf, 0.1, 0.0, ry))
@@ -986,7 +988,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 		"stump":
 			_stump(bs, bn, _j(xf, 0.34, 0.0, ry), rng)
 		"tengu":
-			var pole := _tn(Decor.POLE, true, 0.018)
+			var pole := _tn(Decor.POLE)
 			W._add(bs, pole, W._cyl(0.03, 0.04, 1.4, 6), _j(xf, 0.3, 0.0) * _at(Vector3(0, 0.7, 0)))
 			W._tengu_mask_into(bs, bn, _j(xf, 0.26, 0.0, -PI * 0.5 if _s > 0.0 else PI * 0.5, 0.6) * _at(Vector3(0, 1.2, 0)))
 		"fans":
@@ -1001,7 +1003,7 @@ static func _vignette(name: String, wid: int, ctx: Dictionary, bs: Dictionary, b
 				W._add(bn, _tn(MOSS, false), W._ball(sc * 0.4, sc * 0.2, 7, 3), _j(xf, 0.32, (k - 0.5) * 0.45) * _at(Vector3(0.03, sc * 0.3, -0.03)))
 			_mushrooms(bs, bn, _j(xf, 0.18, 0.0, 0.0), rng)
 		"shime":
-			var pole := _tn(Decor.POLE, true, 0.015)
+			var pole := _tn(Decor.POLE)
 			for sz: float in [-1.0, 1.0]:
 				W._add(bs, pole, W._cyl(0.025, 0.03, 1.1, 5), _j(xf, 0.3, sz * 0.4) * _at(Vector3(0, 0.55, 0)))
 			Decor.shimenawa_into(bs, bn, xf * Vector3(0.3, 1.05, -0.4), xf * Vector3(0.3, 1.05, 0.4))
@@ -1166,7 +1168,7 @@ static func _floor_item(wid: int, ctx: Dictionary, p: Vector2, k: int, rng: Rand
 			var w := rng.randf_range(0.9, 1.2)
 			var l := w * rng.randf_range(1.6, 2.0)
 			var xf := _at(Vector3(p.x, 0.006, p.y), Vector3(0, yaw * 0.25 + (PI * 0.5 if rng.randf() < 0.5 else 0.0), 0))
-			W._add(bn, _tn(Color("#B9A06A"), true, 0.012), W._box(Vector3(w, 0.012, l)), xf * _at(Vector3(0, 0.006, 0)))
+			W._add(bn, _tn(Color("#B9A06A")), W._box(Vector3(w, 0.012, l)), xf * _at(Vector3(0, 0.006, 0)))
 			for sz: float in [-1.0, 1.0]:
 				W._add(bn, _tn(Color("#3E3A30"), false), W._box(Vector3(w, 0.014, 0.06)), xf * _at(Vector3(0, 0.006, sz * (l * 0.5 - 0.03))))
 			# trame : fines lignes plus sombres en travers
@@ -1238,7 +1240,7 @@ static func _floor_item(wid: int, ctx: Dictionary, p: Vector2, k: int, rng: Rand
 				var q := p + Vector2(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.3, 0.3))
 				_decal(ctx, "needle", Color(0.25, 0.35, 0.28, 0.7) if wid == 3 else Color(0.43, 0.29, 0.2, 0.8), q, 0.03, 0.14, rng.randf() * TAU)
 		"snowball":
-			_bit(ctx, "snowball", W._ball(0.09, 0.16, 7, 4), _tn(W.SNOW, true, 0.012), _at(Vector3(p.x, 0.0, p.y), Vector3.ZERO, Vector3.ONE * sc * 0.8))
+			_bit(ctx, "snowball", W._ball(0.09, 0.16, 7, 4), _tn(W.SNOW), _at(Vector3(p.x, 0.0, p.y), Vector3.ZERO, Vector3.ONE * sc * 0.8))
 		"scorch":
 			_decal(ctx, "scorch", Color(0.08, 0.06, 0.07, 0.42), p, 0.9 * sc, 0.7 * sc, yaw, true)
 			_decal(ctx, "scorch", Color(0.08, 0.06, 0.07, 0.3), p + Vector2(0.2, 0.25) * sc, 0.5 * sc, 0.35 * sc, yaw + 0.8, true)
@@ -1258,9 +1260,9 @@ static func _floor_item(wid: int, ctx: Dictionary, p: Vector2, k: int, rng: Rand
 				var q := p + Vector2(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.3, 0.3))
 				_bit(ctx, "cinder", W._ball(0.03, 0.03, 5, 3), _tn(W.BASALT, false), _at(Vector3(q.x, 0.0, q.y), Vector3(0, rng.randf() * TAU, 0), Vector3(rng.randf_range(0.7, 1.5), 1, 1)))
 		"ingot":
-			_bit(ctx, "ingot", W._box(Vector3(0.2, 0.05, 0.08)), _tn(W.IRON, true, 0.012), _at(Vector3(p.x, 0.025, p.y), Vector3(0, yaw, 0)))
+			_bit(ctx, "ingot", W._box(Vector3(0.2, 0.05, 0.08)), _tn(W.IRON), _at(Vector3(p.x, 0.025, p.y), Vector3(0, yaw, 0)))
 		"sheet":
-			W._sheet_into(bn, _tn(WASHI, true, 0.012), _at(Vector3(p.x, 0.006, p.y), Vector3(0, yaw, 0)), 0.5 * sc, 0.7 * sc)
+			W._sheet_into(bn, _tn(WASHI), _at(Vector3(p.x, 0.006, p.y), Vector3(0, yaw, 0)), 0.5 * sc, 0.7 * sc)
 			_decal(ctx, "sheet_ink", Color(0.1, 0.1, 0.12, 0.6), p + Vector2(0.05, -0.1).rotated(yaw), 0.08, 0.3 * sc, yaw, true)
 		"splash":
 			_decal(ctx, "ink", Color(0.1, 0.1, 0.12, 0.55), p, 0.5 * sc, 0.4 * sc, yaw, true)
@@ -1297,7 +1299,7 @@ static func _floor_item(wid: int, ctx: Dictionary, p: Vector2, k: int, rng: Rand
 		"shells":
 			_shells(bs, bn, _at(Vector3(p.x, 0, p.y), Vector3(0, yaw, 0)), rng)
 		"starfish":
-			var st := _tn(STARFISH, true, 0.01)
+			var st := _tn(STARFISH)
 			var c := Vector3(p.x, 0.015, p.y)
 			for i in 5:
 				var a := yaw + TAU * i / 5.0
