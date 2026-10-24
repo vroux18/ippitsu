@@ -24,6 +24,7 @@ uniform float shore_k = 0.5;
 uniform float sei_k = 0.0;  // force du motif seigaiha (0 : aucun)
 uniform float sei_size = 0.55;  // rayon d'un éventail (m)
 uniform bool fine = true;
+uniform sampler2D noise : hint_default_white, filter_linear_mipmap, repeat_enable;  // bruit partagé (toon.gd)
 
 varying vec3 v_world;
 
@@ -92,12 +93,14 @@ float seigaiha(vec2 p) {
 void fragment() {
 	vec2 p = v_world.xz;
 	float t = TIME * flow;
-	// fond : grandes taches de profondeur qui dérivent
-	float n = vnoise(p * 0.11 + vec2(t * 0.021, t * 0.013));
+	// fond : grandes taches de profondeur qui dérivent (bruit partagé : une lecture par octave)
+	float n = texture(noise, p * 0.031 + vec2(t * 0.006, t * 0.0037)).r;
 	if (fine) {
-		n = n * 0.65 + vnoise(p * 0.33 - vec2(t * 0.034, -t * 0.01)) * 0.35;
+		n = n * 0.65 + texture(noise, p * 0.09 - vec2(t * 0.0095, -t * 0.003)).g * 0.35;
 	}
 	vec3 col = mix(deep.rgb, shallow.rgb, smoothstep(0.2, 0.8, n));
+	// grain du washi sur le lavis
+	col *= 1.0 + (texture(noise, p * 0.7).a - 0.5) * 0.09;
 	// rubans de vague : lignes ondulées, brisées en traits de pinceau
 	float v = p.y * band + sin(p.x * 0.42 + t * 0.33 + n * 3.5) * 0.55 + t * 0.09;
 	float fv = abs(fract(v) - 0.5);
@@ -105,7 +108,12 @@ void fragment() {
 	float wl = 1.0 - smoothstep(0.07 - fw, 0.07 + fw, fv);
 	float row = floor(v);
 	float dash = smoothstep(0.4, 0.62, vnoise(vec2(p.x * 0.55 - t * 0.12 + row * 3.7, row * 1.9)));
-	wl *= dash * clamp(1.3 - fw * 3.5, 0.0, 1.0);
+	float far_k = clamp(1.3 - fw * 3.5, 0.0, 1.0);
+	wl *= dash * far_k;
+	// trait d'encre sous chaque ruban (la planche de trait de l'estampe), puis l'écume
+	float fk = abs(fract(v + 0.13) - 0.5);
+	float key = (1.0 - smoothstep(0.045 - fw, 0.045 + fw, fk)) * dash * far_k;
+	col = mix(col, deep.rgb * 0.55, key * foam_k * 0.8);
 	col = mix(col, foam.rgb, wl * foam_k);
 	// pied du cadre de l'arène, côté mer : ombre portée, liseré d'écume, ondes qui s'éloignent
 	// union des rectangles : la plus petite des distances (exacte hors des plateformes)

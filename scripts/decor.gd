@@ -99,7 +99,7 @@ static func _toon_vc(key: String) -> StandardMaterial3D:
 
 
 ## Contour d'encre seul : 2e surface des maillages faits main (normales lisses, pas de fissures).
-static func _ink(osz: float) -> StandardMaterial3D:
+static func _ink(osz: float) -> ShaderMaterial:
 	return Toon.outline_mat(osz)  # la même passe que celle des matériaux toon, partagée par épaisseur
 
 
