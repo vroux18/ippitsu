@@ -375,8 +375,8 @@ func _process(_delta: float) -> void:
 		for k in _acc.keys():
 			if int(_acc[k]) >= 20:
 				ks.append("%s %d" % [k, int(_acc[k])])
-		print("PERFT %d img %.2f proc %.2f canvas %d prims %d [%s] %s" % [_frames, img, float(vals["proc"]), int(vals["d_canvas"]),
-			int(vals["prims"]), _where(), ", ".join(ks)])
+		print("PERFT %d img %.2f proc %.2f canvas %d d_vis %d d_shadow %d prims %d [%s] %s" % [_frames, img, float(vals["proc"]), int(vals["d_canvas"]),
+			int(vals["d_vis"]), int(vals["d_shadow"]), int(vals["prims"]), _where(), ", ".join(ks)])
 	_acc.clear()
 	_calls.clear()
 	_phys_us = 0
