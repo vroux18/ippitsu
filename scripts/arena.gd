@@ -2554,6 +2554,33 @@ func _ground_mat(col: Color, style: String, look: Dictionary) -> ShaderMaterial:
 	m.set_shader_parameter("moss", look.get("moss", col))
 	m.set_shader_parameter("moss_k", float(look.get("moss_k", 0.0)) * float(p[8]))
 	m.set_shader_parameter("wear_k", float(look.get("wear", 0.0)) * float(p[9]))
+	# matière : [veines, clous, fissures, ciseau, taches, braise, étincelles, marques, motifs gravés, strates, hachures]
+	var q := [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	match style:
+		"planks":
+			q = [1.0, 1.0, 0.0, 0.0, 0.8, 0.0, 0.0, 1.0, 0.5, 0.0, 0.0]
+		"stones":
+			q = [0.0, 0.0, 0.7, 1.0, 0.6, 0.0, 0.0, 0.7, 0.8, 0.0, 0.0]
+		"basalt":
+			q = [0.0, 0.0, 1.0, 0.5, 0.3, 0.7, 0.0, 0.5, 0.3, 0.0, 0.0]
+		"snow":
+			q = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.2, 0.0, 0.0, 0.0]
+		"paper":
+			q = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.2, 0.6, 0.0, 0.0]
+		"wood":
+			q = [0.8, 0.6, 0.0, 0.0, 0.4, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+		"under":
+			q = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0]
+		"lip":
+			q = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.6]
+	var qn := ["vein_k", "nail_k", "crack_k", "chisel_k", "stain_k", "ember_k", "sparkle_k", "decal_k", "pattern_k", "strata_k", "hatch_k"]
+	for i in qn.size():
+		m.set_shader_parameter(qn[i], float(q[i]))
+	m.set_shader_parameter("ember", Worlds.LAVA_GOLD)
+	m.set_shader_parameter("kanji_tile", float(Worlds.kanji_tile(world_id)))
+	m.set_shader_parameter("noise", Toon.noise_tex())
+	m.set_shader_parameter("decals", Toon.decal_tex())
+	m.set_shader_parameter("sun_dir", Toon.SUN_DIR)
 	if style == "lip":
 		m.set_shader_parameter("top_ink", 1.0)
 		m.set_shader_parameter("bevel", 0.0)

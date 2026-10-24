@@ -73,6 +73,128 @@ static func hit_glow_mat() -> StandardMaterial3D:
 ## Largeur de la rampe toon (voir mat) : partagée par les personnages (character.gd) et les rigs.
 const TOON_ROUGH := 0.55
 
+## Sens de la lumière du soleil (main : rotation -40°, -38°) : hachures d'ombre des passes d'encre, biseaux du sol.
+const SUN_DIR := Vector3(0.47, -0.64, -0.6)
+const INK_SHADER = preload("res://shaders/ink_outline.gdshader")
+const NOISE_PX := 256  # côté du bruit partagé des matières
+const GRAIN_PX := 128  # côté du grain washi
+const DECAL_PX := 1024  # côté de l'atlas des marques au sol (16 cases de 256)
+
+# textures partagées des matières, faites par le code : bruit (4 bruits sans couture, un par canal), grain washi,
+# atlas des marques peintes au sol. Créées vides et neutres au premier appel ; decor_warm les remplit en place
+# (fil d'arrière-plan pour les bruits, SubViewport pour l'atlas) : toutes les matières partagent les mêmes objets.
+static var _noise_tex: ImageTexture = null
+static var _grain_tex: ImageTexture = null
+static var _decal_tex: ImageTexture = null
+static var textures_ready := false  # bruit et grain calculés (decor_warm)
+
+
+## Bruit partagé des shaders (RGBA, NOISE_PX, sans couture, mipmaps) : r = perlin doux, g = perlin plus fin,
+## b = cellules (veines, craquelures : distance au bord, sombre sur les lignes), a = grain fin. Une lecture de
+## texture remplace quatre hachages par canal dans les shaders (bien moins cher sur téléphone).
+static func noise_tex() -> ImageTexture:
+	if _noise_tex == null:
+		var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+		img.fill(Color(0.5, 0.5, 0.5, 0.5))
+		_noise_tex = ImageTexture.create_from_image(img)
+	return _noise_tex
+
+
+## Grain du washi (gris clair, moyenne ~0,93) multiplié sur l'albédo des matières toon (triplanaire monde).
+static func grain_tex() -> ImageTexture:
+	if _grain_tex == null:
+		var img := Image.create(4, 4, false, Image.FORMAT_RGB8)
+		img.fill(Color(0.95, 0.95, 0.95))
+		_grain_tex = ImageTexture.create_from_image(img)
+	return _grain_tex
+
+
+## Atlas des marques au sol (kanji au pinceau, seigaiha, asanoha, auréoles, éclaboussures) : rouge = encre.
+## Noir tant que decor_warm ne l'a pas peint (jamais sans écran : --headless), le sol reste alors sans marque.
+static func decal_tex() -> ImageTexture:
+	if _decal_tex == null:
+		var img := Image.create(4, 4, false, Image.FORMAT_L8)
+		img.fill(Color.BLACK)
+		_decal_tex = ImageTexture.create_from_image(img)
+	return _decal_tex
+
+
+## Calcul des bruits et du grain (fil d'arrière-plan de decor_warm) : [bruit RGBA, grain RGB], avec mipmaps.
+static func bake_noise_images() -> Array:
+	var n := NOISE_PX
+	var chans: Array = []
+	# r : perlin fbm doux (plages, usure) ; g : perlin plus fin (fil, grain) ; b : cellules (veines, fissures) ;
+	# a : bruit fin presque blanc (mouchetis, étincelles)
+	for k in 4:
+		var f := FastNoiseLite.new()
+		f.seed = 101 + k * 37
+		match k:
+			0:
+				f.noise_type = FastNoiseLite.TYPE_PERLIN
+				f.frequency = 0.012
+				f.fractal_octaves = 3
+			1:
+				f.noise_type = FastNoiseLite.TYPE_PERLIN
+				f.frequency = 0.045
+				f.fractal_octaves = 3
+				f.domain_warp_enabled = true
+				f.domain_warp_amplitude = 18.0
+				f.domain_warp_frequency = 0.02
+			2:
+				f.noise_type = FastNoiseLite.TYPE_CELLULAR
+				f.frequency = 0.03
+				f.cellular_distance_function = FastNoiseLite.DISTANCE_EUCLIDEAN
+				f.cellular_return_type = FastNoiseLite.RETURN_DISTANCE2_SUB
+				f.fractal_type = FastNoiseLite.FRACTAL_NONE
+			_:
+				f.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+				f.frequency = 0.16
+				f.fractal_octaves = 2
+		var im := f.get_seamless_image(n, n, false, false, 0.1, true)
+		if im.get_format() != Image.FORMAT_L8:
+			im.convert(Image.FORMAT_L8)
+		chans.append(im.get_data())
+	var r: PackedByteArray = chans[0]
+	var g: PackedByteArray = chans[1]
+	var b: PackedByteArray = chans[2]
+	var a: PackedByteArray = chans[3]
+	var out := PackedByteArray()
+	out.resize(n * n * 4)
+	for i in n * n:
+		var j := i * 4
+		out[j] = r[i]
+		out[j + 1] = g[i]
+		out[j + 2] = b[i]
+		out[j + 3] = a[i]
+	var noise := Image.create_from_data(n, n, false, Image.FORMAT_RGBA8, out)
+	noise.generate_mipmaps()
+	# grain : fibres (perlin tordu) et poussière fine, remontés vers le blanc (jamais plus clair que la couleur)
+	var gp := GRAIN_PX
+	var step := n / gp
+	var gd := PackedByteArray()
+	gd.resize(gp * gp * 3)
+	for y in gp:
+		for x in gp:
+			var src := (y * step) * n + x * step
+			var fib := float(g[src]) / 255.0
+			var dust := float(a[src]) / 255.0
+			var v := 0.84 + 0.12 * clampf((fib - 0.2) / 0.6, 0.0, 1.0) + 0.05 * dust
+			var byte := int(clampf(v, 0.0, 1.0) * 255.0)
+			var o := (y * gp + x) * 3
+			gd[o] = byte
+			gd[o + 1] = byte
+			gd[o + 2] = byte
+	var grain := Image.create_from_data(gp, gp, false, Image.FORMAT_RGB8, gd)
+	grain.generate_mipmaps()
+	return [noise, grain]
+
+
+## Pose les images calculées par bake_noise_images (fil principal).
+static func set_noise_images(imgs: Array) -> void:
+	noise_tex().set_image(imgs[0])
+	grain_tex().set_image(imgs[1])
+	textures_ready = true
+
 static var _blob_mesh: PlaneMesh = null
 static var _blob_tex: GradientTexture2D = null
 static var _blob_mats := {}  # alpha ("%.2f") -> matériau
@@ -91,24 +213,26 @@ static func set_ui_theme(d: Dictionary) -> void:
 # caches partagés (voir mat_shared, outline_mat, sphere…) : bornés, vidés quand ils débordent
 # (les objets en service restent vivants par leurs utilisateurs, seules les clés sont oubliées)
 static var _mesh_cache := {}  # dimensions (float : sphère, Vector2 : capsule, Vector3 : boîte, Vector4 : cylindre) -> maillage
-static var _outlines := {}  # épaisseur -> passe de contour d'encre (jamais modifiée par les appelants)
+static var _outlines := {}  # épaisseur + hachures -> passe d'encre (jamais modifiée par les appelants)
 static var _mat_cache := {}  # couleur + contour -> matériau toon figé
 const CACHE_MAX := 4096
 
 
-## Passe de contour d'encre (coque inversée gonflée de `size`), partagée par épaisseur : aucun appelant
-## ne modifie cette passe, seul le matériau de base est propre à chacun.
-static func outline_mat(size: float) -> StandardMaterial3D:
-	var key := "%.4f" % size
+## Passe d'encre (shaders/ink_outline.gdshader : coque gonflée de `size`, trait de contour irrégulier sur les
+## faces arrière, hachures de gravure sur les faces à l'ombre), partagée par épaisseur et force des hachures :
+## aucun appelant ne modifie cette passe, seul le matériau de base est propre à chacun.
+static func outline_mat(size: float, hatch := 1.0) -> ShaderMaterial:
+	var key := "%.4f_%.2f" % [size, hatch]
 	if _outlines.has(key):
-		var cached: StandardMaterial3D = _outlines[key]
+		var cached: ShaderMaterial = _outlines[key]
 		return cached
-	var o := StandardMaterial3D.new()
-	o.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	o.albedo_color = SUMI
-	o.cull_mode = BaseMaterial3D.CULL_FRONT
-	o.grow = true
-	o.grow_amount = size
+	var o := ShaderMaterial.new()
+	o.shader = INK_SHADER
+	o.set_shader_parameter("size", size)
+	o.set_shader_parameter("ink", SUMI)
+	o.set_shader_parameter("hatch_k", hatch)
+	o.set_shader_parameter("sun_dir", SUN_DIR)
+	o.set_shader_parameter("noise", noise_tex())
 	_outlines[key] = o
 	return o
 
@@ -128,6 +252,12 @@ static func mat(color: Color, outline := true, outline_size := 0.035) -> Standar
 	m.rim_enabled = true
 	m.rim = 0.4  # liseré de lumière sur les silhouettes (côté soleil), plus franc
 	m.rim_tint = 0.4
+	# grain du washi : texture grise partagée, projetée dans le repère du monde (triplanaire, trois lectures) ;
+	# elle multiplie la couleur, qui reste la même en moyenne
+	m.albedo_texture = grain_tex()
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3(2.6, 2.6, 2.6)
 	if outline:
 		m.next_pass = outline_mat(outline_size)
 	return m
